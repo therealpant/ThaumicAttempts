@@ -74,6 +74,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
     /** Буфер эссенции. */
     private int craftAmount = 0;
+    private int jobEssentiaCost = 0;
+    private int jobEssentiaPaid = 0;
 
     /** Активен ли единичный цикл. */
     private boolean jobActive = false;
@@ -112,6 +114,61 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
     protected int getFuel() { return this.craftAmount; }
     protected void consumeFuel(int amt) { this.craftAmount = Math.max(0, this.craftAmount - Math.max(0, amt)); markDirty(); }
+
+    public Aspect getRequiredAspectType() { return requiredAspect; }
+    public int getStoredEssentiaUnits() { return craftAmount; }
+    public int getActiveEssentiaCost() { return jobEssentiaCost; }
+    public int getActiveEssentiaPaid() { return jobEssentiaPaid; }
+    public int getEssentiaAvailableUnits() { return craftAmount + jobEssentiaPaid; }
+
+    public int getPerCraftEssentiaCostForPatternIndex(int idx) {
+        if (idx < 0 || idx >= PATTERN_SLOTS) return 0;
+        ItemStack pat = patterns.getStackInSlot(idx);
+        if (pat.isEmpty()) return 0;
+        NonNullList<ItemStack> grid = getGrid(pat);
+        return Math.max(0, getPerCraftCost(pat, grid));
+    }
+
+    public int getPerCraftEssentiaCostForResultLike(ItemStack like1) {
+        int idx = findPatternIndexForResultLike(like1);
+        return idx < 0 ? 0 : getPerCraftEssentiaCostForPatternIndex(idx);
+    }
+
+    private boolean needsEssentiaForActiveJob() {
+        return jobActive && jobEssentiaPaid < jobEssentiaCost;
+    }
+
+    private void syncActiveJobCost(int cost) {
+        cost = Math.max(0, cost);
+        if (jobEssentiaCost != cost) {
+            jobEssentiaCost = cost;
+            if (jobEssentiaPaid > jobEssentiaCost) {
+                jobEssentiaPaid = jobEssentiaCost;
+            }
+            markDirty();
+        }
+    }
+
+    private boolean pullFuelForActiveJob() {
+        if (!needsEssentiaForActiveJob()) return false;
+        int missing = jobEssentiaCost - jobEssentiaPaid;
+        int take = Math.min(craftAmount, missing);
+        if (take <= 0) return false;
+        jobEssentiaPaid += take;
+        consumeFuel(take);
+        return true;
+    }
+
+    private void resetJobEssentiaState() {
+        if (jobEssentiaCost != 0 || jobEssentiaPaid != 0) {
+            jobEssentiaCost = 0;
+            jobEssentiaPaid = 0;
+            markDirty();
+        } else {
+            jobEssentiaCost = 0;
+            jobEssentiaPaid = 0;
+        }
+    }
 
     // ===== Utility: кристаллы / матчинг =====
     private static boolean isTcCrystal(ItemStack s) {
@@ -430,9 +487,42 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     }
 
     // ===== Эссенция =====
+    private boolean convertCrystalsToEssentia() {
+        if (world == null || world.isRemote) return false;
+        if (requiredAspect == null) return false;
+        int room = CRAFT_CAP - craftAmount;
+        if (room <= 0) return false;
+        ItemStack key = thaumcraft.api.ThaumcraftApiHelper.makeCrystal(requiredAspect, 1);
+        if (key == null || key.isEmpty()) return false;
+
+        boolean changed = false;
+        for (int i = 0; i < input.getSlots() && room > 0; i++) {
+            ItemStack s = input.getStackInSlot(i);
+            if (s.isEmpty()) continue;
+            if (!sameForGrid(s, key)) continue;
+
+            int take = Math.min(room, s.getCount());
+            if (take <= 0) continue;
+
+            craftAmount += take;
+            room -= take;
+            changed = true;
+
+            ItemStack ns = s.copy();
+            ns.shrink(take);
+            input.setStackInSlot(i, ns);
+        }
+
+        if (changed) {
+            markDirty();
+            pingNeighbors();
+        }
+        return changed;
+    }
+
     private boolean drawEssentiaTicked() {
         if (++drawDelay % 5 != 0 || world == null || world.isRemote) return false;
-        if (craftAmount >= CRAFT_CAP) return false;
+        if (craftAmount >= CRAFT_CAP && !needsEssentiaForActiveJob()) return false;
         EnumFacing inFace = EnumFacing.DOWN;
         TileEntity te = ThaumcraftApiHelper.getConnectableTile(world, pos, inFace);
         if (te instanceof IEssentiaTransport) {
@@ -443,7 +533,10 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                 int taken = ic.takeEssentia(requiredAspect, 1, opp);
                 if (taken > 0) {
                     craftAmount = Math.min(CRAFT_CAP, craftAmount + taken);
-                    markDirty(); pingNeighbors(); return true;
+                    markDirty();
+                    pullFuelForActiveJob();
+                    pingNeighbors();
+                    return true;
                 }
             }
         }
@@ -493,7 +586,13 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (world == null || world.isRemote) return;
 
         if (supplyCooldown > 0) supplyCooldown--;
-        drawEssentiaTicked();
+        boolean drew = drawEssentiaTicked();
+        boolean crystals = convertCrystalsToEssentia();
+        if (drew || crystals) {
+            if (pullFuelForActiveJob()) {
+                pingNeighbors();
+            }
+        }
         if (suctionPingCooldown-- <= 0) {
             if (craftAmount < CRAFT_CAP) pingNeighbors();
             suctionPingCooldown = 20;
@@ -530,6 +629,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         seq.clear();
         step = 0;
 
+        resetJobEssentiaState();
+
         long now = (world != null) ? world.getTotalWorldTime() : 0L;
         lastOrderWorldTime = now - REORDER_TICKS;
         supplyCooldown = 0;
@@ -556,12 +657,18 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (pat.isEmpty()) { finishJob(); return; }
 
         NonNullList<ItemStack> grid = getGrid(pat);
+        convertCrystalsToEssentia();
         if (seq.isEmpty()) rebuildSequence(pat, grid);
         if (hasAllForGrid(grid)) {
             step = seq.size(); // всё готово — сразу к выпуску
         }
         ItemStack preview = getCraftPreview(pat, grid); // ← обязательно так
         if (preview.isEmpty()) { finishJob(); return; }
+        int cost = getPerCraftCost(pat, grid);
+        syncActiveJobCost(cost);
+        if (pullFuelForActiveJob()) {
+            pingNeighbors();
+        }
         // ---- снабжение текущего шага как раньше ----
         if (step < seq.size()) {
             Req r = seq.get(step);
@@ -579,15 +686,16 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                     lastOrderWorldTime = now;
                     supplyCooldown = SUPPLY_COOLDOWN;
                 }
+                if (pullFuelForActiveJob()) {
+                    pingNeighbors();
+                }
                 return;
             }
         }
 
         // ---- списание и выпуск без CraftingManager ----
-        int cost = getPerCraftCost(pat, grid);
-        if (getFuel() >= cost && hasAllForGrid(grid) && canAcceptResult(preview)) {
+        if (jobEssentiaPaid >= jobEssentiaCost && hasAllForGrid(grid) && canAcceptResult(preview)) {
             consumeForGrid(grid);   // снять входы как в сетке
-            consumeFuel(cost);      // снять эссенцию
             pushResult(preview);    // выдать именно превью из шаблона/расчёта
             markDirty();
             pingNeighbors();
@@ -605,6 +713,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         // сбрасываем режим «от реквестера» и подавление провизии
         this.jobViaRequester = false;
         this.suppressSelfProvision = false;
+
+        resetJobEssentiaState();
 
         if (world == null) return;
 
@@ -650,11 +760,35 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     @Override public int addEssentia(Aspect aspect, int amount, EnumFacing face) {
         if (face != EnumFacing.DOWN) return 0;
         if (aspect != requiredAspect || amount <= 0) return 0;
-        int can = Math.min(amount, CRAFT_CAP - craftAmount);
-        if (can <= 0) return 0;
-        craftAmount += can;
-        markDirty(); pingNeighbors();
-        return can;
+        int accepted = 0;
+
+        if (jobActive && jobEssentiaPaid < jobEssentiaCost) {
+            int toPay = Math.min(amount, jobEssentiaCost - jobEssentiaPaid);
+            if (toPay > 0) {
+                jobEssentiaPaid += toPay;
+                accepted += toPay;
+                amount -= toPay;
+                markDirty();
+            }
+        }
+
+        int canStore = Math.min(amount, CRAFT_CAP - craftAmount);
+        if (canStore > 0) {
+            craftAmount += canStore;
+            accepted += canStore;
+            markDirty();
+        }
+
+        boolean consumed = pullFuelForActiveJob();
+        boolean converted = convertCrystalsToEssentia();
+        if (converted && pullFuelForActiveJob()) {
+            consumed = true;
+        }
+        if (accepted > 0 || consumed || converted) {
+            pingNeighbors();
+        }
+
+        return accepted;
     }
     @Override public int takeEssentia(Aspect aspect, int amount, EnumFacing face) { return 0; }
     @Override public Aspect getEssentiaType(EnumFacing face) { return craftAmount > 0 ? requiredAspect : null; }
@@ -677,6 +811,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         nbt.setInteger("JobPatternIndex", jobPatternIndex);
         nbt.setInteger("Step", step);
         nbt.setLong("LastOrderWT", lastOrderWorldTime);
+        nbt.setInteger("JobEssentiaCost", jobEssentiaCost);
+        nbt.setInteger("JobEssentiaPaid", jobEssentiaPaid);
 
         nbt.setInteger("LastSignal", lastSignal);
 
@@ -714,6 +850,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         jobPatternIndex = nbt.getInteger("JobPatternIndex");
         step = Math.max(0, nbt.getInteger("Step"));
         lastOrderWorldTime = nbt.getLong("LastOrderWT");
+        jobEssentiaCost = Math.max(0, nbt.getInteger("JobEssentiaCost"));
+        jobEssentiaPaid = Math.max(0, Math.min(jobEssentiaCost, nbt.getInteger("JobEssentiaPaid")));
 
         lastSignal = nbt.getInteger("LastSignal");
 

@@ -216,6 +216,18 @@ public class TilePatternRequester extends TileEntity implements ITickable {
                 }
             }
 
+            int essentiaPerCraft = cr.getPerCraftEssentiaCostForPatternIndex(i);
+            Aspect aspect = cr.getRequiredAspectType();
+            if (essentiaPerCraft > 0 && aspect != null) {
+                ItemStack key1 = thaumcraft.api.ThaumcraftApiHelper.makeCrystal(aspect, 1);
+                if (key1 != null && !key1.isEmpty()) {
+                    ItemStack found = null;
+                    for (ItemStack ex : need.keySet()) { if (sameForGrid(ex, key1)) { found = ex; break; } }
+                    if (found == null) need.put(key1, essentiaPerCraft);
+                    else need.put(found, need.get(found) + essentiaPerCraft);
+                }
+            }
+
             if (need.isEmpty()) return Collections.emptyList();
 
             ArrayList<ItemStack> out = new ArrayList<>(need.size());
@@ -230,6 +242,15 @@ public class TilePatternRequester extends TileEntity implements ITickable {
         }
 
         return Collections.emptyList();
+    }
+
+    public int getPerCraftEssentiaCostFor(ItemStack resultLike) {
+        if (resultLike == null || resultLike.isEmpty()) return 0;
+
+        TileEntityGolemCrafter cr = getCrafterBelow();
+        if (cr == null) return 0;
+
+        return cr.getPerCraftEssentiaCostForResultLike(resultLike);
     }
 
     /* ====== Чтение сетки и превью из самого паттерна ====== */

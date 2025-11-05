@@ -1100,10 +1100,13 @@ public class TileMirrorManager extends TileEntity implements ITickable {
 
         Map<ItemKey, Integer> miss = new LinkedHashMap<>();
         IItemHandler in = ((TileEntityGolemCrafter) cte).getInputHandler();
+        int availableEssentia = cr.getEssentiaAvailableUnits();
+        thaumcraft.api.aspects.Aspect requiredAspect = cr.getRequiredAspectType();
         if (needList != null) {
             for (ItemStack need : needList) {
                 if (need == null || need.isEmpty()) continue;
-                int want = need.getCount(), have = 0;
+                int want = need.getCount();
+                int haveFromInput = 0;
                 for (int s = 0; s < in.getSlots(); s++) {
                     ItemStack cur = in.getStackInSlot(s);
                     if (cur.isEmpty()) continue;
@@ -1119,8 +1122,20 @@ public class TileMirrorManager extends TileEntity implements ITickable {
                         match = ItemHandlerHelper.canItemStacksStackRelaxed(cur, need);
                     }
 
-                    if (match) have += cur.getCount();
+                    if (match) haveFromInput += cur.getCount();
                 }
+
+                int extra = 0;
+                if (isCrystal(need) && requiredAspect != null) {
+                    thaumcraft.api.aspects.Aspect needAspect = aspectOf(need);
+                    if (needAspect != null && needAspect == requiredAspect) {
+                        int deficit = Math.max(0, want - haveFromInput);
+                        extra = Math.min(availableEssentia, deficit);
+                        availableEssentia -= extra;
+                    }
+                }
+
+                int have = haveFromInput + extra;
                 int lacking = Math.max(0, want - have);
                 if (lacking > 0) miss.merge(ItemKey.of(need), lacking, Integer::sum);
             }
