@@ -1,0 +1,50 @@
+{
+  "version": "0.2.0",
+  "configurations": [
+    {
+      "type": "java",
+      "name": "runClient",
+      "request": "launch",
+      "mainClass": "net.minecraftforge.legacydev.MainClient",
+      "projectName": "ThaumicAttempts",
+      "cwd": "${workspaceFolder}\\run",
+      "vmArgs": "-Dforge.logging.console.level\u003ddebug -Dforge.logging.markers\u003dSCAN,REGISTRIES,REGISTRYDUMP \"-Dnet.minecraftforge.gradle.GradleStart.csvDir\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\extractMappings\" \"-Dnet.minecraftforge.gradle.GradleStart.srg.notch-srg\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createLegacyObf2Srg\\output.srg\"",
+      "args": "",
+      "env": {
+        "MCP_TO_SRG": "C:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createSrgToMcp\\output.srg",
+        "MOD_CLASSES": "thaumicattempts%%${workspaceFolder}\\build\\resources\\main;thaumicattempts%%${workspaceFolder}\\build\\classes\\java\\main",
+        "mainClass": "net.minecraft.launchwrapper.Launch",
+        "MCP_MAPPINGS": "stable_39-1.12",
+        "FORGE_VERSION": "14.23.5.2860",
+        "assetIndex": "1.12",
+        "assetDirectory": "C:\\Users\\PC\\.gradle\\caches\\forge_gradle\\assets",
+        "nativesDirectory": "${workspaceFolder}\\build\\natives",
+        "FORGE_GROUP": "net.minecraftforge",
+        "MC_VERSION": "1.12.2",
+        "tweakClass": "net.minecraftforge.fml.common.launcher.FMLTweaker"
+      },
+      "preLaunchTask": "prepareRunClientCompile"
+    },
+    {
+      "type": "java",
+      "name": "runServer",
+      "request": "launch",
+      "mainClass": "net.minecraftforge.legacydev.MainServer",
+      "projectName": "ThaumicAttempts",
+      "cwd": "${workspaceFolder}\\run",
+      "vmArgs": "-Dforge.logging.console.level\u003ddebug -Dforge.logging.markers\u003dSCAN,REGISTRIES,REGISTRYDUMP \"-Dnet.minecraftforge.gradle.GradleStart.csvDir\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\extractMappings\" \"-Dnet.minecraftforge.gradle.GradleStart.srg.notch-srg\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createLegacyObf2Srg\\output.srg\"",
+      "args": "",
+      "env": {
+        "MCP_TO_SRG": "C:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createSrgToMcp\\output.srg",
+        "MOD_CLASSES": "${workspaceFolder}\\build\\resources\\main;${workspaceFolder}\\build\\classes\\java\\main",
+        "mainClass": "net.minecraft.launchwrapper.Launch",
+        "MCP_MAPPINGS": "stable_39-1.12",
+        "FORGE_VERSION": "14.23.5.2860",
+        "FORGE_GROUP": "net.minecraftforge",
+        "MC_VERSION": "1.12.2",
+        "tweakClass": "net.minecraftforge.fml.common.launcher.FMLServerTweaker"
+      },
+      "preLaunchTask": "prepareRunServerCompile"
+    }
+  ]
+}

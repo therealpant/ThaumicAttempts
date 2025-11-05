@@ -1,0 +1,6 @@
+{ "variants": {
+  "active=true":  { "model": "thaumicattempts:mirror_stabilizer" },
+  "active=false": { "model": "thaumicattempts:mirror_stabilizer1" }
+}
+}
+

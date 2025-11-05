@@ -1,0 +1,42 @@
+
+tile.thaumicattempts.golem_crafter.name=Crafter
+tile.thaumicattempts.arcane_ear_band.name=Arcane Ear (Band)
+tile.thaumicattempts.arcane_crafter.name=Arcane Crafter
+tile.mirror_manager.name=Mirror Manager
+tile.thaumicattempts.order_terminal.name=Librarian Repository
+tile.pattern_requester.name=Mirror Sink
+tile.thaumicattempts.math_core.name=Math Core
+tile.thaumicattempts.mirror_stabilizer.name=Mirror Stabilizer
+
+
+item.thaumicattempts.craft_pattern.name=Crafting Note
+item.thaumicattempts.arcane_pattern.name=Arcane Note
+
+container.golem_crafter=Crafter
+container.arcane_crafter=Arcane Crafter
+
+mod.thaumicattempts.name=ThaumicAttempts
+itemGroup.thaumicattempts=Thaumic Attempts
+
+
+research.ARCANEEAR.ta_addendum_ear_band=Experiments with the Clockwork Mind have borne fruit. The calibrated Arcane Ear can now hear an entire range of notes—and the higher the note, the stronger the signal I was able to obtain.
+research.BASEELDRITCH.ta_addendum_voidtile_from_seed=The seeds are highly volatile and malleable; by infusing them with the right essence, I was able to transform them into a fully fledged building material.
+
+
+research.TA_GOLEMCRAFT.title=Golemcraft
+research.TA_GOLEMCRAFT.text.intro=My research consumes nearly all my attention, and it’s maddening when, in the middle of it, I have to run back to the workbenches to craft yet another trinket. Fortunately, my recent work in golemcraft may solve this once and for all.
+research.TA_GOLEMCRAFT.text.main=Excellent I have built a mechanism that can shoulder all mundane crafting. The improved workbench can automatically request the materials it needs from the warehouse. It’s enough to load it with the necessary instructions. The workbench is sensitive to redstone signal strength, which tells it which instructions to follow. It still requires a supply of Fabrico essentia, and the more complex the task, the more of it will be needed.
+
+
+research.TA_GOLEMCRAFT_AD.title=Arcane Golemcraft
+research.TA_GOLEMCRAFT_AD.text.intro=The Crafter has proven highly productive and reliable. It’s time to find a way to adapt this mechanism for arcane transformations as well.
+research.TA_GOLEMCRAFT_AD.text.main=With a few components to control vis and a swap from fuel to Aura essentia, the crafter can transmute raw materials into complex thaumaturgical devices.
+
+
+research.TA_GOLEM_MIRRORS.title=Golems and Mirrors
+research.TA_GOLEM_MIRRORS.text.0= Golems are great at finding and delivering items, but there is always room for improvement. To restock, I still have to walk to the warehouse and wait while golems rummage through the chests for me—but I have an idea how to fix this.
+research.TA_GOLEM_MIRRORS.text.1= I did it! The solution was so simple — Mirrors! I managed to create a device that can serve as the backbone of an entire logistics network. The Mirror Manager works in tandem with the Librarian Repository: Shift+RMB the Mirror Manager, then RMB the Librarian Repository, and they will be linked. The Librarian records all items from nearby storages with Provide seals; just specify the item and the quantity, and the order will move into fulfillment. Golems will bring everything to the Mirror Manager, and it will send the items to the requester. However, the Mirror Manager must hold a mirror through which items are delivered to the Librarian Repository.
+
+research.TA_GOLEM_INTEGRATION.title=Advanced Logistics
+research.TA_GOLEM_INTEGRATION.text.0=Field tests showed that the Mirror Manager cannot keep links to multiple consumers at once. A core powered by a Primordial Pearl simply isn’t strong enough to maintain the levitation of more than one mirror.
+research.TA_GOLEM_INTEGRATION.text.1=I not only solved the limited-mirror problem, but also expanded the Manager’s functionality. <BR>The §lMirror Stabilizer§r reduces the levitation load on the core and scales well—each stabilizer can support up to two additional mirrors. <BR>The §lMirror Sink§r is a new tool for building supply channels: place it above a Crafter and link it to a §lMirror Manager§r whose structure includes a Math Core. <BR>§lMath Cores§r let the Manager fulfill raw-material requests for Crafters; each core supports two sinks. <BR>Important: due to their design, the Manager’s upgrade blocks must be connected in an alternating sequence—Core, then Stabilizer, then Core, and so on.

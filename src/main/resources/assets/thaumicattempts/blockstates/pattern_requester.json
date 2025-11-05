@@ -1,0 +1,6 @@
+{
+  "variants": {
+    "facing=up":   { "model": "thaumicattempts:pattern_requester", "x":0},
+    "facing=down": { "model": "thaumicattempts:pattern_requester", "x":180}
+  }
+}

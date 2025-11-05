@@ -1,0 +1,16 @@
+[
+  {
+    "modid": "thaumicattepmts",
+    "name": "ThaumicAttempts",
+    "description": "Addon for Thaumcraft 6: Golem Crafter block + Crafting Pattern item.",
+    "version": "${version}",
+    "mcversion": "${mcversion}",
+    "url": "",
+    "authorList": ["therealpant"],
+    "credits": "",
+    "logoFile": "",
+    "dependencies": [
+      "required-after:thaumcraft@[6.1.BETA26,)"
+    ]
+  }
+]

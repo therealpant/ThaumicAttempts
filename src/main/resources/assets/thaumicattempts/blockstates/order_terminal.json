@@ -1,0 +1,9 @@
+{
+  "variants": {
+    "facing=north": { "model": "thaumicattempts:order_terminal", "y": 0 },
+    "facing=south": { "model": "thaumicattempts:order_terminal", "y": 180 },
+    "facing=west":  { "model": "thaumicattempts:order_terminal", "y": 270 },
+    "facing=east":  { "model": "thaumicattempts:order_terminal", "y": 90 }
+  }
+}
+

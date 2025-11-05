@@ -1,0 +1,16 @@
+{
+  "entries": [
+    {
+      "key": "BASEELDRITCH",
+      "addenda": [
+        {
+          "recipes": [
+            "thaumicattempts:eldritch_tile_from_voidseed"
+          ],
+          "text": "research.BASEELDRITCH.voidtile_from_seed",
+          "required_research": [ "BASEELDRITCH" ]
+        }
+      ]
+    }
+  ]
+}

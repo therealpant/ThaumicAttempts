@@ -1,0 +1,5 @@
+{ "variants": {
+  "active=true":  { "model": "thaumicattempts:math_core" },
+  "active=false": { "model": "thaumicattempts:math_core1" }
+ }
+}

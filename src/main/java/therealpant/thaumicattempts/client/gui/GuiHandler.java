@@ -1,0 +1,94 @@
+package therealpant.thaumicattempts.client.gui;
+
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
+import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.World;
+import net.minecraftforge.fml.common.network.IGuiHandler;
+import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
+import therealpant.thaumicattempts.golemcraft.container.ContainerGolemCrafter;
+import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
+import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
+import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
+
+public class GuiHandler implements IGuiHandler {
+    public static final int GUI_GOLEM_CRAFTER  = 1;
+    public static final int GUI_CRAFT_PATTERN  = 2;
+    public static final int GUI_ORDER_TERMINAL = 42;
+    public static final int GUI_ARCANE_PATTERN  = 4;
+
+    @Override
+    public Object getServerGuiElement(int ID, EntityPlayer player, World world, int x, int y, int z) {
+        switch (ID) {
+            case GUI_GOLEM_CRAFTER: {
+                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof TileEntityGolemCrafter) {
+                    return new ContainerGolemCrafter(player.inventory, (TileEntityGolemCrafter) te);
+                }
+                return null;
+            }
+            case GUI_CRAFT_PATTERN: {
+                // ВСЕГДА сначала проверяем isEmpty(), потом getItem()
+                ItemStack stack = player.getHeldItemMainhand();
+                if (stack.isEmpty() || !(stack.getItem() instanceof ItemCraftPattern)) {
+                    ItemStack off = player.getHeldItemOffhand();
+                    stack = (!off.isEmpty() && off.getItem() instanceof ItemCraftPattern) ? off : ItemStack.EMPTY;
+                }
+                return (!stack.isEmpty())
+                        ? new ContainerCraftPattern(player.inventory, stack)
+                        : null;
+            }
+            case GUI_ORDER_TERMINAL: {
+                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof TileOrderTerminal) {
+                    return new therealpant.thaumicattempts.golemnet.container.ContainerOrderTerminal(
+                            player.inventory,
+                            (TileOrderTerminal) te
+                    );
+                }
+                return null;
+            }
+            case GUI_ARCANE_PATTERN: // <-- НОВОЕ
+                return new therealpant.thaumicattempts.golemcraft.container.ContainerArcanePattern(player.inventory, player.getHeldItemMainhand());
+            default:
+                return null;
+        }
+    }
+
+    @Override
+    public Object getClientGuiElement(int ID, EntityPlayer player, World world, int x, int y, int z) {
+        switch (ID) {
+            case GUI_GOLEM_CRAFTER: {
+                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof TileEntityGolemCrafter) {
+                    return new GuiGolemCrafter(player.inventory, (TileEntityGolemCrafter) te);
+                }
+                return null;
+            }
+            case GUI_CRAFT_PATTERN: {
+                ItemStack stack = player.getHeldItemMainhand();
+                if (stack.isEmpty() || !(stack.getItem() instanceof ItemCraftPattern)) {
+                    ItemStack off = player.getHeldItemOffhand();
+                    stack = (!off.isEmpty() && off.getItem() instanceof ItemCraftPattern) ? off : ItemStack.EMPTY;
+                }
+                return (!stack.isEmpty())
+                        ? new GuiCraftPattern(player.inventory, stack)
+                        : null;
+            }
+            case GUI_ORDER_TERMINAL: {
+                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof TileOrderTerminal) {
+                    return new therealpant.thaumicattempts.client.gui.GuiOrderTerminal(
+                            player.inventory,
+                            (TileOrderTerminal) te
+                    );
+                }
+                return null;
+            }
+            case GUI_ARCANE_PATTERN: // <-- НОВОЕ
+                return new therealpant.thaumicattempts.client.gui.GuiArcanePattern(player.inventory, player.getHeldItemMainhand());            default:
+                return null;
+        }
+    }
+}

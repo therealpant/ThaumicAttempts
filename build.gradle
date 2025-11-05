@@ -1,0 +1,277 @@
+plugins {
+    id 'java'
+    id 'eclipse'
+    id 'idea'
+    id 'net.minecraftforge.gradle' version '6.0.+'
+}
+
+repositories {
+    maven {
+        name "Su5ed LegacyDev Fork"
+        url "https://maven.su5ed.dev/releases"
+    }
+}
+
+
+sourceSets { main { resources { srcDir 'src/main/resources' } } }
+
+
+import net.minecraftforge.gradle.mcp.MCPRepo
+import net.minecraftforge.gradle.common.tasks.SignJar
+import net.minecraftforge.gradle.common.util.MavenArtifactDownloader
+import org.apache.tools.ant.filters.ReplaceTokens
+
+repositories {
+    // Forge и Maven Central
+    maven { url "https://maven.minecraftforge.net" }
+    mavenCentral()
+
+    // Mojang libraries (для 1.12.2 обязательно)
+    maven { url "https://libraries.minecraft.net" }
+
+    // LegacyDev форк
+    maven {
+        name "Su5ed LegacyDev Fork"
+        url "https://maven.su5ed.dev/releases"
+    }
+
+    // Curse Maven
+    maven {
+        url "https://www.cursemaven.com/"
+        content { includeGroup "curse.maven" }
+    }
+}
+
+version = "${mcversion}-${version}"
+group = 'therealpant.thaumicattempts'
+archivesBaseName = 'ThaumicAttempts'
+
+java.toolchain.languageVersion = JavaLanguageVersion.of(8)
+
+ext {
+    if (!project.hasProperty('certFingerprint')) {
+        certFingerprint = ''
+    }
+}
+
+legacy {
+    fixClasspath = true
+    extractMappings = true
+    attachMappings = true
+}
+
+final arch = System.getProperty("os.arch")
+final needCustomNatives = arch != "x86" && arch != "i386" && arch != "x86_64" && arch != "amd64"
+
+minecraft {
+    mappings channel: 'stable', version: '39-1.12'
+    accessTransformer = file('src/main/resources/META-INF/thaumicaugmentation_at.cfg')
+    runs {
+        client {
+            workingDirectory file('run')
+
+            property 'forge.logging.markers', 'SCAN,REGISTRIES,REGISTRYDUMP'
+            property 'forge.logging.console.level', 'debug'
+
+
+            if (needCustomNatives) {
+                property 'java.library.path', ''
+                environment 'nativesDirectory', "${project.getProjectDir()}/natives"
+            }
+
+            environment 'MC_VERSION', '1.12.2'
+
+            mods{
+                thaumicattempts  { source sourceSets.main }
+            }
+
+        }
+
+        server {
+            workingDirectory file('run')
+
+            property 'forge.logging.markers', 'SCAN,REGISTRIES,REGISTRYDUMP'
+            property 'forge.logging.console.level', 'debug'
+
+
+            if (needCustomNatives) {
+                property 'java.library.path', ''
+                environment 'nativesDirectory', "${project.getProjectDir()}/natives"
+            }
+
+            environment 'MC_VERSION', '1.12.2'
+
+
+
+        }
+    }
+}
+
+
+dependencies {
+    minecraft "net.minecraftforge:forge:${mcversion}-${forgeversion}"
+
+    implementation fg.deobf('curse.maven:thaumcraft-223628:2629023')
+    implementation fg.deobf('curse.maven:baubles-227083:2518667')
+
+    compileOnly 'curse.maven:jeid-296289:2919737'
+    compileOnly 'curse.maven:botania-225643:2846950'
+    compileOnly 'curse.maven:auracontrol-397104:3013979'
+    compileOnly 'curse.maven:electroblobs-wizardry-265642:2929294'
+    compileOnly 'curse.maven:thaumcraftfix-1069346:5889900'
+
+    testImplementation 'org.junit.jupiter:junit-jupiter:5.11.+'
+    testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.+'
+
+    runtimeOnly 'curse.maven:jei-238222:2995897'
+    runtimeOnly 'curse.maven:thaumic-jei-285492:2705304'
+    runtimeOnly 'curse.maven:the-one-probe-245211:2667280'
+    runtimeOnly 'curse.maven:ctm-267602:2915363'
+
+    constraints {
+        implementation('net.minecraftforge:legacydev:0.3.0.0-legacyExt') {
+            because 'needed to have all ATs work properly'
+        }
+
+        implementation('org.ow2.asm:asm-debug-all:5.2') {
+            because 'newer ASM versions include module info that causes errors in Java 8'
+        }
+    }
+
+    configurations.forEach {
+        // mergetool pollutes the classpath with conflicting classes
+        it.exclude(group: 'net.minecraftforge', module: 'mergetool')
+
+        // legacydev forge dep wants fatjar as the classifier, but 3.0 lacks it
+        it.resolutionStrategy.eachDependency {
+            if (it.requested.module.toString() == "net.minecraftforge:legacydev") {
+                it.artifactSelection {
+                    it.selectArtifact(DependencyArtifact.DEFAULT_TYPE, null, null)
+                }
+            }
+        }
+    }
+
+    // if the curse maven is down or otherwise not working:
+    // comment the above "implementation", "compileOnly", and "runtimeOnly" entries
+    // uncomment the following and put jars into subfolders in the "lib" folder
+
+    //implementation fileTree(dir: 'lib/implementation', include: '*.jar')
+    //compileOnly fileTree(dir: 'lib/compileOnly', include: '*.jar')
+    //runtimeOnly fileTree(dir: 'lib/runtimeOnly', include: '*.jar')
+
+    // note that the first line has no deobf - if you need it use BON2 or something
+    // to avoid needing test jars, comment the "testImplementation" lines and put "-x test" on the command line
+
+    // For the native library binding jars (which need to be the exact same version as the natives)
+    if (needCustomNatives) {
+        implementation fileTree(dir: 'natives', include: '*.jar')
+    }
+}
+
+idea {
+    module {
+        inheritOutputDirs = true
+        downloadJavadoc = true
+        downloadSources = true
+    }
+}
+
+task filterTokens(type: Sync) {
+    // this will ensure that this task is redone when the versions change.
+    inputs.property 'version', version
+    inputs.property 'apiversion', apiversion
+    inputs.property 'certFingerprint', certFingerprint
+
+    from sourceSets.main.java
+    filter(ReplaceTokens, tokens: [APIVERSION: apiversion.toString(), VERSION: version.toString(), FINGERPRINT: certFingerprint.toString()])
+    into "$buildDir/src/$sourceSets.main.name/$sourceSets.main.java.name"
+}
+
+compileJava.source = filterTokens.outputs
+
+processResources {
+    // required to allow file expansion later
+    duplicatesStrategy = 'include'
+
+    // this will ensure that this task is redone when the versions change.
+    inputs.property 'version', version
+    inputs.property 'apiversion', apiversion
+    inputs.property 'mcversion', mcversion
+
+    // replace stuff in mcmod.info, nothing else
+    from(sourceSets.main.resources.srcDirs) {
+        include 'mcmod.info'
+
+        // replace version and mcversion
+        expand 'version': version, 'mcversion': mcversion, 'forgeversion': forgeversion, 'forgeminversion': forgeminversion
+    }
+
+    // copy everything else except the mcmod.info
+    from(sourceSets.main.resources.srcDirs) {
+        exclude 'mcmod.info'
+    }
+}
+
+javadoc {
+    include 'thecodex6824/thaumicaugmentation/api/**'
+}
+
+task signJar(type: SignJar) {
+    dependsOn 'jar'
+    onlyIf { project.hasProperty('keyStore') }
+
+    if (project.hasProperty('keyStore')) { // needed to skip gradle trying to find vars
+        keyStore = project.keyStore
+        alias = project.alias
+        storePass = project.storePass
+        keyPass = project.keyPass
+
+        inputFile = jar.archivePath
+        outputFile = jar.archivePath
+    }
+}
+
+jar {
+    manifest {
+        attributes 'FMLAT': 'thaumicaugmentation_at.cfg'
+        attributes 'FMLCorePlugin': 'thecodex6824.thaumicaugmentation.core.ThaumicAugmentationCore'
+        attributes 'FMLCorePluginContainsFMLMod': 'true'
+    }
+}
+
+tasks.build.dependsOn(tasks.signJar)
+
+project.tasks.whenTaskAdded {
+    if (it.name.equals('reobfJar')) {
+        tasks.signJar.dependsOn(it)
+    }
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    from 'build/docs/javadoc'
+    archiveClassifier = 'javadoc'
+}
+
+task apiJar(type: Jar) {
+    from sourceSets.main.output
+    from sourceSets.main.java
+    archiveClassifier = 'api'
+    include 'thecodex6824/thaumicaugmentation/api/**'
+}
+
+task sourcesJar(type: Jar) {
+    from sourceSets.main.java
+    archiveClassifier = 'sources'
+}
+
+artifacts {
+    archives apiJar
+    archives javadocJar
+    archives sourcesJar
+}
+
+test {
+    useJUnit()
+    maxHeapSize = '1G'
+}
