@@ -14,8 +14,7 @@ import thaumcraft.api.ThaumcraftApi;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
-import therealpant.thaumicattempts.data.TAResearch;
-import therealpant.thaumicattempts.data.research.*;
+
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemcraft.tile.TileArcaneEarBand;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityArcaneCrafter;
@@ -90,25 +89,27 @@ public class ThaumicAttempts {
         // GUI-handler — нужен один раз и один класс (твой общий GuiHandler)
         NetworkRegistry.INSTANCE.registerGuiHandler(ThaumicAttempts.INSTANCE, new GuiHandler());
 
+        //Addenda
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/arcane_ear_add"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/eldritch_add"));
+
+        //Research
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft_advanced"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemintegration"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemmirrors"));
+
+
         proxy.init(e);
     }
 
     @Mod.EventHandler
     public void postInit(FMLPostInitializationEvent e) {
-        TAResearchAddenda.injectArcaneEarAddendum();
-        TAResearchGolemcraft.inject();
-        TAResearchGolemMirrors.inject();
-        TAResearchGolemIntegration.inject();
-        TAResearchGolemcraft_Advansed.inject();
 
         TAInfusionRecipes.register();
         TAAlchemyRecipes.register();
 
-        TAResearchAddenda.injectEldritchVoidTileAddendum();
-
         proxy.postInit(e);
-
-
     }
 
     /** Регистрация всех S2C/C2S сообщений с уникальными ID */

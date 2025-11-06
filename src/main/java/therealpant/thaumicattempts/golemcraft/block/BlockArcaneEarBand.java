@@ -171,6 +171,16 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
     @Override
     public boolean eventReceived(IBlockState state, World worldIn, BlockPos pos, int par5, int par6) {
         super.eventReceived(state, worldIn, pos, par5, par6);
+
+        // par6 — номер ноты из triggerNote(...)
+        if (worldIn.isRemote) {
+            TileEntity te = worldIn.getTileEntity(pos);
+            if (te instanceof TileArcaneEarBand) {
+                // лёгкий клиентский сеттер, без синка на сервер
+                ((TileArcaneEarBand) te).clientSetBaseNote(par6);
+            }
+        }
+
         float pitch = (float) Math.pow(2.0F, (par6 - 12) / 12.0F);
         worldIn.playSound(null, pos, getInstrument(par5), SoundCategory.BLOCKS, 3.0F, pitch);
         worldIn.spawnParticle(EnumParticleTypes.NOTE, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,

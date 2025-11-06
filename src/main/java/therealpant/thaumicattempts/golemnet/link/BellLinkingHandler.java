@@ -23,6 +23,7 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
+import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 
 import javax.annotation.Nullable;
 import java.util.Arrays;
@@ -229,7 +230,8 @@ public class BellLinkingHandler {
         }
 
         // дальше работаем только с терминалом/реквестером, и только если в руке колокол ИЛИ игрок присел
-        if (!(te instanceof TileOrderTerminal) && !(te instanceof TilePatternRequester)) return;
+        if (!(te instanceof TileOrderTerminal) && !(te instanceof TilePatternRequester)
+                && !(te instanceof TileResourceRequester)) return;
         if (!(bellInHand || sneaking)) return;
 
         // АВТОПОИСК ЗАПРЕЩЁН — используем только сохранённый в колоколе менеджер
@@ -317,6 +319,69 @@ public class BellLinkingHandler {
                 }
 
                 // сюда не доходим (прочие случаи отсеяны)
+                return;
+            }
+
+            /* ---------- Ресурсный запросчик ---------- */
+            if (te instanceof TileResourceRequester) {
+                TileResourceRequester res = (TileResourceRequester) te;
+
+                if (linkedMgrPos != null && linkedMgrPos.equals(res.getManagerPos())) {
+                    msgChat(player, "§aLinked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (sneaking && res.getManagerPos() != null && linkedMgrPos == null) {
+                    BlockPos oldMgr = res.getManagerPos();
+                    res.setManagerPos(null);
+                    res.cancelActiveJob();
+                    if (oldMgr != null) {
+                        TileEntity mte = world.getTileEntity(oldMgr);
+                        if (mte instanceof TileMirrorManager) {
+                            ((TileMirrorManager) mte).unbind(res.getPos());
+                            ((TileMirrorManager) mte).cancelAllForDestination(res.getPos());
+                        }
+                    }
+                    msgChat(player, "§cNot Linked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (linkedMgrPos != null) {
+                    TileEntity mte = world.getTileEntity(linkedMgrPos);
+                    if (mte instanceof TileMirrorManager) {
+                        TileMirrorManager mgr = (TileMirrorManager) mte;
+
+                        if (res.getManagerPos() != null && !linkedMgrPos.equals(res.getManagerPos())) {
+                            TileEntity old = world.getTileEntity(res.getManagerPos());
+                            if (old instanceof TileMirrorManager) {
+                                ((TileMirrorManager) old).unbind(res.getPos());
+                                ((TileMirrorManager) old).cancelAllForDestination(res.getPos());
+                            }
+                            res.setManagerPos(null);
+                            res.cancelActiveJob();
+                        }
+
+                        if (mgr.tryBindTerminal(res.getPos())) {
+                            res.setManagerPos(linkedMgrPos);
+                            res.markDirty();
+                            world.notifyBlockUpdate(res.getPos(),
+                                    world.getBlockState(res.getPos()),
+                                    world.getBlockState(res.getPos()), 3);
+
+                            mgr.allowOwner(player.getUniqueID());
+                            msgChat(player, "§aLinked");
+                        } else {
+                            msgChat(player, "§cNot Linked");
+                        }
+                    } else {
+                        msgChat(player, "§cNot Linked");
+                    }
+                    denyAndCancel(e);
+                    return;
+                }
+
                 return;
             }
 

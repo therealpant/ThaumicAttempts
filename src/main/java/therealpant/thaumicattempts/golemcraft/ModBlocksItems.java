@@ -15,12 +15,15 @@ import therealpant.thaumicattempts.golemcraft.block.BlockGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.block.BlockArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
+import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorManager;
 import therealpant.thaumicattempts.golemnet.block.BlockOrderTerminal;
 import therealpant.thaumicattempts.golemnet.block.BlockPatternRequester;
+import therealpant.thaumicattempts.golemnet.block.BlockResourceRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
+import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.init.TABlocks;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
@@ -35,6 +38,7 @@ public final class ModBlocksItems {
 
     public static Item CRAFT_PATTERN;
     public static Item ARCANE_PATTERN;
+    public static Item RESOURCE_LIST;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -60,11 +64,14 @@ public final class ModBlocksItems {
         TABlocks.MIRROR_MANAGER    = new BlockMirrorManager();    // .setRegistryName(MODID, "mirror_manager");
         TABlocks.ORDER_TERMINAL    = new BlockOrderTerminal();    // .setRegistryName(MODID, "order_terminal");
         TABlocks.PATTERN_REQUESTER = new BlockPatternRequester(); // .setRegistryName(MODID, "pattern_requester");
+        TABlocks.RESOURCE_REQUESTER = new BlockResourceRequester();
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
                 TABlocks.ORDER_TERMINAL,
-                TABlocks.PATTERN_REQUESTER
+                TABlocks.PATTERN_REQUESTER,
+                TABlocks.RESOURCE_REQUESTER
+
         );
 
         // TileEntities сети
@@ -74,6 +81,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "order_terminal"));
         GameRegistry.registerTileEntity(TilePatternRequester.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "pattern_requester"));
+        GameRegistry.registerTileEntity(TileResourceRequester.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "resource_requester"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -85,7 +94,9 @@ public final class ModBlocksItems {
                 .setRegistryName(ThaumicAttempts.MODID, "craft_pattern");
         ARCANE_PATTERN = new ItemArcanePattern()
                 .setRegistryName(ThaumicAttempts.MODID, "arcane_pattern");
-        e.getRegistry().registerAll(CRAFT_PATTERN, ARCANE_PATTERN);
+        RESOURCE_LIST  = new ItemResourceList()
+                .setRegistryName(ThaumicAttempts.MODID, "resource_list");
+        e.getRegistry().registerAll(CRAFT_PATTERN, ARCANE_PATTERN, RESOURCE_LIST);
 
         // ItemBlock'и
         e.getRegistry().register(new ItemBlock(GOLEM_CRAFTER)
@@ -106,11 +117,14 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.ORDER_TERMINAL.getRegistryName());
         TABlocks.PATTERN_REQUESTER_ITEM = new ItemBlock(TABlocks.PATTERN_REQUESTER)
                 .setRegistryName(TABlocks.PATTERN_REQUESTER.getRegistryName());
+        TABlocks.RESOURCE_REQUESTER_ITEM = new ItemBlock(TABlocks.RESOURCE_REQUESTER)
+                .setRegistryName(TABlocks.RESOURCE_REQUESTER.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
                 TABlocks.ORDER_TERMINAL_ITEM,
-                TABlocks.PATTERN_REQUESTER_ITEM
+                TABlocks.PATTERN_REQUESTER_ITEM,
+                TABlocks.RESOURCE_REQUESTER_ITEM
         );
     }
 }

@@ -38,6 +38,10 @@ public final class ClientModels {
                 ModBlocksItems.ARCANE_PATTERN, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":arcane_pattern", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.RESOURCE_LIST, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":resource_list", "inventory")
+        );
 
         // ItemBlock'и наших блоков (иконки!)
         registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER,     ThaumicAttempts.MODID + ":golem_crafter");
@@ -55,6 +59,7 @@ public final class ClientModels {
         registerItemModel(TABlocks.MIRROR_MANAGER_ITEM);
         registerItemModel(TABlocks.ORDER_TERMINAL_ITEM);
         registerItemModel(TABlocks.PATTERN_REQUESTER_ITEM);
+        registerItemModel(TABlocks.RESOURCE_REQUESTER_ITEM);
 
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 

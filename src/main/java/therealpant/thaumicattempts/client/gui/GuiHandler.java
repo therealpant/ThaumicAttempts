@@ -10,6 +10,7 @@ import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
 import therealpant.thaumicattempts.golemcraft.container.ContainerGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
+import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 
 public class GuiHandler implements IGuiHandler {
@@ -30,11 +31,7 @@ public class GuiHandler implements IGuiHandler {
             }
             case GUI_CRAFT_PATTERN: {
                 // ВСЕГДА сначала проверяем isEmpty(), потом getItem()
-                ItemStack stack = player.getHeldItemMainhand();
-                if (stack.isEmpty() || !(stack.getItem() instanceof ItemCraftPattern)) {
-                    ItemStack off = player.getHeldItemOffhand();
-                    stack = (!off.isEmpty() && off.getItem() instanceof ItemCraftPattern) ? off : ItemStack.EMPTY;
-                }
+                ItemStack stack = findPatternStack(player);
                 return (!stack.isEmpty())
                         ? new ContainerCraftPattern(player.inventory, stack)
                         : null;
@@ -67,11 +64,7 @@ public class GuiHandler implements IGuiHandler {
                 return null;
             }
             case GUI_CRAFT_PATTERN: {
-                ItemStack stack = player.getHeldItemMainhand();
-                if (stack.isEmpty() || !(stack.getItem() instanceof ItemCraftPattern)) {
-                    ItemStack off = player.getHeldItemOffhand();
-                    stack = (!off.isEmpty() && off.getItem() instanceof ItemCraftPattern) ? off : ItemStack.EMPTY;
-                }
+                ItemStack stack = findPatternStack(player);
                 return (!stack.isEmpty())
                         ? new GuiCraftPattern(player.inventory, stack)
                         : null;
@@ -91,4 +84,21 @@ public class GuiHandler implements IGuiHandler {
                 return null;
         }
     }
+
+    private ItemStack findPatternStack(EntityPlayer player) {
+        ItemStack stack = player.getHeldItemMainhand();
+        if (isEditablePattern(stack)) return stack;
+
+        ItemStack off = player.getHeldItemOffhand();
+        if (isEditablePattern(off)) return off;
+
+        return ItemStack.EMPTY;
+    }
+
+    private boolean isEditablePattern(ItemStack stack) {
+        if (stack.isEmpty()) return false;
+        return stack.getItem() instanceof ItemCraftPattern || stack.getItem() instanceof ItemResourceList;
+    }
+
+
 }

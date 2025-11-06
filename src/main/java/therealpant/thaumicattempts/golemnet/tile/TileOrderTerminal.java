@@ -623,8 +623,9 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                     ^ this.pos.toLong()
                     ^ player.getUniqueID().getMostSignificantBits()
                     ^ (craftTab ? 0xCAFEBABEL : 0xDEADBEEFL);
-            if (mix == 0L) mix = 1L; // на всякий
-            sid = mix;
+            long positive = mix & Long.MAX_VALUE; // снимем знак, GUI ждёт sid > 0
+            if (positive == 0L) positive = 1L;    // на всякий
+            sid = positive;
             therealpant.thaumicattempts.ThaumicAttempts.NET.sendTo(
                     new therealpant.thaumicattempts.golemnet.net.msg.S2C_SnapshotCreated(craftTab, sid),
                     player

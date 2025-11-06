@@ -5,23 +5,30 @@ import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.init.Blocks;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.network.NetworkManager;
+import net.minecraft.network.play.server.SPacketUpdateTileEntity;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 import thaumcraft.common.blocks.IBlockEnabled;
 import thaumcraft.common.lib.utils.BlockStateUtils;
 import thaumcraft.common.tiles.devices.TileArcaneEar;
 
 import java.util.ArrayList;
 
-public class TileArcaneEarBand extends TileEntity implements ITickable {
+public class TileArcaneEarBand extends thaumcraft.common.tiles.devices.TileArcaneEar {
+    // твоя логика, поля, методы
+
 
     /** Базовая нота (0..24), вокруг неё строится диапазон */
     public int baseNote = 0;
 
-    /** Тип инструмента (тон) 0..9 как у оригинального уха */
-    public byte tone = 0;
+    public int getBaseNote() { return baseNote & 0xFF; }
+
+
 
     /** Текущая постоянная сила редстоуна (0..15) */
     private int currentPower = 0;
@@ -33,6 +40,22 @@ public class TileArcaneEarBand extends TileEntity implements ITickable {
 
     public int getCurrentPower() {
         return currentPower;
+    }
+
+    public void changePitch() {
+        baseNote = (baseNote + 1) % 25;
+        this.note = (byte) (baseNote & 0xFF); // <- ключевая строка: обновляем поле родителя
+        markDirty();
+        syncToClient();
+    }
+
+
+    private void syncToClient() {
+        if (world != null && !world.isRemote) {
+            IBlockState st = world.getBlockState(pos);
+            world.notifyBlockUpdate(pos, st, st, 3);
+            // если надо пробудить соседей — можно дополнительно pingNeighbors()
+        }
     }
 
     @Override
@@ -124,13 +147,6 @@ public class TileArcaneEarBand extends TileEntity implements ITickable {
         // соседям сообщим отдельно через notifyNeighbors()
     }
 
-    /** ПКМ по блоку — смена базовой ноты (0..24). Сбрасываем «предыдущую» для корректного «две подряд». */
-    public void changePitch() {
-        baseNote = (baseNote + 1) % 25;
-        prevNoteInRange = -1;
-        markDirty();
-    }
-
     /** Пересчёт тона по блоку «за ухом» (как у оригинального уха) */
     public void updateTone() {
         try {
@@ -166,6 +182,8 @@ public class TileArcaneEarBand extends TileEntity implements ITickable {
         nbt.setByte("tone", tone);
         nbt.setInteger("currentPower", currentPower);
         nbt.setInteger("prevNoteInRange", prevNoteInRange);
+        nbt.setByte("BaseNote", (byte)(baseNote & 0xFF));
+
         return nbt;
     }
 
@@ -179,6 +197,16 @@ public class TileArcaneEarBand extends TileEntity implements ITickable {
         currentPower = nbt.getInteger("currentPower");
         prevNoteInRange = nbt.getInteger("prevNoteInRange");
 
+        baseNote = nbt.getByte("BaseNote") & 0xFF;
+
+        if (nbt.hasKey("BaseNoteInt")) {
+            baseNote = Math.max(0, Math.min(24, nbt.getInteger("BaseNoteInt")));
+            this.note = (byte) (baseNote & 0xFF); // <- синк в родительское поле
+        } else {
+            // на случай старых миров: выровнять baseNote по родительскому note
+            baseNote = this.note & 0xFF;
+        }
+
         // нормализация
         if (baseNote < 0) baseNote = 0;
         if (baseNote > 24) baseNote = 24;
@@ -186,4 +214,17 @@ public class TileArcaneEarBand extends TileEntity implements ITickable {
         if (currentPower > 15) currentPower = 15;
         if (prevNoteInRange < -1 || prevNoteInRange > 24) prevNoteInRange = -1;
     }
+
+
+    @Override public NBTTagCompound getUpdateTag() { return writeToNBT(new NBTTagCompound()); }
+    @Override public SPacketUpdateTileEntity getUpdatePacket() { return new SPacketUpdateTileEntity(getPos(), 0, getUpdateTag()); }
+    @Override public void onDataPacket(NetworkManager net, SPacketUpdateTileEntity pkt) { readFromNBT(pkt.getNbtCompound()); }
+
+    @SideOnly(Side.CLIENT)
+    public void clientSetBaseNote(int n) {
+        baseNote = (n & 0xFF) % 25;
+        this.note = (byte) (baseNote & 0xFF); // <- обновляем поле родителя, чтобы рендер увидел
+    }
+
+
 }

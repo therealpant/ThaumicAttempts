@@ -10,8 +10,9 @@ import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.NonNullList;
 import therealpant.thaumicattempts.golemcraft.SlotGhost;
+import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
-
+import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 /**
  * Контейнер редактирования шаблона крафта:
  * - 3x3 "призрачная" сетка (индексы 0..8)
@@ -29,6 +30,7 @@ public class ContainerCraftPattern extends Container {
     private final InventoryPlayer playerInv;
     private final ItemStack patternStack;
     private final IInventory ghostInv;
+    private final boolean resourceListMode;
 
     // координаты GUI (под свой фон можно подправить)
     private static final int GRID_LEFT = 62;
@@ -38,10 +40,11 @@ public class ContainerCraftPattern extends Container {
     public ContainerCraftPattern(InventoryPlayer playerInv, ItemStack patternStack) {
         this.playerInv = playerInv;
         this.patternStack = patternStack;
+        this.resourceListMode = !patternStack.isEmpty() && patternStack.getItem() instanceof ItemResourceList;
 
         // Внутренний «призрачный» инвентарь
         this.ghostInv = new InventoryBasic("pattern_ghost", false, GHOST_INV_SIZE) {
-            @Override public int getInventoryStackLimit() { return 1; }
+            @Override public int getInventoryStackLimit() { return resourceListMode ? 64 : 1; }
             @Override public boolean isItemValidForSlot(int index, ItemStack stack) {
                 // сетка — любые предметы; слот результата мы отдельно запретим в самом Slot
                 return true;
@@ -49,7 +52,7 @@ public class ContainerCraftPattern extends Container {
         };
 
         // Загрузить сетку 3×3 из NBT предмета
-        ItemCraftPattern.readGridToInventory(patternStack, ghostInv);
+        readPatternToInventory(patternStack);
         // Первичный расчёт результата
         updateResult();
 
@@ -100,16 +103,18 @@ public class ContainerCraftPattern extends Container {
     /** Пересчитать и обновить слот результата по текущей сетке. */
     private void updateResult() {
         // сформируем временный ItemStack шаблона с актуальной сеткой в NBT (чтобы calcResultPreview её увидел)
-        ItemStack tmp = patternStack.isEmpty() ? ItemStack.EMPTY : patternStack.copy();
-        if (!tmp.isEmpty()) {
+        ItemStack out = ItemStack.EMPTY;
+        if (!patternStack.isEmpty() && patternStack.getItem() instanceof ItemCraftPattern) {
+            ItemStack tmp = patternStack.copy();
             NonNullList<ItemStack> grid = NonNullList.withSize(GRID_SIZE, ItemStack.EMPTY);
             for (int i = 0; i < GRID_SIZE; i++) {
                 ItemStack s = ghostInv.getStackInSlot(i);
                 grid.set(i, s.isEmpty() ? ItemStack.EMPTY : s.copy());
             }
             ItemCraftPattern.writeInventoryToStack(tmp, grid, ItemStack.EMPTY);
+            out = ItemCraftPattern.calcResultPreview(tmp, playerInv.player.world);
         }
-        ItemStack out = ItemCraftPattern.calcResultPreview(tmp, playerInv.player.world);
+
         ghostInv.setInventorySlotContents(RESULT_IDX, out == null ? ItemStack.EMPTY : out);
     }
 
@@ -124,10 +129,11 @@ public class ContainerCraftPattern extends Container {
                 if (slot != null && slot.inventory == player.inventory) {
                     ItemStack from = slot.getStack();
                     if (!from.isEmpty()) {
-                        ItemStack single = from.copy(); single.setCount(1);
+                        ItemStack copy = from.copy();
+                        if (!resourceListMode) copy.setCount(1);
                         for (int i = 0; i < GRID_SIZE; i++) {
                             if (ghostInv.getStackInSlot(i).isEmpty()) {
-                                ghostInv.setInventorySlotContents(i, single);
+                                ghostInv.setInventorySlotContents(i, copy);
                                 updateResult();
                                 detectAndSendChanges();
                                 return ItemStack.EMPTY;
@@ -150,11 +156,12 @@ public class ContainerCraftPattern extends Container {
                     return ItemStack.EMPTY;
                 }
 
-                // ЛКМ — положить копию курсора (count=1) или очистить, если рука пустая
+                // ЛКМ — положить копию курсора (для шаблонов — count=1) или очистить, если рука пустая
                 ItemStack held = player.inventory.getItemStack();
                 if (!held.isEmpty()) {
-                    ItemStack single = held.copy(); single.setCount(1);
-                    ghostInv.setInventorySlotContents(ghostIndex, single);
+                    ItemStack copy = held.copy();
+                    if (!resourceListMode) copy.setCount(1);
+                    ghostInv.setInventorySlotContents(ghostIndex, copy);
                 } else {
                     ghostInv.setInventorySlotContents(ghostIndex, ItemStack.EMPTY);
                 }
@@ -176,12 +183,37 @@ public class ContainerCraftPattern extends Container {
     @Override
     public void onContainerClosed(EntityPlayer playerIn) {
         super.onContainerClosed(playerIn);
-        if (!patternStack.isEmpty() && patternStack.getItem() instanceof ItemCraftPattern) {
-            NonNullList<ItemStack> grid = NonNullList.withSize(GRID_SIZE, ItemStack.EMPTY);
-            for (int i = 0; i < GRID_SIZE; i++) {
-                grid.set(i, ghostInv.getStackInSlot(i).copy());
-            }
+        if (patternStack.isEmpty()) return;
+
+        NonNullList<ItemStack> grid = NonNullList.withSize(GRID_SIZE, ItemStack.EMPTY);
+        for (int i = 0; i < GRID_SIZE; i++) {
+            grid.set(i, ghostInv.getStackInSlot(i).copy());
+        }
+
+        if (patternStack.getItem() instanceof ItemCraftPattern) {
             ItemCraftPattern.writeInventoryToStack(patternStack, grid, ItemStack.EMPTY);
+        } else if (patternStack.getItem() instanceof ItemResourceList) {
+            ItemResourceList.writeInventoryToStack(patternStack, grid);
+        }
+    }
+
+    private void readPatternToInventory(ItemStack patternStack) {
+        if (patternStack.isEmpty()) {
+            for (int i = 0; i < GRID_SIZE; i++) ghostInv.setInventorySlotContents(i, ItemStack.EMPTY);
+            return;
+        }
+
+        if (patternStack.getItem() instanceof ItemCraftPattern) {
+            ItemCraftPattern.readGridToInventory(patternStack, ghostInv);
+        } else if (patternStack.getItem() instanceof ItemResourceList) {
+            ItemResourceList.readGridToInventory(patternStack, ghostInv);
+        } else if (patternStack.getItem() instanceof ItemBasePattern) {
+            NonNullList<ItemStack> grid = ItemBasePattern.readGrid(patternStack);
+            for (int i = 0; i < GRID_SIZE && i < grid.size(); i++) {
+                ghostInv.setInventorySlotContents(i, grid.get(i));
+            }
+        } else {
+            for (int i = 0; i < GRID_SIZE; i++) ghostInv.setInventorySlotContents(i, ItemStack.EMPTY);
         }
     }
 }

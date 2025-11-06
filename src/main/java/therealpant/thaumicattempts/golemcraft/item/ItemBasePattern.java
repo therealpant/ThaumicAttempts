@@ -12,7 +12,7 @@ import therealpant.thaumicattempts.api.IPatternEssentiaCost;
 public abstract class ItemBasePattern extends Item implements IPatternEssentiaCost {
     public static final String TAG_GRID = "Grid";
 
-    protected static NonNullList<ItemStack> readGrid(ItemStack pattern) {
+    public static NonNullList<ItemStack> readGrid(ItemStack pattern) {
         NonNullList<ItemStack> grid = NonNullList.withSize(9, ItemStack.EMPTY);
         NBTTagCompound tag = pattern.getTagCompound();
         if (tag == null || !tag.hasKey(TAG_GRID, Constants.NBT.TAG_LIST)) return grid;

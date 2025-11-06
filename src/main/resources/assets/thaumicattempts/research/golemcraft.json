@@ -1,0 +1,37 @@
+{
+  "entries": [
+    {
+      "key": "TA_GOLEMCRAFT",
+      "name": "research.TA_GOLEMCRAFT.title",
+      "icons": [
+        "thaumicattempts:golem_crafter"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "GOLEMLOGISTICS"
+      ],
+      "siblings": [],
+      "location": [
+        5,
+        6
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEMCRAFT.text.intro",
+          "required_knowledge": ["THEORY;GOLEMANCY;2", "THEORY;ARTIFICE;2"],
+          "required_item": [
+            "minecraft:crafting_table",
+            "thaumcraft:arcane_workbench"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEMCRAFT.text.main",
+          "recipes": [
+            "thaumicattempts:pattern_craft",
+            "thaumicattempts:golem_crafter_infusion"
+          ]
+        }
+      ]
+    }
+  ]
+}
