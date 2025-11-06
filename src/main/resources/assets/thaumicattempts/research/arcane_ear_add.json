@@ -1,0 +1,16 @@
+{
+  "entries": [
+    {
+      "key": "ARCANEEAR",
+      "addenda": [
+        {
+          "recipes": [
+            "thaumicattempts:arcane_ear_band"
+          ],
+          "text": "research.ARCANEEAR.ta_addendum_ear_band",
+          "required_research": [ "ARCANEEAR", "MINDCLOCKWORK" ]
+        }
+      ]
+    }
+  ]
+}
