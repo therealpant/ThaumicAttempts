@@ -26,6 +26,7 @@ import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ItemKey;
+import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -53,12 +54,25 @@ public class TileMirrorManager extends TileEntity implements ITickable {
 
     private final Set<BlockPos> boundTerminals  = new HashSet<>();
     private final Set<BlockPos> boundRequesters = new HashSet<>();
+    private final LinkedHashMap<BlockPos, DispatcherStats> boundDispatchers = new LinkedHashMap<>();
+    private final ArrayDeque<BlockPos> dispatcherBusyQueue = new ArrayDeque<>();
+
+    private static final class DispatcherStats {
+        int golems;
+        int busy;
+    }
 
     public int getRange()        { return calcRange; }
     public int getMirrorCap()    { return calcMirrorCap; }
     public int getComputeCap()   { return calcComputeCap; }
     public int getMirrorUsed()   { return boundTerminals.size() + boundRequesters.size(); }
-    public int getComputeUsed()  { return boundRequesters.size(); }
+    public int getComputeUsed()  {
+        int used = boundRequesters.size();
+        for (DispatcherStats stats : boundDispatchers.values()) {
+            used += 1 + stats.golems;
+        }
+        return used;
+    }
     private boolean isUnlinking = false;
     private int staleSweepTicker = 0;
     private boolean suppressAcceptAnim = false;
@@ -105,6 +119,7 @@ public class TileMirrorManager extends TileEntity implements ITickable {
     private static final String TAG_MIRRORS     = "mirrors";
     private static final String TAG_RENDER_SEED = "renderSeed";
     private static final String TAG_PEND_EJECTS = "pendEjects";
+    private static final String TAG_DISPATCHERS = "boundDispatchers";
     // ЕДИНАЯ занятость слотов
     private final boolean[][] slotBusy = new boolean[RINGS][SLOTS_PER_RING];
 
@@ -310,6 +325,13 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         }
     }
 
+    private void unlinkDispatcherSideEffects(BlockPos dispatcherPos) {
+        if (world == null || world.isRemote || dispatcherPos == null) return;
+        TileEntity te = world.getTileEntity(dispatcherPos);
+        if (te instanceof TileGolemDispatcher) {
+            ((TileGolemDispatcher) te).clearManagerPosFromManager(this.pos);
+        }
+    }
 
 
     /** Дропнуть подвешенные, освободив слот. */
@@ -460,15 +482,15 @@ public class TileMirrorManager extends TileEntity implements ITickable {
     private final Map<ItemKey, Integer> lastProgressTick = new HashMap<>();
     private final Map<ItemKey, Integer> lastReqTick = new HashMap<>();
 
-    private void decInflightRelaxed(ItemStack arrived, int count) {
-        if (arrived == null || arrived.isEmpty() || count <= 0) return;
+    private boolean decInflightRelaxed(ItemStack arrived, int count) {
+        if (arrived == null || arrived.isEmpty() || count <= 0) return false;
 
         ItemKey exact = ItemKey.of(arrived);
         int cur = inflight.getOrDefault(exact, 0);
         if (cur > 0) {
             int left = Math.max(0, cur - count);
             if (left == 0) inflight.remove(exact); else inflight.put(exact, left);
-            return;
+            return true;
         }
 
         if (isCrystal(arrived)) {
@@ -478,7 +500,7 @@ public class TileMirrorManager extends TileEntity implements ITickable {
                 if (isCrystal(want) && crystalSame(want, arrived)) {
                     int left = Math.max(0, e.getValue() - count);
                     e.setValue(left);
-                    return;
+                    return true;
                 }
             }
         }
@@ -488,7 +510,7 @@ public class TileMirrorManager extends TileEntity implements ITickable {
             if (ItemHandlerHelper.canItemStacksStackRelaxed(e.getKey().toStack(1), arrived)) {
                 int left = Math.max(0, e.getValue() - count);
                 e.setValue(left);
-                return;
+                return true;
             }
         }
 
@@ -499,15 +521,18 @@ public class TileMirrorManager extends TileEntity implements ITickable {
                 if (matchesForDelivery(arrived, want)) {
                     int left = Math.max(0, e.getValue() - count);
                     e.setValue(left);
-                    return;
+                    return true;
                 }
             }
         }
+        return false;
     }
 
     private void onArrivedToBuffer(ItemStack stack, int count) {
         if (stack.isEmpty() || count <= 0) return;
-        decInflightRelaxed(stack, count);
+        boolean matched = decInflightRelaxed(stack, count);
+        if (matched) releaseDispatcherGolem();
+
 
         lastProgressTick.put(ItemKey.of(stack), tickCounter);
         if (isCrystal(stack)) {
@@ -598,6 +623,124 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         boundRequesters.add(pos.toImmutable());
         markDirty();
         return true;
+    }
+
+    public boolean tryBindDispatcher(BlockPos pos, int golemCount) {
+        if (pos == null) return false;
+        if (pos.distanceSq(getPos()) > (double)(calcRange * calcRange)) return false;
+        BlockPos key = pos.toImmutable();
+        if (boundDispatchers.containsKey(key)) return true;
+
+        int need = 1 + Math.max(0, golemCount);
+        if (getComputeUsed() + need > calcComputeCap) return false;
+
+        DispatcherStats stats = new DispatcherStats();
+        stats.golems = Math.max(0, golemCount);
+        stats.busy = 0;
+        boundDispatchers.put(key, stats);
+        markDirtyAndSync();
+        setDispatcherBusyCount(key, 0);
+        return true;
+    }
+
+    public void unregisterDispatcher(BlockPos pos) {
+        if (pos == null) return;
+        BlockPos key = pos.toImmutable();
+        DispatcherStats stats = boundDispatchers.remove(key);
+        if (stats != null) {
+            dispatcherBusyQueue.removeIf(bp -> bp.equals(key));
+            setDispatcherBusyCount(key, 0);
+            markDirtyAndSync();
+        }
+    }
+
+    public boolean onDispatcherSetGolemCount(BlockPos pos, int newCount) {
+        if (pos == null) return false;
+        BlockPos key = pos.toImmutable();
+        DispatcherStats stats = boundDispatchers.get(key);
+        if (stats == null) return false;
+
+        int normalized = Math.max(0, newCount);
+        int delta = normalized - stats.golems;
+        int current = getComputeUsed();
+        if (delta > 0 && current + delta > calcComputeCap) return false;
+
+        stats.golems = normalized;
+        if (stats.busy > stats.golems) {
+            trimDispatcherAssignments(key);
+        }
+        markDirtyAndSync();
+        setDispatcherBusyCount(key, stats.busy);
+        return true;
+    }
+
+    private void trimDispatcherAssignments(BlockPos pos) {
+        DispatcherStats stats = boundDispatchers.get(pos);
+        if (stats == null) return;
+        if (stats.busy <= stats.golems) return;
+        int toRemove = stats.busy - stats.golems;
+        stats.busy = stats.golems;
+        if (toRemove <= 0) return;
+        Iterator<BlockPos> it = dispatcherBusyQueue.iterator();
+        while (it.hasNext() && toRemove > 0) {
+            if (it.next().equals(pos)) {
+                it.remove();
+                toRemove--;
+            }
+        }
+    }
+
+    private int getAvailableDispatcherGolems() {
+        int free = 0;
+        for (DispatcherStats stats : boundDispatchers.values()) {
+            free += Math.max(0, stats.golems - stats.busy);
+        }
+        return free;
+    }
+
+    private int getDispatcherParallelLimit() {
+        if (boundDispatchers.isEmpty()) return 1;
+        int total = 0;
+        for (DispatcherStats stats : boundDispatchers.values()) {
+            total += Math.max(0, stats.golems);
+        }
+        return Math.max(1, total);
+    }
+
+    private boolean reserveDispatcherGolem() {
+        if (boundDispatchers.isEmpty()) return true;
+        for (Map.Entry<BlockPos, DispatcherStats> entry : boundDispatchers.entrySet()) {
+            DispatcherStats stats = entry.getValue();
+            if (stats.golems > stats.busy) {
+                stats.busy++;
+                dispatcherBusyQueue.addLast(entry.getKey());
+                setDispatcherBusyCount(entry.getKey(), stats.busy);
+                markDirty();
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void releaseDispatcherGolem() {
+        if (boundDispatchers.isEmpty()) return;
+        BlockPos key = dispatcherBusyQueue.pollFirst();
+        if (key == null) return;
+        DispatcherStats stats = boundDispatchers.get(key);
+        if (stats == null) return;
+        if (stats.busy > 0) {
+            stats.busy--;
+            setDispatcherBusyCount(key, stats.busy);
+            markDirty();
+        }
+    }
+
+    private void setDispatcherBusyCount(BlockPos pos, int busy) {
+        if (world == null) return;
+        TileEntity te = world.getTileEntity(pos);
+        if (te instanceof TileGolemDispatcher) {
+            ((TileGolemDispatcher) te).setBusyFromManager(busy);
+        }
     }
 
     /* ===================== Поставщики (автоскан) ===================== */
@@ -943,19 +1086,34 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         return acc;
     }
 
-    private boolean processOneDeliveryLine(Batch b, Line ln) {
-        if (ln.remaining <= 0) return true;
+    private static final class LineProcessResult {
+        final boolean done;
+        final int dispatcherSlotsUsed;
+
+        LineProcessResult(boolean done, int dispatcherSlotsUsed) {
+            this.done = done;
+            this.dispatcherSlotsUsed = dispatcherSlotsUsed;
+        }
+
+        static LineProcessResult of(boolean done) {
+            return new LineProcessResult(done, 0);
+        }
+    }
+
+    private LineProcessResult processOneDeliveryLine(Batch b, Line ln, int dispatcherBudget, int dispatcherCapForLine) {
+        if (ln.remaining <= 0) return LineProcessResult.of(true);
+        if (ln.wanted1 == null || ln.wanted1.isEmpty()) return LineProcessResult.of(true);
         final ItemKey key = ItemKey.of(ln.wanted1);
 
-        if (ln.requester != null) return true; // delivery в обычное место
+        if (ln.requester != null) return LineProcessResult.of(true); // delivery в обычное место
 
-        if (!hasItemCapAt(b.dest, b.destSide)) return false;
+        if (!hasItemCapAt(b.dest, b.destSide)) return LineProcessResult.of(false);
 
         int pushed0 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
         if (pushed0 > 0) {
             ln.remaining -= pushed0;
             lastProgressTick.put(key, tickCounter);
-            if (ln.remaining <= 0) return true;
+            if (ln.remaining <= 0) return new LineProcessResult(true, 0);
         }
 
         boolean toCrafter = world.getTileEntity(b.dest) instanceof TileEntityGolemCrafter;
@@ -974,25 +1132,60 @@ public class TileMirrorManager extends TileEntity implements ITickable {
             if (tickCounter - lp > STALL_TICKS) {
                 inflight.put(key, 0);
                 flying = 0;
+                releaseDispatcherGolem();
             }
             need = ln.remaining - flying;
         }
 
+        int reservationsCommitted = 0;
+
         if (need > 0) {
             int lt = lastReqTick.getOrDefault(key, -9999);
             if (tickCounter - lt >= REQ_DEBOUNCE_TICKS) {
+                boolean hasDispatchers = !boundDispatchers.isEmpty();
+                int freeDispatchers = hasDispatchers ? Math.max(0, Math.min(dispatcherBudget, dispatcherCapForLine)) : Integer.MAX_VALUE;
                 int budget = Math.min(MAX_REQ_PER_TICK, need);
                 int requested = 0;
+                int reservationsUsed = 0;
+                int reservationsMade = 0;
                 while (budget > 0) {
-                    int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
+                    if (hasDispatchers) {
+                        if (freeDispatchers <= 0 || reservationsUsed >= freeDispatchers) {
+                            break;
+                        }
+                    }
+                    int chunk;
+                    if (hasDispatchers) {
+                        int slotsRemaining = Math.max(1, freeDispatchers - reservationsUsed);
+                        chunk = (int) Math.ceil(budget / (double) slotsRemaining);
+                        chunk = Math.min(chunk, ln.wanted1.getMaxStackSize());
+                    } else {
+                        chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
+                    }
+                    chunk = Math.max(1, Math.min(chunk, budget));
+
+                    if (!reserveDispatcherGolem()) break;
+                    reservationsMade++;
                     ItemStack req = normalizeForProvision(ln.wanted1, chunk);
+                    if (req.isEmpty()) {
+                        releaseDispatcherGolem();
+                        reservationsMade--;
+                        break;
+                    }
                     GolemHelper.requestProvisioning(world, this.pos, EnumFacing.UP, req, 0);
                     requested += chunk;
                     budget    -= chunk;
+                    reservationsUsed++;
                 }
                 if (requested > 0) {
                     inflight.put(key, flying + requested);
                     lastReqTick.put(key, tickCounter);
+                    reservationsCommitted = reservationsMade;
+                } else if (hasDispatchers && reservationsMade > 0) {
+                    // если не удалось отправить запрос из-за отсутствия свободных големов — вернуть резервирования
+                    while (reservationsMade-- > 0) {
+                        releaseDispatcherGolem();
+                    }
                 }
             }
         }
@@ -1001,10 +1194,10 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         if (pushed1 > 0) {
             ln.remaining -= pushed1;
             lastProgressTick.put(key, tickCounter);
-            if (ln.remaining <= 0) return true;
+            if (ln.remaining <= 0) return new LineProcessResult(true, reservationsCommitted);
         }
 
-        return false;
+        return new LineProcessResult(false, reservationsCommitted);
     }
 
     private boolean processOneCraftLine(Batch b, Line ln) {
@@ -1100,7 +1293,13 @@ public class TileMirrorManager extends TileEntity implements ITickable {
             ItemStack like1 = firstMiss.getKey().toStack(1);
             int chunk = Math.min(like1.getMaxStackSize(), firstMiss.getValue());
             ItemStack req = normalizeForProvision(like1, chunk); // <— ключевое
-            GolemHelper.requestProvisioning(world, this.pos, EnumFacing.UP, req, 0);
+            if (!req.isEmpty()) {
+                if (boundDispatchers.isEmpty()) {
+                    GolemHelper.requestProvisioning(world, this.pos, EnumFacing.UP, req, 0);
+                } else if (reserveDispatcherGolem()) {
+                    GolemHelper.requestProvisioning(world, this.pos, EnumFacing.UP, req, 0);
+                }
+            }
         }
 
 
@@ -1154,21 +1353,81 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         if (b.seenTick == tickCounter) return;
         b.seenTick = tickCounter;
 
-        if (b.lines.isEmpty()) { popBatch(); return; }
-        if (!hasItemCapAt(b.dest, b.destSide)) { popBatch(); return; }
-
-        while (b.index < b.lines.size()) {
-            Line ln = b.lines.get(b.index);
-            boolean done = (b.kind == Batch.Kind.DELIVERY)
-                    ? processOneDeliveryLine(b, ln)
-                    : processOneCraftLine(b, ln);
-            if (done) { b.index++; markDirty(); continue; }
-            break;
+        if (b.lines.isEmpty()) {
+            popBatch();
+            return;
+        }
+        if (!hasItemCapAt(b.dest, b.destSide)) {
+            popBatch();
+            return;
         }
 
-        if (b.index >= b.lines.size()) popBatch();
-    }
+        if (b.index >= b.lines.size()) {
+            b.index = 0;
+        }
 
+        int parallelLimit = 1;
+        if (b.kind == Batch.Kind.DELIVERY && !boundDispatchers.isEmpty()) {
+            parallelLimit = Math.max(1, Math.min(getDispatcherParallelLimit(), b.lines.size()));
+        }
+
+        int dispatcherBudget = (b.kind == Batch.Kind.DELIVERY && !boundDispatchers.isEmpty())
+                ? Math.max(0, getAvailableDispatcherGolems())
+                : Integer.MAX_VALUE;
+
+        int touchedIncomplete = 0;
+        int index = b.lines.isEmpty() ? 0 : Math.max(0, Math.min(b.index, b.lines.size() - 1));
+
+        while (index < b.lines.size()) {
+            Line ln = b.lines.get(index);
+            LineProcessResult result;
+            if (b.kind == Batch.Kind.DELIVERY) {
+                int dispatcherCapForLine = Integer.MAX_VALUE;
+                if (!boundDispatchers.isEmpty()) {
+                    if (dispatcherBudget <= 0) {
+                        dispatcherCapForLine = 0;
+                    } else {
+                        int linesRemaining = Math.max(1, b.lines.size() - index);
+                        dispatcherCapForLine = (int) Math.ceil(dispatcherBudget / (double) linesRemaining);
+                        dispatcherCapForLine = Math.max(1, dispatcherCapForLine);
+                        dispatcherCapForLine = Math.min(dispatcherCapForLine, dispatcherBudget);
+                    }
+                }
+                result = processOneDeliveryLine(b, ln, dispatcherBudget, dispatcherCapForLine);
+            } else {
+                result = LineProcessResult.of(processOneCraftLine(b, ln));
+            }
+
+            if (result.dispatcherSlotsUsed > 0 && dispatcherBudget != Integer.MAX_VALUE) {
+                dispatcherBudget = Math.max(0, dispatcherBudget - result.dispatcherSlotsUsed);
+            }
+
+            if (result.done) {
+                b.lines.remove(index);
+                markDirty();
+                continue;
+            }
+
+            touchedIncomplete++;
+            if (touchedIncomplete >= parallelLimit) {
+                index++;
+                break;
+            }
+
+            index++;
+        }
+
+        if (b.lines.isEmpty()) {
+            popBatch();
+            return;
+        }
+
+        if (index >= b.lines.size()) {
+            b.index = 0;
+        } else {
+            b.index = Math.max(0, index);
+        }
+    }
     /* ===================== Жизненный цикл ===================== */
 
     private int rescanCooldown = 0;
@@ -1428,16 +1687,26 @@ public class TileMirrorManager extends TileEntity implements ITickable {
 
         List<BlockPos> dropReq = new ArrayList<>();
         List<BlockPos> dropTerm = new ArrayList<>();
+        List<BlockPos> dropDisp = new ArrayList<>();
 
         // 1) радиус
         for (BlockPos bp : boundRequesters) if (!inRange.test(bp)) dropReq.add(bp);
         for (BlockPos bp : boundTerminals)  if (!inRange.test(bp)) dropTerm.add(bp);
+        for (BlockPos bp : boundDispatchers.keySet()) if (!inRange.test(bp)) dropDisp.add(bp);
 
         // 2) вычисл. кап
         int overCompute = getComputeUsed() - calcComputeCap;
         if (overCompute > 0) {
             Iterator<BlockPos> it = boundRequesters.iterator();
             while (overCompute > 0 && it.hasNext()) { dropReq.add(it.next()); overCompute--; }
+            if (overCompute > 0) {
+                Iterator<Map.Entry<BlockPos, DispatcherStats>> itD = boundDispatchers.entrySet().iterator();
+                while (overCompute > 0 && itD.hasNext()) {
+                    Map.Entry<BlockPos, DispatcherStats> entry = itD.next();
+                    dropDisp.add(entry.getKey());
+                    overCompute -= (1 + entry.getValue().golems);
+                }
+            }
         }
 
         // 3) логический кап зеркал
@@ -1460,20 +1729,24 @@ public class TileMirrorManager extends TileEntity implements ITickable {
             while (overReal > 0 && itT.hasNext()) { dropTerm.add(itT.next()); overReal--; }
         }
 
-        if (dropReq.isEmpty() && dropTerm.isEmpty()) return;
+        if (dropReq.isEmpty() && dropTerm.isEmpty() && dropDisp.isEmpty()) return;
 
         // Уникализируем
         java.util.Set<BlockPos> uniqReq = new java.util.LinkedHashSet<>(dropReq);
         java.util.Set<BlockPos> uniqTerm = new java.util.LinkedHashSet<>(dropTerm);
+        java.util.Set<BlockPos> uniqDisp = new java.util.LinkedHashSet<>(dropDisp);
 
         boundRequesters.removeAll(uniqReq);
         boundTerminals.removeAll(uniqTerm);
+        boundDispatchers.keySet().removeAll(uniqDisp);
+        if (!uniqDisp.isEmpty()) dispatcherBusyQueue.removeIf(uniqDisp::contains);
 
         // «Тихо» уведомляем
         isUnlinking = true;
         try {
             for (BlockPos rp : uniqReq)  unlinkRequesterSideEffects(rp);
             for (BlockPos tp : uniqTerm) unlinkTerminalSideEffects(tp);
+            for (BlockPos dp : uniqDisp) unlinkDispatcherSideEffects(dp);
         } finally {
             isUnlinking = false;
         }
@@ -1491,8 +1764,13 @@ public class TileMirrorManager extends TileEntity implements ITickable {
             for (BlockPos tp : new java.util.ArrayList<>(boundTerminals)) {
                 unlinkTerminalSideEffects(tp);
             }
+            for (BlockPos dp : new java.util.ArrayList<>(boundDispatchers.keySet())) {
+                unlinkDispatcherSideEffects(dp);
+            }
             boundRequesters.clear();
             boundTerminals.clear();
+            boundDispatchers.clear();
+            dispatcherBusyQueue.clear();
         } finally {
             isUnlinking = false;
         }
@@ -1518,9 +1796,15 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         try {
             boolean wasReq = boundRequesters.remove(consumerPos);
             boolean wasTerm = boundTerminals.remove(consumerPos);
+            DispatcherStats removedDisp = boundDispatchers.remove(consumerPos);
+            boolean wasDisp = removedDisp != null;
+            if (wasDisp) {
+                dispatcherBusyQueue.removeIf(bp -> bp.equals(consumerPos));
+            }
 
             if (wasReq)  unlinkRequesterSideEffects(consumerPos);
             if (wasTerm) unlinkTerminalSideEffects(consumerPos);
+            if (wasDisp) unlinkDispatcherSideEffects(consumerPos);
 
             markDirty();
             world.notifyBlockUpdate(pos, world.getBlockState(pos), world.getBlockState(pos), 3);
@@ -1745,6 +2029,16 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         for (BlockPos bp : requesters) rr.appendTag(new NBTTagLong(bp.toLong()));
         nbt.setTag(TAG_REQ_REG, rr);
 
+        NBTTagList dl = new NBTTagList();
+        for (Map.Entry<BlockPos, DispatcherStats> entry : boundDispatchers.entrySet()) {
+            NBTTagCompound c = new NBTTagCompound();
+            c.setLong("pos", entry.getKey().toLong());
+            c.setInteger("golems", entry.getValue().golems);
+            c.setInteger("busy", entry.getValue().busy);
+            dl.appendTag(c);
+        }
+        nbt.setTag(TAG_DISPATCHERS, dl);
+
         // зеркала (активные)
         NBTTagList ml = new NBTTagList();
         for (MirrorSlot m : activeMirrors) {
@@ -1785,6 +2079,21 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         if (nbt.hasKey("boundRequesters", 9)) {
             NBTTagList r = nbt.getTagList("boundRequesters", 4);
             for (int i=0;i<r.tagCount();i++) boundRequesters.add(BlockPos.fromLong(((NBTTagLong)r.get(i)).getLong()));
+        }
+
+        boundDispatchers.clear();
+        dispatcherBusyQueue.clear();
+        if (nbt.hasKey(TAG_DISPATCHERS, 9)) {
+            NBTTagList dl = nbt.getTagList(TAG_DISPATCHERS, 10);
+            for (int i = 0; i < dl.tagCount(); i++) {
+                NBTTagCompound c = dl.getCompoundTagAt(i);
+                if (!c.hasKey("pos")) continue;
+                BlockPos dp = BlockPos.fromLong(c.getLong("pos"));
+                DispatcherStats stats = new DispatcherStats();
+                stats.golems = Math.max(0, c.getInteger("golems"));
+                stats.busy = 0;
+                boundDispatchers.put(dp.toImmutable(), stats);
+            }
         }
 
         requesters.clear();

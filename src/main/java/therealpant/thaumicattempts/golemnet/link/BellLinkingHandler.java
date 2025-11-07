@@ -24,6 +24,8 @@ import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
+import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
+import thaumcraft.common.golems.EntityThaumcraftGolem;
 
 import javax.annotation.Nullable;
 import java.util.Arrays;
@@ -205,6 +207,17 @@ public class BellLinkingHandler {
         TileEntity te = world.getTileEntity(e.getPos());
         if (te == null) return;
 
+        if (te instanceof TileGolemDispatcher) {
+            if (bellInHand && sneaking) {
+                if (!world.isRemote) {
+                    putLink(held, e.getPos(), player.dimension);
+                    setBellGlint(held, true);
+                }
+                denyAndCancel(e);
+                return;
+            }
+        }
+
         // === 1) Менеджер: Shift+ПКМ колокольчиком — выбрать менеджер, включить “глиттер”
         if (te instanceof TileMirrorManager) {
             if (bellInHand && sneaking) {
@@ -231,8 +244,7 @@ public class BellLinkingHandler {
 
         // дальше работаем только с терминалом/реквестером, и только если в руке колокол ИЛИ игрок присел
         if (!(te instanceof TileOrderTerminal) && !(te instanceof TilePatternRequester)
-                && !(te instanceof TileResourceRequester)) return;
-        if (!(bellInHand || sneaking)) return;
+                && !(te instanceof TileResourceRequester) && !(te instanceof TileGolemDispatcher)) return;
 
         // АВТОПОИСК ЗАПРЕЩЁН — используем только сохранённый в колоколе менеджер
         BlockPos linkedMgrPos = getLinkedPos(held);
@@ -459,6 +471,50 @@ public class BellLinkingHandler {
                 // сюда не доходим
                 return;
             }
+
+            /* ---------- Диспетчер големов ---------- */
+            if (te instanceof TileGolemDispatcher) {
+                TileGolemDispatcher hub = (TileGolemDispatcher) te;
+
+                if (linkedMgrPos != null && linkedMgrPos.equals(hub.getManagerPos())) {
+                    msgChat(player, "§aLinked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (sneaking && hub.getManagerPos() != null && linkedMgrPos == null) {
+                    BlockPos oldMgr = hub.getManagerPos();
+                    hub.setManagerPos(null);
+                    if (oldMgr != null) {
+                        TileEntity old = world.getTileEntity(oldMgr);
+                        if (old instanceof TileMirrorManager) {
+                            ((TileMirrorManager) old).unbind(hub.getPos());
+                        }
+                    }
+                    msgChat(player, "§cNot Linked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (linkedMgrPos != null) {
+                    TileEntity mte = world.getTileEntity(linkedMgrPos);
+                    if (mte instanceof TileMirrorManager) {
+                        TileMirrorManager mgr = (TileMirrorManager) mte;
+
+                        hub.setManagerPos(linkedMgrPos);
+                        if (linkedMgrPos.equals(hub.getManagerPos())) {
+                            mgr.allowOwner(player.getUniqueID());
+                            msgChat(player, "§aLinked");
+                        } else {
+                            msgChat(player, "§cNot Linked");
+                        }
+                    } else {
+                        msgChat(player, "§cNot Linked");
+                    }
+                    denyAndCancel(e);
+                    return;
+                }
+            }
         }
     }
 
@@ -469,5 +525,42 @@ public class BellLinkingHandler {
         e.setUseItem(Event.Result.DENY);
         e.setCanceled(true);
         e.setCancellationResult(EnumActionResult.SUCCESS);
+    }
+
+    @SubscribeEvent(priority = EventPriority.HIGHEST)
+    public static void onEntityInteract(PlayerInteractEvent.EntityInteractSpecific e) {
+        if (e.getHand() != EnumHand.MAIN_HAND) return;
+
+        ItemStack held = e.getItemStack();
+        if (!isGolemBell(held)) return;
+
+        EntityPlayer player = e.getEntityPlayer();
+        World world = e.getWorld();
+
+        BlockPos linked = getLinkedPos(held);
+        if (linked == null) return;
+
+        if (!(e.getTarget() instanceof EntityThaumcraftGolem)) return;
+
+        if (!world.isRemote) {
+            int linkDim = getLinkedDim(held, player.dimension);
+            if (linkDim != player.dimension) {
+                msgChat(player, "§cNot Linked");
+                e.setCanceled(true);
+                e.setCancellationResult(EnumActionResult.FAIL);
+                return;
+            }
+
+            TileEntity te = world.getTileEntity(linked);
+            if (!(te instanceof TileGolemDispatcher)) return;
+
+            TileGolemDispatcher dispatcher = (TileGolemDispatcher) te;
+            EntityThaumcraftGolem golem = (EntityThaumcraftGolem) e.getTarget();
+            boolean ok = dispatcher.tryBindGolem(golem);
+            msgChat(player, ok ? "§aLinked" : "§cNot Linked");
+            e.setCancellationResult(ok ? EnumActionResult.SUCCESS : EnumActionResult.FAIL);
+        }
+
+        e.setCanceled(true);
     }
 }

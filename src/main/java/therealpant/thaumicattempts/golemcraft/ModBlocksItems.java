@@ -1,4 +1,3 @@
-// src/main/java/therealpant/thaumicattempts/golemcraft/ModBlocksItems.java
 package therealpant.thaumicattempts.golemcraft;
 
 import net.minecraft.block.Block;
@@ -20,10 +19,12 @@ import therealpant.thaumicattempts.golemnet.block.BlockMirrorManager;
 import therealpant.thaumicattempts.golemnet.block.BlockOrderTerminal;
 import therealpant.thaumicattempts.golemnet.block.BlockPatternRequester;
 import therealpant.thaumicattempts.golemnet.block.BlockResourceRequester;
+import therealpant.thaumicattempts.golemnet.block.BlockGolemDispatcher;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
+import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
 import therealpant.thaumicattempts.init.TABlocks;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
@@ -65,12 +66,14 @@ public final class ModBlocksItems {
         TABlocks.ORDER_TERMINAL    = new BlockOrderTerminal();    // .setRegistryName(MODID, "order_terminal");
         TABlocks.PATTERN_REQUESTER = new BlockPatternRequester(); // .setRegistryName(MODID, "pattern_requester");
         TABlocks.RESOURCE_REQUESTER = new BlockResourceRequester();
+        TABlocks.GOLEM_DISPATCHER = new BlockGolemDispatcher();
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
                 TABlocks.ORDER_TERMINAL,
                 TABlocks.PATTERN_REQUESTER,
-                TABlocks.RESOURCE_REQUESTER
+                TABlocks.RESOURCE_REQUESTER,
+                TABlocks.GOLEM_DISPATCHER
 
         );
 
@@ -83,6 +86,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "pattern_requester"));
         GameRegistry.registerTileEntity(TileResourceRequester.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "resource_requester"));
+        GameRegistry.registerTileEntity(TileGolemDispatcher.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "golem_dispatcher"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -119,12 +124,15 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.PATTERN_REQUESTER.getRegistryName());
         TABlocks.RESOURCE_REQUESTER_ITEM = new ItemBlock(TABlocks.RESOURCE_REQUESTER)
                 .setRegistryName(TABlocks.RESOURCE_REQUESTER.getRegistryName());
+        TABlocks.GOLEM_DISPATCHER_ITEM = new ItemBlock(TABlocks.GOLEM_DISPATCHER)
+                .setRegistryName(TABlocks.GOLEM_DISPATCHER.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
                 TABlocks.ORDER_TERMINAL_ITEM,
                 TABlocks.PATTERN_REQUESTER_ITEM,
-                TABlocks.RESOURCE_REQUESTER_ITEM
+                TABlocks.RESOURCE_REQUESTER_ITEM,
+                TABlocks.GOLEM_DISPATCHER_ITEM
         );
     }
 }
