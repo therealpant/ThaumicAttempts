@@ -3,6 +3,7 @@ package therealpant.thaumicattempts;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.SidedProxy;
 import net.minecraftforge.fml.common.event.*;
@@ -10,7 +11,10 @@ import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.network.simpleimpl.SimpleNetworkWrapper;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.common.registry.GameRegistry;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import thaumcraft.api.ThaumcraftApi;
+import thaumcraft.common.golems.seals.SealHandler;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
@@ -22,6 +26,7 @@ import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.*;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.proxy.CommonProxy;
+import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 // S2C
 // C2S
 
@@ -30,7 +35,7 @@ import therealpant.thaumicattempts.proxy.CommonProxy;
 public class ThaumicAttempts {
 
     public static final String MODID = "thaumicattempts";
-
+    public static final Logger LOGGER = LogManager.getLogger(MODID);
 
     @Mod.Instance
     public static ThaumicAttempts INSTANCE;
@@ -80,6 +85,8 @@ public class ThaumicAttempts {
         ThaumcraftApi.registerResearchLocation(
                 new ResourceLocation(ThaumicAttempts.MODID, "research")
         );
+
+        MinecraftForge.EVENT_BUS.register(ThaumcraftProvisionHelper.class);
         // 3) Прокси preInit (если нужно)
         proxy.preInit();
     }
