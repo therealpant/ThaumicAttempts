@@ -5,6 +5,7 @@ import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
+import net.minecraft.util.EnumBlockRenderType;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
@@ -17,12 +18,10 @@ import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
 
 import javax.annotation.Nullable;
 
-/**
- * Helper block that binds golems to a MirrorManager.
- */
 public class BlockGolemDispatcher extends Block {
 
-    private static final AxisAlignedBB AABB = new AxisAlignedBB(0, 0, 0, 1, 6.0 / 16.0, 1);
+    private static final AxisAlignedBB AABB =
+            new AxisAlignedBB(0, 0, 0, 1, 6.0 / 16.0, 1);
 
     public BlockGolemDispatcher() {
         super(Material.ROCK);
@@ -45,13 +44,17 @@ public class BlockGolemDispatcher extends Block {
     }
 
     @Override
-    public AxisAlignedBB getBoundingBox(IBlockState state, IBlockAccess world, BlockPos pos) {
+    public AxisAlignedBB getBoundingBox(IBlockState state,
+                                        IBlockAccess world,
+                                        BlockPos pos) {
         return AABB;
     }
 
     @Nullable
     @Override
-    public AxisAlignedBB getCollisionBoundingBox(IBlockState state, IBlockAccess world, BlockPos pos) {
+    public AxisAlignedBB getCollisionBoundingBox(IBlockState state,
+                                                 IBlockAccess world,
+                                                 BlockPos pos) {
         return AABB;
     }
 
@@ -71,7 +74,10 @@ public class BlockGolemDispatcher extends Block {
     }
 
     @Override
-    public boolean doesSideBlockRendering(IBlockState state, IBlockAccess world, BlockPos pos, EnumFacing face) {
+    public boolean doesSideBlockRendering(IBlockState state,
+                                          IBlockAccess world,
+                                          BlockPos pos,
+                                          EnumFacing face) {
         return false;
     }
 
@@ -90,5 +96,11 @@ public class BlockGolemDispatcher extends Block {
     @Override
     public float getAmbientOcclusionLightValue(IBlockState state) {
         return 1.0F;
+    }
+
+    // ВОТ ЭТО ГЛАВНОЕ: блок сам по себе не рисуется обычной моделью
+    @Override
+    public EnumBlockRenderType getRenderType(IBlockState state) {
+        return EnumBlockRenderType.INVISIBLE;
     }
 }

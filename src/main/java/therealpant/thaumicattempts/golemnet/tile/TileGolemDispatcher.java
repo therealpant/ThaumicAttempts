@@ -7,12 +7,20 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.WorldServer;
+import software.bernie.geckolib3.core.IAnimatable;
+import software.bernie.geckolib3.core.PlayState;
+import software.bernie.geckolib3.core.builder.AnimationBuilder;
+import software.bernie.geckolib3.core.controller.AnimationController;
+import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
+import software.bernie.geckolib3.core.manager.AnimationData;
+import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 
 import javax.annotation.Nullable;
 import java.util.Iterator;
 import java.util.LinkedHashSet;
 import java.util.Objects;
+import java.util.Random;
 import java.util.UUID;
 
 /**
@@ -21,13 +29,17 @@ import java.util.UUID;
  * Менеджер через него знает, какие golemUUID можно использовать
  * для "форсированных" provisioning-тасков.
  */
-public class TileGolemDispatcher extends TileEntity implements ITickable {
+public class TileGolemDispatcher extends TileEntity implements ITickable, IAnimatable {
 
-    private static final String TAG_MANAGER = "manager";
-    private static final String TAG_GOLEMS = "golems";
-    private static final String TAG_GOLEM_ID = "id";
-    private static final String TAG_BUSY = "busy";
+    private static final String TAG_MANAGER    = "manager";
+    private static final String TAG_GOLEMS     = "golems";
+    private static final String TAG_GOLEM_ID   = "id";
+    private static final String TAG_BUSY       = "busy";
     private static final String TAG_SEAL_COLOR = "sealColor";
+
+    private boolean prevWaitingFlag = false;
+
+    private int animLogicPhase = 0;
 
     @Nullable
     private BlockPos managerPos = null;
@@ -46,12 +58,56 @@ public class TileGolemDispatcher extends TileEntity implements ITickable {
     // Цвет по умолчанию для курьеров (если менеджер не задал свой)
     public static final int COURIER_COLOR = 14;
 
+    /* ====== поля для визуалки / рандома ====== */
+
+    // скорость анимации (множитель)
+    public float animSpeed = 1.5f;
+    // фиксированный сид для выбора кубиков/осей
+    public long animSeed = 0L;
+
+    // выбор на текущий цикл
+    public int[] picks = {0, 1, 2}; // индексы костей 0..7
+    public int[] axes  = {0, 1, 2}; // 0=X,1=Y,2=Z
+    public long  cycleIdx = -1;     // номер текущего цикла
+
+    // тайминги (в тиках)
+    public static final int DUR_A = 20; // длительность поворота 180°
+    public static final int GAP   =  4; // пауза между фазами
+
+    public long cycleLen() {
+        float sp = Math.max(0.05f, this.animSpeed);
+        int base = DUR_A + GAP;
+        long aLen = Math.max(1, Math.round(base / sp));
+
+        // Раньше здесь, скорее всего, было aLen * 3L
+        return aLen * 4L; // теперь 4 фазы
+    }
+
+
+    /** выбрать 3 разных индекса [0..7] и 3 случайные оси для нового цикла */
+    public void reseedForCycle(long newIdx) {
+        Random r = new Random(animSeed ^ (newIdx * 0x9E3779B97F4A7C15L));
+        int[] a = {0,1,2,3,4,5,6,7};
+        for (int i = a.length - 1; i > 0; --i) {
+            int j = r.nextInt(i + 1);
+            int t = a[i]; a[i] = a[j]; a[j] = t;
+        }
+        picks[0] = a[0];
+        picks[1] = a[1];
+        picks[2] = a[2];
+
+        axes[0] = r.nextInt(3);
+        axes[1] = r.nextInt(3);
+        axes[2] = r.nextInt(3);
+
+        cycleIdx = newIdx;
+    }
+
     /* ===================== API ===================== */
 
     public java.util.Set<UUID> getBoundGolemsSnapshot() {
         return new java.util.LinkedHashSet<>(boundGolems);
     }
-
 
     @Nullable
     public BlockPos getManagerPos() {
@@ -220,8 +276,60 @@ public class TileGolemDispatcher extends TileEntity implements ITickable {
                     mgr.onDispatcherSetGolemCount(this.pos, boundGolems.size());
                 }
             }
+            if (world != null && !world.isRemote && animSeed == 0L) {
+                animSeed = world.rand.nextLong() ^ getPos().toLong();
+                markDirty();
+            }
         }
     }
+
+    @Override
+    public net.minecraft.util.math.AxisAlignedBB getRenderBoundingBox() {
+        return net.minecraft.tileentity.TileEntity.INFINITE_EXTENT_AABB;
+    }
+
+    @net.minecraftforge.fml.relauncher.SideOnly(net.minecraftforge.fml.relauncher.Side.CLIENT)
+    public boolean isGlobalRenderer() {
+        return true; // форсит вызов TESR даже вне стандартного ббокса/фрустума
+    }
+
+    @Override
+    @net.minecraftforge.fml.relauncher.SideOnly(net.minecraftforge.fml.relauncher.Side.CLIENT)
+    public double getMaxRenderDistanceSquared() {
+        return 4096D; // ~64 блока
+    }
+
+    @Override
+    public NBTTagCompound getUpdateTag() {
+        return writeToNBT(new NBTTagCompound());
+    }
+
+    @Override
+    public net.minecraft.network.play.server.SPacketUpdateTileEntity getUpdatePacket() {
+        return new net.minecraft.network.play.server.SPacketUpdateTileEntity(pos, 0, getUpdateTag());
+    }
+
+    @Override
+    public void onDataPacket(net.minecraft.network.NetworkManager net,
+                             net.minecraft.network.play.server.SPacketUpdateTileEntity pkt) {
+        readFromNBT(pkt.getNbtCompound());
+    }
+
+    /* ========== Geckolib: фабрика и контроллеры ========== */
+
+    private final AnimationFactory factory = new AnimationFactory(this);
+
+    @Override
+    public void registerControllers(AnimationData data) {
+        // Никаких контроллеров — всё делаем процедурно в модели DispatcherModel
+    }
+
+    @Override
+    public AnimationFactory getFactory() {
+        return factory;
+    }
+
+    /* ===================== Tick ===================== */
 
     @Override
     public void update() {
@@ -273,6 +381,8 @@ public class TileGolemDispatcher extends TileEntity implements ITickable {
 
         compound.setInteger(TAG_BUSY, busyGolems);
         compound.setInteger(TAG_SEAL_COLOR, getSealColor());
+        compound.setFloat("animSpeed", animSpeed);
+        compound.setLong("animSeed", animSeed);
 
         return compound;
     }
@@ -298,10 +408,18 @@ public class TileGolemDispatcher extends TileEntity implements ITickable {
 
         busyGolems = Math.max(0, Math.min(boundGolems.size(), compound.getInteger(TAG_BUSY)));
 
+        if (compound.hasKey("animSpeed")) animSpeed = compound.getFloat("animSpeed");
+        if (compound.hasKey("animSeed"))  animSeed  = compound.getLong("animSeed");
+
         if (compound.hasKey(TAG_SEAL_COLOR)) {
             sealColor = compound.getInteger(TAG_SEAL_COLOR) & 15;
         } else {
             sealColor = -1;
         }
+    }
+
+    public void setAnimSpeed(float s) {
+        animSpeed = Math.max(0.05f, Math.min(5f, s));
+        if (!world.isRemote) markDirty();
     }
 }

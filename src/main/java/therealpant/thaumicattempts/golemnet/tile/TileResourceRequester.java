@@ -15,6 +15,9 @@ import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
+import software.bernie.geckolib3.core.IAnimatable;
+import software.bernie.geckolib3.core.manager.AnimationData;
+import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.golems.GolemHelper;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.util.ItemKey;
@@ -23,6 +26,13 @@ import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
+import software.bernie.geckolib3.core.IAnimatable;
+import software.bernie.geckolib3.core.PlayState;
+import software.bernie.geckolib3.core.builder.AnimationBuilder;
+import software.bernie.geckolib3.core.controller.AnimationController;
+import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
+import software.bernie.geckolib3.core.manager.AnimationData;
+import software.bernie.geckolib3.core.manager.AnimationFactory;
 
 import javax.annotation.Nullable;
 import java.util.ArrayDeque;
@@ -35,13 +45,19 @@ import java.util.List;
 import java.util.Map;
 import java.util.Objects;
 
-public class TileResourceRequester extends TileEntity implements ITickable {
+public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable {
 
     private static final int PATTERN_SLOT_COUNT = 15;
     private static final int REQUEST_STALE_TICKS = 100;
     private static final int REQUEST_RETRY_TICKS = 200;
     private static final int PROVISION_MIN_INTERVAL = 5;
 
+    private boolean prevWaitingFlag = false;
+    private int animLogicPhase = 0;
+    // ===== Geckolib =====
+    private final AnimationFactory factory = new AnimationFactory(this);
+    // последнее известное состояние "есть ли ожидания"
+    private boolean lastWaiting = false;
 
     private static final String ORDER_TAG_ROOT = "thaumicattempts_rr";
     private static final String ORDER_TAG_POS = "Pos";
@@ -55,14 +71,14 @@ public class TileResourceRequester extends TileEntity implements ITickable {
 
         @Override
         protected void onContentsChanged(int slot) {
-            markDirty();
+            markDirtyAndSync();
         }
     };
 
     private final ItemStackHandler buffer = new ItemStackHandler(27) {
         @Override
         protected void onContentsChanged(int slot) {
-            markDirty();
+            markDirtyAndSync();
         }
     };
 
@@ -70,6 +86,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
     private final LinkedHashMap<ItemKey, Integer> baselines = new LinkedHashMap<>();
     private final List<ItemStack> sequence = new ArrayList<>();
     private final Deque<ItemStack> provisionQueue = new ArrayDeque<>();
+
     private static final class QueuedTrigger {
         int slot;
         int count;
@@ -103,7 +120,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
         for (int i = 0; i < patterns.getSlots(); i++) {
             if (patterns.getStackInSlot(i).isEmpty()) {
                 patterns.setStackInSlot(i, stack.copy());
-                markDirty();
+                markDirtyAndSync();
                 return true;
             }
         }
@@ -115,7 +132,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
             ItemStack stack = patterns.getStackInSlot(i);
             if (!stack.isEmpty()) {
                 patterns.setStackInSlot(i, ItemStack.EMPTY);
-                markDirty();
+                markDirtyAndSync();
                 return stack;
             }
         }
@@ -156,7 +173,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
                 drainProvisionQueue();
             } else if (!provisionQueue.isEmpty()) {
                 provisionQueue.clear();
-                markDirty();
+                markDirtyAndSync();
             }
 
             if (!pending.isEmpty()) {
@@ -218,7 +235,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
         if (!useManagerForProvision()) {
             resetProvisionQueueFromPending();
         }
-        markDirty();
+        markDirtyAndSync();
 
         if (pending.isEmpty()) {
             deliverSequence();
@@ -243,7 +260,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
         lastProgressTick = tickCounter;
         lastRequestTick = tickCounter;
         nextProvisionTick = tickCounter;
-        markDirty();
+        markDirtyAndSync();
 
         tryStartQueuedJob();
     }
@@ -281,7 +298,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
         }
         if (changed) {
             needEnsure = true;
-            markDirty();
+            markDirtyAndSync();
         }
     }
 
@@ -472,6 +489,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
         if (slot < 0 || slot >= patterns.getSlots()) return;
         if (count <= 0) return;
 
+
         boolean changed = false;
         QueuedTrigger tail = queuedSignals.peekLast();
         if (tail != null && tail.slot == slot) {
@@ -487,7 +505,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
         }
 
         if (changed) {
-            markDirty();
+            markDirtyAndSync();
         }
     }
 
@@ -496,24 +514,24 @@ public class TileResourceRequester extends TileEntity implements ITickable {
             QueuedTrigger head = queuedSignals.peekFirst();
             if (head == null) {
                 queuedSignals.pollFirst();
-                markDirty();
+                markDirtyAndSync();
                 continue;
             }
             if (head.slot < 0 || head.slot >= patterns.getSlots()) {
                 queuedSignals.pollFirst();
-                markDirty();
+                markDirtyAndSync();
                 continue;
             }
             if (tryStartJob(head.slot)) {
                 head.count--;
                 if (head.count <= 0) {
                     queuedSignals.pollFirst();
-                    markDirty();
+                    markDirtyAndSync();
                 }
                 break;
             }
             queuedSignals.pollFirst();
-            markDirty();
+            markDirtyAndSync();
         }
     }
 
@@ -583,7 +601,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
         }
         if (!provisionQueue.isEmpty()) {
             nextProvisionTick = tickCounter;
-            markDirty();
+            markDirtyAndSync();
         }
     }
 
@@ -630,7 +648,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
             provisionQueue.pollFirst();
             lastRequestTick = tickCounter;
             nextProvisionTick = tickCounter + PROVISION_MIN_INTERVAL;
-            markDirty();
+            markDirtyAndSync();
         }
     }
 
@@ -676,7 +694,7 @@ public class TileResourceRequester extends TileEntity implements ITickable {
         if (!Objects.equals(this.managerPos, newPos) || this.managerFromPattern != newFlag) {
             this.managerPos = newPos;
             this.managerFromPattern = newFlag;
-            markDirty();
+            markDirtyAndSync();
 
             boolean nowManager = useManagerForProvision();
             if (nowManager) {
@@ -751,6 +769,85 @@ public class TileResourceRequester extends TileEntity implements ITickable {
             return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(buffer);
         }
         return super.getCapability(capability, facing);
+    }
+
+    @Override
+    public void registerControllers(AnimationData data) {
+        data.addAnimationController(new AnimationController<>(
+                this,
+                "provision_controller",
+                0,
+                this::provisionAnimPredicate
+        ));
+    }
+
+    @Override
+    public AnimationFactory getFactory() {
+        return factory;
+    }
+
+    private <E extends IAnimatable> PlayState provisionAnimPredicate(AnimationEvent<E> event) {
+        AnimationController<?> controller = event.getController();
+
+        // «Глобальная очередь ожидания»
+        boolean waiting = hasAnyWaitingWork();
+
+        // Переход: ничего не ждали -> начали ждать
+        if (waiting && !lastWaiting) {
+            // РОВНО 1 раз: cap, затем cap2 на цикле
+            controller.setAnimation(new AnimationBuilder()
+                    .addAnimation("animation.model.cap", false)   // один раз
+                    .addAnimation("animation.model.cap2", true)); // loop
+        }
+        // Переход: ждали -> больше ничего не ждём
+        else if (!waiting && lastWaiting) {
+            // РОВНО один раз закрываем: cap3
+            controller.setAnimation(new AnimationBuilder()
+                    .addAnimation("animation.model.cap3", false));
+        }
+        // Долго в idle, и всё ещё idle — останавливаем проигрывание
+        else if (!waiting && !lastWaiting) {
+            lastWaiting = false;
+            return PlayState.STOP;
+        }
+
+        lastWaiting = waiting;
+        return PlayState.CONTINUE;
+    }
+
+
+    private boolean hasAnyWaitingWork() {
+        // «Очередь ожидания» = всё, что блок ждёт вообще:
+        // активная работа, pending, очередь заказов, незапрошенные чанки
+        if (jobActive) return true;
+        if (!pending.isEmpty()) return true;
+        if (!queuedSignals.isEmpty()) return true;
+        if (!provisionQueue.isEmpty()) return true;
+        return false;
+    }
+
+    @Override
+    public NBTTagCompound getUpdateTag() {
+        return writeToNBT(new NBTTagCompound());
+    }
+
+    @Override
+    public net.minecraft.network.play.server.SPacketUpdateTileEntity getUpdatePacket() {
+        return new net.minecraft.network.play.server.SPacketUpdateTileEntity(pos, 0, getUpdateTag());
+    }
+
+    @Override
+    public void onDataPacket(net.minecraft.network.NetworkManager net,
+                             net.minecraft.network.play.server.SPacketUpdateTileEntity pkt) {
+        readFromNBT(pkt.getNbtCompound());
+    }
+
+    private void markDirtyAndSync() {
+        markDirty();
+        if (world != null && !world.isRemote) {
+            net.minecraft.block.state.IBlockState state = world.getBlockState(pos);
+            world.notifyBlockUpdate(pos, state, state, 3);
+        }
     }
 
     @Override

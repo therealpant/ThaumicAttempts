@@ -4,7 +4,7 @@ tile.thaumicattempts.arcane_ear_band.name=Arcane Ear (Band)
 tile.thaumicattempts.arcane_crafter.name=Arcane Crafter
 tile.mirror_manager.name=Mirror Manager
 tile.thaumicattempts.order_terminal.name=Librarian Repository
-tile.pattern_requester.name=Mirror Sink
+tile.pattern_requester.name=Mirror Link
 tile.thaumicattempts.math_core.name=Math Core
 tile.thaumicattempts.mirror_stabilizer.name=Mirror Stabilizer
 
@@ -39,4 +39,4 @@ research.TA_GOLEM_MIRRORS.text.1= I did it! The solution was so simple — Mirro
 
 research.TA_GOLEM_INTEGRATION.title=Advanced Logistics
 research.TA_GOLEM_INTEGRATION.text.0=Field tests showed that the Mirror Manager cannot keep links to multiple consumers at once. A core powered by a Primordial Pearl simply isn’t strong enough to maintain the levitation of more than one mirror.
-research.TA_GOLEM_INTEGRATION.text.1=I not only solved the limited-mirror problem, but also expanded the Manager’s functionality. <BR>The §lMirror Stabilizer§r reduces the levitation load on the core and scales well—each stabilizer can support up to two additional mirrors. <BR>The §lMirror Sink§r is a new tool for building supply channels: place it above a Crafter and link it to a §lMirror Manager§r whose structure includes a Math Core. <BR>§lMath Cores§r let the Manager fulfill raw-material requests for Crafters; each core supports two sinks. <BR>Important: due to their design, the Manager’s upgrade blocks must be connected in an alternating sequence—Core, then Stabilizer, then Core, and so on.
+research.TA_GOLEM_INTEGRATION.text.1=I not only solved the limited-mirror problem, but also expanded the Manager’s functionality. <BR>The §lMirror Stabilizer§r reduces the levitation load on the core and scales well—each stabilizer can support up to two additional mirrors. <BR>The §lMirror Link§r is a new tool for building supply channels: place it above a Crafter and link it to a §lMirror Manager§r whose structure includes a Math Core. <BR>§lMath Cores§r let the Manager fulfill raw-material requests for Crafters; each core supports two links. <BR>Important: due to their design, the Manager’s upgrade blocks must be connected in an alternating sequence—Core, then Stabilizer, then Core, and so on.

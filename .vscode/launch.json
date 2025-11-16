@@ -8,7 +8,7 @@
       "mainClass": "net.minecraftforge.legacydev.MainClient",
       "projectName": "ThaumicAttempts",
       "cwd": "${workspaceFolder}\\run",
-      "vmArgs": "-Dforge.logging.console.level\u003ddebug -Dforge.logging.markers\u003dSCAN,REGISTRIES,REGISTRYDUMP \"-Dnet.minecraftforge.gradle.GradleStart.csvDir\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\extractMappings\" \"-Dnet.minecraftforge.gradle.GradleStart.srg.notch-srg\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createLegacyObf2Srg\\output.srg\"",
+      "vmArgs": "-Dforge.logging.console.level\u003ddebug -Dforge.logging.markers\u003dSCAN,REGISTRIES,REGISTRYDUMP \"-Dnet.minecraftforge.gradle.GradleStart.csvDir\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\extractMappings\" -Dfml.coreMods.load\u003dtherealpant.thaumicattempts.core.ThaumicAttemptsCore \"-Dnet.minecraftforge.gradle.GradleStart.srg.notch-srg\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createLegacyObf2Srg\\output.srg\"",
       "args": "",
       "env": {
         "MCP_TO_SRG": "C:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createSrgToMcp\\output.srg",
@@ -32,7 +32,7 @@
       "mainClass": "net.minecraftforge.legacydev.MainServer",
       "projectName": "ThaumicAttempts",
       "cwd": "${workspaceFolder}\\run",
-      "vmArgs": "-Dforge.logging.console.level\u003ddebug -Dforge.logging.markers\u003dSCAN,REGISTRIES,REGISTRYDUMP \"-Dnet.minecraftforge.gradle.GradleStart.csvDir\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\extractMappings\" \"-Dnet.minecraftforge.gradle.GradleStart.srg.notch-srg\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createLegacyObf2Srg\\output.srg\"",
+      "vmArgs": "-Dforge.logging.console.level\u003ddebug -Dforge.logging.markers\u003dSCAN,REGISTRIES,REGISTRYDUMP \"-Dnet.minecraftforge.gradle.GradleStart.csvDir\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\extractMappings\" -Dfml.coreMods.load\u003dtherealpant.thaumicattempts.core.ThaumicAttemptsCore \"-Dnet.minecraftforge.gradle.GradleStart.srg.notch-srg\u003dC:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createLegacyObf2Srg\\output.srg\"",
       "args": "",
       "env": {
         "MCP_TO_SRG": "C:\\Users\\PC\\Desktop\\Мое Дитя\\ThaumicAttempts\\build\\createSrgToMcp\\output.srg",

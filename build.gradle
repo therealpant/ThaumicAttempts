@@ -34,7 +34,11 @@ repositories {
         name "Su5ed LegacyDev Fork"
         url "https://maven.su5ed.dev/releases"
     }
-
+    // GeckoLib (Cloudsmith)
+    maven {
+        url "https://dl.cloudsmith.io/public/geckolib3/geckolib/maven/"
+        content { includeGroup "software.bernie.geckolib" }
+    }
     // Curse Maven
     maven {
         url "https://www.cursemaven.com/"
@@ -73,6 +77,7 @@ minecraft {
             property 'forge.logging.markers', 'SCAN,REGISTRIES,REGISTRYDUMP'
             property 'forge.logging.console.level', 'debug'
 
+            property 'fml.coreMods.load', 'therealpant.thaumicattempts.core.ThaumicAttemptsCore'
 
             if (needCustomNatives) {
                 property 'java.library.path', ''
@@ -93,6 +98,8 @@ minecraft {
             property 'forge.logging.markers', 'SCAN,REGISTRIES,REGISTRYDUMP'
             property 'forge.logging.console.level', 'debug'
 
+            property 'fml.coreMods.load', 'therealpant.thaumicattempts.core.ThaumicAttemptsCore'
+
 
             if (needCustomNatives) {
                 property 'java.library.path', ''
@@ -111,6 +118,7 @@ minecraft {
 dependencies {
     minecraft "net.minecraftforge:forge:${mcversion}-${forgeversion}"
 
+    implementation fg.deobf("software.bernie.geckolib:forge-1.12.2-geckolib:3.0.26")
     implementation fg.deobf('curse.maven:thaumcraft-223628:2629023')
     implementation fg.deobf('curse.maven:baubles-227083:2518667')
 
@@ -234,8 +242,7 @@ task signJar(type: SignJar) {
 
 jar {
     manifest {
-        attributes 'FMLAT': 'thaumicaugmentation_at.cfg'
-        attributes 'FMLCorePlugin': 'thecodex6824.thaumicaugmentation.core.ThaumicAugmentationCore'
+        attributes "FMLCorePlugin": "therealpant.thaumicattempts.core.ThaumicAttemptsCore"
         attributes 'FMLCorePluginContainsFMLMod': 'true'
     }
 }

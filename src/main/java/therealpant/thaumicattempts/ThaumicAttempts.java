@@ -13,8 +13,8 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.common.registry.GameRegistry;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import software.bernie.geckolib3.GeckoLib;
 import thaumcraft.api.ThaumcraftApi;
-import thaumcraft.common.golems.seals.SealHandler;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
@@ -61,6 +61,9 @@ public class ThaumicAttempts {
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent e) {
+
+        GeckoLib.initialize();
+
         // 1) Сетевой канал + регистрация пакетов
         NET = NetworkRegistry.INSTANCE.newSimpleChannel(MODID);
         registerPackets();
@@ -82,13 +85,19 @@ public class ThaumicAttempts {
                 TileOrderTerminal.class,
                 new ResourceLocation(MODID, "order_terminal")
         );
+        GameRegistry.registerTileEntity(
+                therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "golem_dispatcher")
+        );
         ThaumcraftApi.registerResearchLocation(
                 new ResourceLocation(ThaumicAttempts.MODID, "research")
         );
 
         MinecraftForge.EVENT_BUS.register(ThaumcraftProvisionHelper.class);
         // 3) Прокси preInit (если нужно)
-        proxy.preInit();
+
+
+        proxy.preInit(e);
     }
 
     @Mod.EventHandler

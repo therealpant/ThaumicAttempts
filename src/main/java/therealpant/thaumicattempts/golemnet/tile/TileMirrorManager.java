@@ -927,11 +927,10 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         if (world == null || stack == null || stack.isEmpty()) return false;
 
         boolean had = hasActiveDispatchers();
-        int color = getProvisionColor();
 
         if (!had) {
-            // Ванильный provisioning без фиксации големов — fallback
-            thaumcraft.api.golems.GolemHelper.requestProvisioning(
+            // Нет диспетчеров — классический TC provisioning, это ОК.
+            GolemHelper.requestProvisioning(
                     world,
                     this.pos,
                     EnumFacing.UP,
@@ -941,11 +940,8 @@ public class TileMirrorManager extends TileEntity implements ITickable {
             return true;
         }
 
-        // С диспетчерами — создаём ТОЛЬКО форсированные таски:
-        // внутри ThaumcraftProvisionHelper:
-        // 1) берём TaskHandler.tasks
-        // 2) зовём findFreeDispatcherGolemUUID(...)
-        // 3) создаём Task с setGolemUUID(...) и нужным color
+        // Есть диспетчеры — используем ТОЛЬКО форсированные таски через helper.
+        // Внутри: ищется свободный линкованный голем и создаётся Task с жёстким golemUUID.
         return ThaumcraftProvisionHelper.requestProvisioningForManager(this, stack);
     }
 
@@ -1064,12 +1060,53 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         @Nullable
         BlockPos requester;
 
+        // НОВОЕ:
+        @Nullable
+        UUID golemId; // закреплённый курьер для этой линии (только для DELIVERY от менеджера)
+
         Line(ItemStack like1, int amount) {
             this.wanted1 = like1.copy();
             this.wanted1.setCount(1);
             this.remaining = Math.max(1, amount);
             this.reserved = 0;
         }
+    }
+
+    private List<UUID> getDispatcherGolemsSnapshot() {
+        List<UUID> all = new ArrayList<>();
+        if (world == null || world.isRemote) return all;
+        for (Map.Entry<BlockPos, DispatcherStats> e : boundDispatchers.entrySet()) {
+            TileEntity te = world.getTileEntity(e.getKey());
+            if (!(te instanceof TileGolemDispatcher)) continue;
+            TileGolemDispatcher gd = (TileGolemDispatcher) te;
+            if (!gd.hasBoundGolems()) continue;
+            for (UUID id : gd.getBoundGolemsSnapshot()) {
+                if (id != null) {
+                    all.add(id);
+                }
+            }
+        }
+        return all;
+    }
+    private void assignLinesToGolemsRoundRobin(List<Line> lines) {
+        if (world == null || world.isRemote) return;
+        if (lines == null || lines.isEmpty()) return;
+
+        List<UUID> golems = getDispatcherGolemsSnapshot();
+        if (golems.isEmpty()) return; // нет курьеров — оставляем golemId = null
+
+        // Чтобы между батчами не всегда начинать с первого — можно
+        // использовать dispatcherRoundRobinIndex (он уже есть в классе).
+        int idx = dispatcherRoundRobinIndex % golems.size();
+        if (idx < 0) idx = 0;
+
+        for (Line ln : lines) {
+            if (ln == null || ln.remaining <= 0) continue;
+            ln.golemId = golems.get(idx);
+            idx = (idx + 1) % golems.size();
+        }
+
+        dispatcherRoundRobinIndex = idx;
     }
 
     private static final class Batch {
@@ -1103,7 +1140,8 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         BlockPos find(ItemKey key);
     }
 
-    public void enqueueBatchDelivery(BlockPos dest, int destSide, int queueId, List<Map.Entry<ItemKey, Integer>> moved) {
+    public void enqueueBatchDelivery(BlockPos dest, int destSide, int queueId,
+                                     List<Map.Entry<ItemKey, Integer>> moved) {
         if (dest == null || moved == null || moved.isEmpty()) return;
         int q = Math.max(0, Math.min(5, queueId));
         Batch b = new Batch(Batch.Kind.DELIVERY, dest, destSide, q);
@@ -1112,9 +1150,31 @@ public class TileMirrorManager extends TileEntity implements ITickable {
             int amt = Math.max(1, e.getValue());
             b.lines.add(new Line(like1, amt));
         }
+
+        // НОВОЕ:
+        assignLinesToGolemsRoundRobin(b.lines);
+
         batchQueues.get(q).addLast(b);
         markDirty();
     }
+    private boolean isGolemFreeForManager(UUID golemId) {
+        if (golemId == null) return false;
+        ConcurrentHashMap<Integer, Task> tasks = ThaumcraftProvisionHelper.getTasksSafe();
+        if (tasks == null) return true; // не смогли получить — не блокируем
+
+        for (Task t : tasks.values()) {
+            if (t == null) continue;
+            if (t.isCompleted() || t.isSuspended()) continue;
+            if (!golemId.equals(t.getGolemUUID())) continue;
+
+            // Наш голем в активном таске. Проверяем, что это именно наш менеджер.
+            if (t.getSealPos() != null && this.pos.equals(t.getSealPos().pos)) {
+                return false; // уже несёт что-то для этого менеджера
+            }
+        }
+        return true;
+    }
+
 
     private int harvestAnyFromCrafterOutput(BlockPos requesterPos) {
         if (world == null || requesterPos == null) return 0;
@@ -1440,61 +1500,51 @@ public class TileMirrorManager extends TileEntity implements ITickable {
             if (tickCounter - lt >= REQ_DEBOUNCE_TICKS) {
 
                 boolean hasDispatchers = !boundDispatchers.isEmpty();
-                int freeSlots = hasDispatchers
-                        ? Math.max(0, Math.min(dispatcherBudget, dispatcherCapForLine))
-                        : Integer.MAX_VALUE;
 
                 int budget = Math.min(MAX_REQ_PER_TICK, need);
                 int requested = 0;
 
-                while (budget > 0) {
+                if (!hasDispatchers) {
+                    // старое ванильное поведение без менеджерской сети
+                    while (budget > 0) {
+                        int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
+                        if (chunk <= 0) break;
+
+                        ItemStack req = normalizeForProvision(ln.wanted1, chunk);
+                        if (req.isEmpty()) break;
+
+                        GolemHelper.requestProvisioning(world, this.pos, EnumFacing.UP, req, 0);
+                        requested += chunk;
+                        budget -= chunk;
+                    }
+                } else {
+                    // НОВОЕ: персональная очередь по golemId
+                    if (ln.golemId == null) {
+                        // нет закреплённого — просто ждём, перераспределение можно сделать позже при рескане
+                        return LineProcessResult.of(false);
+                    }
+
+                    // если голем уже не линкован — можно обнулить и переассайнить в будущем (упрощённо: ждём)
+                    if (!isDispatcherLinkedGolem(ln.golemId)) {
+                        ln.golemId = null;
+                        return LineProcessResult.of(false);
+                    }
+
+                    // если у голема уже есть активный таск для нас — ждём завершения
+                    if (!isGolemFreeForManager(ln.golemId)) {
+                        return LineProcessResult.of(false);
+                    }
+
+                    // Этот голем свободен, можно выдать ЕМУ следующий кусок
                     int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
-                    if (chunk <= 0) break;
-
-                    // Если работаем через диспетчеров — проверяем свободный слот
-                    if (hasDispatchers) {
-                        if (freeSlots <= 0) break;
-                        if (!reserveDispatcherGolem()) break;
-                    }
-
-                    ItemStack req = normalizeForProvision(ln.wanted1, chunk);
-                    if (req.isEmpty()) {
-                        if (hasDispatchers) {
-                            releaseDispatcherGolem();
+                    if (chunk > 0) {
+                        ItemStack req = normalizeForProvision(ln.wanted1, chunk);
+                        if (!req.isEmpty()) {
+                            boolean ok = ThaumcraftProvisionHelper.requestProvisioningForManagerWithGolem(this, req, ln.golemId);
+                            if (ok) {
+                                requested += chunk;
+                            }
                         }
-                        break;
-                    }
-
-                    boolean ok;
-                    if (hasDispatchers) {
-                        ok = enqueueProvisionTask(req);
-                    } else {
-                        thaumcraft.api.golems.GolemHelper.requestProvisioning(
-                                world,
-                                this.pos,
-                                EnumFacing.UP,
-                                req,
-                                0
-                        );
-                        ok = true;
-                    }
-
-                    if (!ok) {
-                        // не смогли создать таск — откатываем резерв (если был)
-                        if (hasDispatchers) {
-                            releaseDispatcherGolem();
-                        }
-                        break;
-                    }
-
-                    // Успешно создали запрос под chunk
-                    requested += chunk;
-                    budget -= chunk;
-                    ln.reserved += chunk;
-
-                    if (hasDispatchers) {
-                        reservationsCommitted++;
-                        freeSlots--;
                     }
                 }
 
@@ -1504,6 +1554,7 @@ public class TileMirrorManager extends TileEntity implements ITickable {
                 }
             }
         }
+
 
         int pushed1 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
         if (pushed1 > 0) {
@@ -1942,8 +1993,6 @@ public class TileMirrorManager extends TileEntity implements ITickable {
         // Все заняты
         return null;
     }
-
-
 
 
     private void rescanUpgradesAndRevalidate() {

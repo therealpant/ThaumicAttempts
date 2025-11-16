@@ -11,8 +11,8 @@ public class ClientProxy extends CommonProxy {
     @Override public void postInit(FMLPostInitializationEvent e) {}
 
     @Override
-    public void preInit() {
-        super.preInit();
+    public void preInit(FMLPreInitializationEvent e) {
+        super.preInit(e);
         ClientRegistry.bindTileEntitySpecialRenderer(TileOrderTerminal.class, new RenderOrderTerminal());
     }
 

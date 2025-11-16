@@ -10,20 +10,27 @@ import net.minecraftforge.client.event.ModelRegistryEvent;
 import net.minecraftforge.client.model.ModelLoader;
 import net.minecraftforge.fml.client.registry.ClientRegistry;
 import net.minecraftforge.fml.common.Mod;
+import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.client.render.DispatcherRenderer;
 import therealpant.thaumicattempts.client.render.RenderMirrorManager;
 import therealpant.thaumicattempts.client.render.RenderPatternRequester;
+import therealpant.thaumicattempts.client.render.RenderResourceRequester;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemnet.block.BlockMathCore;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer;
+import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
+import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.proxy.CommonProxy;
 
 @Mod.EventBusSubscriber(value = Side.CLIENT, modid = ThaumicAttempts.MODID)
-public final class ClientModels {
+public final class ClientModels extends CommonProxy {
 
     @SubscribeEvent
     public static void onModelRegistry(ModelRegistryEvent e) {
@@ -44,9 +51,9 @@ public final class ClientModels {
         );
 
         // ItemBlock'и наших блоков (иконки!)
-        registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER,     ThaumicAttempts.MODID + ":golem_crafter");
-        registerItemBlockModel(ModBlocksItems.ARCANE_CRAFTER,    ThaumicAttempts.MODID + ":arcane_crafter");
-        registerItemBlockModel(ModBlocksItems.MATH_CORE,         ThaumicAttempts.MODID + ":math_core");
+        registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER, ThaumicAttempts.MODID + ":golem_crafter");
+        registerItemBlockModel(ModBlocksItems.ARCANE_CRAFTER, ThaumicAttempts.MODID + ":arcane_crafter");
+        registerItemBlockModel(ModBlocksItems.MATH_CORE, ThaumicAttempts.MODID + ":math_core");
         registerItemBlockModel(ModBlocksItems.MIRROR_STABILIZER, ThaumicAttempts.MODID + ":mirror_stabilizer");
 
         // ухо — используем таумовскую иконку предмета
@@ -105,7 +112,18 @@ public final class ClientModels {
         /* ---------- TESR ---------- */
         ClientRegistry.bindTileEntitySpecialRenderer(TileMirrorManager.class, new RenderMirrorManager());
         ClientRegistry.bindTileEntitySpecialRenderer(TilePatternRequester.class, new RenderPatternRequester());
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileResourceRequester.class,
+                new RenderResourceRequester()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                    TileGolemDispatcher.class,
+                    new DispatcherRenderer()
+        );
     }
+
+
+
 
     private static void registerItemBlockModel(net.minecraft.block.Block block, String path) {
         ModelLoader.setCustomModelResourceLocation(

@@ -20,6 +20,10 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
+import net.minecraft.util.EnumBlockRenderType;
+import net.minecraft.util.BlockRenderLayer;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 
 import javax.annotation.Nullable;
 
@@ -99,6 +103,25 @@ public class BlockResourceRequester extends BlockHorizontal {
                 pos.getX(), pos.getY(), pos.getZ());
         return true;
     }
+
+    @Override
+    public EnumBlockRenderType getRenderType(IBlockState state) {
+        // Модель блока — только через GeoBlockRenderer
+        return EnumBlockRenderType.INVISIBLE;
+    }
+
+    @SideOnly(Side.CLIENT)
+    @Override
+    public BlockRenderLayer getRenderLayer() {
+        return BlockRenderLayer.CUTOUT_MIPPED;
+    }
+
+    @SideOnly(Side.CLIENT)
+    @Override
+    public boolean canRenderInLayer(IBlockState state, BlockRenderLayer layer) {
+        return layer == BlockRenderLayer.CUTOUT_MIPPED;
+    }
+
 
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
