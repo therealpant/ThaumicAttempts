@@ -44,6 +44,7 @@ public class BlockResourceRequester extends BlockHorizontal {
         setDefaultState(this.blockState.getBaseState().withProperty(FACING, EnumFacing.NORTH));
     }
 
+
     @Override
     protected BlockStateContainer createBlockState() {
         return new BlockStateContainer(this, FACING);

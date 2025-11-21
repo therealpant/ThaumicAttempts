@@ -5,6 +5,7 @@ import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.renderer.block.model.ModelResourceLocation;
 import net.minecraft.client.renderer.block.statemap.StateMap;
 import net.minecraft.client.renderer.block.statemap.StateMapperBase;
+import net.minecraft.client.renderer.tileentity.TileEntityRendererDispatcher;
 import net.minecraft.item.Item;
 import net.minecraftforge.client.event.ModelRegistryEvent;
 import net.minecraftforge.client.model.ModelLoader;
@@ -15,10 +16,7 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.client.render.DispatcherRenderer;
-import therealpant.thaumicattempts.client.render.RenderMirrorManager;
-import therealpant.thaumicattempts.client.render.RenderPatternRequester;
-import therealpant.thaumicattempts.client.render.RenderResourceRequester;
+import therealpant.thaumicattempts.client.render.*;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemnet.block.BlockMathCore;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer;
@@ -111,7 +109,10 @@ public final class ClientModels extends CommonProxy {
 
         /* ---------- TESR ---------- */
         ClientRegistry.bindTileEntitySpecialRenderer(TileMirrorManager.class, new RenderMirrorManager());
-        ClientRegistry.bindTileEntitySpecialRenderer(TilePatternRequester.class, new RenderPatternRequester());
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TilePatternRequester.class,
+                new RenderPatternRequesterGeo()
+        );
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileResourceRequester.class,
                 new RenderResourceRequester()

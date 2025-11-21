@@ -23,7 +23,7 @@ import javax.annotation.Nullable;
 public class BlockPatternRequester extends Block {
 
     public static final PropertyEnum<EnumFacing> FACING =
-            PropertyEnum.create("facing", EnumFacing.class, EnumFacing.UP, EnumFacing.DOWN);
+            PropertyEnum.create("facing", EnumFacing.class);
 
     public BlockPatternRequester() {
         super(Material.ROCK);
@@ -36,20 +36,22 @@ public class BlockPatternRequester extends Block {
         setDefaultState(this.blockState.getBaseState().withProperty(FACING, EnumFacing.UP));
     }
 
-    @Override protected BlockStateContainer createBlockState() {
+    @Override
+    protected BlockStateContainer createBlockState() {
         return new BlockStateContainer(this, FACING);
     }
     @Override public IBlockState getStateFromMeta(int meta) {
         return getDefaultState().withProperty(FACING, (meta == 1) ? EnumFacing.DOWN : EnumFacing.UP);
     }
-    @Override public int getMetaFromState(IBlockState state) {
-        return state.getValue(FACING) == EnumFacing.DOWN ? 1 : 0;
+    @Override
+    public int getMetaFromState(IBlockState state) {
+        return state.getValue(FACING).getIndex();
     }
     @Override
     public IBlockState getStateForPlacement(World w, BlockPos pos, EnumFacing face,
                                             float hx, float hy, float hz, int meta, EntityLivingBase placer) {
-        // любой «верхний» клик — UP, любой «нижний» — DOWN
-        return getDefaultState().withProperty(FACING, (face == EnumFacing.DOWN) ? EnumFacing.DOWN : EnumFacing.UP);
+        // Просто берём сторону, по которой кликнули — туда и "смотрит" блок
+        return getDefaultState().withProperty(FACING, face);
     }
 
     @Override public boolean hasTileEntity(IBlockState state) { return true; }
@@ -66,7 +68,7 @@ public class BlockPatternRequester extends Block {
     }
     @Override public boolean canConnectRedstone(IBlockState s, IBlockAccess w, BlockPos p, @Nullable EnumFacing side) { return true; }
 
-    private static final AxisAlignedBB AABB_LOW = new AxisAlignedBB(0, 0, 0, 1, 7.0/16.0, 1);
+    private static final AxisAlignedBB AABB_LOW = new AxisAlignedBB(0, 0, 0, 1, 1, 1);
     @Override
     public AxisAlignedBB getBoundingBox(IBlockState state, IBlockAccess world, BlockPos pos) {
         return AABB_LOW;                    // контур выбора
@@ -75,6 +77,11 @@ public class BlockPatternRequester extends Block {
     @Override
     public AxisAlignedBB getCollisionBoundingBox(IBlockState state, IBlockAccess world, BlockPos pos) {
         return AABB_LOW;                    // коллизия (во что упирается игрок)
+    }
+    @Override
+    public net.minecraft.util.EnumBlockRenderType getRenderType(net.minecraft.block.state.IBlockState state) {
+        // пусть всё рисует Geckolib (TESR), сам блок — невидимый
+        return net.minecraft.util.EnumBlockRenderType.INVISIBLE;
     }
 
     // визуал/свет — чтобы земля вокруг не темнела

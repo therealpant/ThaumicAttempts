@@ -15,10 +15,13 @@ import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
+import software.bernie.geckolib3.core.AnimationState;
 import software.bernie.geckolib3.core.IAnimatable;
+import software.bernie.geckolib3.core.builder.Animation;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.golems.GolemHelper;
+import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.util.ItemKey;
 import thaumcraft.api.ThaumcraftApiHelper;
@@ -35,15 +38,7 @@ import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 
 import javax.annotation.Nullable;
-import java.util.ArrayDeque;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.EnumMap;
-import java.util.Iterator;
-import java.util.LinkedHashMap;
-import java.util.List;
-import java.util.Map;
-import java.util.Objects;
+import java.util.*;
 
 public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable {
 
@@ -95,6 +90,18 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             this.count = count;
         }
     }
+
+    // === Состояния анимации крышки ===
+    private enum CapAnimPhase {
+        IDLE,       // ничто не играет
+        OPENING,    // cap1
+        LOOPING,    // cap2 циклически
+        CLOSING     // cap3
+    }
+
+    private CapAnimPhase capPhase = CapAnimPhase.IDLE;
+    // флаг "закрыть после текущего цикла cap2"
+    private boolean capShouldCloseAfterLoop = false;
 
     private final Deque<QueuedTrigger> queuedSignals = new ArrayDeque<>();
 
@@ -681,6 +688,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         }
     }
 
+
     public @Nullable BlockPos getManagerPos() { return managerPos; }
 
     public void setManagerPos(@Nullable BlockPos pos) {
@@ -789,29 +797,89 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     private <E extends IAnimatable> PlayState provisionAnimPredicate(AnimationEvent<E> event) {
         AnimationController<?> controller = event.getController();
 
-        // «Глобальная очередь ожидания»
+        // есть ли сейчас вообще работа (активный заказ/очередь/ожидание доставки)
         boolean waiting = hasAnyWaitingWork();
 
-        // Переход: ничего не ждали -> начали ждать
-        if (waiting && !lastWaiting) {
-            // РОВНО 1 раз: cap, затем cap2 на цикле
-            controller.setAnimation(new AnimationBuilder()
-                    .addAnimation("animation.model.cap", false)   // один раз
-                    .addAnimation("animation.model.cap2", true)); // loop
-        }
-        // Переход: ждали -> больше ничего не ждём
-        else if (!waiting && lastWaiting) {
-            // РОВНО один раз закрываем: cap3
-            controller.setAnimation(new AnimationBuilder()
-                    .addAnimation("animation.model.cap3", false));
-        }
-        // Долго в idle, и всё ещё idle — останавливаем проигрывание
-        else if (!waiting && !lastWaiting) {
-            lastWaiting = false;
-            return PlayState.STOP;
+        // что сейчас реально играет
+        Animation current = controller.getCurrentAnimation();
+        AnimationState state = controller.getAnimationState();
+
+        switch (capPhase) {
+            case IDLE:
+                // Ничего не играет. Если появляется работа — стартуем последовательность cap1 -> cap2.
+                if (waiting) {
+                    capShouldCloseAfterLoop = false;
+                    controller.markNeedsReload();
+                    controller.setAnimation(new AnimationBuilder()
+                            .addAnimation("animation.model.cap1", false)); // открыть крышку
+                    capPhase = CapAnimPhase.OPENING;
+                } else {
+                    // вообще ничего интересного — можно остановить контроллер
+                    return PlayState.STOP;
+                }
+                break;
+
+            case OPENING:
+                // Крышка поднимается (cap1). Если очередь успела опустеть — помечаем,
+                // что после ПЕРВОГО cap2 надо закрываться.
+                if (!waiting) {
+                    capShouldCloseAfterLoop = true;
+                }
+
+                // Переход в LOOPING после окончания cap1
+                if (current != null
+                        && "animation.model.cap1".equals(current.animationName)
+                        && state == AnimationState.Stopped) {
+                    controller.markNeedsReload();
+                    controller.setAnimation(new AnimationBuilder()
+                            .addAnimation("animation.model.cap2", false)); // один цикл cap2
+                    capPhase = CapAnimPhase.LOOPING;
+                }
+                break;
+
+            case LOOPING:
+                // Пока есть работа — после окончания кап2 запускаем его снова.
+                // Если работы нет — помечаем, что этот цикл — последний.
+                if (!waiting) {
+                    capShouldCloseAfterLoop = true;
+                }
+
+                if (state == AnimationState.Stopped) {
+                    if (capShouldCloseAfterLoop) {
+                        // этот цикл cap2 был последним → играем cap3 (закрытие)
+                        controller.markNeedsReload();
+                        controller.setAnimation(new AnimationBuilder()
+                                .addAnimation("animation.model.cap3", false));
+                        capPhase = CapAnimPhase.CLOSING;
+                    } else {
+                        // работы ещё полно → крутим cap2 дальше
+                        controller.markNeedsReload();
+                        controller.setAnimation(new AnimationBuilder()
+                                .addAnimation("animation.model.cap2", false));
+                    }
+                }
+                break;
+
+            case CLOSING:
+                // Играем cap3. Когда закончился — уходим в IDLE.
+                if (state == AnimationState.Stopped) {
+                    capPhase = CapAnimPhase.IDLE;
+                    capShouldCloseAfterLoop = false;
+
+                    // Если пока закрывались пришла новая работа —
+                    // сразу запускаем новый цикл cap1 → cap2.
+                    if (waiting) {
+                        controller.markNeedsReload();
+                        controller.setAnimation(new AnimationBuilder()
+                                .addAnimation("animation.model.cap1", false));
+                        capPhase = CapAnimPhase.OPENING;
+                    } else {
+                        return PlayState.STOP;
+                    }
+                }
+                break;
         }
 
-        lastWaiting = waiting;
         return PlayState.CONTINUE;
     }
 
