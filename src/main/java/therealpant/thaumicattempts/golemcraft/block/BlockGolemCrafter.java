@@ -73,9 +73,12 @@ public class BlockGolemCrafter extends Block {
         return false;
     }
 
-    // опционально: корректное уничтожение (если хочешь что-то дропать — добавляй тут)
     @Override
     public void breakBlock(World worldIn, BlockPos pos, IBlockState state) {
+        TileEntity te = worldIn.getTileEntity(pos);
+        if (te instanceof TileEntityGolemCrafter) {
+            ((TileEntityGolemCrafter) te).dropContents();
+        }
         super.breakBlock(worldIn, pos, state);
         worldIn.removeTileEntity(pos);
     }

@@ -199,6 +199,25 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return n;
     }
 
+    public void dropContents() {
+        if (world == null || world.isRemote) return;
+
+        dropHandler(patterns);
+        dropHandler(input);
+        dropHandler(output);
+    }
+
+    private void dropHandler(ItemStackHandler handler) {
+        if (handler == null) return;
+        for (int i = 0; i < handler.getSlots(); i++) {
+            ItemStack stack = handler.getStackInSlot(i);
+            if (!stack.isEmpty()) {
+                net.minecraft.inventory.InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), stack.copy());
+                handler.setStackInSlot(i, ItemStack.EMPTY);
+            }
+        }
+    }
+
     /** Поставить в очередь N запусков по "результату как этот". Удобно, если реквестер знает только like1. */
     public int enqueueCraftsByRequesterLike(ItemStack like1, int times) {
         if (like1 == null || like1.isEmpty()) return 0;

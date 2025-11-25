@@ -132,6 +132,7 @@ public class BlockMirrorManager extends Block {
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
         TileEntity te = world.getTileEntity(pos);
         if (te instanceof TileMirrorManager) {
+            ((TileMirrorManager) te).dropContents();
             ((TileMirrorManager) te).forceUnbindAll();
         }
         // Сбрасываем ВСЕ стабы/ядра в 5×5×3 под менеджером

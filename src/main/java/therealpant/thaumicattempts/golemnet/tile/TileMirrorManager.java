@@ -1165,6 +1165,28 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         for (int i = 0; i < 6; i++) batchQueues.add(new ArrayDeque<>());
     }
 
+    public void dropContents() {
+        if (world == null || world.isRemote) return;
+        ItemStack mirror = new ItemStack(thaumcraft.api.blocks.BlocksTC.mirror);
+        if (!mirror.isEmpty()) {
+            for (int i = 0; i < pendingEjects.size(); i++) {
+                net.minecraft.inventory.InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), mirror.copy());
+            }
+            for (int i = 0; i < activeMirrors.size(); i++) {
+                net.minecraft.inventory.InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), mirror.copy());
+            }
+            pendingEjects.clear();
+            activeMirrors.clear();
+        }
+        for (int i = 0; i < buffer.getSlots(); i++) {
+            ItemStack stack = buffer.getStackInSlot(i);
+            if (!stack.isEmpty()) {
+                net.minecraft.inventory.InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), stack.copy());
+                buffer.setStackInSlot(i, ItemStack.EMPTY);
+            }
+        }
+    }
+
     public interface RequesterFinder {
         @Nullable
         BlockPos find(ItemKey key);
@@ -1548,29 +1570,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                         budget -= chunk;
                     }
                 } else {
-                    // НОВОЕ: персональная очередь по golemId
-                    if (ln.golemId == null) {
-                        // нет закреплённого — просто ждём, перераспределение можно сделать позже при рескане
-                        return LineProcessResult.of(false);
-                    }
-
-                    // если голем уже не линкован — можно обнулить и переассайнить в будущем (упрощённо: ждём)
-                    if (!isDispatcherLinkedGolem(ln.golemId)) {
-                        ln.golemId = null;
-                        return LineProcessResult.of(false);
-                    }
-
-                    // если у голема уже есть активный таск для нас — ждём завершения
-                    if (!isGolemFreeForManager(ln.golemId)) {
-                        return LineProcessResult.of(false);
-                    }
-
-                    // Этот голем свободен, можно выдать ЕМУ следующий кусок
+                    // Менеджер сначала ставит таск в очередь, а диспетчер раскидывает по курьерам
                     int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
                     if (chunk > 0) {
                         ItemStack req = normalizeForProvision(ln.wanted1, chunk);
                         if (!req.isEmpty()) {
-                            boolean ok = ThaumcraftProvisionHelper.requestProvisioningForManagerWithGolem(this, req, ln.golemId);
+                            boolean ok = ThaumcraftProvisionHelper.requestProvisioningForManager(this, req);
                             if (ok) {
                                 requested += chunk;
                             }
@@ -1603,6 +1608,20 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (ln.requester == null) return true;
 
         final BlockPos rp = ln.requester;
+        int atDest = countAtDestLike(b.dest, b.destSide, ln.wanted1);
+        int queuedToDest = Math.max(0, countQueuedFor(b.dest, ln.wanted1) - ln.remaining);
+        int alreadyCovered = atDest + queuedToDest;
+        if (alreadyCovered > 0) {
+            int before = ln.remaining;
+            ln.remaining = Math.max(0, ln.remaining - alreadyCovered);
+            if (ln.remaining <= 0) {
+                lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
+                return true;
+            }
+            if (ln.remaining != before) {
+                markDirty();
+            }
+        }
         harvestAnyFromCrafterOutput(rp);
         final BlockPos crafterPos = rp.down();
         final TileEntity rte = world.getTileEntity(rp);
@@ -1684,20 +1703,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             activeQueue = qDelivery;
         }
 
-        Map.Entry<ItemKey, Integer> firstMiss = miss.entrySet().stream()
-                .filter(e -> e.getValue() > 0)
-                .findFirst().orElse(null);
-        if (firstMiss != null) {
-            ItemStack like1 = firstMiss.getKey().toStack(1);
-            int chunk = Math.min(like1.getMaxStackSize(), firstMiss.getValue());
-            ItemStack req = normalizeForProvision(like1, chunk); // <— ключевое
-            if (!req.isEmpty()) {
-                if (boundDispatchers.isEmpty()) {
+        if (boundDispatchers.isEmpty()) {
+            Map.Entry<ItemKey, Integer> firstMiss = miss.entrySet().stream()
+                    .filter(e -> e.getValue() > 0)
+                    .findFirst().orElse(null);
+            if (firstMiss != null) {
+                ItemStack like1 = firstMiss.getKey().toStack(1);
+                int chunk = Math.min(like1.getMaxStackSize(), firstMiss.getValue());
+                ItemStack req = normalizeForProvision(like1, chunk); // <— ключевое
+                if (!req.isEmpty()) {
                     enqueueProvisionTask(req);
-                } else if (reserveDispatcherGolem()) {
-                    if (!enqueueProvisionTask(req)) {
-                        releaseDispatcherGolem();
-                    }
                 }
             }
         }

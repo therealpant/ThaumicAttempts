@@ -78,5 +78,12 @@ public class BlockArcaneCrafter extends Block {
     public AxisAlignedBB getCollisionBoundingBox(IBlockState state, IBlockAccess world, BlockPos pos) {
         return AABB_LOW;                    // коллизия (во что упирается игрок)
     }
-
+    @Override
+    public void breakBlock(World world, BlockPos pos, IBlockState state) {
+        TileEntity te = world.getTileEntity(pos);
+        if (te instanceof TileEntityArcaneCrafter) {
+            ((TileEntityArcaneCrafter) te).dropContents();
+        }
+        super.breakBlock(world, pos, state);
+    }
 }

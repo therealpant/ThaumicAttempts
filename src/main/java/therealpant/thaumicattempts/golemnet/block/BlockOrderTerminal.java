@@ -89,5 +89,12 @@ public class BlockOrderTerminal extends Block {
     @Override public boolean canRenderInLayer(IBlockState state, BlockRenderLayer layer) {
         return layer == BlockRenderLayer.CUTOUT_MIPPED;
     }
-
+    @Override
+    public void breakBlock(World world, BlockPos pos, IBlockState state) {
+        TileEntity te = world.getTileEntity(pos);
+        if (te instanceof TileOrderTerminal) {
+            ((TileOrderTerminal) te).dropContents();
+        }
+        super.breakBlock(world, pos, state);
+    }
 }

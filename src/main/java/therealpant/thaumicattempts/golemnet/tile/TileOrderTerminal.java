@@ -122,6 +122,17 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         while (out.size() < 9) out.add(ItemStack.EMPTY);
         return out;
     }
+
+    public void dropContents() {
+        if (world == null || world.isRemote) return;
+        for (int i = 0; i < buffer.getSlots(); i++) {
+            ItemStack stack = buffer.getStackInSlot(i);
+            if (!stack.isEmpty()) {
+                net.minecraft.inventory.InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), stack.copy());
+                buffer.setStackInSlot(i, ItemStack.EMPTY);
+            }
+        }
+    }
     private boolean isFrozen(boolean craftTab) {
         Map<ItemKey, Integer> pend = craftTab ? pendingCraft : pendingDelivery;
         return !pend.isEmpty();

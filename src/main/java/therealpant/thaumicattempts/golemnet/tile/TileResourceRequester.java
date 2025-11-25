@@ -159,14 +159,19 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         tickCounter++;
 
         int signal = readSignal();
-        if (signal > 0 && signal != lastSignal) {
-            int idx = patternIndexFromSignal(signal);
-            if (idx >= 0) {
-                enqueueTrigger(idx, 1);
-                tryStartQueuedJob();
+        if (signal != lastSignal) {
+            if (signal > 0) {
+                int idx = patternIndexFromSignal(signal);
+                if (idx >= 0) {
+                    enqueueTrigger(idx, 1);
+                    tryStartQueuedJob();
+                    if (jobActive && !useManagerForProvision()) {
+                        requestProvisionForPending();
+                    }
+                }
             }
+            lastSignal = signal;
         }
-        lastSignal = signal;
 
         if (!jobActive) {
             tryStartQueuedJob();
