@@ -6,13 +6,14 @@ import net.minecraft.util.ResourceLocation;
 import thaumcraft.api.ThaumcraftApi;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
+import static thaumcraft.api.blocks.BlocksTC.stoneEldritchTile;
 import thaumcraft.api.crafting.CrucibleRecipe;
 import thaumcraft.api.items.ItemsTC;
-
-import static thaumcraft.api.blocks.BlocksTC.stoneEldritchTile;
+import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_RECIPE;
 
 public final class TAAlchemyRecipes {
-    private TAAlchemyRecipes() {}
+    private TAAlchemyRecipes() {
+    }
 
     public static void register() {
         // Катализатор: Void Seed
@@ -31,10 +32,13 @@ public final class TAAlchemyRecipes {
         // researchKey ставим "BASEELDRITCH" — под это исследование и будем вешать addendum.
 
         CrucibleRecipe rec = new CrucibleRecipe("BASEELDRITCH", result, catalyst, aspects);
-        ThaumcraftApi.addCrucibleRecipe(
-                new ResourceLocation("thaumicattempts","eldritch_tile_from_voidseed"),
-                rec
-        );
+
+        //Only enable the recipes when config is enabled.
+        if (ENABLE_ELDRITCH_STONE_RECIPE)
+            ThaumcraftApi.addCrucibleRecipe(
+                    new ResourceLocation("thaumicattempts", "eldritch_tile_from_voidseed"),
+                    rec
+            );
 
 
     }

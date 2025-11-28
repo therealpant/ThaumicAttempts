@@ -6,25 +6,28 @@ import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.SidedProxy;
-import net.minecraftforge.fml.common.event.*;
+import net.minecraftforge.fml.common.event.FMLInitializationEvent;
+import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
+import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
 import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.network.simpleimpl.SimpleNetworkWrapper;
-import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.common.registry.GameRegistry;
+import net.minecraftforge.fml.relauncher.Side;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import software.bernie.geckolib3.GeckoLib;
 import thaumcraft.api.ThaumcraftApi;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
+import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_RECIPE;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
-
-import therealpant.thaumicattempts.data.research.TAResearchAddenda;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemcraft.tile.TileArcaneEarBand;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
-import therealpant.thaumicattempts.golemnet.net.msg.*;
+import therealpant.thaumicattempts.golemnet.net.msg.C2S_OrderAdjust;
+import therealpant.thaumicattempts.golemnet.net.msg.C2S_OrderSubmit;
+import therealpant.thaumicattempts.golemnet.net.msg.C2S_RequestCatalogPage;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -32,7 +35,7 @@ import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 // C2S
 
 
-@Mod(modid = ThaumicAttempts.MODID, name = "Thaumic Attempts", version = "0.1.0")
+@Mod(modid = ThaumicAttempts.MODID, name = "Thaumic Attempts", version = "0.1.0", dependencies = "required-after:thaumcraft@[6.1.BETA26,);required-after:geckolib3")
 public class ThaumicAttempts {
 
     public static final String MODID = "thaumicattempts";
@@ -47,10 +50,14 @@ public class ThaumicAttempts {
     )
     public static CommonProxy proxy;
 
-    /** Наш сетевой канал — то самое NET, которое было красным */
+    /**
+     * Наш сетевой канал — то самое NET, которое было красным
+     */
     public static SimpleNetworkWrapper NET;
 
-    /** Креатив-вкладка мода */
+    /**
+     * Креатив-вкладка мода
+     */
     public static final CreativeTabs CREATIVE_TAB = new CreativeTabs(MODID) {
         @Override
         public ItemStack createIcon() {
@@ -91,13 +98,6 @@ public class ThaumicAttempts {
                 new ResourceLocation(ThaumicAttempts.MODID, "golem_dispatcher")
         );
 
-        //Research
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft_advanced"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemintegration"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemmirrors"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_delivery"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_controling"));
 
         MinecraftForge.EVENT_BUS.register(ThaumcraftProvisionHelper.class);
         // 3) Прокси preInit (если нужно)
@@ -109,6 +109,20 @@ public class ThaumicAttempts {
         // GUI-handler — нужен один раз и один класс (твой общий GuiHandler)
         NetworkRegistry.INSTANCE.registerGuiHandler(ThaumicAttempts.INSTANCE, new GuiHandler());
 
+        //Researches should register on "Init" stage.
+        //Addenda
+        if (ENABLE_ELDRITCH_STONE_RECIPE)
+            ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/arcane_ear_add"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/eldritch_add"));
+
+        //Research
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft_advanced"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemintegration"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemmirrors"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_delivery"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_controling"));
+
         proxy.init(e);
     }
 
@@ -117,19 +131,19 @@ public class ThaumicAttempts {
 
         TAInfusionRecipes.register();
         TAAlchemyRecipes.register();
-        TAResearchAddenda.injectEldritchVoidTileAddendum();
-        TAResearchAddenda.injectArcaneEarAddendum();
 
         proxy.postInit(e);
     }
 
-    /** Регистрация всех S2C/C2S сообщений с уникальными ID */
+    /**
+     * Регистрация всех S2C/C2S сообщений с уникальными ID
+     */
     private void registerPackets() {
         int id = 0;
 
         // C2S
-        NET.registerMessage(C2S_OrderAdjust.Handler.class,        C2S_OrderAdjust.class,        id++, Side.SERVER);
-        NET.registerMessage(C2S_OrderSubmit.Handler.class,        C2S_OrderSubmit.class,        id++, Side.SERVER);
+        NET.registerMessage(C2S_OrderAdjust.Handler.class, C2S_OrderAdjust.class, id++, Side.SERVER);
+        NET.registerMessage(C2S_OrderSubmit.Handler.class, C2S_OrderSubmit.class, id++, Side.SERVER);
         NET.registerMessage(C2S_RequestCatalogPage.Handler.class, C2S_RequestCatalogPage.class, id++, Side.SERVER);
 
         // S2C
@@ -137,16 +151,14 @@ public class ThaumicAttempts {
                 therealpant.thaumicattempts.golemnet.net.msg.S2C_DraftSnapshot.class, id++, Side.CLIENT);
 
         NET.registerMessage(therealpant.thaumicattempts.golemnet.net.msg.S2C_CatalogPage.Handler.class,
-                therealpant.thaumicattempts.golemnet.net.msg.S2C_CatalogPage.class,   id++, Side.CLIENT);
+                therealpant.thaumicattempts.golemnet.net.msg.S2C_CatalogPage.class, id++, Side.CLIENT);
 
         NET.registerMessage(therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim.Handler.class,
-                therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim.class,        id++, Side.CLIENT);
+                therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim.class, id++, Side.CLIENT);
 
         NET.registerMessage(therealpant.thaumicattempts.golemnet.net.msg.S2C_SnapshotCreated.Handler.class,
                 therealpant.thaumicattempts.golemnet.net.msg.S2C_SnapshotCreated.class, id++, Side.CLIENT);
     }
-
-
 
 
 }

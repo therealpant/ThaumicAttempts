@@ -1,0 +1,32 @@
+{
+  "entries": [
+    {
+      "key": "BASEELDRITCH",
+      "name": "research.BASEELDRITCH.title",
+      "icons": [ "thaumcraft:void_seed" ],
+      "category": "ELDRITCH", "location": [ 0,0 ],
+      "parents": [ "METALLURGY", "UNLOCKELDRITCH" ],
+      "meta": [ "ROUND" ],
+      "stages": [
+        {
+          "text": "research.BASEELDRITCH.stage.1",
+          "required_knowledge":["THEORY;BASICS;1","THEORY;ALCHEMY;1","THEORY;ELDRITCH;1"],
+          "warp": 2
+        },
+        {
+          "text": "research.BASEELDRITCH.stage.2",
+          "recipes": ["thaumcraft:voidingot","thaumcraft:void_stuff"]
+        }
+      ],
+      "addenda": [
+        {
+          "recipes": [
+            "thaumicattempts:eldritch_tile_from_voidseed"
+          ],
+          "text": "research.BASEELDRITCH.ta_addendum_voidtile_from_seed",
+          "required_research": [ "BASEELDRITCH" ]
+        }
+      ]
+    }
+  ]
+}
