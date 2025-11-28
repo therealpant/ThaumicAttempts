@@ -19,6 +19,11 @@ item.thaumicattempts.resource_list.name=Заказ на Доставку
 container.golem_crafter=Верстак Голема
 container.arcane_crafter=Мистический Верстак Голема
 
+ta.tooltip.result=Результат: %s
+ta.tooltip.result.unknown=?
+ta.tooltip.slot.empty=пусто
+ta.tooltip.hold_shift=§7(Зажмите §eShift§7, чтобы увидеть рецепт)
+
 mod.thaumicattempts.name=ThaumicAttempts
 itemGroup.thaumicattempts=Thaumic Attempts
 

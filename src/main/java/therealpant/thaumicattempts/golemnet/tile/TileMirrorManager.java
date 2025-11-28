@@ -1085,6 +1085,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private static final class Line {
         final ItemStack wanted1;
         public int craftsScheduled;
+        int craftsExpected;
+        int craftsCompleted;
+        int perCraftOut = 1;
         int remaining;
         int reserved;
         @Nullable
@@ -1328,6 +1331,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         };
 
+        Map<BlockPos, LinkedHashMap<ItemKey, Integer>> provisioning = new HashMap<>();
+        Map<BlockPos, Map<ItemKey, Integer>> availablePerCrafter = new HashMap<>();
+        List<Batch> craftBatches = new ArrayList<>();
+
         for (Map.Entry<ItemKey, Integer> e : moved) {
             ItemStack like1 = e.getKey().toStack(1);
             int amount = Math.max(1, e.getValue());
@@ -1337,10 +1344,57 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
             dropDupDelivery.accept(dest, like1);
 
-            Batch b = new Batch(Batch.Kind.CRAFT, dest, destSide, q);
+
             Line ln = new Line(like1, amount);
             ln.requester = rp;
+
+            TileEntity rte = world.getTileEntity(rp);
+            if (rte instanceof TilePatternRequester) {
+                TilePatternRequester rq = (TilePatternRequester) rte;
+                int outPerCraft = Math.max(1, rq.getPerCraftOutputCountFor(like1));
+                int craftsCount = (amount + outPerCraft - 1) / outPerCraft;
+                List<ItemStack> needList = rq.getRecipeInputsFor(like1, craftsCount);
+                if (needList != null && !needList.isEmpty()) {
+                    BlockPos crafterPos = rp.down();
+                    LinkedHashMap<ItemKey, Integer> needs = provisioning.computeIfAbsent(
+                            crafterPos, x -> new LinkedHashMap<>());
+                    Map<ItemKey, Integer> available = availablePerCrafter.computeIfAbsent(
+                            crafterPos, x -> new HashMap<>());
+                    for (ItemStack need : needList) {
+                        if (need == null || need.isEmpty()) continue;
+                        ItemKey key = ItemKey.of(need);
+                        ItemStack likeNeed = key.toStack(1);
+
+                        int have = available.computeIfAbsent(key, k ->
+                                countAtDestLike(crafterPos, -1, likeNeed)
+                                        + countQueuedFor(crafterPos, likeNeed)
+                                        + countInBufferLike(likeNeed));
+
+                        int missing = Math.max(0, need.getCount() - have);
+                        if (missing > 0) {
+                            needs.merge(key, missing, Integer::sum);
+                        }
+
+                        int leftover = Math.max(0, have - need.getCount());
+                        available.put(key, leftover);
+                    }
+                }
+                ln.craftsExpected = craftsCount;
+                ln.perCraftOut = outPerCraft;
+            }
+
+            Batch b = new Batch(Batch.Kind.CRAFT, dest, destSide, q);
             b.lines.add(ln);
+            craftBatches.add(b);
+        }
+
+        if (!provisioning.isEmpty()) {
+            for (Map.Entry<BlockPos, LinkedHashMap<ItemKey, Integer>> entry : provisioning.entrySet()) {
+                ensureDeliveryForExact(entry.getKey(), entry.getValue(), q);
+            }
+        }
+
+        for (Batch b : craftBatches) {
             batchQueues.get(q).addLast(b);
         }
 
@@ -1608,28 +1662,28 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (ln.requester == null) return true;
 
         final BlockPos rp = ln.requester;
-        int atDest = countAtDestLike(b.dest, b.destSide, ln.wanted1);
-        int queuedToDest = Math.max(0, countQueuedFor(b.dest, ln.wanted1) - ln.remaining);
-        int alreadyCovered = atDest + queuedToDest;
-        if (alreadyCovered > 0) {
-            int before = ln.remaining;
-            ln.remaining = Math.max(0, ln.remaining - alreadyCovered);
-            if (ln.remaining <= 0) {
-                lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
-                return true;
-            }
-            if (ln.remaining != before) {
-                markDirty();
-            }
-        }
         harvestAnyFromCrafterOutput(rp);
         final BlockPos crafterPos = rp.down();
         final TileEntity rte = world.getTileEntity(rp);
         final TileEntity cte = world.getTileEntity(crafterPos);
         if (!(cte instanceof TileEntityGolemCrafter)) return true;
 
+        int perCraft = (ln.perCraftOut > 0) ? ln.perCraftOut : 1;
+        if (perCraft <= 0 && rte instanceof TilePatternRequester) {
+            perCraft = Math.max(1, ((TilePatternRequester) rte).getPerCraftOutputCountFor(ln.wanted1));
+            ln.perCraftOut = perCraft;
+        }
+
         int movedFromCrafter = harvestLikeToBufferFromRequester(rp, ln.wanted1, ln.remaining);
         if (movedFromCrafter > 0) {
+            if (perCraft > 0) {
+                int craftsDone = (movedFromCrafter + perCraft - 1) / perCraft;
+                if (ln.craftsScheduled > 0) {
+                    ln.craftsScheduled = Math.max(0, ln.craftsScheduled - craftsDone);
+                }
+                ln.craftsCompleted += craftsDone;
+            }
+
             int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, movedFromCrafter);
             if (pushed > 0) {
                 ln.remaining -= pushed;
@@ -1641,10 +1695,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         int bufferedOut = countInBufferLike(ln.wanted1);
         int remainingAfterBuffer = Math.max(0, ln.remaining - bufferedOut);
 
-        int perCraft = 1;
-        if (rte instanceof TilePatternRequester) {
-            perCraft = Math.max(1, ((TilePatternRequester) rte).getPerCraftOutputCountFor(ln.wanted1));
-        }
         int craftsNeeded = (remainingAfterBuffer + perCraft - 1) / perCraft;
         if (craftsNeeded <= 0) {
             int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
@@ -1734,7 +1784,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             TilePatternRequester rq = (TilePatternRequester) rte;
 
             // Сколько единиц выдаётся за 1 цикл именно для этого результата
-            final int outPerCraft = Math.max(1, rq.getPerCraftOutputCountFor(ln.wanted1));
+            final int outPerCraft = Math.max(1, ln.perCraftOut > 0 ? ln.perCraftOut : rq.getPerCraftOutputCountFor(ln.wanted1));
+            ln.perCraftOut = outPerCraft;
+
 
             // Сколько ещё единиц надо ПОСЛЕ учёта буфера
             int bufferedOut2 = countInBufferLike(ln.wanted1);
@@ -1742,6 +1794,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
             // Сколько циклов реально нужно, исходя из «остатка после буфера»
             int craftsNeedNow = (remainingAfterBuffer2 + outPerCraft - 1) / outPerCraft;
+            if (ln.craftsExpected > 0) {
+                int craftsLeft = Math.max(0, ln.craftsExpected - ln.craftsCompleted);
+                craftsNeedNow = Math.max(craftsNeedNow, craftsLeft);
+            }
 
             // Сколько циклов уже запланировано ранее
             int craftsDelta = Math.max(0, craftsNeedNow - ln.craftsScheduled);

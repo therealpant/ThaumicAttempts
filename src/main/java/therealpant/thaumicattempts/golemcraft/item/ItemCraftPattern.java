@@ -1,5 +1,9 @@
 package therealpant.thaumicattempts.golemcraft.item;
 
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiScreen;
+import net.minecraft.client.resources.I18n;
+import net.minecraft.client.util.ITooltipFlag;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.Container;
@@ -14,8 +18,13 @@ import net.minecraft.util.*;
 import net.minecraft.world.World;
 import net.minecraftforge.common.util.Constants;
 import net.minecraft.util.NonNullList;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
+
+import javax.annotation.Nullable;
+import java.util.List;
 
 public class ItemCraftPattern extends ItemBasePattern {
 
@@ -138,6 +147,27 @@ public class ItemCraftPattern extends ItemBasePattern {
             player.openGui(ThaumicAttempts.INSTANCE, GuiHandler.GUI_CRAFT_PATTERN, world, 0, 0, 0);
         }
         return new ActionResult<>(EnumActionResult.SUCCESS, stack);
+    }
+
+    @SideOnly(Side.CLIENT)
+    @Override
+    public void addInformation(ItemStack stack, @Nullable World world, List<String> tooltip, ITooltipFlag flag) {
+        World ctx = world == null ? Minecraft.getMinecraft().world : world;
+        NonNullList<ItemStack> grid = readGrid(stack);
+        ItemStack out = ctx == null ? ItemStack.EMPTY : calcResultPreview(stack, ctx);
+        boolean hasRecipe = hasAnyStack(grid) || !out.isEmpty();
+
+        if (GuiScreen.isShiftKeyDown() && hasRecipe) {
+            tooltip.add(I18n.format("ta.tooltip.result", out.isEmpty()
+                    ? I18n.format("ta.tooltip.result.unknown")
+                    : out.getDisplayName()));
+            addIconPreviewLines(tooltip, 3);
+        } else if (!out.isEmpty()) {
+            tooltip.add(I18n.format("ta.tooltip.result", out.getDisplayName()));
+            tooltip.add(I18n.format("ta.tooltip.hold_shift"));
+        } else if (hasRecipe) {
+            tooltip.add(I18n.format("ta.tooltip.hold_shift"));
+        }
     }
 
     @Override

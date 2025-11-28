@@ -20,6 +20,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
         try {
             switch (transformedName) {
+                case "net.minecraft.item.crafting.IRecipe":
+                    return patchIRecipe(basicClass);
                 case "thaumcraft.api.golems.ProvisionRequest":
                     return patchProvisionRequest(basicClass);
                 case "thaumcraft.api.golems.tasks.Task":
@@ -36,6 +38,42 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             t.printStackTrace();
             return basicClass;
         }
+    }
+    private byte[] patchIRecipe(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        boolean hasDynamic = false;
+        boolean hasCanFit = false;
+
+        for (MethodNode m : cn.methods) {
+            if ("func_192399_d".equals(m.name) && "()Z".equals(m.desc)) {
+                hasDynamic = true;
+            } else if ("func_194133_a".equals(m.name) && "(II)Z".equals(m.desc)) {
+                hasCanFit = true;
+            }
+        }
+
+        if (!hasDynamic) {
+            MethodNode shim = new MethodNode(ACC_PUBLIC, "func_192399_d", "()Z", null, null);
+            shim.instructions.add(new InsnNode(ICONST_0));
+            shim.instructions.add(new InsnNode(IRETURN));
+            cn.methods.add(shim);
+            System.out.println("[ThaumicAttempts] Added func_192399_d shim to IRecipe");
+        }
+
+        if (!hasCanFit) {
+            MethodNode shim = new MethodNode(ACC_PUBLIC, "func_194133_a", "(II)Z", null, null);
+            shim.instructions.add(new InsnNode(ICONST_1));
+            shim.instructions.add(new InsnNode(IRETURN));
+            cn.methods.add(shim);
+            System.out.println("[ThaumicAttempts] Added func_194133_a shim to IRecipe");
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        return cw.toByteArray();
     }
 
     // ---------------- ProvisionRequest ----------------

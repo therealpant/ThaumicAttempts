@@ -1,6 +1,8 @@
 package therealpant.thaumicattempts.golemcraft.item;
 
 import javax.annotation.Nullable;
+import net.minecraft.client.Minecraft;
+import net.minecraft.client.gui.GuiScreen;
 import net.minecraft.client.resources.I18n;
 import net.minecraft.client.util.ITooltipFlag;
 import net.minecraft.creativetab.CreativeTabs;
@@ -16,10 +18,11 @@ import net.minecraft.util.ActionResult;
 import net.minecraft.util.EnumActionResult;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.NonNullList;
-import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.World;
 import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.fml.common.registry.ForgeRegistries;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 import thaumcraft.api.ThaumcraftApi;
 import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
@@ -137,13 +140,27 @@ public class ItemArcanePattern extends ItemBasePattern {
     }
 
     /** Подсказка: показываем потенциальный результат (превью). */
+    @SideOnly(Side.CLIENT)
     @Override
     public void addInformation(ItemStack stack, @Nullable World world, List<String> tooltip, ITooltipFlag flag) {
-        if (world != null) {
-            ItemStack out = calcArcaneResultPreview(stack, world);
-            if (!out.isEmpty()) {
-                tooltip.add(I18n.format("ta.tooltip.result", out.getDisplayName()));
-            }
+        World ctx = world == null ? Minecraft.getMinecraft().world : world;
+        NonNullList<ItemStack> grid = readGrid(stack);
+        ItemStack out = ctx == null ? ItemStack.EMPTY : calcArcaneResultPreview(stack, ctx);
+        boolean hasRecipe = hasAnyStack(grid) || !out.isEmpty();
+        int[] crystals = getCrystalCounts(stack);
+        boolean hasCrystals = false;
+        for (int v : crystals) { if (v > 0) { hasCrystals = true; break; } }
+
+        if (GuiScreen.isShiftKeyDown() && hasRecipe) {
+            tooltip.add(I18n.format("ta.tooltip.result", out.isEmpty()
+                    ? I18n.format("ta.tooltip.result.unknown")
+                    : out.getDisplayName()));
+            addIconPreviewLines(tooltip, 3 + (hasCrystals ? 1 : 0));
+        } else if (!out.isEmpty()) {
+            tooltip.add(I18n.format("ta.tooltip.result", out.getDisplayName()));
+            tooltip.add(I18n.format("ta.tooltip.hold_shift"));
+        } else if (hasRecipe) {
+            tooltip.add(I18n.format("ta.tooltip.hold_shift"));
         }
     }
 

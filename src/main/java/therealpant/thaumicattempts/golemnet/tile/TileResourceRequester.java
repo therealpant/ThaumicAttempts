@@ -46,6 +46,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     private static final int REQUEST_STALE_TICKS = 100;
     private static final int REQUEST_RETRY_TICKS = 200;
     private static final int PROVISION_MIN_INTERVAL = 5;
+    private static final int MAX_QUEUED_ORDERS = 8;
 
     private boolean prevWaitingFlag = false;
     private int animLogicPhase = 0;
@@ -501,24 +502,38 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         if (slot < 0 || slot >= patterns.getSlots()) return;
         if (count <= 0) return;
 
+        int freeSlots = MAX_QUEUED_ORDERS - getQueuedOrderCount();
+        if (freeSlots <= 0) return;
+
+        int toEnqueue = Math.min(count, freeSlots);
 
         boolean changed = false;
         QueuedTrigger tail = queuedSignals.peekLast();
         if (tail != null && tail.slot == slot) {
-            long merged = (long) tail.count + (long) count;
+            long merged = (long) tail.count + (long) toEnqueue;
             int newCount = (int) Math.min(Integer.MAX_VALUE, Math.max(1L, merged));
             if (tail.count != newCount) {
                 tail.count = newCount;
                 changed = true;
             }
         } else {
-            queuedSignals.addLast(new QueuedTrigger(slot, Math.min(Integer.MAX_VALUE, count)));
+            queuedSignals.addLast(new QueuedTrigger(slot, Math.min(Integer.MAX_VALUE, toEnqueue)));
             changed = true;
         }
 
         if (changed) {
             markDirtyAndSync();
         }
+    }
+
+    private int getQueuedOrderCount() {
+        int total = 0;
+        for (QueuedTrigger trigger : queuedSignals) {
+            if (trigger != null && trigger.count > 0) {
+                total += trigger.count;
+            }
+        }
+        return Math.min(total, MAX_QUEUED_ORDERS);
     }
 
     private void tryStartQueuedJob() {

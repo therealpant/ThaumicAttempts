@@ -8,6 +8,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.client.Minecraft;
 import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
+import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 
 public class GuiCraftPattern extends GuiContainer {
 
@@ -54,6 +55,31 @@ public class GuiCraftPattern extends GuiContainer {
         this.drawDefaultBackground();
         super.drawScreen(mouseX, mouseY, partialTicks);
         this.renderHoveredToolTip(mouseX, mouseY);
+    }
+
+    @Override
+    protected void drawGuiContainerForegroundLayer(int mouseX, int mouseY) {
+        super.drawGuiContainerForegroundLayer(mouseX, mouseY);
+
+        ContainerCraftPattern c = (ContainerCraftPattern) this.inventorySlots;
+        ItemStack pat = c.getPatternStack();
+        int repeat = ItemBasePattern.getRepeatCount(pat);
+        if (repeat > 1) {
+            final int baseW = 3 * CELL;
+            final int resultX = GRID_LEFT_OFF + baseW / 2 - 8;
+            final int gap = 8;
+            final int resultY = GRID_TOP_OFF - (24 + gap);
+
+            String text = String.valueOf(repeat);
+            GlStateManager.disableLighting();
+            GlStateManager.disableDepth();
+            this.fontRenderer.drawStringWithShadow(text,
+                    resultX + 17 - this.fontRenderer.getStringWidth(text),
+                    resultY + 9,
+                    0xFFFFFF);
+            GlStateManager.enableLighting();
+            GlStateManager.enableDepth();
+        }
     }
 
     @Override

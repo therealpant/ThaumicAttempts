@@ -18,6 +18,11 @@ item.thaumicattempts.resource_list.name=Resource List
 container.golem_crafter=Crafter
 container.arcane_crafter=Arcane Crafter
 
+ta.tooltip.result=Result: %s
+ta.tooltip.result.unknown=?
+ta.tooltip.slot.empty=empty
+ta.tooltip.hold_shift=§7(Hold §eShift§7 to preview)
+
 mod.thaumicattempts.name=ThaumicAttempts
 itemGroup.thaumicattempts=Thaumic Attempts
 

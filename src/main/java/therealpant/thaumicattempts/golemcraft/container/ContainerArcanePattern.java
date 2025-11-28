@@ -15,6 +15,7 @@ import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.golemcraft.SlotGhost;
+import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 
 import javax.annotation.Nullable;
@@ -77,6 +78,10 @@ public class ContainerArcanePattern extends Container {
 
         // первичный пересчёт превью
         updateResult();
+    }
+
+    public ItemStack getPatternStack() {
+        return patternStack;
     }
 
     private void addPlayerInventorySlots(InventoryPlayer inv, int left, int top) {
@@ -162,18 +167,26 @@ public class ContainerArcanePattern extends Container {
 
         // «кристальное поле»: используем слот результата как триггер
         if (slotId == RESULT_IDX && clickType == ClickType.PICKUP) {
-            // ПКМ — СБРОСИТЬ все кристаллы
-            if (dragType == 1) {
-                clearCrystals();
-                return ItemStack.EMPTY;
-            }
-            // ЛКМ — если в руке кристалл, +1 соответствующий аспекту
             ItemStack carried = player.inventory.getItemStack();
             Aspect asp = aspectOfCrystal(carried);
             if (asp != null) {
-                addCrystal(asp, +1);
+                if (dragType == 1) {
+                    clearCrystals();
+                } else {
+                    addCrystal(asp, +1);
+                }
                 return ItemStack.EMPTY;
             }
+
+            if (dragType == 1 && player.isSneaking()) {
+                clearCrystals();
+                return ItemStack.EMPTY;
+            }
+
+            int delta = (dragType == 1) ? -1 : 1;
+            ItemBasePattern.adjustRepeatCount(patternStack, delta);
+            player.inventory.markDirty();
+            detectAndSendChanges();
             return ItemStack.EMPTY;
         }
 

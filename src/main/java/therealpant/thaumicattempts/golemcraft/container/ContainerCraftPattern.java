@@ -86,6 +86,10 @@ public class ContainerCraftPattern extends Container {
         addPlayerInventorySlots(playerInv, 8, 130);
     }
 
+    public ItemStack getPatternStack() {
+        return patternStack;
+    }
+
     private void addPlayerInventorySlots(InventoryPlayer inv, int left, int top) {
         // 3×9
         for (int r = 0; r < 3; r++) {
@@ -178,8 +182,14 @@ public class ContainerCraftPattern extends Container {
                 return ItemStack.EMPTY;
             }
 
-            // Слот результата — игнорируем любые прямые клики (он и так read-only)
-            if (slot != null && slot.getSlotIndex() == RESULT_IDX && slot.inventory == ghostInv) {
+            // Слот результата — используем для настройки повторов запуска
+            if (!resourceListMode && slot != null && slot.getSlotIndex() == RESULT_IDX && slot.inventory == ghostInv) {
+                if (clickTypeIn == ClickType.PICKUP) {
+                    int delta = (dragType == 1) ? -1 : 1; // ЛКМ = +1, ПКМ = -1
+                    ItemBasePattern.adjustRepeatCount(patternStack, delta);
+                    player.inventory.markDirty();
+                    detectAndSendChanges();
+                }
                 return ItemStack.EMPTY;
             }
         }

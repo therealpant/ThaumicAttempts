@@ -28,7 +28,7 @@ public final class TAResearchAddenda {
         }
 
         ThaumcraftApi.registerResearchLocation(
-                new ResourceLocation("thaumicattempts","research/eldritch_add.json")
+                new ResourceLocation("thaumicattempts","research/arcane_ear_add.json")
         );
 
 
