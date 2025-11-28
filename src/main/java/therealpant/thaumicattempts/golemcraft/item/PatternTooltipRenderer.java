@@ -57,8 +57,8 @@ public final class PatternTooltipRenderer {
         RenderItem renderer = Minecraft.getMinecraft().getRenderItem();
 
         int startX = event.getX() + 6;
-        int startY = event.getY() + 4 + font.FONT_HEIGHT * firstPlaceholderIndex
-                - (16 - font.FONT_HEIGHT) / 2; // nudge up so icons sit tighter to the result line
+        int startY = event.getY() - 8 + font.FONT_HEIGHT * firstPlaceholderIndex
+                - (CELL_SPACING - font.FONT_HEIGHT) / 2; // nudge up so icons sit tighter to the result line
 
         RenderHelper.enableGUIStandardItemLighting();
         GlStateManager.enableDepth();
