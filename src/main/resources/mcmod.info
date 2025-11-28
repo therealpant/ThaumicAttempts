@@ -10,7 +10,7 @@
     "credits": "",
     "logoFile": "",
     "dependencies": [
-      "thaumcraft", "geckolib3"
+      "required-after:thaumcraft@[6.1.BETA26,)"
     ]
   }
 ]
