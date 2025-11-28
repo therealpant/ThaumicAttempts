@@ -35,7 +35,7 @@ import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 // C2S
 
 
-@Mod(modid = ThaumicAttempts.MODID, name = "Thaumic Attempts", version = "0.1.0")
+@Mod(modid = ThaumicAttempts.MODID, name = "Thaumic Attempts", version = "0.1.0", dependencies = "required-after:thaumcraft@[6.1.BETA26,);required-after:geckolib3")
 public class ThaumicAttempts {
 
     public static final String MODID = "thaumicattempts";
