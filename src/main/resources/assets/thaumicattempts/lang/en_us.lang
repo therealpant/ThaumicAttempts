@@ -9,11 +9,21 @@ tile.thaumicattempts.math_core.name=Math Core
 tile.thaumicattempts.mirror_stabilizer.name=Mirror Stabilizer
 tile.thaumicattempts.resource_requester.name=Greatwood Box
 tile.thaumicattempts.golem_dispatcher.name=Task Distributor
+tile.thaumicattempts.delivery_station.name=Delivery Station
 
 
 item.thaumicattempts.craft_pattern.name=Crafting Note
 item.thaumicattempts.arcane_pattern.name=Arcane Note
 item.thaumicattempts.resource_list.name=Resource List
+item.thaumicattempts.delivery_pattern.name=Delivery List
+
+thaumicattempts.delivery_station.inserted_pattern=Pattern stored
+thaumicattempts.delivery_station.inserted_payload=Action item stored
+thaumicattempts.link.start=Linking started: click storages with the bell
+thaumicattempts.link.storage_added=Saved storage #%1$s at %2$s %3$s %4$s
+thaumicattempts.link.click_target=Click target set to %1$s %2$s %3$s
+thaumicattempts.link.saved=Links saved (%s storage targets)
+thaumicattempts.link.missing=Station not found at saved position
 
 container.golem_crafter=Crafter
 container.arcane_crafter=Arcane Crafter

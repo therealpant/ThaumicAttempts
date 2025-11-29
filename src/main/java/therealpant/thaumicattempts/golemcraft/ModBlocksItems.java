@@ -15,16 +15,19 @@ import therealpant.thaumicattempts.golemcraft.block.BlockArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
+import therealpant.thaumicattempts.golemcraft.item.ItemDeliveryPattern;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorManager;
 import therealpant.thaumicattempts.golemnet.block.BlockOrderTerminal;
 import therealpant.thaumicattempts.golemnet.block.BlockPatternRequester;
 import therealpant.thaumicattempts.golemnet.block.BlockResourceRequester;
 import therealpant.thaumicattempts.golemnet.block.BlockGolemDispatcher;
+import therealpant.thaumicattempts.golemnet.block.BlockDeliveryStation;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
+import therealpant.thaumicattempts.golemnet.tile.TileDeliveryStation;
 import therealpant.thaumicattempts.init.TABlocks;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
@@ -40,6 +43,7 @@ public final class ModBlocksItems {
     public static Item CRAFT_PATTERN;
     public static Item ARCANE_PATTERN;
     public static Item RESOURCE_LIST;
+    public static Item DELIVERY_PATTERN;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -67,13 +71,15 @@ public final class ModBlocksItems {
         TABlocks.PATTERN_REQUESTER = new BlockPatternRequester(); // .setRegistryName(MODID, "pattern_requester");
         TABlocks.RESOURCE_REQUESTER = new BlockResourceRequester();
         TABlocks.GOLEM_DISPATCHER = new BlockGolemDispatcher();
+        TABlocks.DELIVERY_STATION = new BlockDeliveryStation();
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
                 TABlocks.ORDER_TERMINAL,
                 TABlocks.PATTERN_REQUESTER,
                 TABlocks.RESOURCE_REQUESTER,
-                TABlocks.GOLEM_DISPATCHER
+                TABlocks.GOLEM_DISPATCHER,
+                TABlocks.DELIVERY_STATION
 
         );
 
@@ -101,7 +107,9 @@ public final class ModBlocksItems {
                 .setRegistryName(ThaumicAttempts.MODID, "arcane_pattern");
         RESOURCE_LIST  = new ItemResourceList()
                 .setRegistryName(ThaumicAttempts.MODID, "resource_list");
-        e.getRegistry().registerAll(CRAFT_PATTERN, ARCANE_PATTERN, RESOURCE_LIST);
+        DELIVERY_PATTERN = new ItemDeliveryPattern()
+                .setRegistryName(ThaumicAttempts.MODID, "delivery_pattern");
+        e.getRegistry().registerAll(CRAFT_PATTERN, ARCANE_PATTERN, RESOURCE_LIST, DELIVERY_PATTERN);
 
         // ItemBlock'и
         e.getRegistry().register(new ItemBlock(GOLEM_CRAFTER)
@@ -126,13 +134,16 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RESOURCE_REQUESTER.getRegistryName());
         TABlocks.GOLEM_DISPATCHER_ITEM = new ItemBlock(TABlocks.GOLEM_DISPATCHER)
                 .setRegistryName(TABlocks.GOLEM_DISPATCHER.getRegistryName());
+        TABlocks.DELIVERY_STATION_ITEM = new ItemBlock(TABlocks.DELIVERY_STATION)
+                .setRegistryName(TABlocks.DELIVERY_STATION.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
                 TABlocks.ORDER_TERMINAL_ITEM,
                 TABlocks.PATTERN_REQUESTER_ITEM,
                 TABlocks.RESOURCE_REQUESTER_ITEM,
-                TABlocks.GOLEM_DISPATCHER_ITEM
+                TABlocks.GOLEM_DISPATCHER_ITEM,
+                TABlocks.DELIVERY_STATION_ITEM
         );
     }
 }

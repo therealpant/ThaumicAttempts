@@ -62,6 +62,14 @@ public final class PatternTooltipRenderer {
 
         RenderHelper.enableGUIStandardItemLighting();
         GlStateManager.enableDepth();
+        GlStateManager.pushMatrix();
+
+        // Поднимаем превью поверх содержимого инвентаря, чтобы силуэты не перекрывали иконки.
+        // Слишком высокий Z выталкивал иконки из depth-диапазона, поэтому ограничиваемся разумным подъёмом.
+        final float raiseZ = 150.0F;
+        GlStateManager.translate(0.0F, 0.0F, raiseZ);
+        float prevZ = renderer.zLevel;
+        renderer.zLevel = raiseZ;
 
         for (int row = 0; row < 3; row++) {
             for (int col = 0; col < GRID_COLS; col++) {
@@ -91,6 +99,8 @@ public final class PatternTooltipRenderer {
             }
         }
 
+        renderer.zLevel = prevZ;
+        GlStateManager.popMatrix();
         RenderHelper.disableStandardItemLighting();
         GlStateManager.disableDepth();
     }

@@ -20,6 +20,7 @@ public class GuiHandler implements IGuiHandler {
     public static final int GUI_ORDER_TERMINAL       = 42;
     public static final int GUI_ARCANE_PATTERN       = 4;
     public static final int GUI_RESOURCE_REQUESTER   = 5;
+    public static final int GUI_DELIVERY_PATTERN     = 6;
 
     @Override
     public Object getServerGuiElement(int ID, EntityPlayer player, World world, int x, int y, int z) {
@@ -36,6 +37,13 @@ public class GuiHandler implements IGuiHandler {
                 ItemStack stack = findPatternStack(player);
                 return (!stack.isEmpty())
                         ? new ContainerCraftPattern(player.inventory, stack)
+                        : null;
+            }
+            case GUI_DELIVERY_PATTERN: {
+                ItemStack stack = findPatternStack(player);
+                return (!stack.isEmpty())
+                        ? new therealpant.thaumicattempts.golemcraft.container.ContainerDeliveryPattern(
+                        player.inventory, stack)
                         : null;
             }
             case GUI_ORDER_TERMINAL: {
@@ -81,6 +89,12 @@ public class GuiHandler implements IGuiHandler {
                         ? new GuiCraftPattern(player.inventory, stack)
                         : null;
             }
+            case GUI_DELIVERY_PATTERN: {
+                ItemStack stack = findPatternStack(player);
+                return (!stack.isEmpty())
+                        ? new therealpant.thaumicattempts.client.gui.GuiDeliveryPattern(player.inventory, stack)
+                        : null;
+            }
             case GUI_ORDER_TERMINAL: {
                 TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
                 if (te instanceof TileOrderTerminal) {
@@ -119,8 +133,8 @@ public class GuiHandler implements IGuiHandler {
 
     private boolean isEditablePattern(ItemStack stack) {
         if (stack.isEmpty()) return false;
-        return stack.getItem() instanceof ItemCraftPattern || stack.getItem() instanceof ItemResourceList;
+        return stack.getItem() instanceof ItemCraftPattern
+                || stack.getItem() instanceof ItemResourceList
+                || stack.getItem() instanceof therealpant.thaumicattempts.golemcraft.item.ItemDeliveryPattern;
     }
-
-
 }
