@@ -7,7 +7,9 @@ import net.minecraft.inventory.InventoryBasic;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.inventory.ClickType;
+import net.minecraft.util.NonNullList;
 import net.minecraft.util.math.Vec2f;
+import net.minecraft.world.World;
 import therealpant.thaumicattempts.golemcraft.SlotGhost;
 import therealpant.thaumicattempts.golemcraft.item.ItemDeliveryPattern;
 
@@ -20,19 +22,33 @@ public class ContainerDeliveryPattern extends Container {
     private static final int CENTER_Y = 52;
     private static final int RADIUS = 36;
 
+    private static final int RESULT_X = CENTER_X - 8;
+    private static final int RESULT_Y = 18;
+
     private final ItemStack patternStack;
     private final InventoryBasic ghostInv;
+    private final InventoryBasic resultInv;
     private int visibleSlots;
+    private final int resultSlotIndex;
+    private final World world;
+    private boolean layoutReady = false;
 
     public ContainerDeliveryPattern(InventoryPlayer playerInv, ItemStack patternStack) {
+        this.world = playerInv.player.world;
         this.patternStack = patternStack;
         this.ghostInv = new InventoryBasic("delivery_pattern", false, ItemDeliveryPattern.MAX_ENTRIES) {
             @Override
             public void markDirty() {
                 super.markDirty();
                 ItemDeliveryPattern.writeInventoryToStack(ContainerDeliveryPattern.this.patternStack, this);
-                reflowSlots();
+                if (layoutReady) {
+                    reflowSlots();
+                }
             }
+        };
+
+        this.resultInv = new InventoryBasic("delivery_result", false, 1) {
+            @Override public boolean isItemValid(int index, ItemStack stack) { return false; }
         };
 
         ItemDeliveryPattern.readListToInventory(patternStack, ghostInv);
@@ -41,6 +57,12 @@ public class ContainerDeliveryPattern extends Container {
         for (int i = 0; i < ItemDeliveryPattern.MAX_ENTRIES; i++) {
             this.addSlotToContainer(new SlotGhost(ghostInv, i, -1000, -1000));
         }
+
+        this.resultSlotIndex = this.inventorySlots.size();
+        this.addSlotToContainer(new Slot(resultInv, 0, RESULT_X, RESULT_Y) {
+            @Override public boolean isItemValid(ItemStack stack) { return false; }
+            @Override public boolean canTakeStack(EntityPlayer playerIn) { return false; }
+        });
 
         // inventory of player
         for (int row = 0; row < 3; row++) {
@@ -54,12 +76,17 @@ public class ContainerDeliveryPattern extends Container {
             this.addSlotToContainer(new Slot(playerInv, col, 8 + col * 18, 188));
         }
 
+        this.layoutReady = true;
         reflowSlots();
     }
 
     public ItemStack getPatternStack() {
         return patternStack;
     }
+
+    public int getPatternSlotCount() { return ItemDeliveryPattern.MAX_ENTRIES; }
+
+    public int getResultSlotIndex() { return resultSlotIndex; }
 
     public int getVisibleSlots() {
         return visibleSlots;
@@ -120,7 +147,7 @@ public class ContainerDeliveryPattern extends Container {
         Slot slot = inventorySlots.get(index);
         if (slot == null || !slot.getHasStack()) return ItemStack.EMPTY;
         ItemStack stack = slot.getStack();
-        if (slot.inventory == ghostInv) {
+        if (slot.inventory == ghostInv || slot.inventory == resultInv) {
             return ItemStack.EMPTY;
         }
         // copy to first empty ghost slot
@@ -176,5 +203,31 @@ public class ContainerDeliveryPattern extends Container {
                 s.yPos = -1000;
             }
         }
+
+        updateResult();
+    }
+
+    private void updateResult() {
+        if (patternStack.isEmpty() || !(patternStack.getItem() instanceof ItemDeliveryPattern)) {
+            resultInv.setInventorySlotContents(0, ItemStack.EMPTY);
+            return;
+        }
+
+        ItemStack tmp = patternStack.copy();
+        NonNullList<ItemStack> items = NonNullList.withSize(ghostInv.getSizeInventory(), ItemStack.EMPTY);
+        for (int i = 0; i < ghostInv.getSizeInventory(); i++) {
+            ItemStack s = ghostInv.getStackInSlot(i);
+            items.set(i, s.isEmpty() ? ItemStack.EMPTY : s.copy());
+        }
+
+        InventoryBasic tmpInv = new InventoryBasic("shadow", false, items.size());
+        for (int i = 0; i < items.size(); i++) {
+            tmpInv.setInventorySlotContents(i, items.get(i));
+        }
+
+        ItemDeliveryPattern.writeInventoryToStack(tmp, tmpInv);
+
+        ItemStack out = ItemDeliveryPattern.getInfusionPreview(tmp, world);
+        resultInv.setInventorySlotContents(0, out == null ? ItemStack.EMPTY : out);
     }
 }

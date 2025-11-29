@@ -14,11 +14,16 @@ public class GuiDeliveryPattern extends GuiContainer {
 
     private static final ResourceLocation TEX_PAPER_GILDED =
             new ResourceLocation("thaumcraft","textures/gui/papergilded.png");
+    private static final ResourceLocation TEX_NET =
+            new ResourceLocation("thaumcraft","textures/gui/gui_researchbook_overlay.png");
     private static final ResourceLocation TEX_BASE_TC =
             new ResourceLocation("thaumcraft","textures/gui/gui_base.png");
 
     private static final int INV_U = 0, INV_V = 166, INV_W = 176, INV_H = 90;
     private static final int PAPER_W = 160, PAPER_H = 160;
+
+    private static final int NET_U = 60, NET_V = 15, NET_W = 51, NET_H = 52;
+    private static final float NET_SCALE = 1.65f;
 
     private static final int CENTER_X = 88;
     private static final int CENTER_Y = 52;
@@ -68,11 +73,38 @@ public class GuiDeliveryPattern extends GuiContainer {
         final int x = (width - xSize) / 2;
         final int y = (height - ySize) / 2;
 
-        int paperX = x + CENTER_X - PAPER_W / 2;
-        int paperY = y + CENTER_Y - PAPER_H / 2;
+        int centerX = x + CENTER_X;
+        int centerY = y + CENTER_Y;
+
+        int paperX = centerX - PAPER_W / 2;
+        int paperY = centerY - PAPER_H / 2;
 
         mc.getTextureManager().bindTexture(TEX_PAPER_GILDED);
         drawModalRectWithCustomSizedTexture(paperX, paperY, 0, 0, PAPER_W, PAPER_H, PAPER_W,PAPER_H);
+
+        // оверлей матрицы наполнения (растянутый крест из книги)
+        final int targetW = Math.round(NET_W * NET_SCALE);
+        final int targetH = Math.round(NET_H * NET_SCALE);
+        int netX = centerX - targetW / 2;
+        int netY = centerY - targetH / 2;
+
+        GlStateManager.pushMatrix();
+        GlStateManager.translate(netX, netY, 0);
+        GlStateManager.scale(targetW / (float) NET_W, targetH / (float) NET_H, 1f);
+        mc.getTextureManager().bindTexture(TEX_NET);
+        drawTexturedModalRect(0, 0, NET_U, NET_V, NET_W, NET_H);
+        GlStateManager.popMatrix();
+
+        // подложка под превью результата
+        ContainerDeliveryPattern c = (ContainerDeliveryPattern) this.inventorySlots;
+        int resultSlot = c.getResultSlotIndex();
+        if (resultSlot >= 0 && resultSlot < c.inventorySlots.size()) {
+            int sx = x + c.inventorySlots.get(resultSlot).xPos;
+            int sy = y + c.inventorySlots.get(resultSlot).yPos;
+
+            mc.getTextureManager().bindTexture(TEX_NET);
+            drawModalRectWithCustomSizedTexture(sx - 8, sy - 8, 32, 0, 30, 30, 440F, 440F);
+        }
 
         // рамка инвентаря игрока
         final int playerLeft = x + 8;
@@ -80,14 +112,13 @@ public class GuiDeliveryPattern extends GuiContainer {
         mc.getTextureManager().bindTexture(TEX_BASE_TC);
         drawTexturedModalRect(playerLeft - 8, playerTop - 8, INV_U, INV_V, INV_W, INV_H);
 
-        // пронумеруем видимые слоты
-        ContainerDeliveryPattern c = (ContainerDeliveryPattern) this.inventorySlots;
+        // пронумеруем видимые слоты (только предметы паттерна)
         int visible = c.getVisibleSlots();
         for (int i = 0; i < visible; i++) {
-            int slotIndex = i;
-            if (slotIndex >= c.inventorySlots.size()) break;
-            int sx = x + c.inventorySlots.get(slotIndex).xPos;
-            int sy = y + c.inventorySlots.get(slotIndex).yPos;
+            if (i >= c.getPatternSlotCount()) break;
+            if (i >= c.inventorySlots.size()) break;
+            int sx = x + c.inventorySlots.get(i).xPos;
+            int sy = y + c.inventorySlots.get(i).yPos;
             String num = String.valueOf(i + 1);
             GlStateManager.disableLighting();
             GlStateManager.disableDepth();

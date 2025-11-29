@@ -10,10 +10,16 @@ import net.minecraft.util.ActionResult;
 import net.minecraft.util.EnumActionResult;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.NonNullList;
+import net.minecraft.util.EnumFacing;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.common.util.Constants;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
+import therealpant.thaumicattempts.util.InfusionRecipeHelper;
+
+import java.util.ArrayList;
+import java.util.List;
 
 /**
  * Паттерн для линейного списка предметов. Первый слот считается центром,
@@ -85,6 +91,21 @@ public class ItemDeliveryPattern extends ItemBasePattern {
         return ItemStack.EMPTY;
     }
 
+    public static ItemStack getInfusionPreview(ItemStack pattern, World world) {
+        if (pattern == null || pattern.isEmpty()) return ItemStack.EMPTY;
+
+        NonNullList<ItemStack> list = readList(pattern);
+        ItemStack center = ItemStack.EMPTY;
+        List<ItemStack> others = new ArrayList<>();
+        for (ItemStack s : list) {
+            if (s == null || s.isEmpty()) continue;
+            if (center.isEmpty()) center = s;
+            else others.add(s);
+        }
+
+        return InfusionRecipeHelper.findResult(center, others, world);
+    }
+
     @Override
     public ActionResult<ItemStack> onItemRightClick(World world, EntityPlayer player, EnumHand hand) {
         ItemStack stack = player.getHeldItem(hand);
@@ -92,6 +113,23 @@ public class ItemDeliveryPattern extends ItemBasePattern {
             player.openGui(ThaumicAttempts.INSTANCE, GuiHandler.GUI_DELIVERY_PATTERN, world, 0, 0, 0);
         }
         return new ActionResult<>(EnumActionResult.SUCCESS, stack);
+    }
+
+    @Override
+    public EnumActionResult onItemUse(EntityPlayer player, World world, BlockPos pos, EnumHand hand, EnumFacing facing, float hitX, float hitY, float hitZ) {
+        ItemStack stack = player.getHeldItem(hand);
+        if (!world.isRemote) {
+            player.openGui(ThaumicAttempts.INSTANCE, GuiHandler.GUI_DELIVERY_PATTERN, world, 0, 0, 0);
+        }
+        return EnumActionResult.SUCCESS;
+    }
+
+    @Override
+    public EnumActionResult onItemUseFirst(EntityPlayer player, World world, BlockPos pos, EnumFacing side, float hitX, float hitY, float hitZ, EnumHand hand) {
+        if (!world.isRemote) {
+            player.openGui(ThaumicAttempts.INSTANCE, GuiHandler.GUI_DELIVERY_PATTERN, world, 0, 0, 0);
+        }
+        return EnumActionResult.SUCCESS;
     }
 
     @Override
