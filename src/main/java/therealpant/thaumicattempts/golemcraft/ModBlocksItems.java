@@ -13,6 +13,7 @@ import therealpant.thaumicattempts.golemcraft.block.BlockArcaneEarBand;
 import therealpant.thaumicattempts.golemcraft.block.BlockGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.block.BlockArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
+import therealpant.thaumicattempts.golemcraft.item.ItemCraftPatternInfusion;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 
@@ -40,6 +41,7 @@ public final class ModBlocksItems {
 
 
     public static Item CRAFT_PATTERN;
+    public static Item CRAFT_PATTERN_INFUSION;
     public static Item ARCANE_PATTERN;
     public static Item RESOURCE_LIST;
     public static Item DELIVERY_PATTERN;
@@ -77,8 +79,7 @@ public final class ModBlocksItems {
                 TABlocks.ORDER_TERMINAL,
                 TABlocks.PATTERN_REQUESTER,
                 TABlocks.RESOURCE_REQUESTER,
-                TABlocks.GOLEM_DISPATCHER,
-                TABlocks.DELIVERY_STATION
+                TABlocks.GOLEM_DISPATCHER
 
         );
 
@@ -105,10 +106,12 @@ public final class ModBlocksItems {
                 .setRegistryName(ThaumicAttempts.MODID, "craft_pattern");
         ARCANE_PATTERN = new ItemArcanePattern()
                 .setRegistryName(ThaumicAttempts.MODID, "arcane_pattern");
+        CRAFT_PATTERN_INFUSION = new ItemCraftPatternInfusion()
+                .setRegistryName(ThaumicAttempts.MODID, "craft_pattern_infusion");
         RESOURCE_LIST  = new ItemResourceList()
                 .setRegistryName(ThaumicAttempts.MODID, "resource_list");
 
-        e.getRegistry().registerAll(CRAFT_PATTERN, ARCANE_PATTERN, RESOURCE_LIST);
+        e.getRegistry().registerAll(CRAFT_PATTERN, CRAFT_PATTERN_INFUSION, ARCANE_PATTERN, RESOURCE_LIST);
 
         // ItemBlock'и
         e.getRegistry().register(new ItemBlock(GOLEM_CRAFTER)
@@ -133,16 +136,14 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RESOURCE_REQUESTER.getRegistryName());
         TABlocks.GOLEM_DISPATCHER_ITEM = new ItemBlock(TABlocks.GOLEM_DISPATCHER)
                 .setRegistryName(TABlocks.GOLEM_DISPATCHER.getRegistryName());
-        TABlocks.DELIVERY_STATION_ITEM = new ItemBlock(TABlocks.DELIVERY_STATION)
-                .setRegistryName(TABlocks.DELIVERY_STATION.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
                 TABlocks.ORDER_TERMINAL_ITEM,
                 TABlocks.PATTERN_REQUESTER_ITEM,
                 TABlocks.RESOURCE_REQUESTER_ITEM,
-                TABlocks.GOLEM_DISPATCHER_ITEM,
-                TABlocks.DELIVERY_STATION_ITEM
+                TABlocks.GOLEM_DISPATCHER_ITEM
+
         );
     }
 }

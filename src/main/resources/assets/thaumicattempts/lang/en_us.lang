@@ -13,6 +13,7 @@ tile.thaumicattempts.delivery_station.name=Delivery Station
 
 
 item.thaumicattempts.craft_pattern.name=Crafting Note
+item.thaumicattempts.craft_pattern_infusion.name=Infusion Note
 item.thaumicattempts.arcane_pattern.name=Arcane Note
 item.thaumicattempts.resource_list.name=Resource List
 item.thaumicattempts.delivery_pattern.name=Delivery List

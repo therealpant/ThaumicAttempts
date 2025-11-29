@@ -9,6 +9,7 @@ import net.minecraftforge.fml.common.network.IGuiHandler;
 import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
 import therealpant.thaumicattempts.golemcraft.container.ContainerGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
+import therealpant.thaumicattempts.golemcraft.item.ItemCraftPatternInfusion;
 
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
@@ -126,6 +127,7 @@ public class GuiHandler implements IGuiHandler {
     private boolean isEditablePattern(ItemStack stack) {
         if (stack.isEmpty()) return false;
         return stack.getItem() instanceof ItemCraftPattern
+                || stack.getItem() instanceof ItemCraftPatternInfusion
                 || stack.getItem() instanceof ItemResourceList;
 
     }

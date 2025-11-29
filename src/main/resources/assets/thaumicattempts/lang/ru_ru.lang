@@ -13,6 +13,7 @@ tile.thaumicattempts.delivery_station.name=Станция Доставки
 
 
 item.thaumicattempts.craft_pattern.name=Инструкции по Сборке
+item.thaumicattempts.craft_pattern_infusion.name=Инструкции Инфузии
 item.thaumicattempts.arcane_pattern.name=Мистические Инструкции
 item.thaumicattempts.resource_list.name=Заказ на Доставку
 item.thaumicattempts.delivery_pattern.name=Лист доставки

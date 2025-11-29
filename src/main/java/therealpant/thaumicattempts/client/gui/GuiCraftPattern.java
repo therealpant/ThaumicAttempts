@@ -7,6 +7,8 @@ import net.minecraft.entity.player.InventoryPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.client.Minecraft;
+import net.minecraft.util.NonNullList;
+import net.minecraft.inventory.Slot;
 import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 
@@ -40,6 +42,7 @@ public class GuiCraftPattern extends GuiContainer {
     private static final int PLAYER_TOP_OFF  = 130; // как в твоём последнем коде
 
     private boolean blurOn = false;
+    private static final int INFUSION_RADIUS = 32;
 
     public GuiCraftPattern(InventoryPlayer playerInv, ItemStack patternStack) {
         super(new ContainerCraftPattern(playerInv, patternStack));
@@ -89,6 +92,8 @@ public class GuiCraftPattern extends GuiContainer {
         final int x = (width - xSize) / 2;
         final int y = (height - ySize) / 2;
 
+        boolean infusionMode = ((ContainerCraftPattern) this.inventorySlots).isInfusionMode();
+
         // ---- фактические координаты 3×3 из контейнера ----
         final int gridLeft = x + GRID_LEFT_OFF;
         final int gridTop  = y + GRID_TOP_OFF;
@@ -110,18 +115,22 @@ public class GuiCraftPattern extends GuiContainer {
         drawModalRectWithCustomSizedTexture(paperX, paperY, 0, 0, PAPER_W, PAPER_H, PAPER_W,PAPER_H);
 
         // ---- оверлей сетки (увеличенный) — подогнан по линиям к предметам ----
-        final int targetW = Math.round(baseW * NET_GRID_SCALE);
-        final int targetH = Math.round(baseH * NET_GRID_SCALE);
+        if (!infusionMode) {
+            final int targetW = Math.round(baseW * NET_GRID_SCALE);
+            final int targetH = Math.round(baseH * NET_GRID_SCALE);
 
-        int gridDrawX = gridLeft - (targetW - baseW) / 2 + Math.round(GRID_ADJ_X);
-        int gridDrawY = gridTop  - (targetH - baseH) / 2 + Math.round(GRID_ADJ_Y);
+            int gridDrawX = gridLeft - (targetW - baseW) / 2 + Math.round(GRID_ADJ_X);
+            int gridDrawY = gridTop  - (targetH - baseH) / 2 + Math.round(GRID_ADJ_Y);
 
-        GlStateManager.pushMatrix();
-        GlStateManager.translate(gridDrawX, gridDrawY, 0);
-        GlStateManager.scale(targetW / (float) NET_GRID_W, targetH / (float) NET_GRID_H, 1f);
-        mc.getTextureManager().bindTexture(TEX_NET);
-        drawTexturedModalRect(0, 0, NET_GRID_U, NET_GRID_V, NET_GRID_W, NET_GRID_H);
-        GlStateManager.popMatrix();
+            GlStateManager.pushMatrix();
+            GlStateManager.translate(gridDrawX, gridDrawY, 0);
+            GlStateManager.scale(targetW / (float) NET_GRID_W, targetH / (float) NET_GRID_H, 1f);
+            mc.getTextureManager().bindTexture(TEX_NET);
+            drawTexturedModalRect(0, 0, NET_GRID_U, NET_GRID_V, NET_GRID_W, NET_GRID_H);
+            GlStateManager.popMatrix();
+        } else {
+            drawInfusionOrder(gridCenterX, gridCenterY+10);
+        }
 
         // ---- подложка под результат ----
         {
@@ -167,5 +176,80 @@ public class GuiCraftPattern extends GuiContainer {
             }
         } catch (Exception ignored) { }
         blurOn = false;
+    }
+
+    @Override
+    protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws java.io.IOException {
+        Slot slot = this.getSlotUnderMouse();
+        if (slot != null) {
+            super.mouseClicked(mouseX, mouseY, mouseButton);
+            return;
+        }
+
+        if (!isInfusionAreaClick(mouseX, mouseY) || !handleInfusionClick(mouseButton)) {
+            super.mouseClicked(mouseX, mouseY, mouseButton);
+        }
+    }
+
+    private boolean isInfusionAreaClick(int mouseX, int mouseY) {
+        if (!((ContainerCraftPattern) this.inventorySlots).isInfusionMode()) return false;
+
+        final int x = (width - xSize) / 2;
+        final int y = (height - ySize) / 2;
+
+        final int gridLeft = x + GRID_LEFT_OFF;
+        final int gridTop  = y + GRID_TOP_OFF;
+        final int baseW = 3 * CELL;
+        final int baseH = 3 * CELL;
+
+        int paperX = gridLeft + baseW / 2 - PAPER_W / 2;
+        int paperY = gridTop  + baseH / 2 - PAPER_H / 2;
+
+        return mouseX >= paperX && mouseX < paperX + PAPER_W && mouseY >= paperY && mouseY < paperY + PAPER_H;
+    }
+
+    private boolean handleInfusionClick(int mouseButton) {
+        ContainerCraftPattern c = (ContainerCraftPattern) this.inventorySlots;
+        if (!c.isInfusionMode()) return false;
+
+        int action = mouseButton == 1 ? 1 : 0; // ЛКМ — добавить, ПКМ — убрать последний
+        this.mc.playerController.sendEnchantPacket(c.windowId, action);
+        return true;
+    }
+
+    private void drawInfusionOrder(int centerX, int centerY) {
+        ContainerCraftPattern c = (ContainerCraftPattern) this.inventorySlots;
+        if (!c.isInfusionMode()) return;
+
+        NonNullList<ItemStack> order = c.getOrderView();
+        int count = 0;
+        for (ItemStack stack : order) {
+            if (!stack.isEmpty()) count++;
+        }
+        if (count == 0) return;
+
+        int rendered = 0;
+        for (int i = 0; i < order.size(); i++) {
+            ItemStack stack = order.get(i);
+            if (stack.isEmpty()) continue;
+
+            int drawX;
+            int drawY;
+            if (rendered == 0) {
+                drawX = centerX - 8;
+                drawY = centerY - 8;
+            } else {
+                double angle = 360.0 * (rendered - 1) / (Math.max(count - 1, 1));
+                double rad = Math.toRadians(angle);
+                double dx = Math.sin(rad) * INFUSION_RADIUS;
+                double dy = -Math.cos(rad) * INFUSION_RADIUS;
+                drawX = (int) Math.round(centerX + dx) - 8;
+                drawY = (int) Math.round(centerY + dy) - 8;
+            }
+
+            this.itemRender.renderItemAndEffectIntoGUI(stack, drawX, drawY);
+            this.itemRender.renderItemOverlayIntoGUI(this.fontRenderer, stack, drawX, drawY, null);
+            rendered++;
+        }
     }
 }

@@ -38,16 +38,16 @@ public final class ClientModels extends CommonProxy {
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":craft_pattern", "inventory")
         );
         ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.CRAFT_PATTERN_INFUSION, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":craft_pattern_infusion", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
                 ModBlocksItems.ARCANE_PATTERN, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":arcane_pattern", "inventory")
         );
         ModelLoader.setCustomModelResourceLocation(
                 ModBlocksItems.RESOURCE_LIST, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":resource_list", "inventory")
-        );
-        ModelLoader.setCustomModelResourceLocation(
-                ModBlocksItems.DELIVERY_PATTERN, 0,
-                new ModelResourceLocation(ThaumicAttempts.MODID + ":delivery_pattern", "inventory")
         );
         // ItemBlock'и наших блоков (иконки!)
         registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER, ThaumicAttempts.MODID + ":golem_crafter");
@@ -73,7 +73,6 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.RESOURCE_REQUESTER_ITEM, TileResourceRequester::new);
         registerItemModel(TABlocks.GOLEM_DISPATCHER_ITEM);
         attachTileRenderer(TABlocks.GOLEM_DISPATCHER_ITEM, TileGolemDispatcher::new);
-        registerItemModel(TABlocks.DELIVERY_STATION_ITEM);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 
         // наши крафтеры: игнорируем таумовский ENABLED (если присутствует)
