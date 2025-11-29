@@ -9,7 +9,7 @@ import net.minecraftforge.fml.common.network.IGuiHandler;
 import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
 import therealpant.thaumicattempts.golemcraft.container.ContainerGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
-import therealpant.thaumicattempts.golemcraft.tile.TileDeliveryStation;
+
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
@@ -41,13 +41,7 @@ public class GuiHandler implements IGuiHandler {
                         ? new ContainerCraftPattern(player.inventory, stack)
                         : null;
             }
-            case GUI_DELIVERY_PATTERN: {
-                ItemStack stack = findPatternStack(player);
-                return (!stack.isEmpty())
-                        ? new therealpant.thaumicattempts.golemcraft.container.ContainerDeliveryPattern(
-                        player.inventory, stack)
-                        : null;
-            }
+
             case GUI_ORDER_TERMINAL: {
                 TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
                 if (te instanceof TileOrderTerminal) {
@@ -64,16 +58,6 @@ public class GuiHandler implements IGuiHandler {
                     return new therealpant.thaumicattempts.golemnet.container.ContainerResourceRequester(
                             player.inventory,
                             (TileResourceRequester) te
-                    );
-                }
-                return null;
-            }
-            case GUI_DELIVERY_STATION: {
-                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
-                if (te instanceof TileDeliveryStation) {
-                    return new therealpant.thaumicattempts.golemcraft.container.ContainerDeliveryStation(
-                            player.inventory,
-                            (TileDeliveryStation) te
                     );
                 }
                 return null;
@@ -101,12 +85,7 @@ public class GuiHandler implements IGuiHandler {
                         ? new GuiCraftPattern(player.inventory, stack)
                         : null;
             }
-            case GUI_DELIVERY_PATTERN: {
-                ItemStack stack = findPatternStack(player);
-                return (!stack.isEmpty())
-                        ? new therealpant.thaumicattempts.client.gui.GuiDeliveryPattern(player.inventory, stack)
-                        : null;
-            }
+
             case GUI_ORDER_TERMINAL: {
                 TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
                 if (te instanceof TileOrderTerminal) {
@@ -127,16 +106,7 @@ public class GuiHandler implements IGuiHandler {
                 }
                 return null;
             }
-            case GUI_DELIVERY_STATION: {
-                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
-                if (te instanceof TileDeliveryStation) {
-                    return new therealpant.thaumicattempts.client.gui.GuiDeliveryStation(
-                            player.inventory,
-                            (TileDeliveryStation) te
-                    );
-                }
-                return null;
-            }
+
             case GUI_ARCANE_PATTERN: // <-- НОВОЕ
                 return new therealpant.thaumicattempts.client.gui.GuiArcanePattern(player.inventory, player.getHeldItemMainhand());            default:
                 return null;
@@ -156,7 +126,7 @@ public class GuiHandler implements IGuiHandler {
     private boolean isEditablePattern(ItemStack stack) {
         if (stack.isEmpty()) return false;
         return stack.getItem() instanceof ItemCraftPattern
-                || stack.getItem() instanceof ItemResourceList
-                || stack.getItem() instanceof therealpant.thaumicattempts.golemcraft.item.ItemDeliveryPattern;
+                || stack.getItem() instanceof ItemResourceList;
+
     }
 }

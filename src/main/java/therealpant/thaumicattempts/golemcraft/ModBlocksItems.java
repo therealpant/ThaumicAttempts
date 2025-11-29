@@ -15,7 +15,7 @@ import therealpant.thaumicattempts.golemcraft.block.BlockArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
-import therealpant.thaumicattempts.golemcraft.item.ItemDeliveryPattern;
+
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorManager;
 import therealpant.thaumicattempts.golemnet.block.BlockOrderTerminal;
 import therealpant.thaumicattempts.golemnet.block.BlockPatternRequester;
@@ -26,8 +26,7 @@ import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
-import therealpant.thaumicattempts.golemcraft.tile.TileDeliveryStation;
-import therealpant.thaumicattempts.golemcraft.block.BlockDeliveryStation;
+
 import therealpant.thaumicattempts.init.TABlocks;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
@@ -71,7 +70,7 @@ public final class ModBlocksItems {
         TABlocks.PATTERN_REQUESTER = new BlockPatternRequester(); // .setRegistryName(MODID, "pattern_requester");
         TABlocks.RESOURCE_REQUESTER = new BlockResourceRequester();
         TABlocks.GOLEM_DISPATCHER = new BlockGolemDispatcher();
-        TABlocks.DELIVERY_STATION = new BlockDeliveryStation();
+
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -94,8 +93,7 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "resource_requester"));
         GameRegistry.registerTileEntity(TileGolemDispatcher.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "golem_dispatcher"));
-        GameRegistry.registerTileEntity(TileDeliveryStation.class,
-                new ResourceLocation(ThaumicAttempts.MODID, "delivery_station"));
+
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -109,9 +107,8 @@ public final class ModBlocksItems {
                 .setRegistryName(ThaumicAttempts.MODID, "arcane_pattern");
         RESOURCE_LIST  = new ItemResourceList()
                 .setRegistryName(ThaumicAttempts.MODID, "resource_list");
-        DELIVERY_PATTERN = new ItemDeliveryPattern()
-                .setRegistryName(ThaumicAttempts.MODID, "delivery_pattern");
-        e.getRegistry().registerAll(CRAFT_PATTERN, ARCANE_PATTERN, RESOURCE_LIST, DELIVERY_PATTERN);
+
+        e.getRegistry().registerAll(CRAFT_PATTERN, ARCANE_PATTERN, RESOURCE_LIST);
 
         // ItemBlock'и
         e.getRegistry().register(new ItemBlock(GOLEM_CRAFTER)
