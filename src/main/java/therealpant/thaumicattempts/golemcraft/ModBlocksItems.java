@@ -21,13 +21,13 @@ import therealpant.thaumicattempts.golemnet.block.BlockOrderTerminal;
 import therealpant.thaumicattempts.golemnet.block.BlockPatternRequester;
 import therealpant.thaumicattempts.golemnet.block.BlockResourceRequester;
 import therealpant.thaumicattempts.golemnet.block.BlockGolemDispatcher;
-import therealpant.thaumicattempts.golemnet.block.BlockDeliveryStation;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
-import therealpant.thaumicattempts.golemnet.tile.TileDeliveryStation;
+import therealpant.thaumicattempts.golemcraft.tile.TileDeliveryStation;
+import therealpant.thaumicattempts.golemcraft.block.BlockDeliveryStation;
 import therealpant.thaumicattempts.init.TABlocks;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
@@ -94,6 +94,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "resource_requester"));
         GameRegistry.registerTileEntity(TileGolemDispatcher.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "golem_dispatcher"));
+        GameRegistry.registerTileEntity(TileDeliveryStation.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "delivery_station"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 

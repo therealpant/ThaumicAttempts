@@ -9,7 +9,7 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.golemnet.tile.TileDeliveryStation;
+import therealpant.thaumicattempts.golemcraft.tile.TileDeliveryStation;
 
 import java.util.*;
 

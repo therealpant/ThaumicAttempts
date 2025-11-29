@@ -9,6 +9,7 @@ import net.minecraftforge.fml.common.network.IGuiHandler;
 import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
 import therealpant.thaumicattempts.golemcraft.container.ContainerGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
+import therealpant.thaumicattempts.golemcraft.tile.TileDeliveryStation;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
@@ -21,6 +22,7 @@ public class GuiHandler implements IGuiHandler {
     public static final int GUI_ARCANE_PATTERN       = 4;
     public static final int GUI_RESOURCE_REQUESTER   = 5;
     public static final int GUI_DELIVERY_PATTERN     = 6;
+    public static final int GUI_DELIVERY_STATION     = 7;
 
     @Override
     public Object getServerGuiElement(int ID, EntityPlayer player, World world, int x, int y, int z) {
@@ -62,6 +64,16 @@ public class GuiHandler implements IGuiHandler {
                     return new therealpant.thaumicattempts.golemnet.container.ContainerResourceRequester(
                             player.inventory,
                             (TileResourceRequester) te
+                    );
+                }
+                return null;
+            }
+            case GUI_DELIVERY_STATION: {
+                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof TileDeliveryStation) {
+                    return new therealpant.thaumicattempts.golemcraft.container.ContainerDeliveryStation(
+                            player.inventory,
+                            (TileDeliveryStation) te
                     );
                 }
                 return null;
@@ -111,6 +123,16 @@ public class GuiHandler implements IGuiHandler {
                     return new therealpant.thaumicattempts.client.gui.GuiResourceRequester(
                             player.inventory,
                             (TileResourceRequester) te
+                    );
+                }
+                return null;
+            }
+            case GUI_DELIVERY_STATION: {
+                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof TileDeliveryStation) {
+                    return new therealpant.thaumicattempts.client.gui.GuiDeliveryStation(
+                            player.inventory,
+                            (TileDeliveryStation) te
                     );
                 }
                 return null;

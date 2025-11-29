@@ -1,4 +1,4 @@
-package therealpant.thaumicattempts.golemnet.block;
+package therealpant.thaumicattempts.golemcraft.block;
 
 import net.minecraft.block.BlockHorizontal;
 import net.minecraft.block.SoundType;
@@ -20,9 +20,10 @@ import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.client.gui.GuiHandler;
 import therealpant.thaumicattempts.golemcraft.item.ItemDeliveryPattern;
 import therealpant.thaumicattempts.golemnet.link.DeliveryLinkHandler;
-import therealpant.thaumicattempts.golemnet.tile.TileDeliveryStation;
+import therealpant.thaumicattempts.golemcraft.tile.TileDeliveryStation;
 
 import javax.annotation.Nullable;
 
@@ -72,9 +73,7 @@ public class BlockDeliveryStation extends BlockHorizontal {
         if (!(te instanceof TileDeliveryStation)) return false;
         TileDeliveryStation tile = (TileDeliveryStation) te;
 
-        if (world.isRemote) {
-            return true;
-        }
+        if (world.isRemote) return true;
 
         // start or continue linking via golem bell
         if (player.isSneaking() && held.getItem() == ItemsTC.golemBell) {
@@ -117,6 +116,7 @@ public class BlockDeliveryStation extends BlockHorizontal {
             return true;
         }
 
+        player.openGui(ThaumicAttempts.INSTANCE, GuiHandler.GUI_DELIVERY_STATION, world, pos.getX(), pos.getY(), pos.getZ());
         return false;
     }
 

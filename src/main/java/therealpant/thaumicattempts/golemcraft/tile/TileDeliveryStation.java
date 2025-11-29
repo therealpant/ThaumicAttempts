@@ -1,4 +1,4 @@
-package therealpant.thaumicattempts.golemnet.tile;
+package therealpant.thaumicattempts.golemcraft.tile;
 
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.item.ItemStack;
@@ -12,6 +12,7 @@ import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
+import net.minecraftforge.items.wrapper.CombinedInvWrapper;
 import therealpant.thaumicattempts.golemcraft.item.ItemDeliveryPattern;
 
 import javax.annotation.Nullable;
@@ -20,21 +21,21 @@ import java.util.List;
 
 public class TileDeliveryStation extends TileEntity {
 
+    private static final int PATTERN_SLOT_COUNT = 15;
+
     private static final String TAG_PATTERN = "Pattern";
     private static final String TAG_PAYLOAD = "Payload";
     private static final String TAG_TARGETS = "Targets";
     private static final String TAG_CLICK   = "ClickPos";
 
-    private final ItemStackHandler patternSlot = new ItemStackHandler(1) {
+    private final ItemStackHandler patternSlots = new ItemStackHandler(PATTERN_SLOT_COUNT) {
         @Override
         public boolean isItemValid(int slot, ItemStack stack) {
             return stack != null && stack.getItem() instanceof ItemDeliveryPattern;
         }
 
         @Override
-        protected void onContentsChanged(int slot) {
-            markDirty();
-        }
+        protected void onContentsChanged(int slot) { markDirty(); }
     };
 
     private final ItemStackHandler payloadSlot = new ItemStackHandler(1) {
@@ -45,28 +46,36 @@ public class TileDeliveryStation extends TileEntity {
         protected void onContentsChanged(int slot) { markDirty(); }
     };
 
-    private final IItemHandler combined = new net.minecraftforge.items.wrapper.CombinedInvWrapper(patternSlot, payloadSlot);
+    private final IItemHandler combined = new CombinedInvWrapper(patternSlots, payloadSlot);
+
 
     private final List<BlockPos> targetChests = new ArrayList<>();
     @Nullable private BlockPos clickTarget = null;
 
-    public ItemStackHandler getPatternSlot() { return patternSlot; }
-    public ItemStackHandler getPayloadSlot() { return payloadSlot; }
+    public ItemStackHandler getPatternHandler() { return patternSlots; }
+    public ItemStackHandler getPayloadHandler() { return payloadSlot; }
 
     public boolean tryInsertPattern(ItemStack stack) {
         if (stack == null || stack.isEmpty() || !(stack.getItem() instanceof ItemDeliveryPattern)) return false;
-        if (!patternSlot.getStackInSlot(0).isEmpty()) return false;
-        ItemStack copy = stack.copy();
-        copy.setCount(1);
-        patternSlot.setStackInSlot(0, copy);
-        return true;
+        for (int i = 0; i < patternSlots.getSlots(); i++) {
+            if (patternSlots.getStackInSlot(i).isEmpty()) {
+                ItemStack copy = stack.copy();
+                copy.setCount(1);
+                patternSlots.setStackInSlot(i, copy);
+                return true;
+            }
+        }
+        return false;
     }
 
     public ItemStack tryExtractPattern() {
-        ItemStack stack = patternSlot.getStackInSlot(0);
-        if (stack.isEmpty()) return ItemStack.EMPTY;
-        patternSlot.setStackInSlot(0, ItemStack.EMPTY);
-        return stack;
+        for (int i = patternSlots.getSlots() - 1; i >= 0; i--) {
+            ItemStack stack = patternSlots.getStackInSlot(i);
+            if (stack.isEmpty()) continue;
+            patternSlots.setStackInSlot(i, ItemStack.EMPTY);
+            return stack;
+        }
+        return ItemStack.EMPTY;
     }
 
     public boolean tryInsertPayload(ItemStack stack) {
@@ -115,7 +124,7 @@ public class TileDeliveryStation extends TileEntity {
     @Override
     public NBTTagCompound writeToNBT(NBTTagCompound compound) {
         super.writeToNBT(compound);
-        compound.setTag(TAG_PATTERN, patternSlot.serializeNBT());
+        compound.setTag(TAG_PATTERN, patternSlots.serializeNBT());
         compound.setTag(TAG_PAYLOAD, payloadSlot.serializeNBT());
 
         NBTTagList list = new NBTTagList();
@@ -142,7 +151,7 @@ public class TileDeliveryStation extends TileEntity {
     public void readFromNBT(NBTTagCompound compound) {
         super.readFromNBT(compound);
         if (compound.hasKey(TAG_PATTERN, Constants.NBT.TAG_COMPOUND)) {
-            patternSlot.deserializeNBT(compound.getCompoundTag(TAG_PATTERN));
+            patternSlots.deserializeNBT(compound.getCompoundTag(TAG_PATTERN));
         }
         if (compound.hasKey(TAG_PAYLOAD, Constants.NBT.TAG_COMPOUND)) {
             payloadSlot.deserializeNBT(compound.getCompoundTag(TAG_PAYLOAD));
@@ -165,7 +174,7 @@ public class TileDeliveryStation extends TileEntity {
 
     public void dropContents() {
         if (world == null || world.isRemote) return;
-        for (ItemStackHandler handler : new ItemStackHandler[]{patternSlot, payloadSlot}) {
+        for (ItemStackHandler handler : new ItemStackHandler[]{patternSlots, payloadSlot}) {
             for (int i = 0; i < handler.getSlots(); i++) {
                 ItemStack stack = handler.getStackInSlot(i);
                 if (!stack.isEmpty()) {
