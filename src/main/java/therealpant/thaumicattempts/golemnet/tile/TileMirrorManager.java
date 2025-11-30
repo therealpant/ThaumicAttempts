@@ -35,6 +35,7 @@ import thaumcraft.common.golems.seals.SealHandler;
 import thaumcraft.common.golems.seals.SealProvide;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
+import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 
@@ -447,6 +448,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         TileEntity te = world.getTileEntity(requesterPos);
         if (te instanceof TilePatternRequester) {
             ((TilePatternRequester) te).clearManagerPosFromManager(this.pos); // «тихо»
+        } else if (te instanceof TileInfusionRequester) {
+            ((TileInfusionRequester) te).setManagerPos(null);
         }
         requesters.remove(requesterPos); // важно для каталога крафта
     }
@@ -623,14 +626,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             for (Iterator<BlockPos> it = requesters.iterator(); it.hasNext(); ) {
                 BlockPos rp = it.next();
                 TileEntity te = world.getTileEntity(rp);
-                if (!(te instanceof TilePatternRequester)) {
+                if (!(te instanceof TilePatternRequester) && !(te instanceof TileInfusionRequester)) {
                     it.remove();
                     changed = true;
                 }
             }
             for (BlockPos rp : boundRequesters) {
                 TileEntity te = world.getTileEntity(rp);
-                if (te instanceof TilePatternRequester && !requesters.contains(rp)) {
+                if ((te instanceof TilePatternRequester || te instanceof TileInfusionRequester) && !requesters.contains(rp)) {
                     requesters.add(rp.toImmutable());
                     changed = true;
                 }
@@ -1976,12 +1979,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         // requesters: тайла может не быть, может быть, но уже не наш менеджер
         for (BlockPos rp : boundRequesters) {
             TileEntity te = world.getTileEntity(rp);
-            if (!(te instanceof TilePatternRequester)) {
-                deadReq.add(rp);
-                continue;
-            }
-            BlockPos mp = ((TilePatternRequester) te).getManagerPos();
-            if (mp == null || !mp.equals(this.pos)) {
+            if (te instanceof TilePatternRequester) {
+                BlockPos mp = ((TilePatternRequester) te).getManagerPos();
+                if (mp == null || !mp.equals(this.pos)) {
+                    deadReq.add(rp);
+                }
+            } else if (te instanceof TileInfusionRequester) {
+                BlockPos mp = ((TileInfusionRequester) te).getManagerPos();
+                if (mp == null || !mp.equals(this.pos)) {
+                    deadReq.add(rp);
+                }
+            } else {
                 deadReq.add(rp);
             }
         }
@@ -2708,7 +2716,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             // восстановим его из boundRequesters (фильтруя по типу тайла).
             for (BlockPos rp : boundRequesters) {
                 TileEntity te = world != null ? world.getTileEntity(rp) : null;
-                if (te instanceof TilePatternRequester) requesters.add(rp.toImmutable());
+                if (te instanceof TilePatternRequester || te instanceof TileInfusionRequester) {
+                    requesters.add(rp.toImmutable());
+                }
             }
         }
 
@@ -2948,9 +2958,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         for (BlockPos rp : requesters) {
             TileEntity te = world.getTileEntity(rp);
-            if (!(te instanceof TilePatternRequester)) continue;
-
-            List<ItemStack> outs = ((TilePatternRequester) te).listCraftableResults();
+            List<ItemStack> outs = null;
+            if (te instanceof TilePatternRequester) {
+                outs = ((TilePatternRequester) te).listCraftableResults();
+            } else if (te instanceof TileInfusionRequester) {
+                outs = ((TileInfusionRequester) te).listCraftableResults();
+            }
             if (outs == null || outs.isEmpty()) continue;
 
             for (ItemStack s : outs) {
@@ -2972,12 +2985,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         for (BlockPos rp : requesters) {
             TileEntity te = world.getTileEntity(rp);
-            if (!(te instanceof TilePatternRequester)) continue;
-            appendResourcePreviews(rp.down(), seenResources, result);
+            if (te instanceof TilePatternRequester) {
+                appendResourcePreviews(rp.down(), seenResources, result);
+            }
         }
 
         for (BlockPos rp : boundRequesters) {
-            appendResourcePreviews(rp.down(), seenResources, result);
+            TileEntity te = world.getTileEntity(rp);
+            if (te instanceof TilePatternRequester) {
+                appendResourcePreviews(rp.down(), seenResources, result);
+            }
         }
 
         for (BlockPos tp : boundTerminals) {

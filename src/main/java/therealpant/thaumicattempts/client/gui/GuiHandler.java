@@ -22,8 +22,7 @@ public class GuiHandler implements IGuiHandler {
     public static final int GUI_ORDER_TERMINAL       = 42;
     public static final int GUI_ARCANE_PATTERN       = 4;
     public static final int GUI_RESOURCE_REQUESTER   = 5;
-    public static final int GUI_DELIVERY_PATTERN     = 6;
-    public static final int GUI_DELIVERY_STATION     = 7;
+    public static final int GUI_INFUSION_REQUESTER   = 8;
 
     @Override
     public Object getServerGuiElement(int ID, EntityPlayer player, World world, int x, int y, int z) {
@@ -59,6 +58,16 @@ public class GuiHandler implements IGuiHandler {
                     return new therealpant.thaumicattempts.golemnet.container.ContainerResourceRequester(
                             player.inventory,
                             (TileResourceRequester) te
+                    );
+                }
+                return null;
+            }
+            case GUI_INFUSION_REQUESTER: {
+                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester) {
+                    return new therealpant.thaumicattempts.golemnet.container.ContainerInfusionRequester(
+                            player.inventory,
+                            (therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester) te
                     );
                 }
                 return null;
@@ -103,6 +112,17 @@ public class GuiHandler implements IGuiHandler {
                     return new therealpant.thaumicattempts.client.gui.GuiResourceRequester(
                             player.inventory,
                             (TileResourceRequester) te
+                    );
+                }
+                return null;
+            }
+
+            case GUI_INFUSION_REQUESTER: {
+                TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester) {
+                    return new therealpant.thaumicattempts.client.gui.GuiInfusionRequester(
+                            player.inventory,
+                            (therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester) te
                     );
                 }
                 return null;

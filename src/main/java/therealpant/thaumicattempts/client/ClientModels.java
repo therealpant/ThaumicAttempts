@@ -18,6 +18,7 @@ import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemnet.block.BlockMathCore;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer;
 import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
+import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
@@ -64,6 +65,10 @@ public final class ClientModels extends CommonProxy {
                 Item.getItemFromBlock(TABlocks.RESOURCE_REQUESTER), 0,
                 new ModelResourceLocation("thaumicattempts:resource_requester", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                Item.getItemFromBlock(TABlocks.INFUSION_REQUESTER), 0,
+                new ModelResourceLocation("thaumicattempts:infusion_requester", "inventory")
+        );
 
         // предметы-«тайлы»
         registerItemModel(TABlocks.MIRROR_MANAGER_ITEM);
@@ -71,6 +76,8 @@ public final class ClientModels extends CommonProxy {
         registerItemModel(TABlocks.PATTERN_REQUESTER_ITEM);
         registerItemModel(TABlocks.RESOURCE_REQUESTER_ITEM);
         attachTileRenderer(TABlocks.RESOURCE_REQUESTER_ITEM, TileResourceRequester::new);
+        registerItemModel(TABlocks.INFUSION_REQUESTER_ITEM);
+        attachTileRenderer(TABlocks.INFUSION_REQUESTER_ITEM, TileInfusionRequester::new);
         registerItemModel(TABlocks.GOLEM_DISPATCHER_ITEM);
         attachTileRenderer(TABlocks.GOLEM_DISPATCHER_ITEM, TileGolemDispatcher::new);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */

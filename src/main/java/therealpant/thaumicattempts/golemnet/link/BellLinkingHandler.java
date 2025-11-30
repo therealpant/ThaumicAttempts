@@ -14,6 +14,7 @@ import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextComponentString;
 import net.minecraft.world.World;
+import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.Event;
@@ -25,6 +26,7 @@ import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
+import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 
 import javax.annotation.Nullable;
@@ -207,6 +209,44 @@ public class BellLinkingHandler {
         TileEntity te = world.getTileEntity(e.getPos());
         if (te == null) return;
 
+        BlockPos linkedPos = getLinkedPos(held);
+        TileEntity linkedTe = null;
+        if (linkedPos != null && getLinkedDim(held, player.dimension) == player.dimension) {
+            linkedTe = world.getTileEntity(linkedPos);
+        }
+
+        if (te instanceof TileInfusionRequester) {
+            if (bellInHand && sneaking) {
+                if (!world.isRemote) {
+                    putLink(held, e.getPos(), player.dimension);
+                    setBellGlint(held, true);
+                }
+                denyAndCancel(e);
+                return;
+            }
+        }
+
+        if (bellInHand && linkedTe instanceof TileInfusionRequester) {
+            if (!world.isRemote) {
+                TileInfusionRequester inf = (TileInfusionRequester) linkedTe;
+                if (sneaking) {
+                    boolean ok = inf.setTargetPos(e.getPos());
+                    msgChat(player, ok ? "§aLinked" : "§cNot Linked");
+                } else {
+                    TileEntity targetTe = world.getTileEntity(e.getPos());
+                    boolean ok = targetTe != null
+                            && targetTe.hasCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, e.getFace());
+                    if (ok) {
+                        int idx = inf.bindStorage(e.getPos());
+                        msgChat(player, idx > 0 ? ("§aLinked #" + idx) : "§cNot Linked");
+                    } else {
+                        msgChat(player, "§cNot Linked");
+                    }
+                }
+            }
+            denyAndCancel(e);
+            return;
+        }
         if (te instanceof TileGolemDispatcher) {
             if (bellInHand && sneaking) {
                 if (!world.isRemote) {
@@ -472,6 +512,73 @@ public class BellLinkingHandler {
                 return;
             }
 
+            /* ---------- Инфузионный реквестер ---------- */
+            if (te instanceof TileInfusionRequester) {
+                TileInfusionRequester req = (TileInfusionRequester) te;
+
+                if (linkedMgrPos != null && linkedMgrPos.equals(req.getManagerPos())) {
+                    msgChat(player, "§aLinked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (sneaking && req.getManagerPos() != null && linkedMgrPos == null) {
+                    BlockPos oldMgr = req.getManagerPos();
+                    req.setManagerPos(null);
+                    if (oldMgr != null) {
+                        TileEntity mte = world.getTileEntity(oldMgr);
+                        if (mte instanceof TileMirrorManager) {
+                            ((TileMirrorManager) mte).unbind(req.getPos());
+                            ((TileMirrorManager) mte).unregisterRequester(req.getPos());
+                        }
+                    }
+                    msgChat(player, "§cNot Linked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (linkedMgrPos != null) {
+                    TileEntity mte = world.getTileEntity(linkedMgrPos);
+                    if (mte instanceof TileMirrorManager) {
+                        TileMirrorManager mgr = (TileMirrorManager) mte;
+
+                        if (req.getManagerPos() != null && !linkedMgrPos.equals(req.getManagerPos())) {
+                            TileEntity old = world.getTileEntity(req.getManagerPos());
+                            if (old instanceof TileMirrorManager) {
+                                ((TileMirrorManager) old).unbind(req.getPos());
+                                ((TileMirrorManager) old).unregisterRequester(req.getPos());
+                            }
+                            req.setManagerPos(null);
+                        }
+
+                        if (mgr.tryBindRequester(req.getPos())) {
+                            mgr.registerRequester(req.getPos());
+                            mgr.allowOwner(player.getUniqueID());
+                            mgr.markDirty();
+                            world.notifyBlockUpdate(mgr.getPos(),
+                                    world.getBlockState(mgr.getPos()),
+                                    world.getBlockState(mgr.getPos()), 3);
+
+                            req.setManagerPos(linkedMgrPos);
+                            req.markDirty();
+                            world.notifyBlockUpdate(req.getPos(),
+                                    world.getBlockState(req.getPos()),
+                                    world.getBlockState(req.getPos()), 3);
+
+                            msgChat(player, "§aLinked");
+                        } else {
+                            msgChat(player, "§cNot Linked");
+                        }
+                    } else {
+                        msgChat(player, "§cNot Linked");
+                    }
+                    denyAndCancel(e);
+                    return;
+                }
+
+                return;
+            }
+
             /* ---------- Диспетчер големов ---------- */
             if (te instanceof TileGolemDispatcher) {
                 TileGolemDispatcher hub = (TileGolemDispatcher) te;
@@ -552,11 +659,15 @@ public class BellLinkingHandler {
             }
 
             TileEntity te = world.getTileEntity(linked);
-            if (!(te instanceof TileGolemDispatcher)) return;
+            if (!(te instanceof TileGolemDispatcher) && !(te instanceof TileInfusionRequester)) return;
 
-            TileGolemDispatcher dispatcher = (TileGolemDispatcher) te;
             EntityThaumcraftGolem golem = (EntityThaumcraftGolem) e.getTarget();
-            boolean ok = dispatcher.tryBindGolem(golem);
+            boolean ok = false;
+            if (te instanceof TileGolemDispatcher) {
+                ok = ((TileGolemDispatcher) te).tryBindGolem(golem);
+            } else if (te instanceof TileInfusionRequester) {
+                ok = ((TileInfusionRequester) te).tryBindGolem(golem);
+            }
             msgChat(player, ok ? "§aLinked" : "§cNot Linked");
             e.setCancellationResult(ok ? EnumActionResult.SUCCESS : EnumActionResult.FAIL);
         }

@@ -19,6 +19,7 @@ import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.util.ItemKey;
+import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -59,6 +60,15 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             this.pos = pos;
             this.slot = slot;
             this.count = count;
+        }
+    }
+
+    private static final class InfusionOrderTarget {
+        final BlockPos pos;
+        final int slot;
+        InfusionOrderTarget(BlockPos pos, int slot) {
+            this.pos = pos;
+            this.slot = slot;
         }
     }
 
@@ -296,10 +306,23 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                     mgr.ensureDeliveryFor(this.pos, new LinkedHashMap<>(pendingDelivery));
                 }
             } else {
-                mgr.enqueueBatchCraft(
-                        this.pos, -1, QUEUE_ID, moved,
-                        key -> findRequesterFor(mgr, key.toStack(1))
-                );
+                List<Map.Entry<ItemKey, Integer>> toManager = new ArrayList<>();
+                for (Map.Entry<ItemKey, Integer> e : moved) {
+                    ItemStack stack = e.getKey().toStack(1);
+                    InfusionOrderTarget inf = findInfusionRequesterFor(mgr, stack);
+                    if (inf != null) {
+                        triggerInfusionOrder(inf, e.getValue());
+                    } else {
+                        toManager.add(e);
+                    }
+                }
+
+                if (!toManager.isEmpty()) {
+                    mgr.enqueueBatchCraft(
+                            this.pos, -1, QUEUE_ID, toManager,
+                            key -> findRequesterFor(mgr, key.toStack(1))
+                    );
+                }
             }
         }
 
@@ -327,6 +350,25 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
         return null;
     }
+
+    @Nullable
+    private InfusionOrderTarget findInfusionRequesterFor(TileMirrorManager mgr, ItemStack result) {
+        if (result == null || result.isEmpty()) return null;
+        Set<BlockPos> reqs = mgr.getRequestersSnapshot();
+        if (reqs == null || reqs.isEmpty()) return null;
+
+        for (BlockPos rp : reqs) {
+            TileEntity te = world.getTileEntity(rp);
+            if (!(te instanceof TileInfusionRequester)) continue;
+            TileInfusionRequester inf = (TileInfusionRequester) te;
+            int slot = inf.findPatternSlotFor(result);
+            if (slot >= 0) {
+                return new InfusionOrderTarget(rp.toImmutable(), slot);
+            }
+        }
+        return null;
+    }
+
 
     @Nullable
     private ItemKey findMatchingKeyRelaxed(Map<ItemKey, Integer> map, ItemStack like) {
@@ -599,6 +641,14 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 int b = Math.max(0, t.getInteger("b"));
                 if (!st.isEmpty()) deliveryBaselines.put(ItemKey.of(st), b);
             }
+        }
+    }
+
+    private void triggerInfusionOrder(InfusionOrderTarget target, int count) {
+        if (world == null || target == null || count <= 0) return;
+        TileEntity te = world.getTileEntity(target.pos);
+        if (te instanceof TileInfusionRequester) {
+            ((TileInfusionRequester) te).triggerExternalRequest(target.slot, count);
         }
     }
 
