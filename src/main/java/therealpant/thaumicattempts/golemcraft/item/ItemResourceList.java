@@ -12,7 +12,10 @@ import net.minecraft.util.EnumHand;
 import net.minecraft.util.NonNullList;
 import net.minecraft.world.World;
 import net.minecraftforge.common.util.Constants;
+import java.util.List;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.api.IPatternResourceProvider;
+import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 
 /**
@@ -20,7 +23,7 @@ import therealpant.thaumicattempts.client.gui.GuiHandler;
  * Хранит 3×3 сетку предметов с фактическим количеством и используется
  * для заказа ресурсов без попытки вычислить рецепт.
  */
-public class ItemResourceList extends ItemBasePattern {
+public class ItemResourceList extends ItemBasePattern implements IPatternResourceProvider {
 
     public static final String TAG_PREVIEW = "Preview";
 
@@ -162,5 +165,10 @@ public class ItemResourceList extends ItemBasePattern {
     @Override
     public int getEssentiaCost(ItemStack pattern, World world) {
         return distinctCount(readGrid(pattern));
+    }
+
+    @Override
+    public List<PatternResourceList.Entry> buildResourceList(ItemStack pattern) {
+        return PatternResourceList.aggregate(readGrid(pattern), true);
     }
 }

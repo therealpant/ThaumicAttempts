@@ -21,12 +21,15 @@ import net.minecraft.util.NonNullList;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.api.IPatternResourceProvider;
+import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 
 import javax.annotation.Nullable;
 import java.util.List;
 
-public class ItemCraftPattern extends ItemBasePattern {
+public class ItemCraftPattern extends ItemBasePattern implements IPatternResourceProvider {
+
 
     /** Ключ NBT для сетки 3×3 (список из 9 TAG_Compound). */
     public static final String TAG_GRID = "Grid";
@@ -179,5 +182,10 @@ public class ItemCraftPattern extends ItemBasePattern {
     @Override
     public int getEssentiaCost(ItemStack pattern, World world) {
         return distinctCount(readGrid(pattern));
+    }
+
+    @Override
+    public List<PatternResourceList.Entry> buildResourceList(ItemStack pattern) {
+        return PatternResourceList.aggregate(readGrid(pattern), false);
     }
 }

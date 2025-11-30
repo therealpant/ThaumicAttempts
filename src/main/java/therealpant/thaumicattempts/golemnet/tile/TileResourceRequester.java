@@ -22,6 +22,9 @@ import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.golems.GolemHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.api.IPatternedWorksite;
+import therealpant.thaumicattempts.api.PatternProvisioningSpec;
+import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.util.ItemKey;
 import thaumcraft.api.ThaumcraftApiHelper;
@@ -39,14 +42,17 @@ import software.bernie.geckolib3.core.manager.AnimationFactory;
 
 import javax.annotation.Nullable;
 import java.util.*;
+import therealpant.thaumicattempts.api.PatternResourceList;
 
-public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable {
+public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable, IPatternedWorksite {
 
     private static final int PATTERN_SLOT_COUNT = 15;
     private static final int REQUEST_STALE_TICKS = 100;
     private static final int REQUEST_RETRY_TICKS = 200;
     private static final int PROVISION_MIN_INTERVAL = 5;
     private static final int MAX_QUEUED_ORDERS = 8;
+
+    private static final PatternProvisioningSpec PROVISION_SPEC = PatternProvisioningSpec.requesterSpec(PROVISION_MIN_INTERVAL);
 
     private boolean prevWaitingFlag = false;
     private int animLogicPhase = 0;
@@ -120,6 +126,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     private @Nullable BlockPos managerPos = null;
     private boolean managerFromPattern = false;
 
+    @Override
     public ItemStackHandler getPatternHandler() { return patterns; }
     public ItemStackHandler getBufferHandler() { return buffer; }
 
@@ -145,6 +152,27 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             }
         }
         return ItemStack.EMPTY;
+    }
+
+    @Override
+    public int enqueueFromPatternRequester(int patternSlot, int times) {
+        int before = getQueuedOrderCount();
+        enqueueTrigger(patternSlot, times);
+        int after = getQueuedOrderCount();
+        return Math.max(0, after - before);
+    }
+
+    @Override
+    public int enqueueFromPatternRequester(ItemStack resultLike, int times) {
+        if (resultLike == null || resultLike.isEmpty()) return 0;
+        for (int i = 0; i < patterns.getSlots(); i++) {
+            ItemStack pattern = patterns.getStackInSlot(i);
+            if (pattern.isEmpty()) continue;
+            if (ItemStack.areItemsEqual(pattern, resultLike) && ItemStack.areItemStackTagsEqual(pattern, resultLike)) {
+                return enqueueFromPatternRequester(i, times);
+            }
+        }
+        return 0;
     }
 
     @Override
@@ -210,15 +238,19 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         sequence.clear();
         lastProgressTick = tickCounter;
 
-        NonNullList<ItemStack> grid = ItemResourceList.readGrid(pattern);
-        for (ItemStack s : grid) {
-            if (s == null || s.isEmpty()) continue;
-            ItemStack copy = s.copy();
-            if (copy.getCount() <= 0) copy.setCount(1);
-            sequence.add(copy);
-            ItemKey key = ItemKey.of(copy);
-            int total = pending.getOrDefault(key, 0) + copy.getCount();
-            pending.put(key, total);
+        List<PatternResourceList.Entry> resources = PatternResourceList.build(pattern);
+        if (resources == null || resources.isEmpty()) {
+            sequence.clear();
+            return false;
+        }
+
+        for (PatternResourceList.Entry entry : resources) {
+            if (entry == null) continue;
+            ItemStack stack = entry.toStack();
+            if (stack.isEmpty()) continue;
+            sequence.add(stack);
+            ItemKey key = entry.getKey();
+            pending.put(key, pending.getOrDefault(key, 0) + entry.getCount());
         }
 
         if (pending.isEmpty()) {
@@ -734,6 +766,26 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
                 resetProvisionQueueFromPending();
             }
         }
+    }
+
+    @Override
+    public void setManagerPosFromPattern(@Nullable BlockPos managerPos) {
+        setManagerPos(managerPos, true);
+    }
+
+    @Override
+    public @Nullable BlockPos getManagerPosForPattern() {
+        return getManagerPos();
+    }
+
+    @Override
+    public PatternRedstoneMode getRedstoneMode() {
+        return PatternRedstoneMode.LEVEL_QUEUES_SLOT;
+    }
+
+    @Override
+    public PatternProvisioningSpec getProvisioningSpec() {
+        return PROVISION_SPEC;
     }
 
     public void clearManagerPosFromManager(BlockPos pos) {

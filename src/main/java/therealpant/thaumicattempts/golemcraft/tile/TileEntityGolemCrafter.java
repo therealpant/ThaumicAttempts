@@ -25,6 +25,10 @@ import thaumcraft.api.aspects.IEssentiaTransport;
 import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
+import therealpant.thaumicattempts.api.IPatternedWorksite;
+import therealpant.thaumicattempts.api.PatternProvisioningSpec;
+import therealpant.thaumicattempts.api.PatternRedstoneMode;
+import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.util.ItemKey;
@@ -39,14 +43,19 @@ import java.util.*;
  * - Редстоун используется ТОЛЬКО для инициации одного цикла (по фронту 0→1).
  * - Цикл: пошаговые заявки ресурсов → один выпуск → завершение.
  * - Следующий цикл стартует только по следующему фронту 0→1.
- * - Стоимость эссенции: 2 * число уникальных типов входов. Эссенция: CRAFT, приём снизу.
+ - Стоимость эссенции: 2 * число уникальных типов входов. Эссенция: CRAFT, приём снизу/с боков.
  */
-public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport {
+public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite {
 
     // ===== Константы =====
     public static final int PATTERN_SLOTS = 15;
     public static final int INPUT_SLOTS   = 18;
     private static final int OUTPUT_SLOTS = 9;
+    // как часто перезаказываем тот же шаг, если не принесли
+    private static final long REORDER_TICKS   = 10L;
+    private static final int  SUPPLY_COOLDOWN = 0;
+
+    private static final PatternProvisioningSpec PROVISION_SPEC = PatternProvisioningSpec.crafterSpec(SUPPLY_COOLDOWN);
 
     private static final String NBT_PATTERNS   = "PatternInv";
     private static final String NBT_INPUT      = "InputInv";
@@ -54,6 +63,9 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     private static final String NBT_CUSTOMNAME = "CustomName";
     private static final String TAG_RESULT = "Result";
     private static final String TAG_GRID   = "Grid";
+    private static final EnumFacing[] ESSENTIA_INPUT_FACES = {
+            EnumFacing.DOWN, EnumFacing.NORTH, EnumFacing.SOUTH, EnumFacing.WEST, EnumFacing.EAST
+    };
 
     private static final int  CRAFT_CAP       = 128;
     private static final int  CRAFT_SUCTION   = 128;
@@ -71,9 +83,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     // Флаг: текущая работа запущена от реквестера (чтобы подавить самопровизию)
     private boolean jobViaRequester = false;
 
-    // как часто перезаказываем тот же шаг, если не принесли
-    private static final long REORDER_TICKS   = 10L;
-    private static final int  SUPPLY_COOLDOWN = 0;
 
     // ===== Состояние / параметры =====
     private String customName = "";
@@ -119,7 +128,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         @Override protected void onContentsChanged(int slot) { markDirty(); }
     };
 
-
+    @Override
     public net.minecraftforge.items.IItemHandler getPatternHandler(){ return patterns; }
     public net.minecraftforge.items.IItemHandler getInputHandler() { return input; }
     public net.minecraftforge.items.IItemHandler getOutputHandler(){ return output; }
@@ -168,15 +177,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     }
 
     private static ItemStack key1ForGrid(ItemStack s) {
-        if (s == null || s.isEmpty()) return ItemStack.EMPTY;
-        if (isTcCrystal(s)) {
-            Aspect a = crystalAspect(s);
-            return (a == null) ? ItemStack.EMPTY : thaumcraft.api.ThaumcraftApiHelper.makeCrystal(a, 1);
-        }
-        if (s.getMaxStackSize() == 1) {
-            return new ItemStack(s.getItem(), 1, s.getMetadata()); // без NBT
-        }
-        ItemStack k = s.copy(); k.setCount(1); return k;
+        return PatternResourceList.normalizeForKey(s);
     }
 
     // ===== Привязки =====
@@ -235,6 +236,16 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (like1 == null || like1.isEmpty()) return 0;
         int idx = findPatternIndexForResultLike(like1);
         return (idx < 0) ? 0 : enqueueCraftsByRequesterIndex(idx, times);
+    }
+
+    @Override
+    public int enqueueFromPatternRequester(int patternSlot, int times) {
+        return enqueueCraftsByRequesterIndex(patternSlot, times);
+    }
+
+    @Override
+    public int enqueueFromPatternRequester(ItemStack resultLike, int times) {
+        return enqueueCraftsByRequesterLike(resultLike, times);
     }
 
     private void tryStartNextRequesterJob() {
@@ -317,21 +328,19 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     protected void rebuildSequence(ItemStack pattern, NonNullList<ItemStack> grid) {
         seq.clear();
 
-        // посчитать требуемые позиции, объединяя по sameForGrid
-        Map<ItemStack, Integer> need = new LinkedHashMap<>();
-        for (int i = 0; i < 9; i++) {
-            ItemStack s = grid.get(i);
-            if (s.isEmpty()) continue;
-            ItemStack k1 = key1ForGrid(s);
-            if (k1.isEmpty()) continue;
-
-            ItemStack found = null;
-            for (ItemStack ex : need.keySet()) { if (sameForGrid(ex, k1)) { found = ex; break; } }
-            if (found == null) need.put(k1, 1);
-            else need.put(found, need.get(found) + 1);
+        List<PatternResourceList.Entry> resources = PatternResourceList.build(pattern);
+        if ((resources == null || resources.isEmpty()) && grid != null) {
+            resources = PatternResourceList.aggregate(grid, false);
         }
 
-        for (Map.Entry<ItemStack,Integer> e : need.entrySet()) seq.add(new Req(e.getKey(), e.getValue()));
+        if (resources != null) {
+            for (PatternResourceList.Entry e : resources) {
+                if (e == null) continue;
+                ItemStack key = e.getKeyStack();
+                if (key == null || key.isEmpty()) continue;
+                seq.add(new Req(key, e.getCount()));
+            }
+        }
         step = 0;
     }
 
@@ -346,37 +355,41 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     }
 
     protected boolean hasAllForGrid(NonNullList<ItemStack> grid) {
-        Map<ItemStack, Integer> need = new LinkedHashMap<>();
-        for (ItemStack s : grid) {
-            if (s.isEmpty()) continue;
-            ItemStack k1 = key1ForGrid(s);
-            if (k1.isEmpty()) continue;
-            ItemStack found = null;
-            for (ItemStack ex : need.keySet()) { if (sameForGrid(ex, k1)) { found = ex; break; } }
-            if (found == null) need.put(k1, 1); else need.put(found, need.get(found) + 1);
+        ItemStack pat = (this.jobPatternIndex >= 0 && this.jobPatternIndex < PATTERN_SLOTS)
+                ? this.patterns.getStackInSlot(this.jobPatternIndex) : ItemStack.EMPTY;
+
+        List<PatternResourceList.Entry> need = PatternResourceList.build(pat);
+        if ((need == null || need.isEmpty()) && grid != null) {
+            need = PatternResourceList.aggregate(grid, false);
         }
-        if (need.isEmpty()) return false;
-        for (Map.Entry<ItemStack,Integer> e : need.entrySet())
-            if (countInInput(e.getKey()) < e.getValue()) return false;
+        if (need == null || need.isEmpty()) return false;
+        for (PatternResourceList.Entry entry : need) {
+            if (entry == null) continue;
+            ItemStack key = entry.getKeyStack();
+            if (key == null || key.isEmpty()) continue;
+            if (countInInput(key) < entry.getCount()) return false;
+        }
         return true;
     }
 
     protected void consumeForGrid(NonNullList<ItemStack> grid) {
-        Map<ItemStack, Integer> need = new LinkedHashMap<>();
-        for (ItemStack s : grid) {
-            if (s.isEmpty()) continue;
-            ItemStack k1 = key1ForGrid(s);
-            if (k1.isEmpty()) continue;
-            ItemStack found = null;
-            for (ItemStack ex : need.keySet()) { if (sameForGrid(ex, k1)) { found = ex; break; } }
-            if (found == null) need.put(k1, 1); else need.put(found, need.get(found) + 1);
+        ItemStack pat = (this.jobPatternIndex >= 0 && this.jobPatternIndex < PATTERN_SLOTS)
+                ? this.patterns.getStackInSlot(this.jobPatternIndex) : ItemStack.EMPTY;
+        List<PatternResourceList.Entry> need = PatternResourceList.build(pat);
+        if ((need == null || need.isEmpty()) && grid != null) {
+            need = PatternResourceList.aggregate(grid, false);
         }
-        for (Map.Entry<ItemStack,Integer> e : need.entrySet()) {
-            int left = e.getValue();
+        if (need == null || need.isEmpty()) return;
+
+        for (PatternResourceList.Entry entry : need) {
+            if (entry == null) continue;
+            int left = entry.getCount();
+            ItemStack key = entry.getKeyStack();
+            if (key == null || key.isEmpty()) continue;
             for (int i = 0; i < input.getSlots() && left > 0; i++) {
                 ItemStack have = input.getStackInSlot(i);
                 if (have.isEmpty()) continue;
-                if (sameForGrid(have, e.getKey())) {
+                if (sameForGrid(have, key)) {
                     int take = Math.min(left, have.getCount());
                     ItemStack ns = have.copy(); ns.shrink(take);
                     input.setStackInSlot(i, ns);
@@ -452,21 +465,24 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     private boolean drawEssentiaTicked() {
         if (++drawDelay % 5 != 0 || world == null || world.isRemote) return false;
         if (craftAmount >= CRAFT_CAP) return false;
-        EnumFacing inFace = EnumFacing.DOWN;
-        TileEntity te = ThaumcraftApiHelper.getConnectableTile(world, pos, inFace);
-        if (te instanceof IEssentiaTransport) {
+        boolean pulled = false;
+        for (EnumFacing inFace : ESSENTIA_INPUT_FACES) {
+            TileEntity te = ThaumcraftApiHelper.getConnectableTile(world, pos, inFace);
+            if (!(te instanceof IEssentiaTransport)) continue;
             IEssentiaTransport ic = (IEssentiaTransport) te;
             EnumFacing opp = inFace.getOpposite();
-            if (!ic.canOutputTo(opp)) return false;
+            if (!ic.canOutputTo(opp)) continue;
             if (ic.getSuctionAmount(opp) < this.getSuctionAmount(inFace)) {
                 int taken = ic.takeEssentia(requiredAspect, 1, opp);
                 if (taken > 0) {
                     craftAmount = Math.min(CRAFT_CAP, craftAmount + taken);
-                    markDirty(); pingNeighbors(); return true;
+                    pulled = true;
+                    break;
                 }
             }
         }
-        return false;
+        if (pulled) { markDirty(); pingNeighbors(); }
+        return pulled;
     }
 
     /** Пытается списать до amt единиц эссенции. Возвращает true, если чанк оплачен полностью. */
@@ -552,6 +568,26 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     }
 
     public @Nullable BlockPos getManagerPos() { return managerPos; }
+
+    @Override
+    public void setManagerPosFromPattern(@Nullable BlockPos managerPos) {
+        setManagerPos(managerPos, true);
+    }
+
+    @Override
+    public @Nullable BlockPos getManagerPosForPattern() {
+        return getManagerPos();
+    }
+
+    @Override
+    public PatternRedstoneMode getRedstoneMode() {
+        return PatternRedstoneMode.RISING_EDGE_SELECTS_SLOT;
+    }
+
+    @Override
+    public PatternProvisioningSpec getProvisioningSpec() {
+        return PROVISION_SPEC;
+    }
 
     public void clearManagerPosFromManager(BlockPos pos) {
         if (pos != null && pos.equals(this.managerPos)) {
@@ -848,14 +884,20 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
 
     // ===== IEssentiaTransport =====
-    @Override public boolean isConnectable(EnumFacing face) { return face == EnumFacing.DOWN; }
-    @Override public boolean canInputFrom(EnumFacing face)  { return face == EnumFacing.DOWN; }
+    private static boolean canFaceInput(EnumFacing face) {
+        if (face == null) return false;
+        for (EnumFacing f : ESSENTIA_INPUT_FACES) if (f == face) return true;
+        return false;
+    }
+
+    @Override public boolean isConnectable(EnumFacing face) { return canFaceInput(face); }
+    @Override public boolean canInputFrom(EnumFacing face)  { return canFaceInput(face); }
     @Override public boolean canOutputTo(EnumFacing face)   { return false; }
     @Override public void setSuction(Aspect aspect, int amount) {}
-    @Override public Aspect getSuctionType(EnumFacing face) { return (face == EnumFacing.DOWN && craftAmount < CRAFT_CAP) ? requiredAspect : null; }
-    @Override public int getSuctionAmount(EnumFacing face)  { return (face == EnumFacing.DOWN && craftAmount < CRAFT_CAP) ? CRAFT_SUCTION : 0; }
+    @Override public Aspect getSuctionType(EnumFacing face) { return (canFaceInput(face) && craftAmount < CRAFT_CAP) ? requiredAspect : null; }
+    @Override public int getSuctionAmount(EnumFacing face)  { return (canFaceInput(face) && craftAmount < CRAFT_CAP) ? CRAFT_SUCTION : 0; }
     @Override public int addEssentia(Aspect aspect, int amount, EnumFacing face) {
-        if (face != EnumFacing.DOWN) return 0;
+        if (!canFaceInput(face)) return 0;
         if (aspect != requiredAspect || amount <= 0) return 0;
         int can = Math.min(amount, CRAFT_CAP - craftAmount);
         if (can <= 0) return 0;

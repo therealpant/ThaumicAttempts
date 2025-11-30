@@ -32,12 +32,17 @@ import thaumcraft.api.crafting.IArcaneWorkbench;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.api.IPatternResourceProvider;
+import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 import therealpant.thaumicattempts.util.ArcaneRecipeHelper;
+import therealpant.thaumicattempts.util.ItemKey;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
-public class ItemArcanePattern extends ItemBasePattern {
+public class ItemArcanePattern extends ItemBasePattern  implements IPatternResourceProvider {
 
     /** Ключ NBT: массив из 6 целых под кристаллы [AER,TERRA,IGNIS,AQUA,ORDO,PERDITIO]. */
     public static final String TAG_CRYSTALS = "ArcCrystals";
@@ -188,6 +193,22 @@ public class ItemArcanePattern extends ItemBasePattern {
         return 5;
     }
 
+    @Override
+    public List<PatternResourceList.Entry> buildResourceList(ItemStack pattern) {
+        Map<ItemKey, Integer> need = new LinkedHashMap<>();
+        PatternResourceList.append(need, readGrid(pattern), false);
+
+        int[] crystCounts = getCrystalCounts(pattern);
+        Aspect[] primals = PRIMALS;
+        for (int i = 0; i < primals.length; i++) {
+            int amount = (crystCounts != null && i < crystCounts.length) ? Math.max(0, crystCounts[i]) : 0;
+            if (amount <= 0) continue;
+            ItemStack crystal = ThaumcraftApiHelper.makeCrystal(primals[i], 1);
+            PatternResourceList.append(need, crystal, amount);
+        }
+
+        return PatternResourceList.toEntries(need);
+    }
 
     private static void ensureNBT(ItemStack stack) {
         if (!stack.isEmpty() && !stack.hasTagCompound()) {
