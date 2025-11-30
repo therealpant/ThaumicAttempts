@@ -7,9 +7,10 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.common.network.IGuiHandler;
 import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
+import therealpant.thaumicattempts.golemcraft.container.ContainerInfusionPattern;
 import therealpant.thaumicattempts.golemcraft.container.ContainerGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
-import therealpant.thaumicattempts.golemcraft.item.ItemCraftPatternInfusion;
+import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
@@ -37,9 +38,11 @@ public class GuiHandler implements IGuiHandler {
             case GUI_CRAFT_PATTERN: {
                 // ВСЕГДА сначала проверяем isEmpty(), потом getItem()
                 ItemStack stack = findPatternStack(player);
-                return (!stack.isEmpty())
-                        ? new ContainerCraftPattern(player.inventory, stack)
-                        : null;
+                if (stack.isEmpty()) return null;
+                if (stack.getItem() instanceof ItemInfusionPattern) {
+                    return new ContainerInfusionPattern(player.inventory, stack);
+                }
+                return new ContainerCraftPattern(player.inventory, stack);
             }
 
             case GUI_ORDER_TERMINAL: {
@@ -147,7 +150,7 @@ public class GuiHandler implements IGuiHandler {
     private boolean isEditablePattern(ItemStack stack) {
         if (stack.isEmpty()) return false;
         return stack.getItem() instanceof ItemCraftPattern
-                || stack.getItem() instanceof ItemCraftPatternInfusion
+                || stack.getItem() instanceof ItemInfusionPattern
                 || stack.getItem() instanceof ItemResourceList;
 
     }

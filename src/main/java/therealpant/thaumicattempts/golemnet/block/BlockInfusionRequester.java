@@ -23,7 +23,7 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
-import therealpant.thaumicattempts.golemcraft.item.ItemCraftPatternInfusion;
+import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 
 import javax.annotation.Nullable;
@@ -107,7 +107,7 @@ public class BlockInfusionRequester extends BlockHorizontal {
                     }
                     return true;
                 }
-            } else if (!held.isEmpty() && held.getItem() instanceof ItemCraftPatternInfusion) {
+            } else if (!held.isEmpty() && held.getItem() instanceof ItemInfusionPattern) {
                 if (tile.tryInsertPattern(held)) {
                     held.shrink(1);
                     return true;

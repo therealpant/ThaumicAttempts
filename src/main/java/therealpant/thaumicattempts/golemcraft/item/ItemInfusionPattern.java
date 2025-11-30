@@ -6,11 +6,8 @@ import net.minecraft.client.resources.I18n;
 import net.minecraft.client.util.ITooltipFlag;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.inventory.Container;
-import net.minecraft.inventory.InventoryCrafting;
 import net.minecraft.inventory.IInventory;
 import net.minecraft.item.ItemStack;
-import net.minecraft.item.crafting.CraftingManager;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.util.*;
@@ -20,6 +17,8 @@ import net.minecraft.util.NonNullList;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.api.IPatternResourceProvider;
+import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 
 import javax.annotation.Nullable;
@@ -30,8 +29,7 @@ import java.util.List;
  * остальные — по радиусу), но умеет показывать превью результата обычного
  * верстачного рецепта из полученной девятки.
  */
-public class ItemCraftPatternInfusion extends ItemBasePattern {
-
+public class ItemInfusionPattern extends ItemBasePattern implements IPatternResourceProvider {
     /** Ключ NBT для последовательности предметов (без жёсткого лимита в 9). */
     public static final String TAG_SEQUENCE = "Grid";
     public static final String TAG_RESULT   = "Result";
@@ -42,10 +40,10 @@ public class ItemCraftPatternInfusion extends ItemBasePattern {
     /** Порядок размещения предметов в сетке 3×3 для превью (первый — центр). */
     private static final int[] ORDER_TO_GRID = {4, 1, 5, 7, 3, 0, 2, 6, 8};
 
-    public ItemCraftPatternInfusion() {
+    public ItemInfusionPattern() {
         setMaxStackSize(1);
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
-        setTranslationKey(ThaumicAttempts.MODID + ".craft_pattern_infusion");
+        setTranslationKey(ThaumicAttempts.MODID + ".infusion_pattern");
     }
 
     private static void ensureNBT(ItemStack stack) {
@@ -162,6 +160,11 @@ public class ItemCraftPatternInfusion extends ItemBasePattern {
         return readResult(pattern);
     }
 
+
+    @Override
+    public List<PatternResourceList.Entry> buildResourceList(ItemStack pattern) {
+        return PatternResourceList.aggregate(readOrder(pattern), false);
+    }
 
     @Override
     public ActionResult<ItemStack> onItemRightClick(World world, EntityPlayer player, EnumHand hand) {

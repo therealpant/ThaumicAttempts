@@ -39,7 +39,7 @@ public final class ClientModels extends CommonProxy {
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":craft_pattern", "inventory")
         );
         ModelLoader.setCustomModelResourceLocation(
-                ModBlocksItems.CRAFT_PATTERN_INFUSION, 0,
+                ModBlocksItems.INFUSION_PATTERN, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":craft_pattern_infusion", "inventory")
         );
         ModelLoader.setCustomModelResourceLocation(

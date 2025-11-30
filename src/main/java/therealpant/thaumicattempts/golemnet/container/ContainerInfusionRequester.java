@@ -8,7 +8,7 @@ import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.SlotItemHandler;
-import therealpant.thaumicattempts.golemcraft.item.ItemCraftPatternInfusion;
+import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 
 public class ContainerInfusionRequester extends Container {
@@ -139,7 +139,7 @@ public class ContainerInfusionRequester extends Container {
                 return ItemStack.EMPTY;
             }
         } else {
-            if (stack.getItem() instanceof ItemCraftPatternInfusion) {
+            if (stack.getItem() instanceof ItemInfusionPattern) {
                 if (!hasRange(patternStart, patternEnd)
                         || !this.mergeItemStack(stack, patternStart, patternEnd, false)) {
                     return ItemStack.EMPTY;

@@ -13,7 +13,7 @@ import therealpant.thaumicattempts.golemcraft.block.BlockArcaneEarBand;
 import therealpant.thaumicattempts.golemcraft.block.BlockGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.block.BlockArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
-import therealpant.thaumicattempts.golemcraft.item.ItemCraftPatternInfusion;
+import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 
@@ -43,10 +43,9 @@ public final class ModBlocksItems {
 
 
     public static Item CRAFT_PATTERN;
-    public static Item CRAFT_PATTERN_INFUSION;
+    public static Item INFUSION_PATTERN;
     public static Item ARCANE_PATTERN;
     public static Item RESOURCE_LIST;
-    public static Item DELIVERY_PATTERN;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -111,12 +110,12 @@ public final class ModBlocksItems {
                 .setRegistryName(ThaumicAttempts.MODID, "craft_pattern");
         ARCANE_PATTERN = new ItemArcanePattern()
                 .setRegistryName(ThaumicAttempts.MODID, "arcane_pattern");
-        CRAFT_PATTERN_INFUSION = new ItemCraftPatternInfusion()
-                .setRegistryName(ThaumicAttempts.MODID, "craft_pattern_infusion");
+        INFUSION_PATTERN = new ItemInfusionPattern()
+                .setRegistryName(ThaumicAttempts.MODID, "infusion_pattern");
         RESOURCE_LIST  = new ItemResourceList()
                 .setRegistryName(ThaumicAttempts.MODID, "resource_list");
 
-        e.getRegistry().registerAll(CRAFT_PATTERN, CRAFT_PATTERN_INFUSION, ARCANE_PATTERN, RESOURCE_LIST);
+        e.getRegistry().registerAll(CRAFT_PATTERN, INFUSION_PATTERN, ARCANE_PATTERN, RESOURCE_LIST);
 
         // ItemBlock'и
         e.getRegistry().register(new ItemBlock(GOLEM_CRAFTER)

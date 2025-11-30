@@ -10,7 +10,10 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.util.NonNullList;
 import net.minecraft.inventory.Slot;
 import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
+import therealpant.thaumicattempts.golemcraft.container.ContainerInfusionPattern;
+import therealpant.thaumicattempts.golemcraft.container.IPatternContainer;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
+import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 
 public class GuiCraftPattern extends GuiContainer {
 
@@ -44,10 +47,20 @@ public class GuiCraftPattern extends GuiContainer {
     private boolean blurOn = false;
     private static final int INFUSION_RADIUS = 32;
 
+    private final IPatternContainer patternContainer;
+
     public GuiCraftPattern(InventoryPlayer playerInv, ItemStack patternStack) {
-        super(new ContainerCraftPattern(playerInv, patternStack));
+        super(createContainer(playerInv, patternStack));
+        this.patternContainer = (IPatternContainer) this.inventorySlots;
         this.xSize = 176;
         this.ySize = 166;
+    }
+
+    private static net.minecraft.inventory.Container createContainer(InventoryPlayer playerInv, ItemStack patternStack) {
+        if (!patternStack.isEmpty() && patternStack.getItem() instanceof ItemInfusionPattern) {
+            return new ContainerInfusionPattern(playerInv, patternStack);
+        }
+        return new ContainerCraftPattern(playerInv, patternStack);
     }
 
     @Override public void initGui() { super.initGui(); enableBlur(); }
@@ -64,8 +77,7 @@ public class GuiCraftPattern extends GuiContainer {
     protected void drawGuiContainerForegroundLayer(int mouseX, int mouseY) {
         super.drawGuiContainerForegroundLayer(mouseX, mouseY);
 
-        ContainerCraftPattern c = (ContainerCraftPattern) this.inventorySlots;
-        ItemStack pat = c.getPatternStack();
+        ItemStack pat = patternContainer.getPatternStack();
         int repeat = ItemBasePattern.getRepeatCount(pat);
         if (repeat > 1) {
             final int baseW = 3 * CELL;
@@ -92,7 +104,7 @@ public class GuiCraftPattern extends GuiContainer {
         final int x = (width - xSize) / 2;
         final int y = (height - ySize) / 2;
 
-        boolean infusionMode = ((ContainerCraftPattern) this.inventorySlots).isInfusionMode();
+        boolean infusionMode = patternContainer.isInfusionMode();
 
         // ---- фактические координаты 3×3 из контейнера ----
         final int gridLeft = x + GRID_LEFT_OFF;
@@ -192,7 +204,7 @@ public class GuiCraftPattern extends GuiContainer {
     }
 
     private boolean isInfusionAreaClick(int mouseX, int mouseY) {
-        if (!((ContainerCraftPattern) this.inventorySlots).isInfusionMode()) return false;
+        if (!patternContainer.isInfusionMode()) return false;
 
         final int x = (width - xSize) / 2;
         final int y = (height - ySize) / 2;
@@ -209,19 +221,17 @@ public class GuiCraftPattern extends GuiContainer {
     }
 
     private boolean handleInfusionClick(int mouseButton) {
-        ContainerCraftPattern c = (ContainerCraftPattern) this.inventorySlots;
-        if (!c.isInfusionMode()) return false;
+        if (!patternContainer.isInfusionMode()) return false;
 
         int action = mouseButton == 1 ? 1 : 0; // ЛКМ — добавить, ПКМ — убрать последний
-        this.mc.playerController.sendEnchantPacket(c.windowId, action);
+        this.mc.playerController.sendEnchantPacket(this.inventorySlots.windowId, action);
         return true;
     }
 
     private void drawInfusionOrder(int centerX, int centerY) {
-        ContainerCraftPattern c = (ContainerCraftPattern) this.inventorySlots;
-        if (!c.isInfusionMode()) return;
+        if (!patternContainer.isInfusionMode()) return;
 
-        NonNullList<ItemStack> order = c.getOrderView();
+        NonNullList<ItemStack> order = patternContainer.getOrderView();
         int count = 0;
         for (ItemStack stack : order) {
             if (!stack.isEmpty()) count++;
