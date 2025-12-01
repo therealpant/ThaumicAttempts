@@ -99,6 +99,12 @@ public class BlockInfusionRequester extends BlockHorizontal {
         TileInfusionRequester tile = (TileInfusionRequester) te;
 
         if (!world.isRemote) {
+            if (te instanceof TileInfusionRequester) {
+                ((TileInfusionRequester) te).setOwner(player);
+            }
+        }
+
+        if (!world.isRemote) {
             if (player.isSneaking()) {
                 ItemStack extracted = tile.tryExtractPattern();
                 if (!extracted.isEmpty()) {
