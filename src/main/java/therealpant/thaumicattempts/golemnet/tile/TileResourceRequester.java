@@ -25,6 +25,9 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.api.IPatternedWorksite;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
+import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
+import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
+import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.util.ItemKey;
 import thaumcraft.api.ThaumcraftApiHelper;
@@ -44,8 +47,8 @@ import javax.annotation.Nullable;
 import java.util.*;
 import therealpant.thaumicattempts.api.PatternResourceList;
 
-public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable, IPatternedWorksite {
-
+public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable, IPatternedWorksite,
+        therealpant.thaumicattempts.api.ITerminalOrderAcceptor, therealpant.thaumicattempts.api.ITerminalOrderIconProvider {
     private static final int PATTERN_SLOT_COUNT = 15;
     private static final int REQUEST_STALE_TICKS = 100;
     private static final int REQUEST_RETRY_TICKS = 200;
@@ -60,10 +63,6 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     private final AnimationFactory factory = new AnimationFactory(this);
     // последнее известное состояние "есть ли ожидания"
     private boolean lastWaiting = false;
-
-    private static final String ORDER_TAG_ROOT = "thaumicattempts_rr";
-    private static final String ORDER_TAG_POS = "Pos";
-    private static final String ORDER_TAG_SLOT = "Slot";
 
     private final ItemStackHandler patterns = new ItemStackHandler(PATTERN_SLOT_COUNT) {
         @Override
@@ -803,38 +802,47 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         tryStartQueuedJob();
     }
 
+    @Override
+    public void triggerFromTerminal(int slot, int count) {
+        triggerExternalRequest(slot, count);
+    }
+
+    @Override
+    public java.util.List<ItemStack> listTerminalOrderIcons() {
+        if (world == null) return java.util.Collections.emptyList();
+
+        TileEntity above = world.getTileEntity(pos.up());
+        if (!(above instanceof TilePatternRequester)) return java.util.Collections.emptyList();
+
+        java.util.ArrayList<ItemStack> result = new java.util.ArrayList<>();
+        IItemHandler patt = ((TilePatternRequester) above).getPatternHandler();
+        for (int i = 0; i < patt.getSlots(); i++) {
+            ItemStack pattern = patt.getStackInSlot(i);
+            if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) continue;
+            ItemStack icon = ItemResourceList.getPreviewOrFirstEntry(pattern);
+            if (icon.isEmpty()) continue;
+            ItemStack display = makeOrderIcon(icon, pos, i);
+            if (!display.isEmpty()) result.add(display);
+        }
+        return result;
+    }
+
     public static ItemStack makeOrderIcon(ItemStack base, BlockPos requesterPos, int slot) {
-        if (requesterPos == null) return ItemStack.EMPTY;
-        ItemStack icon = (base == null) ? ItemStack.EMPTY : base.copy();
-        if (icon.isEmpty()) return ItemStack.EMPTY;
-        icon.setCount(1);
-        NBTTagCompound tag = icon.hasTagCompound() ? icon.getTagCompound().copy() : new NBTTagCompound();
-        NBTTagCompound inner = new NBTTagCompound();
-        inner.setLong(ORDER_TAG_POS, requesterPos.toLong());
-        inner.setInteger(ORDER_TAG_SLOT, Math.max(0, slot));
-        tag.setTag(ORDER_TAG_ROOT, inner);
-        icon.setTagCompound(tag);
-        return icon;
+        return TerminalOrderApi.makeOrderIcon(base, null, requesterPos, slot);
     }
 
     public static boolean isOrderIcon(ItemStack stack) {
-        if (stack == null || stack.isEmpty() || !stack.hasTagCompound()) return false;
-        NBTTagCompound tag = stack.getTagCompound();
-        return tag != null && tag.hasKey(ORDER_TAG_ROOT, Constants.NBT.TAG_COMPOUND);
+        return TerminalOrderApi.isOrderIcon(stack);
     }
 
     @Nullable
     public static BlockPos getOrderIconPos(ItemStack stack) {
         if (!isOrderIcon(stack)) return null;
-        NBTTagCompound inner = stack.getTagCompound().getCompoundTag(ORDER_TAG_ROOT);
-        if (!inner.hasKey(ORDER_TAG_POS, Constants.NBT.TAG_LONG)) return null;
-        return BlockPos.fromLong(inner.getLong(ORDER_TAG_POS));
+        return TerminalOrderApi.getOrderIconPos(stack);
     }
 
     public static int getOrderIconSlot(ItemStack stack) {
-        if (!isOrderIcon(stack)) return -1;
-        NBTTagCompound inner = stack.getTagCompound().getCompoundTag(ORDER_TAG_ROOT);
-        return inner.getInteger(ORDER_TAG_SLOT);
+        return TerminalOrderApi.getOrderIconSlot(stack);
     }
 
     @Override

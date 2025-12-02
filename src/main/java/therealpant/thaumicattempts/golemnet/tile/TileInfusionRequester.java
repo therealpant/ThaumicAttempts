@@ -27,10 +27,7 @@ import net.minecraftforge.items.wrapper.CombinedInvWrapper;
 import thaumcraft.api.capabilities.IPlayerKnowledge;
 import thaumcraft.api.capabilities.ThaumcraftCapabilities;
 import thaumcraft.api.golems.GolemHelper;
-import therealpant.thaumicattempts.api.IPatternedWorksite;
-import therealpant.thaumicattempts.api.PatternProvisioningSpec;
-import therealpant.thaumicattempts.api.PatternRedstoneMode;
-import therealpant.thaumicattempts.api.PatternResourceList;
+import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.util.ItemKey;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
@@ -48,8 +45,8 @@ import java.util.function.Consumer;
  * - внутренний входной буфер ресурсов
  * - знает владельца и кликает по матрице с его исследованиями
  */
-public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite {
-
+public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
+        ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint {
     public static final int PATTERN_SLOT_COUNT = 15;
     private static final String TAG_PATTERNS = "patterns";
     private static final String TAG_SPECIAL  = "special";
@@ -315,7 +312,16 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (world == null) return;
 
         if (!world.isRemote) {
+            // 1) подтягиваем менеджер от паттерн-реквестера сверху
             syncManagerFromPattern();
+
+            // 2) регистрируем себя как реквестер в менеджере (для каталога крафта)
+            if (managerPos != null) {
+                TileEntity te = world.getTileEntity(managerPos);
+                if (te instanceof TileMirrorManager) {
+                    ((TileMirrorManager) te).registerRequester(this.pos);
+                }
+            }
         }
 
         if (world.isRemote) return;
@@ -396,6 +402,31 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         tryStartNextJob();
     }
 
+    @Override
+    public void triggerFromTerminal(int slot, int count) {
+        triggerExternalRequest(slot, count);
+    }
+
+    @Override
+    public List<ItemStack> listTerminalOrderIcons() {
+        if (world == null) return Collections.emptyList();
+
+        ArrayList<ItemStack> out = new ArrayList<>();
+        for (int i = 0; i < patterns.getSlots(); i++) {
+            ItemStack pat = patterns.getStackInSlot(i);
+            if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) continue;
+
+            ItemStack preview = therealpant.thaumicattempts.api.TerminalOrderApi
+                    .stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
+            if (preview.isEmpty()) continue;
+
+            ItemStack icon = TerminalOrderApi.makeOrderIcon(preview, world.getBlockState(pos).getBlock(), pos, i);
+            if (!icon.isEmpty()) out.add(icon);
+        }
+        return out;
+    }
+
+    @Override
     public List<ItemStack> listCraftableResults() {
         if (world == null) return Collections.emptyList();
 
@@ -403,8 +434,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         for (int i = 0; i < patterns.getSlots(); i++) {
             ItemStack pat = patterns.getStackInSlot(i);
             if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) continue;
-            if (PatternResourceList.build(pat).isEmpty()) continue;
-            ItemStack preview = ItemInfusionPattern.calcResultPreview(pat, world);
+            ItemStack preview = therealpant.thaumicattempts.api.TerminalOrderApi
+                    .stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
             if (preview.isEmpty()) continue;
 
             ItemStack one = preview.copy();
@@ -414,14 +445,39 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         return out;
     }
 
+    @Override
+    public int getPerCraftOutputCountFor(ItemStack like) {
+        if (world == null || like == null || like.isEmpty()) return 0;
+
+        int slot = findPatternSlotFor(like);
+        if (slot < 0) return 0;
+
+        ItemStack pat = patterns.getStackInSlot(slot);
+        if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) return 0;
+
+        ItemStack preview = ItemInfusionPattern.calcResultPreview(pat, world);
+        if (preview.isEmpty()) return 0;
+
+        return Math.max(1, preview.getCount());
+    }
+
+    @Override
+    public void enqueueCraft(ItemStack resultLike, int crafts) {
+        enqueueFromPatternRequester(resultLike, crafts);
+    }
+    @Override
+    public boolean hasActiveOrQueued() {
+        return jobActive || !queuedTriggers.isEmpty();
+    }
+
     public int findPatternSlotFor(ItemStack like) {
         if (world == null || like == null || like.isEmpty()) return -1;
         for (int i = 0; i < patterns.getSlots(); i++) {
             ItemStack pat = patterns.getStackInSlot(i);
             if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) continue;
-            if (PatternResourceList.build(pat).isEmpty()) continue;
 
-            ItemStack preview = ItemInfusionPattern.calcResultPreview(pat, world);
+            ItemStack preview = therealpant.thaumicattempts.api.TerminalOrderApi
+                    .stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
             if (preview.isEmpty()) continue;
 
             boolean match = (preview.getMaxStackSize() == 1)
@@ -1033,7 +1089,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
 
         // Ожидаемый результат из паттерна
-        ItemStack preview = ItemInfusionPattern.calcResultPreview(patterns.getStackInSlot(activeSlot), world);
+        ItemStack preview = therealpant.thaumicattempts.api.TerminalOrderApi
+                .stripOrderIconData(ItemInfusionPattern.calcResultPreview(patterns.getStackInSlot(activeSlot), world));
         if (preview.isEmpty()) {
             // на всякий случай: если вдруг нет превью – старое поведение
             pullFirstStorageIntoResults();
@@ -1319,4 +1376,5 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             world.notifyBlockUpdate(pos, world.getBlockState(pos), world.getBlockState(pos), 3);
         }
     }
+
 }

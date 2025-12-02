@@ -33,6 +33,8 @@ import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.golems.seals.SealEntity;
 import thaumcraft.common.golems.seals.SealHandler;
 import thaumcraft.common.golems.seals.SealProvide;
+import therealpant.thaumicattempts.api.ICraftEndpoint;
+import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
@@ -1314,6 +1316,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         final int q = Math.max(0, Math.min(5, queueId));
 
+        // вычищаем возможные дубль-доставки в ту же точку
         final java.util.function.BiConsumer<BlockPos, ItemStack> dropDupDelivery = (d, like1) -> {
             for (Deque<Batch> qd : batchQueues) {
                 for (Iterator<Batch> itB = qd.iterator(); itB.hasNext(); ) {
@@ -1334,6 +1337,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         };
 
+        // для КРАФТЕРОВ: накопление потребностей
         Map<BlockPos, LinkedHashMap<ItemKey, Integer>> provisioning = new HashMap<>();
         Map<BlockPos, Map<ItemKey, Integer>> availablePerCrafter = new HashMap<>();
         List<Batch> craftBatches = new ArrayList<>();
@@ -1342,20 +1346,37 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             ItemStack like1 = e.getKey().toStack(1);
             int amount = Math.max(1, e.getValue());
 
+            // находим реквестер
             BlockPos rp = (finder != null) ? finder.find(e.getKey()) : findRequesterForKey(e.getKey());
             if (rp == null) continue;
 
             dropDupDelivery.accept(dest, like1);
 
+            TileEntity rte = world.getTileEntity(rp);
 
+            // === 1) ИНФУЗИОННЫЙ РЕКВЕСТЕР: НЕ лезем в крафт-очередь менеджера ===
+            if (rte instanceof TileInfusionRequester) {
+                TileInfusionRequester inf = (TileInfusionRequester) rte;
+
+                // amount — это СКОЛЬКО предметов игрок заказал.
+                // Инфузия даёт обычно 1 предмет за цикл, поэтому можно заказать amount циклов.
+                // Если ты хочешь учитывать количество из превью — можно позже доработать.
+                inf.enqueueFromPatternRequester(like1, amount);
+
+                // НИ никакого Batch.Kind.CRAFT, НИ provisioning для этого случая
+                continue;
+            }
+
+            // === 2) Обычный PatternRequester + GolemCrafter как было раньше ===
             Line ln = new Line(like1, amount);
             ln.requester = rp;
 
-            TileEntity rte = world.getTileEntity(rp);
             if (rte instanceof TilePatternRequester) {
                 TilePatternRequester rq = (TilePatternRequester) rte;
+
                 int outPerCraft = Math.max(1, rq.getPerCraftOutputCountFor(like1));
                 int craftsCount = (amount + outPerCraft - 1) / outPerCraft;
+
                 List<ItemStack> needList = rq.getRecipeInputsFor(like1, craftsCount);
                 if (needList != null && !needList.isEmpty()) {
                     BlockPos crafterPos = rp.down();
@@ -1363,6 +1384,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                             crafterPos, x -> new LinkedHashMap<>());
                     Map<ItemKey, Integer> available = availablePerCrafter.computeIfAbsent(
                             crafterPos, x -> new HashMap<>());
+
                     for (ItemStack need : needList) {
                         if (need == null || need.isEmpty()) continue;
                         ItemKey key = ItemKey.of(need);
@@ -1382,21 +1404,25 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                         available.put(key, leftover);
                     }
                 }
+
                 ln.craftsExpected = craftsCount;
                 ln.perCraftOut = outPerCraft;
             }
 
+            // сам крафт-батч (только для обычных крафтеров)
             Batch b = new Batch(Batch.Kind.CRAFT, dest, destSide, q);
             b.lines.add(ln);
             craftBatches.add(b);
         }
 
+        // обеспечиваем доставку сырья ДЛЯ КРАФТЕРОВ (инфузия тут не участвует)
         if (!provisioning.isEmpty()) {
             for (Map.Entry<BlockPos, LinkedHashMap<ItemKey, Integer>> entry : provisioning.entrySet()) {
                 ensureDeliveryForExact(entry.getKey(), entry.getValue(), q);
             }
         }
 
+        // ставим в очередь только craft-батчи для крафтеров
         for (Batch b : craftBatches) {
             batchQueues.get(q).addLast(b);
         }
@@ -2912,6 +2938,20 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             if (!display.isEmpty()) into.add(display);
         }
     }
+    private void appendTerminalIcons(BlockPos pos, Set<BlockPos> seen, List<ItemStack> into) {
+        if (world == null || world.isRemote || pos == null) return;
+
+        BlockPos key = pos.toImmutable();
+        if (seen != null && seen.contains(key)) return;
+
+        TileEntity te = world.getTileEntity(pos);
+        if (!(te instanceof ITerminalOrderIconProvider)) return;
+
+        if (seen != null) seen.add(key);
+
+        List<ItemStack> icons = ((ITerminalOrderIconProvider) te).listTerminalOrderIcons();
+        if (icons != null) into.addAll(icons);
+    }
     /**
      * Узкий доступ к инвентарю под печатью:
      * - только тайл по указанному адресу;
@@ -2948,60 +2988,72 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return null;
     }
 
+    public List<ItemStack> getCraftablesCatalog() {
+        List<ItemStack> out = new ArrayList<>();
+        Set<BlockPos> reqs = getRequestersSnapshot();
+        if (world == null || reqs == null) return out;
+
+        for (BlockPos rp : reqs) {
+            TileEntity te = world.getTileEntity(rp);
+            if (!(te instanceof ICraftEndpoint)) continue;
+
+            ICraftEndpoint ep = (ICraftEndpoint) te;
+            List<ItemStack> lst = ep.listCraftableResults();
+            if (lst == null || lst.isEmpty()) continue;
+
+            for (ItemStack s : lst) {
+                if (s == null || s.isEmpty()) continue;
+                ItemStack one = s.copy();
+                if (one.getCount() <= 0) one.setCount(1);
+                out.add(one);
+            }
+        }
+        return out;
+    }
 
     /**
-     * Сводный список крафтабельных результатов.
+     * Агрегируем результаты: стакаемые — relaxed, нестакуемые — по item+meta,
+     * ровно в духе логики крафтера.
      */
-    public List<ItemStack> getCraftablesCatalog() {
-        LinkedHashMap<ItemKey, Integer> map = new LinkedHashMap<>();
-        if (world == null || world.isRemote) return Collections.emptyList();
+    private static void mergeCraftables(java.util.Map<ItemStack,Integer> agg,
+                                        java.util.List<ItemStack> list) {
+        if (list == null || list.isEmpty()) return;
 
-        for (BlockPos rp : requesters) {
-            TileEntity te = world.getTileEntity(rp);
-            List<ItemStack> outs = null;
-            if (te instanceof TilePatternRequester) {
-                outs = ((TilePatternRequester) te).listCraftableResults();
-            } else if (te instanceof TileInfusionRequester) {
-                outs = ((TileInfusionRequester) te).listCraftableResults();
+        outer:
+        for (ItemStack res : list) {
+            if (res == null || res.isEmpty()) continue;
+
+            // ищем уже существующий ключ по той же логике, что и в крафтере
+            for (ItemStack ex : agg.keySet()) {
+                if (sameResultForCatalog(ex, res)) {
+                    int sum = agg.getOrDefault(ex, 0) + Math.max(1, res.getCount());
+                    agg.put(ex, sum);
+                    continue outer;
+                }
             }
-            if (outs == null || outs.isEmpty()) continue;
-
-            for (ItemStack s : outs) {
-                if (s == null || s.isEmpty()) continue;
-                ItemKey k = ItemKey.of(s);
-                int outCount = s.getCount() <= 0 ? 1 : s.getCount();
-                map.put(k, Math.max(map.getOrDefault(k, 0), outCount));
-            }
+            // нового в agg ещё нет — добавляем
+            ItemStack k = res.copy();
+            k.setCount(1);
+            agg.put(k, Math.max(1, res.getCount()));
         }
+    }
 
-        ArrayList<ItemStack> result = new ArrayList<>(map.size());
-        for (Map.Entry<ItemKey, Integer> e : map.entrySet()) {
-            ItemStack one = e.getKey().toStack(1);
-            one.setCount(e.getValue());
-            result.add(one);
+    /**
+     * Сравнение результатов для каталога:
+     *  - для кристаллов — по аспекту
+     *  - для нестакуемых — item + meta
+     *  - иначе — relaxed stack
+     */
+    private static boolean sameResultForCatalog(ItemStack a, ItemStack b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
+
+        // если хочешь — можешь заюзать ту же crystal-логику, что в крафтере/терминале
+        if (a.getMaxStackSize() == 1 || b.getMaxStackSize() == 1) {
+            if (a.getItem() != b.getItem()) return false;
+            if (a.getHasSubtypes() && a.getMetadata() != b.getMetadata()) return false;
+            return true;
         }
-
-        java.util.Set<BlockPos> seenResources = new java.util.HashSet<>();
-
-        for (BlockPos rp : requesters) {
-            TileEntity te = world.getTileEntity(rp);
-            if (te instanceof TilePatternRequester) {
-                appendResourcePreviews(rp.down(), seenResources, result);
-            }
-        }
-
-        for (BlockPos rp : boundRequesters) {
-            TileEntity te = world.getTileEntity(rp);
-            if (te instanceof TilePatternRequester) {
-                appendResourcePreviews(rp.down(), seenResources, result);
-            }
-        }
-
-        for (BlockPos tp : boundTerminals) {
-            appendResourcePreviews(tp, seenResources, result);
-        }
-
-        return result;
+        return ItemHandlerHelper.canItemStacksStackRelaxed(a, b);
     }
 
     /* ===================== Реквестеры (крафтеры) ===================== */

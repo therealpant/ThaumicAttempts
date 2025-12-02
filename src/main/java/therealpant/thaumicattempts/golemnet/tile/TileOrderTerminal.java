@@ -15,6 +15,9 @@ import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
+import therealpant.thaumicattempts.api.ICraftEndpoint;
+import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
+import therealpant.thaumicattempts.api.TerminalOrderApi;
 import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
@@ -52,12 +55,11 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     private final LinkedHashMap<ItemKey, Integer> pendingDelivery = new LinkedHashMap<>();
     private final LinkedHashMap<ItemKey, Integer> pendingCraft    = new LinkedHashMap<>();
 
-    private static final class ResourceOrderRequest {
+    private static final class TerminalOrderRequest {
         final BlockPos pos;
         final int slot;
         final int count;
-        ResourceOrderRequest(BlockPos pos, int slot, int count) {
-            this.pos = pos;
+        private TerminalOrderRequest(BlockPos pos, int slot, int count) {            this.pos = pos;
             this.slot = slot;
             this.count = count;
         }
@@ -228,18 +230,18 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         int freeDistinct = Math.max(0, 9 - pend.size());
         List<Map.Entry<ItemKey, Integer>> movedRaw = new ArrayList<>();
-        List<ResourceOrderRequest> resourceOrders = new ArrayList<>();
+        List<TerminalOrderRequest> directTerminalOrders = new ArrayList<>();
 
         for (Map.Entry<ItemKey, Integer> e : new ArrayList<>(draft.entrySet())) {
             ItemKey key = e.getKey();
             int amt = Math.max(1, e.getValue());
 
             ItemStack keyStack = key.toStack(1);
-            if (TileResourceRequester.isOrderIcon(keyStack)) {
-                BlockPos target = TileResourceRequester.getOrderIconPos(keyStack);
-                int slot = TileResourceRequester.getOrderIconSlot(keyStack);
+            if (TerminalOrderApi.isOrderIcon(keyStack)) {
+                BlockPos target = TerminalOrderApi.getOrderIconPos(keyStack);
+                int slot = TerminalOrderApi.getOrderIconSlot(keyStack);
                 if (target != null && slot >= 0) {
-                    resourceOrders.add(new ResourceOrderRequest(target, slot, amt));
+                    directTerminalOrders.add(new TerminalOrderRequest(target, slot, amt));
                 }
                 draft.remove(key);
                 continue;
@@ -271,18 +273,18 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             if (!alreadyInPend) freeDistinct--;
         }
 
-        if (!resourceOrders.isEmpty()) {
+        if (!directTerminalOrders.isEmpty()) {
             markDirty();
-            for (ResourceOrderRequest order : resourceOrders) {
+            for (TerminalOrderRequest order : directTerminalOrders) {
                 TileEntity te = world.getTileEntity(order.pos);
-                if (te instanceof TileResourceRequester) {
-                    ((TileResourceRequester) te).triggerExternalRequest(order.slot, order.count);
+                if (te instanceof ITerminalOrderAcceptor) {
+                    ((ITerminalOrderAcceptor) te).triggerFromTerminal(order.slot, order.count);
                 }
             }
         }
 
         if (movedRaw.isEmpty()) {
-            if (resourceOrders.isEmpty()) {
+            if (directTerminalOrders.isEmpty()) {
                 markDirty();
             }
             sendSnapshotToViewers(craftTab);
@@ -306,69 +308,52 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                     mgr.ensureDeliveryFor(this.pos, new LinkedHashMap<>(pendingDelivery));
                 }
             } else {
-                List<Map.Entry<ItemKey, Integer>> toManager = new ArrayList<>();
-                for (Map.Entry<ItemKey, Integer> e : moved) {
-                    ItemStack stack = e.getKey().toStack(1);
-                    InfusionOrderTarget inf = findInfusionRequesterFor(mgr, stack);
-                    if (inf != null) {
-                        triggerInfusionOrder(inf, e.getValue());
-                    } else {
-                        toManager.add(e);
-                    }
+                // CRAFT вкладка, единая логика
+                List<Map.Entry<ItemKey,Integer>> toManager = new ArrayList<>();
+
+                for (Map.Entry<ItemKey,Integer> e : moved) {
+                    ItemKey key = e.getKey();
+                    int n = Math.max(1, e.getValue());
+                    toManager.add(new AbstractMap.SimpleEntry<>(key, n));
                 }
 
                 if (!toManager.isEmpty()) {
                     mgr.enqueueBatchCraft(
-                            this.pos, -1, QUEUE_ID, toManager,
-                            key -> findRequesterFor(mgr, key.toStack(1))
+                            this.pos, -1, QUEUE_ID, moved,
+                            key -> findCraftEndpointFor(mgr, key.toStack(1))  // ищет любой ICraftEndpoint
                     );
                 }
             }
         }
 
-        sendSnapshotToViewers(craftTab);
+            sendSnapshotToViewers(craftTab);
     }
 
     @Nullable
-    private BlockPos findRequesterFor(TileMirrorManager mgr, ItemStack result) {
+    private BlockPos findCraftEndpointFor(TileMirrorManager mgr, ItemStack result) {
         if (result == null || result.isEmpty()) return null;
         Set<BlockPos> reqs = mgr.getRequestersSnapshot();
         if (reqs == null || reqs.isEmpty()) return null;
 
         for (BlockPos rp : reqs) {
             TileEntity te = world.getTileEntity(rp);
-            if (!(te instanceof therealpant.thaumicattempts.golemnet.tile.TilePatternRequester)) continue;
-            List<ItemStack> outs = ((therealpant.thaumicattempts.golemnet.tile.TilePatternRequester) te).listCraftableResults();
+            if (!(te instanceof ICraftEndpoint)) continue;
+
+            ICraftEndpoint ep = (ICraftEndpoint) te;
+            List<ItemStack> outs = ep.listCraftableResults();
             if (outs == null || outs.isEmpty()) continue;
+
             for (ItemStack out : outs) {
                 if (out == null || out.isEmpty()) continue;
                 boolean same = (result.getMaxStackSize() == 1)
-                        ? (out.getItem() == result.getItem() && (!out.getHasSubtypes() || out.getMetadata() == result.getMetadata()))
+                        ? (out.getItem() == result.getItem()
+                        && (!out.getHasSubtypes() || out.getMetadata() == result.getMetadata()))
                         : ItemHandlerHelper.canItemStacksStackRelaxed(out, result);
                 if (same) return rp;
             }
         }
         return null;
     }
-
-    @Nullable
-    private InfusionOrderTarget findInfusionRequesterFor(TileMirrorManager mgr, ItemStack result) {
-        if (result == null || result.isEmpty()) return null;
-        Set<BlockPos> reqs = mgr.getRequestersSnapshot();
-        if (reqs == null || reqs.isEmpty()) return null;
-
-        for (BlockPos rp : reqs) {
-            TileEntity te = world.getTileEntity(rp);
-            if (!(te instanceof TileInfusionRequester)) continue;
-            TileInfusionRequester inf = (TileInfusionRequester) te;
-            int slot = inf.findPatternSlotFor(result);
-            if (slot >= 0) {
-                return new InfusionOrderTarget(rp.toImmutable(), slot);
-            }
-        }
-        return null;
-    }
-
 
     @Nullable
     private ItemKey findMatchingKeyRelaxed(Map<ItemKey, Integer> map, ItemStack like) {

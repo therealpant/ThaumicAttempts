@@ -18,9 +18,11 @@ import net.minecraftforge.items.ItemHandlerHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
+import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
+import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 
 import software.bernie.geckolib3.core.IAnimatable;
 import software.bernie.geckolib3.core.PlayState;
@@ -43,7 +45,7 @@ import java.util.*;
  * - Поддерживает привязку к менеджеру: get/set/clearManagerPos*.
  * - Имеет простой редстоун-выход (метод getOutSignal) — сейчас всегда 0 (пульс можно нарастить позже).
  */
-public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable {
+public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICraftEndpoint {
     private final AnimationFactory factory = new AnimationFactory(this);
 
 
@@ -99,6 +101,13 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         return (te instanceof TileEntityGolemCrafter) ? (TileEntityGolemCrafter) te : null;
     }
 
+    /** Доступ к паттернам крафтера под плитой (пустой обработчик, если крафтера нет). */
+    public IItemHandler getPatternHandler() {
+        TileEntityGolemCrafter crafter = getCrafterBelow();
+        if (crafter != null) return crafter.getPatternHandler();
+        return net.minecraftforge.items.wrapper.EmptyHandler.INSTANCE;
+    }
+
     /* ====== Константы NBT, совпадающие с крафтером/паттерном ====== */
     private static final String TAG_RESULT = "Result";
     private static final String TAG_GRID   = "Grid";
@@ -139,7 +148,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
 
 
     /* ====== Публикация каталога крафтабельного ====== */
-
+    @Override
     /** Список всех результатов из паттернов (каждый — с правильным count за 1 крафт). */
     public List<ItemStack> listCraftableResults() {
         TileEntityGolemCrafter cr = getCrafterBelow();
@@ -163,7 +172,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         }
         return out;
     }
-
+    @Override
     /** Сколько штук даёт ровно один крафт для результата «как этот». */
     public int getPerCraftOutputCountFor(ItemStack like) {
         if (like == null || like.isEmpty()) return 0;
@@ -188,7 +197,11 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         }
         return 0;
     }
-
+    @Override
+    public void enqueueCraft(ItemStack resultLike, int crafts) {
+        // тонкая обёртка над твоей текущей логикой
+        queueCraft(resultLike, crafts);
+    }
     /**
      * Полный список входов, необходимых для `times` крафтов (агрегирован по «ключу сетки»).
      * Ключ и сравнение в точности как у крафтера:
@@ -268,6 +281,18 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     private NonNullList<ItemStack> readGridFromPattern(ItemStack pattern) {
         NonNullList<ItemStack> grid = NonNullList.withSize(9, ItemStack.EMPTY);
         if (pattern == null || pattern.isEmpty()) return grid;
+
+        // --- НОВОЕ: отдельная ветка для infusion-паттерна ---
+        if (pattern.getItem() instanceof ItemInfusionPattern) {
+            // читаем «последовательность» и раскладываем в 3×3 по ORDER_TO_GRID
+            NonNullList<ItemStack> order = ItemInfusionPattern.readOrder(pattern);
+            if (!order.isEmpty()) {
+                return ItemInfusionPattern.orderToGrid(order);
+            }
+            return grid;
+        }
+
+        // --- обычный путь для craft/arcane паттернов ---
         NBTTagCompound tag = pattern.getTagCompound();
         if (tag == null || !tag.hasKey(TAG_GRID, Constants.NBT.TAG_LIST)) return grid;
 
@@ -288,7 +313,12 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
             ItemStack arc = ItemArcanePattern.calcArcaneResultPreview(pattern, world);
             if (arc != null && !arc.isEmpty()) return arc.copy();
         }
-
+        // --- НОВОЕ: инфузионный паттерн тоже имеет своё превью ---
+        if (pattern.getItem() instanceof ItemInfusionPattern) {
+            // он уже умеет читать TAG_RESULT правильно
+            ItemStack inf = ItemInfusionPattern.readResult(pattern);
+            if (inf != null && !inf.isEmpty()) return inf.copy();
+        }
         NBTTagCompound tag = pattern.getTagCompound();
         if (tag != null && tag.hasKey(TAG_RESULT, Constants.NBT.TAG_COMPOUND)) {
             ItemStack res = new ItemStack(tag.getCompoundTag(TAG_RESULT));
@@ -467,43 +497,9 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         rsQueue.addLast(new RsTask(resultLike, crafts));
     }
 
-    public void queueCrafts(java.util.List<java.util.Map.Entry<ItemStack,Integer>> lines) {
-        if (lines == null) return;
-        for (java.util.Map.Entry<ItemStack,Integer> e : lines) {
-            if (e == null) continue;
-            ItemStack s = e.getKey();
-            int n = (e.getValue() == null ? 0 : e.getValue());
-            queueCraft(s, n);
-        }
-    }
-
-    public void clearCraftQueue() {
-        rsQueue.clear();
-        rsClearActive();
-    }
-
+    @Override
     public boolean hasActiveOrQueued() {
         return (rsLike != null && !rsLike.isEmpty() && rsCraftsLeft > 0) || !rsQueue.isEmpty();
-    }
-
-    public void rsQueueAdd(net.minecraft.item.ItemStack like1, int crafts) {
-        // перекидываем на новую реализацию
-        this.queueCraft(like1, crafts);
-    }
-
-    public void rsQueueClear() {
-        // очищаем очередь и активный пункт
-        this.clearCraftQueue();
-    }
-
-    public boolean rsIsActiveOrQueued() {
-        // есть активный пункт или элементы в очереди?
-        return this.hasActiveOrQueued();
-    }
-
-    // (не обязательно, но на всякий случай, если где-то зовётся)
-    public void rsQueueAddAll(java.util.List<java.util.Map.Entry<net.minecraft.item.ItemStack,Integer>> lines) {
-        this.queueCrafts(lines);
     }
 
     // --- tick-движок: зови из update() на сервере ---

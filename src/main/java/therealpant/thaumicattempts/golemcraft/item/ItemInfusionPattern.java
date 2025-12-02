@@ -121,7 +121,7 @@ public class ItemInfusionPattern extends ItemBasePattern implements IPatternReso
         // --- сохраняем результат из превью-слота ---
         if (result != null && !result.isEmpty()) {
             NBTTagCompound rt = new NBTTagCompound();
-            ItemStack one = result.copy();
+            ItemStack one = therealpant.thaumicattempts.api.TerminalOrderApi.stripOrderIconData(result);
             one.setCount(1);
             one.writeToNBT(rt);
             tag.setTag(TAG_RESULT, rt);
