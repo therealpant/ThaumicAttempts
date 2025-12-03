@@ -15,6 +15,7 @@ import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
+import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
@@ -340,6 +341,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             if (!(te instanceof ICraftEndpoint)) continue;
 
             ICraftEndpoint ep = (ICraftEndpoint) te;
+            if (!CraftOrderApi.isCrafter(ep)) continue;
             List<ItemStack> outs = ep.listCraftableResults();
             if (outs == null || outs.isEmpty()) continue;
 

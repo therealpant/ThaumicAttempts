@@ -35,6 +35,7 @@ import thaumcraft.common.golems.seals.SealHandler;
 import thaumcraft.common.golems.seals.SealProvide;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
+import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
@@ -1354,16 +1355,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
             TileEntity rte = world.getTileEntity(rp);
 
-            // === 1) ИНФУЗИОННЫЙ РЕКВЕСТЕР: НЕ лезем в крафт-очередь менеджера ===
-            if (rte instanceof TileInfusionRequester) {
+            if (rte instanceof ICraftEndpoint && CraftOrderApi.isCrafter((ICraftEndpoint) rte)
+                    && rte instanceof TileInfusionRequester) {
                 TileInfusionRequester inf = (TileInfusionRequester) rte;
 
-                // amount — это СКОЛЬКО предметов игрок заказал.
-                // Инфузия даёт обычно 1 предмет за цикл, поэтому можно заказать amount циклов.
-                // Если ты хочешь учитывать количество из превью — можно позже доработать.
-                inf.enqueueFromPatternRequester(like1, amount);
-
-                // НИ никакого Batch.Kind.CRAFT, НИ provisioning для этого случая
+                int accepted = inf.enqueueCrafterOrder(this.pos, dest, destSide, like1, amount);
+                if (accepted > 0) {
+                    dropDupDelivery.accept(dest, like1);
+                }
                 continue;
             }
 

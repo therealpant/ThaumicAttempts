@@ -24,11 +24,16 @@ import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
 import net.minecraftforge.items.*;
 import net.minecraftforge.items.wrapper.CombinedInvWrapper;
+import software.bernie.geckolib3.core.IAnimatable;
+import software.bernie.geckolib3.core.manager.AnimationData;
+import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.capabilities.IPlayerKnowledge;
 import thaumcraft.api.capabilities.ThaumcraftCapabilities;
 import thaumcraft.api.golems.GolemHelper;
 import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
+import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
+import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.ItemKey;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 import thaumcraft.api.casters.IInteractWithCaster;
@@ -46,8 +51,7 @@ import java.util.function.Consumer;
  * - знает владельца и кликает по матрице с его исследованиями
  */
 public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
-        ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint {
-    public static final int PATTERN_SLOT_COUNT = 15;
+        ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider, IAnimatable {    public static final int PATTERN_SLOT_COUNT = 15;
     private static final String TAG_PATTERNS = "patterns";
     private static final String TAG_SPECIAL  = "special";
     private static final String TAG_RESULTS  = "results";
@@ -65,6 +69,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private static final String TAG_JOB_QUEUE        = "JobQueue";
     private static final String TAG_JOB_INTERACT     = "JobInteractDelay";
     private static final String TAG_JOB_PICKUP_BASE  = "JobPickupBaseline";
+    private static final String TAG_CRAFT_DELIVERIES = "CraftDeliveries";
 
     private static final int MAX_QUEUED_ORDERS = 8;
 
@@ -120,6 +125,57 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     private final ArrayDeque<Integer> queuedTriggers = new ArrayDeque<>();
     private int lastSignal = 0;
+
+    @Override
+    public void registerControllers(AnimationData data) {
+
+    }
+
+    @Override
+    public AnimationFactory getFactory() {
+        return null;
+    }
+
+    private static final class PendingCrafterDelivery {
+        final BlockPos dest;
+        final int destSide;
+        @Nullable
+        final BlockPos manager;
+        final ItemStack like1;
+        int remaining;
+
+        PendingCrafterDelivery(BlockPos dest, int destSide, @Nullable BlockPos manager, ItemStack like1, int remaining) {
+            this.dest = dest.toImmutable();
+            this.destSide = destSide;
+            this.manager = (manager == null) ? null : manager.toImmutable();
+            this.like1 = like1.copy();
+            this.like1.setCount(1);
+            this.remaining = Math.max(0, remaining);
+        }
+
+        NBTTagCompound serialize() {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setLong("Dest", dest.toLong());
+            tag.setInteger("Side", destSide);
+            if (manager != null) {
+                tag.setLong("Mgr", manager.toLong());
+            }
+            tag.setTag("Like", like1.serializeNBT());
+            tag.setInteger("Remain", remaining);
+            return tag;
+        }
+
+        static PendingCrafterDelivery deserialize(NBTTagCompound tag) {
+            BlockPos dest = BlockPos.fromLong(tag.getLong("Dest"));
+            int side = tag.getInteger("Side");
+            BlockPos manager = tag.hasKey("Mgr") ? BlockPos.fromLong(tag.getLong("Mgr")) : null;
+            ItemStack like = new ItemStack(tag.getCompoundTag("Like"));
+            int remain = tag.getInteger("Remain");
+            return new PendingCrafterDelivery(dest, side, manager, like, remain);
+        }
+    }
+
+    private final ArrayDeque<PendingCrafterDelivery> pendingCraftDeliveries = new ArrayDeque<>();
     private boolean jobActive = false;
     private int activeSlot = -1;
     private int tickCounter = 0;
@@ -294,6 +350,26 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (slot < 0) return 0;
         return enqueueFromPatternRequester(slot, times);
     }
+    /**
+     * Новый API для MirrorManager: заказ крафта с автоматической доставкой
+     * результата в заказчик (OrderTerminal).
+     */
+    public int enqueueCrafterOrder(@Nullable BlockPos managerPos, BlockPos dest, int destSide, ItemStack resultLike, int items) {
+        if (dest == null || resultLike == null || resultLike.isEmpty() || items <= 0) return 0;
+
+        int perCraft = Math.max(1, getPerCraftOutputCountFor(resultLike));
+        int crafts = (items + perCraft - 1) / perCraft;
+        int accepted = enqueueFromPatternRequester(resultLike, crafts);
+        if (accepted <= 0) return 0;
+
+        int totalOut = Math.max(1, accepted * perCraft);
+        pendingCraftDeliveries.add(new PendingCrafterDelivery(dest, destSide, managerPos, resultLike, totalOut));
+        if (managerPos != null && this.managerPos == null) {
+            setManagerPos(managerPos, true);
+        }
+        markDirtyAndSync();
+        return accepted;
+    }
 
     public ItemStack tryExtractPattern() {
         for (int i = patterns.getSlots() - 1; i >= 0; i--) {
@@ -385,6 +461,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 clearJob();
             }
         }
+
+        deliverStoredResultsToDestinations();
     }
 
     @Override
@@ -465,9 +543,15 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     public void enqueueCraft(ItemStack resultLike, int crafts) {
         enqueueFromPatternRequester(resultLike, crafts);
     }
+
     @Override
     public boolean hasActiveOrQueued() {
         return jobActive || !queuedTriggers.isEmpty();
+    }
+
+    @Override
+    public java.util.Set<String> getCraftOrderTags() {
+        return CraftOrderApi.singletonTag(CraftOrderApi.TAG_CRAFTER);
     }
 
     public int findPatternSlotFor(ItemStack like) {
@@ -486,6 +570,81 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (match) return i;
         }
         return -1;
+    }
+
+    private boolean matchesOrder(ItemStack preview, ItemStack like) {
+        if (preview == null || like == null || preview.isEmpty() || like.isEmpty()) return false;
+        if (preview.getMaxStackSize() == 1 || like.getMaxStackSize() == 1) {
+            if (preview.getItem() != like.getItem()) return false;
+            return !preview.getHasSubtypes() || preview.getMetadata() == like.getMetadata();
+        }
+        return ItemHandlerHelper.canItemStacksStackRelaxed(preview, like);
+    }
+
+    private int deliverPendingCraftResult(ItemStack stack) {
+        if (stack == null || stack.isEmpty() || world == null || pendingCraftDeliveries.isEmpty()) return 0;
+        int before = stack.getCount();
+        for (Iterator<PendingCrafterDelivery> it = pendingCraftDeliveries.iterator(); it.hasNext() && !stack.isEmpty(); ) {
+            PendingCrafterDelivery order = it.next();
+            if (!matchesOrder(order.like1, stack)) continue;
+
+            int toSend = Math.min(stack.getCount(), Math.max(1, order.remaining));
+            ItemStack attempt = stack.copy();
+            attempt.setCount(toSend);
+
+            TileMirrorManager manager = null;
+            if (order.manager != null && world.getTileEntity(order.manager) instanceof TileMirrorManager) {
+                manager = (TileMirrorManager) world.getTileEntity(order.manager);
+            }
+
+            int moved;
+            if (manager != null) {
+                ItemStack remain = manager.acceptProvisionResult(attempt);
+                moved = toSend - (remain.isEmpty() ? 0 : remain.getCount());
+                if (moved > 0) {
+                    Map<ItemKey, Integer> need = new LinkedHashMap<>();
+                    need.put(ItemKey.of(order.like1), moved);
+                    manager.ensureDeliveryForExact(order.dest, need, 0);
+                }
+            } else {
+                moved = CraftOrderApi.insertIntoDestination(world, order.dest, order.destSide, attempt);
+                if (moved > 0) {
+                    ItemStack delivered = attempt.copy();
+                    delivered.setCount(moved);
+                    TileEntity te = world.getTileEntity(order.dest);
+                    if (te instanceof TileOrderTerminal) {
+                        ((TileOrderTerminal) te).onDelivered(delivered, moved);
+                    }
+                }
+            }
+
+            if (moved > 0) {
+                stack.shrink(moved);
+                order.remaining = Math.max(0, order.remaining - moved);
+                if (order.remaining <= 0) it.remove();
+            }
+        }
+        return before - (stack.isEmpty() ? 0 : stack.getCount());
+    }
+
+    private void deliverStoredResultsToDestinations() {
+        if (pendingCraftDeliveries.isEmpty()) return;
+        for (int i = 0; i < results.getSlots(); i++) {
+            ItemStack slot = results.getStackInSlot(i);
+            if (slot.isEmpty()) continue;
+            ItemStack copy = slot.copy();
+            int moved = deliverPendingCraftResult(copy);
+            if (moved > 0) {
+                int left = Math.max(0, slot.getCount() - moved);
+                if (left <= 0) {
+                    results.setStackInSlot(i, ItemStack.EMPTY);
+                } else {
+                    copy.setCount(left);
+                    results.setStackInSlot(i, copy);
+                }
+                markDirtyAndSync();
+            }
+        }
     }
 
     private void enqueueTrigger(int slot, int count) {
@@ -1121,8 +1280,9 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             int toExtract = slot.getCount();
             ItemStack extracted = handler.extractItem(i, toExtract, false);
             if (!extracted.isEmpty()) {
-                inserter.accept(extracted);
-                return true;
+                int moved = deliverPendingCraftResult(extracted);
+                if (!extracted.isEmpty()) inserter.accept(extracted);
+                return moved > 0 || !extracted.isEmpty();
             }
         }
 
@@ -1259,6 +1419,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
         compound.setTag(TAG_GOLEMS, golemList);
 
+        NBTTagList craftList = new NBTTagList();
+        for (PendingCrafterDelivery delivery : pendingCraftDeliveries) {
+            if (delivery == null) continue;
+            craftList.appendTag(delivery.serialize());
+        }
+        compound.setTag(TAG_CRAFT_DELIVERIES, craftList);
+
         // ====== СОХРАНЯЕМ СОСТОЯНИЕ ДЖОБА ======
         compound.setBoolean(TAG_JOB_ACTIVE, jobActive);
         compound.setInteger(TAG_JOB_STAGE, stage.ordinal());
@@ -1318,6 +1485,15 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 if (el.hasUniqueId(TAG_GOLEM_ID)) {
                     boundGolems.add(el.getUniqueId(TAG_GOLEM_ID));
                 }
+            }
+        }
+
+        pendingCraftDeliveries.clear();
+        if (compound.hasKey(TAG_CRAFT_DELIVERIES, Constants.NBT.TAG_LIST)) {
+            NBTTagList list = compound.getTagList(TAG_CRAFT_DELIVERIES, Constants.NBT.TAG_COMPOUND);
+            for (int i = 0; i < list.tagCount(); i++) {
+                NBTTagCompound el = list.getCompoundTagAt(i);
+                pendingCraftDeliveries.add(PendingCrafterDelivery.deserialize(el));
             }
         }
 

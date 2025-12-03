@@ -40,7 +40,7 @@ public final class ClientModels extends CommonProxy {
         );
         ModelLoader.setCustomModelResourceLocation(
                 ModBlocksItems.INFUSION_PATTERN, 0,
-                new ModelResourceLocation(ThaumicAttempts.MODID + ":craft_pattern_infusion", "inventory")
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":infusion_pattern", "inventory")
         );
         ModelLoader.setCustomModelResourceLocation(
                 ModBlocksItems.ARCANE_PATTERN, 0,
@@ -136,6 +136,10 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                     TileGolemDispatcher.class,
                     new DispatcherRenderer()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileInfusionRequester.class,
+                new RenderInfusionRequester()
         );
     }
 

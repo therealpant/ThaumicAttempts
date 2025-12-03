@@ -18,6 +18,7 @@ import net.minecraftforge.items.ItemHandlerHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
+import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
@@ -45,7 +46,7 @@ import java.util.*;
  * - Поддерживает привязку к менеджеру: get/set/clearManagerPos*.
  * - Имеет простой редстоун-выход (метод getOutSignal) — сейчас всегда 0 (пульс можно нарастить позже).
  */
-public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICraftEndpoint {
+public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICraftEndpoint, CraftOrderApi.TagProvider {
     private final AnimationFactory factory = new AnimationFactory(this);
 
 
@@ -609,5 +610,9 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         if (world != null && !world.isRemote) {
             world.notifyNeighborsOfStateChange(pos, world.getBlockState(pos).getBlock(), true);
         }
+    }
+    @Override
+    public java.util.Set<String> getCraftOrderTags() {
+        return CraftOrderApi.singletonTag(CraftOrderApi.TAG_CRAFTER);
     }
 }
