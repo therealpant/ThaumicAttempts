@@ -9,6 +9,7 @@ import net.minecraft.inventory.InventoryBasic;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.NonNullList;
+import therealpant.thaumicattempts.client.gui.PatternGuiLayout;
 import therealpant.thaumicattempts.golemcraft.SlotGhost;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
@@ -22,9 +23,9 @@ public class ContainerInfusionPattern extends Container implements IPatternConta
     private final IInventory ghostInv;
     private final int resultIndex;
 
-    private static final int GRID_LEFT = 62;
-    private static final int GRID_TOP  = 17;
-    private static final int CELL = 18;
+    private static final int GRID_LEFT = PatternGuiLayout.GRID_LEFT;
+    private static final int GRID_TOP  = PatternGuiLayout.GRID_TOP;
+    private static final int CELL = PatternGuiLayout.CELL;
 
     public ContainerInfusionPattern(InventoryPlayer playerInv, ItemStack patternStack) {
         this.playerInv = playerInv;
@@ -42,16 +43,15 @@ public class ContainerInfusionPattern extends Container implements IPatternConta
             this.addSlotToContainer(new SlotGhost(ghostInv, i, -10000, -10000));
         }
 
-        int baseW = 3 * CELL;
-        int resultX = GRID_LEFT + baseW / 2 - 8;
-        int gap = 8;
-        int resultY = GRID_TOP - (24 + gap);
+        int resultX = PatternGuiLayout.PREVIEW_LEFT;
+        int resultY = PatternGuiLayout.PREVIEW_TOP;
+
         this.addSlotToContainer(new Slot(ghostInv, resultIndex, resultX, resultY) {
             @Override public boolean isItemValid(ItemStack stack) { return false; }
             @Override public boolean canTakeStack(EntityPlayer playerIn) { return false; }
         });
 
-        addPlayerInventorySlots(playerInv, 8, 130);
+        addPlayerInventorySlots(playerInv, PatternGuiLayout.PLAYER_INV_LEFT, PatternGuiLayout.PLAYER_INV_TOP);
     }
 
     @Override

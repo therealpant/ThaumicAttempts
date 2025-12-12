@@ -1,4 +1,4 @@
-// src/main/java/therealpant/thaumicattempts/golemnet/net/S2CFlyAnim.java
+// src/main/java/therealpant/thaumicattempts/golemnet/net/msg/S2CFlyAnim.java
 package therealpant.thaumicattempts.golemnet.net.msg;
 
 import io.netty.buffer.ByteBuf;
@@ -6,8 +6,12 @@ import net.minecraft.client.Minecraft;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.World;
 import net.minecraftforge.fml.common.network.ByteBufUtils;
+import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.network.simpleimpl.*;
+import net.minecraftforge.fml.relauncher.Side;
+import therealpant.thaumicattempts.ThaumicAttempts;
 
 public class S2CFlyAnim implements IMessage {
     public BlockPos managerPos;
@@ -35,6 +39,26 @@ public class S2CFlyAnim implements IMessage {
         ring = buf.readInt(); slot = buf.readInt();
         duration = buf.readInt();
         seed = buf.readLong();
+    }
+
+    /**
+     * Универсальный способ отослать анимацию «предмет летит в зеркало»
+     * на всех клиентов вокруг менеджера.
+     */
+    public static void dispatch(World world, BlockPos pos,
+                                ItemStack stack, int ring, int slot,
+                                int duration, long seed) {
+        if (world == null || world.isRemote) return;
+
+        S2CFlyAnim msg = new S2CFlyAnim(pos, stack, ring, slot, duration, seed);
+        NetworkRegistry.TargetPoint tp = new NetworkRegistry.TargetPoint(
+                world.provider.getDimension(),
+                pos.getX() + 0.5,
+                pos.getY() + 0.5,
+                pos.getZ() + 0.5,
+                32.0
+        );
+        ThaumicAttempts.NET.sendToAllAround(msg, tp);
     }
 
     public static class Handler implements IMessageHandler<S2CFlyAnim, IMessage> {

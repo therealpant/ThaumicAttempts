@@ -24,6 +24,8 @@ import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.proxy.CommonProxy;
+import therealpant.thaumicattempts.tile.TilePillar;
+
 import java.util.function.Supplier;
 
 @Mod.EventBusSubscriber(value = Side.CLIENT, modid = ThaumicAttempts.MODID)
@@ -140,6 +142,10 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileInfusionRequester.class,
                 new RenderInfusionRequester()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TilePillar.class,
+                new RenderPillar()
         );
     }
 

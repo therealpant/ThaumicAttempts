@@ -1,3 +1,4 @@
+// therealpant.thaumicattempts.client.render.RenderInfusionRequesterGeo.java
 package therealpant.thaumicattempts.client.render;
 
 import net.minecraftforge.fml.relauncher.Side;
@@ -12,4 +13,3 @@ public class RenderInfusionRequester extends GeoBlockRenderer<TileInfusionReques
         super(new InfusionRequesterModel());
     }
 }
-

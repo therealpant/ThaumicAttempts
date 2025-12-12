@@ -1,3 +1,4 @@
+// therealpant.thaumicattempts.client.model.InfusionRequesterModel.java
 package therealpant.thaumicattempts.client.model;
 
 import net.minecraft.util.ResourceLocation;
@@ -8,19 +9,17 @@ import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 public class InfusionRequesterModel extends AnimatedGeoModel<TileInfusionRequester> {
 
     @Override
-    public ResourceLocation getModelLocation(TileInfusionRequester object) {
+    public ResourceLocation getModelLocation(TileInfusionRequester tile) {
         return new ResourceLocation(ThaumicAttempts.MODID, "geo/infusion_requester.geo.json");
     }
 
     @Override
-    public ResourceLocation getTextureLocation(TileInfusionRequester object) {
-        // подставь свой путь к текстуре, если другой
+    public ResourceLocation getTextureLocation(TileInfusionRequester tile) {
         return new ResourceLocation(ThaumicAttempts.MODID, "textures/blocks/infusion_requester.png");
     }
 
     @Override
-    public ResourceLocation getAnimationFileLocation(TileInfusionRequester animatable) {
+    public ResourceLocation getAnimationFileLocation(TileInfusionRequester tile) {
         return new ResourceLocation(ThaumicAttempts.MODID, "animations/infusion_requester.animation.json");
     }
 }
-

@@ -9,6 +9,7 @@ import net.minecraft.util.ResourceLocation;
 import net.minecraft.client.Minecraft;
 import net.minecraft.util.NonNullList;
 import net.minecraft.inventory.Slot;
+import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
 import therealpant.thaumicattempts.golemcraft.container.ContainerInfusionPattern;
 import therealpant.thaumicattempts.golemcraft.container.IPatternContainer;
@@ -17,43 +18,26 @@ import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 
 public class GuiCraftPattern extends GuiContainer {
 
-    private static final ResourceLocation TEX_PAPER_GILDED =
-            new ResourceLocation("thaumcraft","textures/gui/papergilded.png");
-    private static final ResourceLocation TEX_NET =
-            new ResourceLocation("thaumcraft","textures/gui/gui_researchbook_overlay.png");
-    private static final ResourceLocation TEX_BASE_TC =
-            new ResourceLocation("thaumcraft","textures/gui/gui_base.png");
+    private static final ResourceLocation TEX_CRAFTER =
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/golem_crafter.png");
+    private static final ResourceLocation TEX_ORDER_TERMINAL =
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/order_terminal.png");
 
-    private static final int INV_U = 0, INV_V = 166, INV_W = 176, INV_H = 90;
-
-    private static final int PAPER_W = 160, PAPER_H = 160; // размер листа
-    private static final int NET_GRID_U = 60, NET_GRID_V = 15, NET_GRID_W = 51, NET_GRID_H = 52;
-    private static final float NET_GRID_SCALE = 1.20f;
-
-    // тонкая подгонка наложения линий сетки поверх 3×3 (поднял выше)
-    private static final float GRID_ADJ_X = -2.0f;
-    private static final float GRID_ADJ_Y = -3.0f;
-
-    private static final int CELL = 18;
-
-    // 3×3 в контейнере: (x+62, y+17)
-    private static final int GRID_LEFT_OFF = 62;
-    private static final int GRID_TOP_OFF  = 17;
-
-    // слоты игрока (рамка привяжется к этим координатам)
-    private static final int PLAYER_LEFT_OFF = 8;
-    private static final int PLAYER_TOP_OFF  = 130; // как в твоём последнем коде
+    private static final int PAPER_U_CRAFT = 158;
+    private static final int PAPER_V_CRAFT = 0;
+    private static final int PAPER_U_INFUSION = 256;
+    private static final int PAPER_V_INFUSION = 0;
 
     private boolean blurOn = false;
-    private static final int INFUSION_RADIUS = 32;
+    private static final int INFUSION_RADIUS = 20;
 
     private final IPatternContainer patternContainer;
 
     public GuiCraftPattern(InventoryPlayer playerInv, ItemStack patternStack) {
         super(createContainer(playerInv, patternStack));
         this.patternContainer = (IPatternContainer) this.inventorySlots;
-        this.xSize = 176;
-        this.ySize = 166;
+        this.xSize = PatternGuiLayout.GUI_WIDTH;
+        this.ySize = PatternGuiLayout.GUI_HEIGHT;
     }
 
     private static net.minecraft.inventory.Container createContainer(InventoryPlayer playerInv, ItemStack patternStack) {
@@ -80,17 +64,15 @@ public class GuiCraftPattern extends GuiContainer {
         ItemStack pat = patternContainer.getPatternStack();
         int repeat = ItemBasePattern.getRepeatCount(pat);
         if (repeat > 1) {
-            final int baseW = 3 * CELL;
-            final int resultX = GRID_LEFT_OFF + baseW / 2 - 8;
-            final int gap = 8;
-            final int resultY = GRID_TOP_OFF - (24 + gap);
+            final int resultX = PatternGuiLayout.PREVIEW_LEFT;
+            final int resultY = PatternGuiLayout.PREVIEW_TOP;
 
             String text = String.valueOf(repeat);
             GlStateManager.disableLighting();
             GlStateManager.disableDepth();
             this.fontRenderer.drawStringWithShadow(text,
-                    resultX + 17 - this.fontRenderer.getStringWidth(text),
-                    resultY + 9,
+                    resultX + 12 - this.fontRenderer.getStringWidth(text),
+                    resultY - 10,
                     0xFFFFFF);
             GlStateManager.enableLighting();
             GlStateManager.enableDepth();
@@ -101,74 +83,54 @@ public class GuiCraftPattern extends GuiContainer {
     protected void drawGuiContainerBackgroundLayer(float partialTicks, int mouseX, int mouseY) {
         GlStateManager.color(1F,1F,1F,1F);
 
-        final int x = (width - xSize) / 2;
-        final int y = (height - ySize) / 2;
+        final int x = this.guiLeft;
+        final int y = this.guiTop;
 
         boolean infusionMode = patternContainer.isInfusionMode();
 
-        // ---- фактические координаты 3×3 из контейнера ----
-        final int gridLeft = x + GRID_LEFT_OFF;
-        final int gridTop  = y + GRID_TOP_OFF;
+        final int backgroundX = x + PatternGuiLayout.BACKGROUND_LEFT;
+        final int backgroundY = y + PatternGuiLayout.BACKGROUND_TOP;
 
-        // базовая область 3×3
-        final int baseW = 3 * CELL, baseH = 3 * CELL;
+        mc.getTextureManager().bindTexture(TEX_CRAFTER);
+        drawModalRectWithCustomSizedTexture(backgroundX, backgroundY,
+                PatternGuiLayout.BACKGROUND_U, PatternGuiLayout.BACKGROUND_V,
+                PatternGuiLayout.BACKGROUND_W, PatternGuiLayout.BACKGROUND_H,
+                354, 256);
 
-        // центр 3×3 (нужен, чтобы центрировать ЛИСТ именно по сетке)
-        final int gridCenterX = gridLeft + baseW / 2;
-        final int gridCenterY = gridTop  + baseH / 2;
+        final int paperX = x + PatternGuiLayout.PAPER_LEFT;
+        final int paperY = y + PatternGuiLayout.PAPER_TOP;
+        drawPaper(infusionMode, paperX, paperY);
 
-        // позиция листа: СЕРЕДИНА ЛИСТА == СЕРЕДИНА 3×3
-        int paperX = gridCenterX - PAPER_W/ 2;
-        int paperY = gridCenterY - PAPER_H/ 2;
+        final int gridLeft = x + PatternGuiLayout.GRID_LEFT;
+        final int gridTop  = y + PatternGuiLayout.GRID_TOP;
+        final int baseW = 3 * PatternGuiLayout.CELL;
 
-
-        // рисуем лист
-        mc.getTextureManager().bindTexture(TEX_PAPER_GILDED);
-        drawModalRectWithCustomSizedTexture(paperX, paperY, 0, 0, PAPER_W, PAPER_H, PAPER_W,PAPER_H);
-
-        // ---- оверлей сетки (увеличенный) — подогнан по линиям к предметам ----
-        if (!infusionMode) {
-            final int targetW = Math.round(baseW * NET_GRID_SCALE);
-            final int targetH = Math.round(baseH * NET_GRID_SCALE);
-
-            int gridDrawX = gridLeft - (targetW - baseW) / 2 + Math.round(GRID_ADJ_X);
-            int gridDrawY = gridTop  - (targetH - baseH) / 2 + Math.round(GRID_ADJ_Y);
-
-            GlStateManager.pushMatrix();
-            GlStateManager.translate(gridDrawX, gridDrawY, 0);
-            GlStateManager.scale(targetW / (float) NET_GRID_W, targetH / (float) NET_GRID_H, 1f);
-            mc.getTextureManager().bindTexture(TEX_NET);
-            drawTexturedModalRect(0, 0, NET_GRID_U, NET_GRID_V, NET_GRID_W, NET_GRID_H);
-            GlStateManager.popMatrix();
-        } else {
-            drawInfusionOrder(gridCenterX, gridCenterY+10);
+        if (infusionMode) {
+            final int orderCenterX = x + PatternGuiLayout.INFUSION_CENTER_LEFT + 8;
+            final int orderCenterY = y + PatternGuiLayout.INFUSION_CENTER_TOP + 8;
+            drawInfusionOrder(orderCenterX, orderCenterY);
         }
 
-        // ---- подложка под результат ----
-        {
-            // координаты "иконки результата" (мы их вычисляем в контейнере так же)
-            int resultX = x + GRID_LEFT_OFF + baseW / 2 - 9;
-            int gap = 8;
-            int resultY = y + GRID_TOP_OFF - (28 + gap) + 1;
-
-            // центр подложки = центр слота результата
-            int decoSize = 30; // возьмём 32×32 из угла текстуры
-            int decoU = 32, decoV = 0; // в papergilded.png кружочек в (0,0)
-            int decoX = resultX - decoSize/2 + 8; // +8 чтобы центр совпал со слотом
-            int decoY = resultY - decoSize/2 + 8;
-
-            mc.getTextureManager().bindTexture(TEX_NET);
-            drawModalRectWithCustomSizedTexture(decoX, decoY, decoU, decoV,
-                    decoSize, decoSize, 440F, 440F);
-        }
-
+        final int invBgX = x + PatternGuiLayout.PLAYER_INV_BG_LEFT;
+        final int invBgY = y + PatternGuiLayout.PLAYER_INV_BG_TOP;
+        mc.getTextureManager().bindTexture(TEX_ORDER_TERMINAL);
+        drawModalRectWithCustomSizedTexture(invBgX, invBgY,
+                PatternGuiLayout.PLAYER_INV_U, PatternGuiLayout.PLAYER_INV_V,
+                PatternGuiLayout.PLAYER_INV_W, PatternGuiLayout.PLAYER_INV_H,
+                354, 256);
+    }
 
         // ---- рамка инвентаря игрока — строго под координаты слотов игрока ----
-        final int playerLeft = x + PLAYER_LEFT_OFF;
-        final int playerTop  = y + PLAYER_TOP_OFF;
-        mc.getTextureManager().bindTexture(TEX_BASE_TC);
-        drawTexturedModalRect(playerLeft - 8, playerTop - 8, INV_U, INV_V, INV_W, INV_H);
-    }
+        private void drawPaper(boolean infusionMode, int paperX, int paperY) {
+            int u = infusionMode ? PAPER_U_INFUSION : PAPER_U_CRAFT;
+            int v = infusionMode ? PAPER_V_INFUSION : PAPER_V_CRAFT;
+
+            mc.getTextureManager().bindTexture(TEX_CRAFTER);
+            drawModalRectWithCustomSizedTexture(paperX, paperY, u, v,
+                    PatternGuiLayout.PAPER_DRAW_W, PatternGuiLayout.PAPER_DRAW_H,
+                    354, 256);
+            GlStateManager.popMatrix();
+        }
 
     /* blur on/off */
     private void enableBlur() {
@@ -209,15 +171,11 @@ public class GuiCraftPattern extends GuiContainer {
         final int x = (width - xSize) / 2;
         final int y = (height - ySize) / 2;
 
-        final int gridLeft = x + GRID_LEFT_OFF;
-        final int gridTop  = y + GRID_TOP_OFF;
-        final int baseW = 3 * CELL;
-        final int baseH = 3 * CELL;
+        int paperX = x + PatternGuiLayout.PAPER_LEFT;
+        int paperY = y + PatternGuiLayout.PAPER_TOP;
 
-        int paperX = gridLeft + baseW / 2 - PAPER_W / 2;
-        int paperY = gridTop  + baseH / 2 - PAPER_H / 2;
-
-        return mouseX >= paperX && mouseX < paperX + PAPER_W && mouseY >= paperY && mouseY < paperY + PAPER_H;
+        return mouseX >= paperX && mouseX < paperX + PatternGuiLayout.PAPER_DRAW_W &&
+                mouseY >= paperY && mouseY < paperY + PatternGuiLayout.PAPER_DRAW_H;
     }
 
     private boolean handleInfusionClick(int mouseButton) {

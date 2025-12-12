@@ -9,6 +9,7 @@ import net.minecraft.inventory.InventoryBasic;
 import net.minecraft.inventory.Slot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.NonNullList;
+import therealpant.thaumicattempts.client.gui.PatternGuiLayout;
 import therealpant.thaumicattempts.golemcraft.SlotGhost;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
@@ -26,10 +27,10 @@ public class ContainerCraftPattern extends Container implements IPatternContaine
     private final boolean resourceListMode;
     private final int resultIndex;
 
-    // координаты GUI (под свой фон можно подправить)
-    private static final int GRID_LEFT = 62;
-    private static final int GRID_TOP  = 17;
-    private static final int CELL = 18;
+    // координаты GUI (под новый фон можно подправить)
+    private static final int GRID_LEFT = PatternGuiLayout.GRID_LEFT;
+    private static final int GRID_TOP  = PatternGuiLayout.GRID_TOP;
+    private static final int CELL = PatternGuiLayout.CELL;
 
     public ContainerCraftPattern(InventoryPlayer playerInv, ItemStack patternStack) {
         this.playerInv = playerInv;
@@ -47,8 +48,8 @@ public class ContainerCraftPattern extends Container implements IPatternContaine
         // Первичный расчёт результата
         updateResult();
         // --- Сетка 3×3 (индексы 0..8) или инфузионный круг ---
-        final int[] OFF_X = { -4, 0, +3 };
-        final int[] OFF_Y = { -6, -2, +1 };
+        final int[] OFF_X = { 0, 0, 0 };
+        final int[] OFF_Y = { 0, 0, 0 };
 
         for (int i = 0; i < GRID_SIZE; i++) {
             int row = i / 3, col = i % 3;
@@ -57,10 +58,8 @@ public class ContainerCraftPattern extends Container implements IPatternContaine
             this.addSlotToContainer(new SlotGhost(ghostInv, i, x, y));
         }
 
-        int baseW = 3 * CELL;
-        int resultX = GRID_LEFT + baseW / 2 - 8; // -8 чтобы иконка 16×16 была по центру
-        int gap = 8;                              // зазор над сеткой
-        int resultY = GRID_TOP - (24 + gap);      // 16px высота иконки + зазор
+        int resultX = PatternGuiLayout.PREVIEW_LEFT;
+        int resultY = PatternGuiLayout.PREVIEW_TOP;      // 16px высота иконки + зазор
 
         if (resourceListMode) {
             this.addSlotToContainer(new SlotGhost(ghostInv, resultIndex, resultX, resultY));
@@ -71,7 +70,7 @@ public class ContainerCraftPattern extends Container implements IPatternContaine
             });
         }
 
-        addPlayerInventorySlots(playerInv, 8, 130);
+        addPlayerInventorySlots(playerInv, PatternGuiLayout.PLAYER_INV_LEFT, PatternGuiLayout.PLAYER_INV_TOP);
     }
     @Override
     public ItemStack getPatternStack() {

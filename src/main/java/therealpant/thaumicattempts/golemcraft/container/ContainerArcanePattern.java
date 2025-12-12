@@ -14,6 +14,7 @@ import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
+import therealpant.thaumicattempts.client.gui.PatternGuiLayout;
 import therealpant.thaumicattempts.golemcraft.SlotGhost;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
@@ -35,9 +36,9 @@ public class ContainerArcanePattern extends Container {
     private int[] crystals = new int[6];
 
     // координаты как у обычного паттерна
-    private static final int GRID_LEFT = 62;
-    private static final int GRID_TOP  = 17;
-    private static final int CELL = 18;
+    private static final int GRID_LEFT = PatternGuiLayout.GRID_LEFT;
+    private static final int GRID_TOP  = PatternGuiLayout.GRID_TOP;
+    private static final int CELL = PatternGuiLayout.CELL;
 
     public ContainerArcanePattern(InventoryPlayer inv, ItemStack pattern) {
         this.playerInv = inv;
@@ -52,8 +53,8 @@ public class ContainerArcanePattern extends Container {
         this.crystals = ItemArcanePattern.getCrystalCounts(pattern);
 
         // --- Сетка 3×3 (как в ContainerCraftPattern с тонкой подгонкой OFF_X/OFF_Y)
-        final int[] OFF_X = { -4, 0, +3 };
-        final int[] OFF_Y = { -6, -2, +1 };
+        final int[] OFF_X = { 0, 0, 0 };
+        final int[] OFF_Y = { 0, 0, 0 };
 
         for (int i = 0; i < GRID_SIZE; i++) {
             int row = i / 3, col = i % 3;
@@ -63,10 +64,8 @@ public class ContainerArcanePattern extends Container {
         }
 
         // --- Слот результата (коорд. идентичны обычному)
-        int baseW = 3 * CELL;
-        int resultX = GRID_LEFT + baseW / 2 - 8;
-        int gap = 8;
-        int resultY = GRID_TOP - (24 + gap);
+        int resultX = PatternGuiLayout.PREVIEW_LEFT;
+        int resultY = PatternGuiLayout.PREVIEW_TOP;
 
         this.addSlotToContainer(new Slot(ghostInv, RESULT_IDX, resultX, resultY) {
             @Override public boolean isItemValid(ItemStack stack) { return false; }
@@ -74,8 +73,7 @@ public class ContainerArcanePattern extends Container {
         });
 
         // --- Инвентарь игрока (x+8, y+130)
-        addPlayerInventorySlots(playerInv, 8, 130);
-
+        addPlayerInventorySlots(playerInv, PatternGuiLayout.PLAYER_INV_LEFT, PatternGuiLayout.PLAYER_INV_TOP);
         // первичный пересчёт превью
         updateResult();
     }

@@ -4,12 +4,14 @@ import net.minecraft.launchwrapper.IClassTransformer;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.*;
+import therealpant.thaumicattempts.config.TAConfig;
 
 import java.util.List;
 
 import static org.objectweb.asm.Opcodes.*;
 
 public class ThaumicAttemptsTransformer implements IClassTransformer {
+
 
     // ВАЖНО: путь к реальному TAHooks
     private static final String HOOKS = "therealpant/thaumicattempts/core/TAHooks";
@@ -20,6 +22,12 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
         try {
             switch (transformedName) {
+                case "thaumcraft.common.blocks.basic.BlockPillar":
+                    if (!TAConfig.ENABLE_PILLAR_MODEL_REPLACEMENT) {
+                        System.out.println("[ThaumicAttempts] Pillar model replacement DISABLED in config – BlockPillar left unpatched.");
+                        return basicClass;
+                    }
+                    return patchBlockPillar(basicClass);
                 case "net.minecraft.item.crafting.IRecipe":
                     return patchIRecipe(basicClass);
                 case "thaumcraft.api.golems.ProvisionRequest":
@@ -39,6 +47,106 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             return basicClass;
         }
     }
+
+    private byte[] patchBlockPillar(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        boolean hasHasTE = false;
+        boolean hasCreateTE = false;
+        boolean hasGetRenderType = false;
+
+        for (MethodNode m : cn.methods) {
+            if ("hasTileEntity".equals(m.name)
+                    && "(Lnet/minecraft/block/state/IBlockState;)Z".equals(m.desc)) {
+                hasHasTE = true;
+            }
+            if ("createTileEntity".equals(m.name)
+                    && "(Lnet/minecraft/world/World;Lnet/minecraft/block/state/IBlockState;)Lnet/minecraft/tileentity/TileEntity;".equals(m.desc)) {
+                hasCreateTE = true;
+            }
+            if ("getRenderType".equals(m.name)
+                    && "(Lnet/minecraft/block/state/IBlockState;)Lnet/minecraft/util/EnumBlockRenderType;".equals(m.desc)) {
+                hasGetRenderType = true;
+            }
+        }
+
+        // === public boolean hasTileEntity(IBlockState state) { return true; } ===
+        if (!hasHasTE) {
+            MethodNode mn = new MethodNode(
+                    ACC_PUBLIC,
+                    "hasTileEntity",
+                    "(Lnet/minecraft/block/state/IBlockState;)Z",
+                    null,
+                    null
+            );
+            InsnList insn = new InsnList();
+            insn.add(new InsnNode(ICONST_1)); // true
+            insn.add(new InsnNode(IRETURN));
+            mn.instructions = insn;
+            cn.methods.add(mn);
+
+            System.out.println("[ThaumicAttempts] Added hasTileEntity to BlockPillar");
+        }
+
+        // === public TileEntity createTileEntity(World world, IBlockState state) { return new TilePillar(); } ===
+        if (!hasCreateTE) {
+            MethodNode mn = new MethodNode(
+                    ACC_PUBLIC,
+                    "createTileEntity",
+                    "(Lnet/minecraft/world/World;Lnet/minecraft/block/state/IBlockState;)Lnet/minecraft/tileentity/TileEntity;",
+                    null,
+                    null
+            );
+
+            InsnList insn = new InsnList();
+            insn.add(new TypeInsnNode(NEW, "therealpant/thaumicattempts/tile/TilePillar"));
+            insn.add(new InsnNode(DUP));
+            insn.add(new MethodInsnNode(
+                    INVOKESPECIAL,
+                    "therealpant/thaumicattempts/tile/TilePillar",
+                    "<init>",
+                    "()V",
+                    false
+            ));
+            insn.add(new InsnNode(ARETURN));
+            mn.instructions = insn;
+            cn.methods.add(mn);
+
+            System.out.println("[ThaumicAttempts] Added createTileEntity to BlockPillar");
+        }
+
+        // === public EnumBlockRenderType getRenderType(IBlockState state) { return EnumBlockRenderType.INVISIBLE; } ===
+        if (!hasGetRenderType) {
+            MethodNode mn = new MethodNode(
+                    ACC_PUBLIC,
+                    "getRenderType",
+                    "(Lnet/minecraft/block/state/IBlockState;)Lnet/minecraft/util/EnumBlockRenderType;",
+                    null,
+                    null
+            );
+
+            InsnList insn = new InsnList();
+            insn.add(new FieldInsnNode(
+                    GETSTATIC,
+                    "net/minecraft/util/EnumBlockRenderType",
+                    "INVISIBLE",
+                    "Lnet/minecraft/util/EnumBlockRenderType;"
+            ));
+            insn.add(new InsnNode(ARETURN));
+
+            mn.instructions = insn;
+            cn.methods.add(mn);
+
+            System.out.println("[ThaumicAttempts] Added getRenderType(INVISIBLE) to BlockPillar");
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        return cw.toByteArray();
+    }
+
     private byte[] patchIRecipe(byte[] basicClass) {
         ClassReader cr = new ClassReader(basicClass);
         ClassNode cn = new ClassNode(ASM5);

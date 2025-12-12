@@ -21,6 +21,7 @@ import therealpant.thaumicattempts.client.gui.GuiHandler;
 import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_RECIPE;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
+import therealpant.thaumicattempts.data.research.TAResearchAddenda;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemcraft.tile.TileArcaneEarBand;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityArcaneCrafter;
@@ -28,8 +29,10 @@ import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.C2S_OrderAdjust;
 import therealpant.thaumicattempts.golemnet.net.msg.C2S_OrderSubmit;
 import therealpant.thaumicattempts.golemnet.net.msg.C2S_RequestCatalogPage;
+import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.proxy.CommonProxy;
+import therealpant.thaumicattempts.tile.TilePillar;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 // S2C
 // C2S
@@ -41,6 +44,9 @@ public class ThaumicAttempts {
     public static final String MODID = "thaumicattempts";
     public static final Logger LOGGER = LogManager.getLogger(MODID);
 
+    public static final SimpleNetworkWrapper NET =
+            NetworkRegistry.INSTANCE.newSimpleChannel(MODID);
+
     @Mod.Instance
     public static ThaumicAttempts INSTANCE;
 
@@ -49,11 +55,6 @@ public class ThaumicAttempts {
             serverSide = "therealpant.thaumicattempts.proxy.CommonProxy"
     )
     public static CommonProxy proxy;
-
-    /**
-     * Наш сетевой канал — то самое NET, которое было красным
-     */
-    public static SimpleNetworkWrapper NET;
 
     /**
      * Креатив-вкладка мода
@@ -72,9 +73,9 @@ public class ThaumicAttempts {
 
         GeckoLib.initialize();
 
-        // 1) Сетевой канал + регистрация пакетов
-        NET = NetworkRegistry.INSTANCE.newSimpleChannel(MODID);
+        // РЕГИСТРАЦИЯ ВСЕХ ПАКЕТОВ МОДА
         registerPackets();
+
 
         // 2) TileEntities (всё, что уже есть)
         GameRegistry.registerTileEntity(
@@ -97,7 +98,8 @@ public class ThaumicAttempts {
                 therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "golem_dispatcher")
         );
-
+        GameRegistry.registerTileEntity(TilePillar.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "pillar"));
 
         MinecraftForge.EVENT_BUS.register(ThaumcraftProvisionHelper.class);
         // 3) Прокси preInit (если нужно)
@@ -108,12 +110,6 @@ public class ThaumicAttempts {
     public void init(FMLInitializationEvent e) {
         // GUI-handler — нужен один раз и один класс (твой общий GuiHandler)
         NetworkRegistry.INSTANCE.registerGuiHandler(ThaumicAttempts.INSTANCE, new GuiHandler());
-
-        //Researches should register on "Init" stage.
-        //Addenda
-        if (ENABLE_ELDRITCH_STONE_RECIPE)
-            ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/arcane_ear_add"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/eldritch_add"));
 
         //Research
         ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft"));
@@ -131,6 +127,11 @@ public class ThaumicAttempts {
 
         TAInfusionRecipes.register();
         TAAlchemyRecipes.register();
+
+        //Addenda
+        if (ENABLE_ELDRITCH_STONE_RECIPE)
+            TAResearchAddenda.injectEldritchVoidTileAddendum();
+        TAResearchAddenda.injectArcaneEarAddendum();
 
         proxy.postInit(e);
     }

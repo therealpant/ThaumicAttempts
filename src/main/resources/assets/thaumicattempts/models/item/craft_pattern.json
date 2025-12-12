@@ -1,6 +1,6 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "thaumicattempts:items/infusion_pattern"
+    "layer0": "thaumicattempts:items/craft_pattern"
   }
 }

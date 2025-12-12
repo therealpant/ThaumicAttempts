@@ -21,7 +21,7 @@ public final class TAAlchemyRecipes {
         if (catalyst.isEmpty()) return;
 
         // Результат: 4x stoneEldritchTile
-        ItemStack result = new ItemStack(stoneEldritchTile, 4);
+        ItemStack result = new ItemStack(stoneEldritchTile, 2);
 
         // Аспекты: 20 EARTH + 20 ELDRITCH
         AspectList aspects = new AspectList()

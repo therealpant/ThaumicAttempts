@@ -19,17 +19,23 @@ import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
  */
 public class ContainerOrderTerminal extends Container {
 
-    /** Базовый шаг сетки слотов */
+    /**
+     * Базовый шаг сетки слотов
+     */
     public static final int CELL = 18;
 
-    /** Координаты правой сетки 3×3 (слоты приёмки) — СДВИНУЛИ вправо на +8 */
-    public static final int RIGHT_GRID_LEFT = 239 + 8; // было 239
-    public static final int RIGHT_GRID_TOP  = 60;
+    /**
+     * Координаты правой сетки 3×3 (слоты приёмки) — СДВИНУЛИ вправо на +8
+     */
+    public static final int RIGHT_GRID_LEFT = 269; // было 239
+    public static final int RIGHT_GRID_TOP = 32;
 
-    /** Координаты инвентаря игрока — ОПУСТИЛИ на +16 */
-    public static final int PLAYER_INV_LEFT = 69;
-    public static final int PLAYER_INV_TOP  = 162 + 16; // было 162
-    public static final int HOTBAR_TOP      = 220 + 16; // было 220
+    /**
+     * Координаты инвентаря игрока — ОПУСТИЛИ на +16
+     */
+    public static final int PLAYER_INV_LEFT = 89;
+    public static final int PLAYER_INV_TOP = 164; // было 162
+    public static final int HOTBAR_TOP = PLAYER_INV_TOP + 3 * CELL + 4; // было 220
 
     private final TileOrderTerminal te;
     private final IItemHandler buffer9;
@@ -42,17 +48,21 @@ public class ContainerOrderTerminal extends Container {
         this.buffer9 = te.getBufferHandler(); // IItemHandler на 9 слотов (3×3)
 
         // === 3×3 реальные слоты «доставки» справа ===
-        if (buffer9 != null && buffer9.getSlots() >= 9) {
+        // === 3×N реальные слоты «доставки» справа ===
+        if (buffer9 != null && buffer9.getSlots() > 0) {
             termStart = this.inventorySlots.size();
-            for (int i = 0; i < 9; i++) {
-                int col = i % 3;
-                int row = i / 3;
+
+            int maxSlots = Math.min(15, buffer9.getSlots()); // максимум 15 слотов (3×5)
+            for (int i = 0; i < maxSlots; i++) {
+                int col = i % 3;      // 0..2
+                int row = i / 3;      // 0..4
                 this.addSlotToContainer(new SlotItemHandler(
                         buffer9, i,
                         RIGHT_GRID_LEFT + col * CELL,
-                        RIGHT_GRID_TOP  + row * CELL
+                        RIGHT_GRID_TOP + row * CELL
                 ));
             }
+
             termEnd = this.inventorySlots.size();
         }
 
@@ -63,7 +73,7 @@ public class ContainerOrderTerminal extends Container {
                 this.addSlotToContainer(new Slot(
                         playerInv, c + r * 9 + 9,
                         PLAYER_INV_LEFT + c * CELL,
-                        PLAYER_INV_TOP  + r * CELL
+                        PLAYER_INV_TOP + r * CELL
                 ));
             }
         }
@@ -86,26 +96,75 @@ public class ContainerOrderTerminal extends Container {
     public ItemStack transferStackInSlot(EntityPlayer playerIn, int index) {
         ItemStack ret = ItemStack.EMPTY;
         Slot slot = this.inventorySlots.get(index);
-        if (slot == null || !slot.getHasStack()) return ItemStack.EMPTY;
+
+        if (slot == null || !slot.getHasStack()) {
+            return ItemStack.EMPTY;
+        }
 
         ItemStack stack = slot.getStack();
         ret = stack.copy();
 
-        int playerStart = (termEnd < 0 ? 0 : termEnd);
-        int playerEnd   = this.inventorySlots.size();
+        // ---- диапазоны ----
+        int termSlots = (termStart >= 0 && termEnd > termStart) ? (termEnd - termStart) : 0;
+        int invStart = termEnd;              // начало основного инвентаря
+        int invEnd = invStart + 27;        // 3×9
+        int hotbarStart = invEnd;               // хотбар
+        int hotbarEnd = hotbarStart + 9;
+        int totalSlots = this.inventorySlots.size();
 
-        if (termStart >= 0 && index >= termStart && index < termEnd) {
-            // из терминала → в инвентарь
-            if (!this.mergeItemStack(stack, playerStart, playerEnd, true)) return ItemStack.EMPTY;
-        } else {
-            // из инвентаря → в терминал
-            if (termStart >= 0 && !this.mergeItemStack(stack, termStart, termEnd, false)) return ItemStack.EMPTY;
+        // страховка, если что-то изменят в будущем
+        invEnd = Math.min(invEnd, totalSlots);
+        hotbarEnd = Math.min(hotbarEnd, totalSlots);
+
+        // === клик из слотов терминала ===
+        if (index >= termStart && index < termEnd) {
+            // сначала в основной инвентарь, потом в хотбар
+            if (!this.mergeItemStack(stack, invStart, invEnd, false)) {
+                if (!this.mergeItemStack(stack, hotbarStart, hotbarEnd, false)) {
+                    return ItemStack.EMPTY;
+                }
+            }
+        }
+        // === из основного инвентаря игрока ===
+        else if (index >= invStart && index < invEnd) {
+            // пытаемся закинуть в терминал
+            if (termSlots > 0 && !this.mergeItemStack(stack, termStart, termEnd, false)) {
+                // если не влезло – в хотбар
+                if (!this.mergeItemStack(stack, hotbarStart, hotbarEnd, false)) {
+                    return ItemStack.EMPTY;
+                }
+            } else if (termSlots == 0) {
+                // терминала нет – пробуем в хотбар
+                if (!this.mergeItemStack(stack, hotbarStart, hotbarEnd, false)) {
+                    return ItemStack.EMPTY;
+                }
+            }
+        }
+        // === из хотбара ===
+        else if (index >= hotbarStart && index < hotbarEnd) {
+            // сперва терминал, потом основной инвентарь
+            if (termSlots > 0 && !this.mergeItemStack(stack, termStart, termEnd, false)) {
+                if (!this.mergeItemStack(stack, invStart, invEnd, false)) {
+                    return ItemStack.EMPTY;
+                }
+            } else if (termSlots == 0) {
+                if (!this.mergeItemStack(stack, invStart, invEnd, false)) {
+                    return ItemStack.EMPTY;
+                }
+            }
         }
 
-        if (stack.isEmpty()) slot.putStack(ItemStack.EMPTY);
-        else slot.onSlotChanged();
+        // ---- обновление исходного слота ----
+        if (stack.isEmpty()) {
+            slot.putStack(ItemStack.EMPTY);
+        } else {
+            slot.onSlotChanged();
+        }
 
-        if (stack.getCount() == ret.getCount()) return ItemStack.EMPTY;
+        if (stack.getCount() == ret.getCount()) {
+            return ItemStack.EMPTY;
+        }
+
         slot.onTake(playerIn, stack);
         return ret;
     }

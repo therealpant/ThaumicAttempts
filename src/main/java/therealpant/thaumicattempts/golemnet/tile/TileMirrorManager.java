@@ -38,6 +38,7 @@ import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
+import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -82,23 +83,45 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private int dispatcherSealColor = DEFAULT_DISPATCHER_COLOR;
     private final ArrayDeque<BlockPos> dispatcherBusyQueue = new ArrayDeque<>();
 
+    /**
+     * Логический ключ зеркала (номер кольца + слот).
+     * Используем для жёсткой привязки к потребителям.
+     */
+    public static final class MirrorKey {
+        public final int ring;
+        public final int slot;
 
+        public MirrorKey(int ring, int slot) {
+            this.ring = ring;
+            this.slot = slot;
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof MirrorKey)) return false;
+            MirrorKey other = (MirrorKey) o;
+            return ring == other.ring && slot == other.slot;
+        }
+
+        @Override
+        public int hashCode() {
+            return (ring * 31) ^ slot;
+        }
+    }
+
+    /**
+     * Жёсткая связка: ОДИН потребитель → ОДНО зеркало.
+     * Ключ – позиция потребителя (терминал/реквестер и т.п.).
+     */
+    private final Map<BlockPos, MirrorKey> consumerMirrors = new HashMap<>();
+
+    private final List<MirrorSlot> activeMirrors = new ArrayList<>(MAX_SLOTS);
+    private long renderSeed = 0L;
 
     private static final class DispatcherStats {
         int golems;
         int busy;
-    }
-
-    public int getRange() {
-        return calcRange;
-    }
-
-    public int getMirrorCap() {
-        return calcMirrorCap;
-    }
-
-    public int getComputeCap() {
-        return calcComputeCap;
     }
 
     public int getMirrorUsed() {
@@ -183,15 +206,136 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         public final int ring, slot;
         public final long phase;
 
+        // пока > worldTime — зеркало считается «в фокусе»
+        public long focusUntil;
+
         public MirrorSlot(int r, int s, long p) {
             ring = r;
             slot = s;
             phase = p;
+            focusUntil = 0L;
+        }
+
+        public void focus(long now, int durationTicks) {
+            long target = now + durationTicks;
+            if (target > focusUntil) {
+                focusUntil = target;
+            }
         }
     }
 
-    private final List<MirrorSlot> activeMirrors = new ArrayList<>(MAX_SLOTS);
-    private long renderSeed = 0L;
+    @Nullable
+    private MirrorSlot findMirrorSlot(int ring, int slot) {
+        for (MirrorSlot m : activeMirrors) {
+            if (m.ring == ring && m.slot == slot) {
+                return m;
+            }
+        }
+        return null;
+    }
+
+    @Nullable
+    private MirrorSlot findMirrorSlot(MirrorKey key) {
+        if (key == null) return null;
+        return findMirrorSlot(key.ring, key.slot);
+    }
+
+    private boolean isMirrorTakenByConsumer(int ring, int slot) {
+        if (consumerMirrors.isEmpty()) return false;
+        for (MirrorKey mk : consumerMirrors.values()) {
+            if (mk.ring == ring && mk.slot == slot) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    /**
+     * Выдать зеркалу конкретного потребителя, если ещё не выдано.
+     * Гарантирует: одно зеркало не поделится между двумя потребителями.
+     */
+    @Nullable
+    private MirrorKey getOrAssignMirrorForConsumer(BlockPos consumerPos) {
+        if (consumerPos == null) return null;
+
+        // уже есть – проверим, что зеркало ещё существует
+        MirrorKey existing = consumerMirrors.get(consumerPos);
+        if (existing != null && findMirrorSlot(existing) != null) {
+            return existing;
+        }
+
+        // ищем свободное зеркало среди активных
+        for (MirrorSlot m : activeMirrors) {
+            if (!isMirrorTakenByConsumer(m.ring, m.slot)) {
+                MirrorKey mk = new MirrorKey(m.ring, m.slot);
+                consumerMirrors.put(consumerPos.toImmutable(), mk);
+                return mk;
+            }
+        }
+
+        // свободных нет – на всякий случай привяжем к первому активному
+        if (!activeMirrors.isEmpty()) {
+            MirrorSlot m = activeMirrors.get(0);
+            MirrorKey mk = new MirrorKey(m.ring, m.slot);
+            consumerMirrors.put(consumerPos.toImmutable(), mk);
+            return mk;
+        }
+
+        return null;
+    }
+
+    /**
+     * При отвязке/потере потребителя — освобождаем зеркало.
+     */
+    private void releaseMirrorForConsumer(BlockPos consumerPos) {
+        if (consumerPos == null) return;
+        consumerMirrors.remove(consumerPos);
+    }
+    /**
+     * Когда удаляем само зеркало — сбрасываем всех потребителей, кто был к нему привязан.
+     */
+    private void releaseConsumersForMirror(int ring, int slot) {
+        if (consumerMirrors.isEmpty()) return;
+        java.util.Iterator<Map.Entry<BlockPos, MirrorKey>> it = consumerMirrors.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<BlockPos, MirrorKey> e = it.next();
+            MirrorKey mk = e.getValue();
+            if (mk.ring == ring && mk.slot == slot) {
+                it.remove();
+            }
+        }
+    }
+
+    /**
+     * Выбрать свободное зеркало для нового потребителя.
+     * Берём один из activeMirrors, который ещё никому не принадлежит.
+     */
+    @Nullable
+    private MirrorKey assignMirrorForConsumer(BlockPos consumerPos) {
+        if (consumerPos == null) return null;
+        // уже есть – возвращаем существующее
+        MirrorKey existing = consumerMirrors.get(consumerPos);
+        if (existing != null && findMirrorSlot(existing) != null) {
+            return existing;
+        }
+
+        // ищем свободный слот среди активных зеркал
+        for (MirrorSlot m : activeMirrors) {
+            if (!isMirrorTakenByConsumer(m.ring, m.slot)) {
+                MirrorKey mk = new MirrorKey(m.ring, m.slot);
+                consumerMirrors.put(consumerPos.toImmutable(), mk);
+                return mk;
+            }
+        }
+        // не нашли свободного – значит, по идее, зеркал просто не хватает
+        return null;
+    }
+
+    /**
+     * Получить или назначить зеркало для данного ресурса (ItemKey).
+     * Всегда старается вернуть существующее зеркало. Если привязанное
+     * зеркало исчезло – выбирает новое.
+     */
 
     // Подвешенные к выбросу (занимают слот до дропа)
     private static final int EJECT_HOVER_TICKS = 40; // ~2с
@@ -259,7 +403,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private <E extends IAnimatable> PlayState predicate(AnimationEvent<E> event) {
         // Проигрываем нашу анимацию из JSON:
         event.getController().setAnimation(
-                new AnimationBuilder().addAnimation("animation.model.mirror_manager", true)
+                new AnimationBuilder().addAnimation("mirror_manager.animation", true)
         );
         return PlayState.CONTINUE;
     }
@@ -340,9 +484,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     public ItemStack removeMirror() {
         if (activeMirrors.isEmpty()) return ItemStack.EMPTY;
         MirrorSlot m = activeMirrors.remove(activeMirrors.size() - 1);
+
+        // все потребители, сидевшие на этом зеркале, теряют привязку
+        releaseConsumersForMirror(m.ring, m.slot);
+
         freeSlot(m.ring, m.slot);
         markDirtyAndSync();
-        pruneBindingsByRangeAndCapacity();   // << сразу отлинковать лишних
+        pruneBindingsByRangeAndCapacity();
         return new ItemStack(thaumcraft.api.blocks.BlocksTC.mirror);
     }
 
@@ -411,15 +559,18 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         boolean removedExtras = false;
         while (activeMirrors.size() > calcMirrorCap) {
             MirrorSlot m = activeMirrors.remove(activeMirrors.size() - 1);
+
+            // тоже снимаем всех потребителей с этого зеркала
+            releaseConsumersForMirror(m.ring, m.slot);
+
             pendingEjects.add(new PendingEject(m.ring, m.slot, world.getTotalWorldTime()));
             removedExtras = true;
         }
         if (removedExtras) {
-            pruneBindingsByRangeAndCapacity();   // << сразу
+            pruneBindingsByRangeAndCapacity();
             markDirtyAndSync();
         }
 
-        if (!pendingEjects.isEmpty()) markDirtyAndSync();
     }
 
     public void rescanAndRebalanceNow() {
@@ -559,22 +710,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
 
     // сервер: выбранное зеркало + рассылка клиентам для анимации «полетело в корону»
+    // сервер: выбранное зеркало + рассылка клиентам для анимации «полетело в корону»
     private void onItemAccepted(ItemStack stack) {
-        if (world == null || world.isRemote || stack.isEmpty()) return;
-        int[] pick = pickRandomMirrorSlot();
-        if (pick[0] < 0) return; // нет активных зеркал — нет анимации
-
-        int dur = 36 + world.rand.nextInt(16);
-        long seed = world.rand.nextLong();
-
-        therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim pkt =
-                new therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim(this.pos, stack, pick[0], pick[1], dur, seed);
-
-        net.minecraftforge.fml.common.network.NetworkRegistry.TargetPoint tp =
-                new net.minecraftforge.fml.common.network.NetworkRegistry.TargetPoint(
-                        world.provider.getDimension(), pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, 64);
-        therealpant.thaumicattempts.ThaumicAttempts.NET.sendToAllAround(pkt, tp);
     }
+
 
     /**
      * Внешняя обёртка — подхватывает приход и продвигает текущий батч.
@@ -779,8 +918,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     public boolean tryBindTerminal(BlockPos pos) {
         if (pos == null) return false;
         if (pos.distanceSq(getPos()) > (double) (calcRange * calcRange)) return false;
-        // требуется РЕАЛЬНО свободное зеркало
         if (!hasFreeMirror()) return false;
+
+        // строгое зеркало для этого терминала
+        MirrorKey mk = getOrAssignMirrorForConsumer(pos);
+        if (mk == null) return false;
+
         boundTerminals.add(pos.toImmutable());
         markDirty();
         return true;
@@ -789,9 +932,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     public boolean tryBindRequester(BlockPos pos) {
         if (pos == null) return false;
         if (pos.distanceSq(getPos()) > (double) (calcRange * calcRange)) return false;
-        // требуется и зеркало, и вычислительная ячейка
         if (!hasFreeMirror()) return false;
         if (!hasFreeComputeCell()) return false;
+
+        MirrorKey mk = getOrAssignMirrorForConsumer(pos);
+        if (mk == null) return false;
+
         boundRequesters.add(pos.toImmutable());
         markDirty();
         return true;
@@ -1505,6 +1651,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             if (accepted > 0) {
                 moved += accepted;
                 left -= accepted;
+
+                handleMirrorDeliveryAnim(destPos, like);
             }
             if (!notFit.isEmpty()) {
                 // Возвращаем остаток в буфер — БЕЗ анимации
@@ -1522,6 +1670,37 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return moved;
     }
 
+    /**
+     * Сервер: запуск анимации полёта предмета в зеркало,
+     * закреплённое за конкретным потребителем (терминалом/реквестером).
+     */
+    private void handleMirrorDeliveryAnim(BlockPos destPos, ItemStack like) {
+        if (world == null || world.isRemote) return;
+        if (destPos == null || like == null || like.isEmpty()) return;
+
+        // Нас интересуют именно привязанные потребители
+        if (!boundTerminals.contains(destPos) && !boundRequesters.contains(destPos)) {
+            return;
+        }
+
+        MirrorKey mk = getOrAssignMirrorForConsumer(destPos);
+        if (mk == null) return;
+
+        MirrorSlot ms = findMirrorSlot(mk);
+        if (ms != null) {
+            ms.focus(world.getTotalWorldTime(), EJECT_HOVER_TICKS);
+        }
+
+        // синхронизируем focusUntil на клиент
+        markDirtyAndSync();
+
+        int dur = 36 + world.rand.nextInt(16);
+        long seed = world.rand.nextLong();
+
+        S2CFlyAnim.dispatch(
+                world, this.pos, like, mk.ring, mk.slot, dur, seed
+        );
+    }
 
     private ItemStack extractFromBuffer(ItemStack like, int max) {
         if (like == null || like.isEmpty() || max <= 0) return ItemStack.EMPTY;
@@ -2406,6 +2585,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     public void unbind(@Nullable BlockPos consumerPos) {
         if (world == null || world.isRemote || consumerPos == null) return;
 
+        releaseMirrorForConsumer(consumerPos);
+
         if (isUnlinking) {
             // Мы уже в процессе отвязки — просто выкинем из наборов и выйдем.
             boundTerminals.remove(consumerPos);
@@ -2676,6 +2857,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             c.setInteger("ring", m.ring);
             c.setInteger("slot", m.slot);
             c.setLong("phase", m.phase);
+            c.setLong("focus", m.focusUntil); // <-- новая строка
             ml.appendTag(c);
         }
         NBTTagList pe = new NBTTagList();
@@ -2757,9 +2939,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 int r = Math.max(0, Math.min(RINGS - 1, c.getInteger("ring")));
                 int s = Math.max(0, Math.min(SLOTS_PER_RING - 1, c.getInteger("slot")));
                 long ph = c.getLong("phase");
+                long fu = c.hasKey("focus", 4) ? c.getLong("focus") : 0L;
                 if (!slotBusy[r][s]) {
                     slotBusy[r][s] = true;
-                    activeMirrors.add(new MirrorSlot(r, s, ph));
+                    MirrorSlot ms = new MirrorSlot(r, s, ph);
+                    ms.focusUntil = fu;
+                    activeMirrors.add(ms);
                 }
             }
         }

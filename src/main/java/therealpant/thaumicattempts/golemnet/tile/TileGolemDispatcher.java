@@ -61,9 +61,9 @@ public class TileGolemDispatcher extends TileEntity implements ITickable, IAnima
     /* ====== поля для визуалки / рандома ====== */
 
     // скорость анимации (множитель)
-    public float animSpeed = 1.5f;
+    public float animSpeed = 0.625f;
     // фиксированный сид для выбора кубиков/осей
-    public long animSeed = 0L;
+    public long animSeed = 2L;
 
     // выбор на текущий цикл
     public int[] picks = {0, 1, 2}; // индексы костей 0..7
@@ -73,15 +73,6 @@ public class TileGolemDispatcher extends TileEntity implements ITickable, IAnima
     // тайминги (в тиках)
     public static final int DUR_A = 20; // длительность поворота 180°
     public static final int GAP   =  4; // пауза между фазами
-
-    public long cycleLen() {
-        float sp = Math.max(0.05f, this.animSpeed);
-        int base = DUR_A + GAP;
-        long aLen = Math.max(1, Math.round(base / sp));
-
-        // Раньше здесь, скорее всего, было aLen * 3L
-        return aLen * 4L; // теперь 4 фазы
-    }
 
 
     /** выбрать 3 разных индекса [0..7] и 3 случайные оси для нового цикла */
@@ -321,7 +312,23 @@ public class TileGolemDispatcher extends TileEntity implements ITickable, IAnima
 
     @Override
     public void registerControllers(AnimationData data) {
-        // Никаких контроллеров — всё делаем процедурно в модели DispatcherModel
+        // Базовый контроллер, который вечно крутит animation.model.cycle_base из dispatcher.animation.json
+        AnimationController<TileGolemDispatcher> baseController =
+                new AnimationController<>(this, "base_cycle", 0, this::baseCyclePredicate);
+
+        data.addAnimationController(baseController);
+    }
+
+    /**
+     * Предикат для базовой анимации из dispatcher.animation.json.
+     * Здесь запускаем "animation.model.cycle_base" в цикле.
+     */
+    private <E extends IAnimatable> PlayState baseCyclePredicate(AnimationEvent<E> event) {
+        event.getController().setAnimation(
+                new AnimationBuilder()
+                        .addAnimation("animation.model.cycle_base", true) // true = LOOP
+        );
+        return PlayState.CONTINUE;
     }
 
     @Override
@@ -418,8 +425,15 @@ public class TileGolemDispatcher extends TileEntity implements ITickable, IAnima
         }
     }
 
-    public void setAnimSpeed(float s) {
-        animSpeed = Math.max(0.05f, Math.min(5f, s));
-        if (!world.isRemote) markDirty();
+    public static long calcCycleLenForSpeed(float animSpeed) {
+        float sp = Math.max(0.05f, animSpeed);
+        int base = DUR_A + GAP;
+        long aLen = Math.max(1, Math.round(base / sp));
+        return aLen * 4L;
     }
+
+    public long cycleLen() {
+        return calcCycleLenForSpeed(this.animSpeed);
+    }
+
 }

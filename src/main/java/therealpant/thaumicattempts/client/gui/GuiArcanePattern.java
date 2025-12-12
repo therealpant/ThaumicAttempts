@@ -14,6 +14,7 @@ import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import thaumcraft.api.items.ItemsTC;
+import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemcraft.container.ContainerArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 
@@ -22,34 +23,20 @@ import java.io.IOException;
 
 public class GuiArcanePattern extends GuiContainer {
 
-    // текстуры и геометрия — как ты уже утвердил
-    private static final ResourceLocation TEX_PAPER_GILDED =
-            new ResourceLocation("thaumcraft","textures/gui/papergilded.png");
-    private static final ResourceLocation TEX_NET =
-            new ResourceLocation("thaumcraft","textures/gui/gui_researchbook_overlay.png");
-    private static final ResourceLocation TEX_BASE_TC =
-            new ResourceLocation("thaumcraft","textures/gui/gui_base.png");
+    private static final ResourceLocation TEX_CRAFTER =
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/golem_crafter.png");
+    private static final ResourceLocation TEX_ORDER_TERMINAL =
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/order_terminal.png");
 
-    private static final int INV_U = 0, INV_V = 166, INV_W = 176, INV_H = 90;
-
-    private static final int PAPER_W = 160, PAPER_H = 160;
-    private static final int NET_GRID_U = 60, NET_GRID_V = 15, NET_GRID_W = 51, NET_GRID_H = 52;
-    private static final float NET_GRID_SCALE = 1.20f;
-    private static final float GRID_ADJ_X = -2.0f, GRID_ADJ_Y = -3.0f;
-
-    private static final int CELL = 18;
-    private static final int GRID_LEFT_OFF = 62;
-    private static final int GRID_TOP_OFF  = 17;
-
-    private static final int PLAYER_LEFT_OFF = 8;
-    private static final int PLAYER_TOP_OFF  = 130;
+    private static final int PAPER_U = 60;
+    private static final int PAPER_V = 0;
 
     private boolean blurOn = false;
 
     public GuiArcanePattern(InventoryPlayer inv, ItemStack patternStack) {
         super(new ContainerArcanePattern(inv, patternStack));
-        this.xSize = 176;
-        this.ySize = 166;
+        this.xSize = PatternGuiLayout.GUI_WIDTH;
+        this.ySize = PatternGuiLayout.GUI_HEIGHT;
     }
 
     @Override public void initGui() { super.initGui(); enableBlur(); }
@@ -70,17 +57,15 @@ public class GuiArcanePattern extends GuiContainer {
         ItemStack pat = c.getPatternStack();
         int repeat = ItemBasePattern.getRepeatCount(pat);
         if (repeat > 1) {
-            final int baseW = 3 * CELL;
-            final int resultX = GRID_LEFT_OFF + baseW / 2 - 8;
-            final int gap = 8;
-            final int resultY = GRID_TOP_OFF - (24 + gap);
+            final int resultX = PatternGuiLayout.PREVIEW_LEFT;
+            final int resultY = PatternGuiLayout.PREVIEW_TOP;
 
             String text = String.valueOf(repeat);
             GlStateManager.disableLighting();
             GlStateManager.disableDepth();
             this.fontRenderer.drawStringWithShadow(text,
-                    resultX + 17 - this.fontRenderer.getStringWidth(text),
-                    resultY + 9,
+                    resultX + 12 - this.fontRenderer.getStringWidth(text),
+                    resultY - 10,
                     0xFFFFFF);
             GlStateManager.enableLighting();
             GlStateManager.enableDepth();
@@ -91,69 +76,54 @@ public class GuiArcanePattern extends GuiContainer {
     protected void drawGuiContainerBackgroundLayer(float partialTicks, int mouseX, int mouseY) {
         GlStateManager.color(1F,1F,1F,1F);
 
-        final int x = (width - xSize) / 2;
-        final int y = (height - ySize) / 2;
+        final int x = this.guiLeft;
+        final int y = this.guiTop;
 
-        final int gridLeft = x + GRID_LEFT_OFF;
-        final int gridTop  = y + GRID_TOP_OFF;
+        final int gridLeft = x + PatternGuiLayout.GRID_LEFT;
+        final int gridTop  = y + PatternGuiLayout.GRID_TOP;
 
-        final int baseW = 3 * CELL, baseH = 3 * CELL;
+        final int baseW = 3 * PatternGuiLayout.CELL;
+        final int baseH = baseW;
 
-        final int gridCenterX = gridLeft + baseW / 2;
-        final int gridCenterY = gridTop  + baseH / 2;
+        final int paperX = x + PatternGuiLayout.PAPER_LEFT;
+        final int paperY = y + PatternGuiLayout.PAPER_TOP;
 
-        int paperX = gridCenterX - PAPER_W/ 2;
-        int paperY = gridCenterY - PAPER_H/ 2;
+        final int backgroundX = x + PatternGuiLayout.BACKGROUND_LEFT;
+        final int backgroundY = y + PatternGuiLayout.BACKGROUND_TOP;
+        mc.getTextureManager().bindTexture(TEX_CRAFTER);
+        drawModalRectWithCustomSizedTexture(backgroundX, backgroundY,
+                PatternGuiLayout.BACKGROUND_U, PatternGuiLayout.BACKGROUND_V,
+                PatternGuiLayout.BACKGROUND_W, PatternGuiLayout.BACKGROUND_H,
+                354, 256);
 
-        // лист
-        mc.getTextureManager().bindTexture(TEX_PAPER_GILDED);
-        drawModalRectWithCustomSizedTexture(paperX, paperY, 0, 0, PAPER_W, PAPER_H, PAPER_W, PAPER_H);
+        drawPaper(paperX, paperY);
 
-        // сетка
-        final int targetW = Math.round(baseW * NET_GRID_SCALE);
-        final int targetH = Math.round(baseH * NET_GRID_SCALE);
-        int gridDrawX = gridLeft - (targetW - baseW) / 2 + Math.round(GRID_ADJ_X);
-        int gridDrawY = gridTop  - (targetH - baseH) / 2 + Math.round(GRID_ADJ_Y);
-
-        GlStateManager.pushMatrix();
-        GlStateManager.translate(gridDrawX, gridDrawY, 0);
-        GlStateManager.scale(targetW / (float) NET_GRID_W, targetH / (float) NET_GRID_H, 1f);
-        mc.getTextureManager().bindTexture(TEX_NET);
-        drawTexturedModalRect(0, 0, NET_GRID_U, NET_GRID_V, NET_GRID_W, NET_GRID_H);
-        GlStateManager.popMatrix();
-
-        // подложка результата (как раньше)
-        {
-            int resultX = x + GRID_LEFT_OFF + baseW / 2 - 9;
-            int gap = 8;
-            int resultY = y + GRID_TOP_OFF - (28 + gap) + 1;
-
-            int decoSize = 30, decoU = 32, decoV = 0;
-            int decoX = resultX - decoSize/2 + 8;
-            int decoY = resultY - decoSize/2 + 8;
-
-            mc.getTextureManager().bindTexture(TEX_NET);
-            drawModalRectWithCustomSizedTexture(decoX, decoY, decoU, decoV,
-                    decoSize, decoSize, 440F, 440F);
-        }
-
-        // фон инвентаря игрока
-        final int playerLeft = x + PLAYER_LEFT_OFF;
-        final int playerTop  = y + PLAYER_TOP_OFF;
-        mc.getTextureManager().bindTexture(TEX_BASE_TC);
-        drawTexturedModalRect(playerLeft - 8, playerTop - 8, INV_U, INV_V, INV_W, INV_H);
+        final int invBgX = x + PatternGuiLayout.PLAYER_INV_BG_LEFT;
+        final int invBgY = y + PatternGuiLayout.PLAYER_INV_BG_TOP;
+        mc.getTextureManager().bindTexture(TEX_ORDER_TERMINAL);
+        drawModalRectWithCustomSizedTexture(invBgX, invBgY,
+                PatternGuiLayout.PLAYER_INV_U, PatternGuiLayout.PLAYER_INV_V,
+                PatternGuiLayout.PLAYER_INV_W, PatternGuiLayout.PLAYER_INV_H,
+                354, 256);
 
         // === ФУНКЦИОНАЛЬНОЕ ПОЛЕ КРИСТАЛЛОВ ===
         drawCrystalField(paperX, paperY, gridTop, baseH);
+    }
+
+    private void drawPaper(int paperX, int paperY) {
+        mc.getTextureManager().bindTexture(TEX_CRAFTER);
+        drawModalRectWithCustomSizedTexture(paperX, paperY, PAPER_U, PAPER_V,
+                PatternGuiLayout.PAPER_DRAW_W, PatternGuiLayout.PAPER_DRAW_H,
+                354, 256);
     }
 
     /* ===== поле кристаллов: отрисовка ===== */
     private void drawCrystalField(int paperX, int paperY, int gridTop, int baseH) {
         // геометрия поля: по ширине — весь лист, по высоте — от низа 3×3 до низа листа
         int fieldLeft   = paperX;
-        int fieldRight  = paperX + PAPER_W;
+        int fieldRight  = paperX + PatternGuiLayout.PAPER_DRAW_W;
         int fieldTop    = gridTop + baseH + 4;
-        int fieldBottom = paperY + PAPER_H - 6;
+        int fieldBottom = paperY + PatternGuiLayout.PAPER_DRAW_H - 6;
         int fieldW = Math.max(0, fieldRight - fieldLeft);
         int fieldH = Math.max(0, fieldBottom - fieldTop);
         if (fieldW <= 0 || fieldH <= 6) return;
@@ -203,31 +173,23 @@ public class GuiArcanePattern extends GuiContainer {
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws java.io.IOException {
         // === вычисляем прямоугольник «поля кристаллов» (нижняя часть листа) ===
-        final int x = (width - xSize) / 2;
-        final int y = (height - ySize) / 2;
-
-        final int CELL = 18;
-        final int GRID_LEFT_OFF = 62;
-        final int GRID_TOP_OFF  = 17;
+        final int x = this.guiLeft;
+        final int y = this.guiTop;
 
         // фактические координаты сетки 3×3
-        final int gridLeft = x + GRID_LEFT_OFF;
-        final int gridTop  = y + GRID_TOP_OFF;
-        final int baseW = 3 * CELL, baseH = 3 * CELL;
-
-        // центр 3×3 — лист центрируем по нему (как в твоём GuiCraftPattern)
-        final int gridCenterX = gridLeft + baseW / 2;
-        final int gridCenterY = gridTop  + baseH / 2;
+        final int gridLeft = x + PatternGuiLayout.GRID_LEFT;
+        final int gridTop  = y + PatternGuiLayout.GRID_TOP;
+        final int baseW = 3 * PatternGuiLayout.CELL, baseH = baseW;
 
         // позиция листа
-        final int paperX = gridCenterX - PAPER_W/2;
-        final int paperY = gridCenterY - PAPER_H/2;
+        final int paperX = x + PatternGuiLayout.PAPER_LEFT;
+        final int paperY = y + PatternGuiLayout.PAPER_TOP;
 
         // прямоугольник поля: от НИЗА сетки до НИЗА листа, на всю ширину листа
         final int fieldRelX = paperX - x;
         final int fieldRelY = (gridTop + baseH) - y;
-        final int fieldW    = PAPER_W;
-        final int fieldH    = (paperY + PAPER_H) - (gridTop + baseH);
+        final int fieldW    = PatternGuiLayout.PAPER_DRAW_W;
+        final int fieldH    = (paperY + PatternGuiLayout.PAPER_DRAW_H) - (gridTop + baseH);
 
         // если кликнули внутри поля — эмулируем клик по слоту RESULT_IDX
         if (fieldH > 0 && isPointInRegion(fieldRelX, fieldRelY, fieldW, fieldH, mouseX, mouseY)) {

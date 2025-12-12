@@ -14,6 +14,11 @@ public class TAConfig {
     @Config.RequiresMcRestart
     public static boolean ENABLE_ELDRITCH_STONE_RECIPE = true;
 
+    @Config.Comment("Enable custom model replacement for Thaumcraft Pillars.")
+    @Config.Name("Enable Custom Pillar Model Replacement")
+    @Config.RequiresMcRestart
+    public static boolean ENABLE_PILLAR_MODEL_REPLACEMENT = false;
+
     @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
     public static class ConfigChangeListener {
         @SubscribeEvent

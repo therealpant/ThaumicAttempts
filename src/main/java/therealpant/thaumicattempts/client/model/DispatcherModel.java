@@ -53,19 +53,16 @@ public class DispatcherModel extends AnimatedGeoModel<TileGolemDispatcher> {
         long cycle = Math.floorDiv(wt, cycLen);
         long inCyc = Math.floorMod(wt, cycLen);
 
-        // новый цикл — обновляем picks/axes для фаз 1–3
         if (cycle != tile.cycleIdx) {
             tile.reseedForCycle(cycle);
         }
 
-        float sp = Math.max(0.3f, tile.animSpeed);
-        int base = TileGolemDispatcher.DUR_A + TileGolemDispatcher.GAP;
-        long aLen = Math.max(1, Math.round(base / sp)); // длительность одной фазы
+        long aLen = Math.max(1L, cycLen / 4L);
 
         long p1 = aLen;
-        long p2 = aLen * 2;
-        long p3 = aLen * 3;
-        long p4 = aLen * 4; // == cycLen
+        long p2 = aLen * 2L;
+        long p3 = aLen * 3L;
+        long p4 = aLen * 4L; // == cycLen
 
         // smoothstep по фазе
         java.util.function.BiFunction<Long, Long, Float> phaseK = (t, len) -> {
@@ -99,17 +96,17 @@ public class DispatcherModel extends AnimatedGeoModel<TileGolemDispatcher> {
             // фаза 1 – вращаем ОДИН кубик (локальную кость)
             long t = inCyc;
             float k = phaseK.apply(t, aLen);
-            rotateLocalPick(tile, 0, (float) Math.toRadians(180f * k));
+            rotateLocalPick(tile, 0, (float) Math.toRadians(360f * k));
         } else if (inCyc < p2) {
             // фаза 2
             long t = inCyc - p1;
             float k = phaseK.apply(t, aLen);
-            rotateLocalPick(tile, 1, (float) Math.toRadians(180f * k));
+            rotateLocalPick(tile, 1, (float) Math.toRadians(360f * k));
         } else if (inCyc < p3) {
             // фаза 3
             long t = inCyc - p2;
             float k = phaseK.apply(t, aLen);
-            rotateLocalPick(tile, 2, (float) Math.toRadians(180f * k));
+            rotateLocalPick(tile, 2, (float) Math.toRadians(360f * k));
         } else if (inCyc < p4) {
             // фаза 4 – крутим СЛОЙ 2×2 вокруг центра всего массива
             long t = inCyc - p3;
@@ -151,7 +148,7 @@ public class DispatcherModel extends AnimatedGeoModel<TileGolemDispatcher> {
         boolean positiveSide = r.nextBoolean(); // какую половину берём (X+/X-, Y+/Y-, Z+/Z-)
         boolean positiveAngle = r.nextBoolean(); // направление +180 / -180
 
-        float angle = (float) (Math.PI * k * (positiveAngle ? 1f : -1f));
+        float angle = (float) (Math.PI*2 * k * (positiveAngle ? 1f : -1f));
 
         int[] group;
         switch (axisIdx) {

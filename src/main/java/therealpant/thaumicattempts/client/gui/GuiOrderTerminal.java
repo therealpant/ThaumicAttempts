@@ -36,11 +36,6 @@ public class GuiOrderTerminal extends GuiContainer {
     private long lastSearchEditTs = 0L;
     private static final long SEARCH_DEBOUNCE_MS = 180L; // тонкая задержка, чтобы не спамить сеть
 
-
-    private static boolean hitRect(int x, int y, int[] r){
-        return x >= r[0] && x <= (r[0]+r[2]) && y >= r[1] && y <= (r[1]+r[3]);
-    }
-
     private long lastAutoRefreshMs = 0L;
     private static final long AUTO_REFRESH_MS = 600L;
 
@@ -54,57 +49,97 @@ public class GuiOrderTerminal extends GuiContainer {
     private Mode mode = Mode.DELIVERY; // по умолчанию
     private boolean isCraftMode() { return mode == Mode.CRAFT; }
 
-    // сколько добавлять по модификаторам
-    private static int incForModifiers(boolean shift, boolean ctrl) {
-        if (shift && ctrl) return 64; // если хочешь: shift+ctrl = 64
-        if (shift) return 64;
-        if (ctrl)  return 10;
-        return 1;
-    }
-
     // === Кнопки ===
     private static final int BTN_SUBMIT = 202;
     private static final int BTN_TOGGLE = 201;
 
-    // === ресурсы для мини-кнопки (таумовский спрайт) ===
-    private static final int MINI_BASE_U = 32;   // коричневый квадратик 13×13
-    private static final int MINI_BASE_V = 82;
-    private static final int MINI_GOLD_U = 96;   // золотой индикатор 8×8
-    private static final int MINI_GOLD_V = 0;
-
     // Кнопки
-    private GuiImageButton btnRequest;
+    private GuiButton btnRequest;
     private MiniToggleButton btnModeToggle;
 
     class MiniToggleButton extends GuiButton {
-        private boolean state;
+        private boolean state; // true = CRAFT, false = STORAGE
 
         MiniToggleButton(int id, int x, int y, boolean initial) {
-            super(id, x, y, 13, 13, "");
+            super(id, x, y, 9, 9, ""); // кликабельная зона 9×9
             this.state = initial;
         }
 
+        public void setState(boolean s) {
+            this.state = s;
+        }
 
         @Override
         public void drawButton(net.minecraft.client.Minecraft mc, int mouseX, int mouseY, float partialTicks) {
             if (!this.visible) return;
 
-            mc.getTextureManager().bindTexture(TEX_BASE_TC);
+            GlStateManager.disableLighting();
+            GlStateManager.enableBlend();
+            GlStateManager.enableAlpha();
             GlStateManager.color(1F, 1F, 1F, 1F);
 
-            // коричневый квадрат 13×13
-            drawTexturedModalRect(this.x, this.y, MINI_BASE_U, MINI_BASE_V, 13, 13);
+            mc.getTextureManager().bindTexture(TEX_CRAFTER);
 
-            // золотой индикатор 8×8 — показываем, когда craftMode = true
-            if (this.state) {
-                int sx = this.x + this.width + 8;                 // сдвиг вправо, как в архиве
-                int sy = this.y + (this.height - 8) / 2;
-                drawTexturedModalRect(sx, sy, MINI_GOLD_U, MINI_GOLD_V, 8, 8);
+            // выбираем участок спрайта по режиму
+            int u = state ? MODE_BTN_U_CRAFT : MODE_BTN_U_STORAGE; // 9 или 0
+            int v = MODE_BTN_V;                                    // 104
+
+            // рисуем 8×8 пикселей из golem_crafter.png
+            // полный размер спрайта — 354×256 (как у order_terminal)
+            GuiOrderTerminal.this.drawModalRectWithCustomSizedTexture(
+                    this.x, this.y,   // куда в GUI
+                    u, v,             // откуда в текстуре
+                    9, 9,             // размер вырезаемого участка
+                    354, 256          // размер всего атласа golem_crafter.png
+            );
+
+            // hover-подсветка по всей зоне 9×9
+            this.hovered = mouseX >= this.x && mouseX < this.x + this.width
+                    && mouseY >= this.y && mouseY < this.y + this.height;
+
+            if (hovered) {
+                // лёгкая подсветка поверх
+                drawRect(this.x, this.y, this.x + this.width, this.y + this.height, 0x40FFFFFF);
             }
+        }
+    }
 
-            this.hovered = mouseX >= this.x && mouseY >= this.y && mouseX < this.x + this.width && mouseY < this.y + this.height;
-            if (hovered) drawRect(this.x + 1, this.y + 1, this.x + 12, this.y + 12, 0x20FFFFFF);
-            this.mouseDragged(mc, mouseX, mouseY);
+    class RequestButton extends GuiButton {
+        RequestButton(int id, int x, int y) {
+            // по ТЗ: текстурное поле 18:104–37:112 → ширина 19, высота 8
+            super(id, x, y, 20, 9, "");
+        }
+
+        @Override
+        public void drawButton(net.minecraft.client.Minecraft mc, int mouseX, int mouseY, float partialTicks) {
+            if (!this.visible) return;
+
+            GlStateManager.disableLighting();
+            GlStateManager.enableBlend();
+            GlStateManager.enableAlpha();
+            GlStateManager.color(1F, 1F, 1F, 1F);
+
+            mc.getTextureManager().bindTexture(TEX_CRAFTER);
+
+            // базовая текстура кнопки: 18:104–37:112
+            int u = 17;
+            int v = 104;
+
+            GuiOrderTerminal.this.drawModalRectWithCustomSizedTexture(
+                    this.x, this.y,
+                    u, v,
+                    this.width, this.height,   // 19×8
+                    354, 256                   // размер golem_crafter.png
+            );
+
+            // логика наведения
+            this.hovered = mouseX >= this.x && mouseX < this.x + this.width
+                    && mouseY >= this.y && mouseY < this.y + this.height;
+
+            if (hovered) {
+                // "характерное" выделение — лёгкая светлая вуаль
+                drawRect(this.x, this.y, this.x + this.width, this.y + this.height, 0x40FFFFFF);
+            }
         }
     }
 
@@ -125,20 +160,28 @@ public class GuiOrderTerminal extends GuiContainer {
     /* ===== ресурсы ===== */
     private static final ResourceLocation TEX_BASE_TC =
             new ResourceLocation("thaumcraft","textures/gui/gui_base.png");
-    private static final ResourceLocation TEX_PAPER_GILDED =
-            new ResourceLocation("thaumcraft","textures/gui/papergilded.png");
-    private static final ResourceLocation TEX_NET =
-            new ResourceLocation("thaumcraft","textures/gui/gui_researchbook_overlay.png");
-    private static final ResourceLocation TEX_PAGE_PAPER =
-            new ResourceLocation("thaumcraft", "textures/gui/papergilded.png");
-    private static final ResourceLocation TEX_RECV_FRAME =
-            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/gui_terminal.png");
 
+    // общий фон GUI 354×256
+    private static final ResourceLocation TEX_BG =
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/order_terminal.png");
+
+    // бумага страниц каталога – наш paper.png 74×94
+    private static final ResourceLocation TEX_PAGE_PAPER =
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/paper.png");
+
+    // спрайты маленькой кнопки режима из golem_crafter.png
+    private static final ResourceLocation TEX_CRAFTER =
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/golem_crafter.png");
+
+    // координаты в спрайте golem_crafter.png
+    private static final int MODE_BTN_U_STORAGE = 0;   // хранилище
+    private static final int MODE_BTN_U_CRAFT   = 9;   // крафт
+    private static final int MODE_BTN_V        = 104;
 
     // Геометрия «листа» для страниц
-    private static final int PAGE_PAPER_W = 128;
-    private static final int PAGE_PAPER_H = 128;
-    private static final int PAGE_PAPER_MARGIN = 16;
+    private static final int PAGE_PAPER_W = 74;
+    private static final int PAGE_PAPER_H = 94;
+    private static final int PAGE_PAPER_MARGIN = 8; // можно 8–10, не критично
     private static final int STACK_EXTRA_PAD = 100;
     private int hiddenLeftTop = -1;
 
@@ -222,23 +265,26 @@ public class GuiOrderTerminal extends GuiContainer {
     private static final int WINDOW_SIZE = VISIBLE_COLS_COUNT*VISIBLE_ROWS_COUNT; // 35
     private static final int cell = 18;
 
-    private static final int PAGE_PAD_X = 36;
-    private static final int PAGE_PAD_Y = 28;
-    private static final int PAPER_VSHRINK = 8;
-    private static final int PAD_X_EFF = PAGE_PAD_X;
-    private static final int PAD_Y_EFF = Math.max(0, PAGE_PAD_Y - PAPER_VSHRINK);
 
-    private static final float PAGE_SCALE = 0.75f;
+    private static final float PAGE_SCALE = 1.0f;
+    // Сетка предметов на странице: 10×10 иконка + ~2px зазор,
+    // при базовом cell=18 даёт масштаб 12/18 = 2/3
+    private static final float PAGE_GRID_SCALE = 2.0f / 3.0f;
+
+    // Левый "лист заказа" 3×3 (под книгой)
+    private static final int DRAFT_ICON_SIZE = 12;
+    private static final int DRAFT_ICON_GAP  = 4;
+    private static final int DRAFT_GRID_W    = DRAFT_ICON_SIZE * 3 + DRAFT_ICON_GAP * 2; // 44
+    private static final int DRAFT_GRID_H    = DRAFT_ICON_SIZE * 3 + DRAFT_ICON_GAP * 2; // 44
+
+    // Координаты левого верхнего угла сетки в PNG (от guiLeft/guiTop)
+    private static final int DRAFT_GRID_X = 20;
+    private static final int DRAFT_GRID_Y = 41;
+
     private static final boolean DEV_OVERLAY = true;
 
-    private int visibleTop()   { return centerTop; }
     private int visibleWidth() { return VISIBLE_COLS_COUNT*cell; }
     private int visibleHeight(){ return VISIBLE_ROWS_COUNT*cell; }
-
-    private int rowTopForScale(float s) {
-        int centerY = visibleTop() + visibleHeight()/2;
-        return centerY - Math.round(((visibleHeight()+PAD_Y_EFF)*s)/2f);
-    }
 
     /* ===== локальный кэш страниц ===== */
     private static final class PageSnap {
@@ -257,10 +303,7 @@ public class GuiOrderTerminal extends GuiContainer {
     private static final long REQ_TIMEOUT_MS = 1500L;
 
     /* ===== декор слева ===== */
-    private static final int INV_U=0, INV_V=166, INV_W=176, INV_H=90;
     private static final int PAPER_W=128, PAPER_H=128, PAPER_MARGIN=10;
-    private static final int NET_GRID_U=60, NET_GRID_V=15, NET_GRID_W=51, NET_GRID_H=52;
-    private static final float NET_GRID_SCALE=1.20f;
     private static final float GRID_ADJ_X=-1.75f, GRID_ADJ_Y=-1f;
     private int paperX, paperY, gridX, gridY;
 
@@ -277,54 +320,9 @@ public class GuiOrderTerminal extends GuiContainer {
     public GuiOrderTerminal(InventoryPlayer inv, TileOrderTerminal te) {
         super(new ContainerOrderTerminal(inv, te));
         this.te=te; this.terminalPos=te.getPos();
-        this.xSize=300; this.ySize=256;
+        this.xSize=354; this.ySize=256;
     }
 
-    /** Привязка кнопок к левому заказному листу (бумага Order с сеткой 3×3). */
-    private void layoutButtonsToOrderPaper() {
-        if (btnRequest == null && btnModeToggle == null) return;
-
-        // Геометрия самого листа (как рисуем слева)
-        final int paperLeft   = paperX;              // из layoutDraftPaper()
-        final int paperTop    = paperY;
-        final int paperW      = PAPER_W;
-        final int paperH      = PAPER_H;
-        final int paperMargin = PAPER_MARGIN;
-
-        // Геометрия сетки 3×3 (как рисуем слева)
-        final int baseW = 3 * cell, baseH = 3 * cell;
-        final int targetW = Math.round(baseW * NET_GRID_SCALE);
-        final int targetH = Math.round(baseH * NET_GRID_SCALE);
-        final int gridDrawX = gridX;                 // из layoutDraftPaper()
-        final int gridDrawY = gridY;
-
-        // Нижняя зона «под сеткой»: от низа сетки до внутреннего низа бумаги
-        final int innerBottom = paperTop + paperH - paperMargin;
-        final int underTop    = gridDrawY + targetH;
-        final int underH      = Math.max(0, innerBottom - underTop);
-
-        // размеры кнопок (из уже созданных кнопок)
-        final int reqW = (btnRequest    != null) ? btnRequest.width  : 60;
-        final int reqH = (btnRequest    != null) ? btnRequest.height : 20;
-        final int togW = (btnModeToggle != null) ? btnModeToggle.width: 20;
-        final int togH = (btnModeToggle != null) ? btnModeToggle.height:20;
-
-        // Request — по центру нижней зоны под сеткой
-        if (btnRequest != null) {
-            int reqX = paperLeft + (paperW - reqW) / 2;
-            int reqY = underTop + Math.max(0, (underH - reqH) / 2);
-            btnRequest.x = reqX + 20;
-            btnRequest.y = reqY;
-        }
-
-        // Toggle — правый нижний угол листа (с учётом поля)
-        if (btnModeToggle != null) {
-            int togX = paperLeft + paperW - paperMargin - togW;
-            int togY = paperTop  + paperH - paperMargin - togH;
-            btnModeToggle.x = togX - 16;
-            btnModeToggle.y = togY - 17;
-        }
-    }
 
     /** Рисует текст с 1px контуром (8 направлений) в правом-нижнем углу слота. */
     private void drawTextOutlinedRightBottom(String txt, int slotX, int slotY,
@@ -392,6 +390,8 @@ public class GuiOrderTerminal extends GuiContainer {
     public void initGui() {
         super.initGui();
 
+        this.guiTop += 12;
+
         this.buttonList.clear();
 
         // 1) Сначала координаты экранных зон
@@ -407,16 +407,51 @@ public class GuiOrderTerminal extends GuiContainer {
         layoutDraftPaperAndButtons();        // ← затем кнопки, завязаны на бумагу
 
         // 3) Теперь создаём кнопки (координаты уже корректные)
-        btnRequest = new GuiImageButton(
-                this, BTN_SUBMIT, 0, 0, 40, 13,
-                "tc.logistics.request", "logistics.request",
-                TEX_BASE_TC, 37, 82, 40, 13
-        );
+        // Request-кнопка из golem_crafter.png
+        btnRequest = new RequestButton(BTN_SUBMIT, 0, 0);
         this.buttonList.add(btnRequest);
 
+        // Миникнопка режима
         btnModeToggle = new MiniToggleButton(BTN_TOGGLE, 0, 0, isCraftMode());
         this.buttonList.add(btnModeToggle);
 
+        // Request: левый верхний угол в координатах GUI 32:98
+        if (btnRequest != null) {
+            btnRequest.x = this.guiLeft + 32;
+            btnRequest.y = this.guiTop  + 98;
+        }
+
+        // Миникнопка режима уже чуть выше выставлена в 58:98
+        if (btnModeToggle != null) {
+            btnModeToggle.x = this.guiLeft + 58;
+            btnModeToggle.y = this.guiTop  + 98;
+            btnModeToggle.setState(isCraftMode());
+        }
+        // ===== Позиционирование кнопок =====
+
+        // 1) Кнопка заказа по центру поля 33:99 - 50:105 (координаты в системе GUI)
+        {
+            int fieldX1 = this.guiLeft + 33;
+            int fieldY1 = this.guiTop  + 99;
+            int fieldX2 = this.guiLeft + 50;
+            int fieldY2 = this.guiTop  + 105;
+
+            int centerX = (fieldX1 + fieldX2) / 2;
+            int centerY = (fieldY1 + fieldY2) / 2;
+
+            if (btnRequest != null) {
+                // размер 40×13 остаётся как у таумовской кнопки,
+                // мы только двигаем её так, чтобы центр совпал
+                btnRequest.x = centerX - btnRequest.width  / 2;
+                btnRequest.y = centerY - btnRequest.height / 2;
+            }
+        }
+        // 2) Маленькая кнопка режима: левый верхний угол в координатах GUI 58:98
+        if (btnModeToggle != null) {
+            btnModeToggle.x = this.guiLeft + 58;
+            btnModeToggle.y = this.guiTop  + 98;
+            btnModeToggle.setState(isCraftMode());
+        }
         // 4) Прочая инициализация снапшота/кэша
         ClientCatalogCache.guiOpened(this.isCraftMode());
         pageCache.clear();
@@ -499,14 +534,14 @@ public class GuiOrderTerminal extends GuiContainer {
         int gx = centerGridXForScale(s);
         int centerYLine = centerLineYForScale(s);
         int gridH = Math.round(visibleHeight() * s);
-        int gy = centerYLine - gridH/2;
+        int gy = centerYLine - gridH/2 - 15;
 
         // ширина = ширине видимой сетки (5*18) с небольшими полями
         int w = Math.round(visibleWidth() * s);
         int x = gx;
         // тонкий бокс на 14 px высотой, отступ 6px под бумагой
         int y = gy + gridH + 6;
-        int h = 14;
+        int h = 10;
         return new int[]{ x, y, w, h };
     }
 
@@ -716,16 +751,18 @@ public class GuiOrderTerminal extends GuiContainer {
 
     }
 
-
-
-
-
     @Override
     protected void actionPerformed(GuiButton button) throws java.io.IOException {
         if (button == btnModeToggle) {
+            // переключаем режим
             mode = isCraftMode() ? Mode.DELIVERY : Mode.CRAFT;
-            btnModeToggle.displayString = isCraftMode() ? "C" : "D";
 
+            // обновляем визуальное состояние маленькой кнопки
+            if (btnModeToggle != null) {
+                btnModeToggle.setState(isCraftMode());
+            }
+
+            // перезагрузка каталога под новый режим
             pageCache.clear();
             inflight.clear();
             baseStackOffset = 0;
@@ -733,8 +770,8 @@ public class GuiOrderTerminal extends GuiContainer {
             animState = AnimState.IDLE;
             centerOnOpen = true;
 
-            createdSnapId  = -1L;      // ← добавили
-            awaitingSnapId = true;     // ← добавили
+            createdSnapId  = -1L;
+            awaitingSnapId = true;
             lastSearchSent = currentSearch;
 
             ClientCatalogCache.guiOpened(isCraftMode());
@@ -743,13 +780,14 @@ public class GuiOrderTerminal extends GuiContainer {
         }
 
         if (button.id == BTN_SUBMIT) {
-            // архивный submit
-            ThaumicAttempts.NET.sendToServer(new therealpant.thaumicattempts.golemnet.net.msg.C2S_OrderSubmit(terminalPos, isCraftMode()));
+            ThaumicAttempts.NET.sendToServer(
+                    new therealpant.thaumicattempts.golemnet.net.msg.C2S_OrderSubmit(terminalPos, isCraftMode())
+            );
             return;
         }
+
         super.actionPerformed(button);
     }
-
 
     /** Возвращает геометрию активной страницы (gridX, gridY, scale) если страница по центру; иначе null. */
     private ActiveGridParams getActiveGridParamsIfCentered() {
@@ -778,17 +816,29 @@ public class GuiOrderTerminal extends GuiContainer {
         ActiveGridParams p = getActiveGridParamsIfCentered();
         if (p == null) return -1;
 
-        int gridW = Math.round(visibleWidth()  * p.scale);
-        int gridH = Math.round(visibleHeight() * p.scale);
+        // "полный" размер, как если бы сетка была без ужатия
+        float fullW = visibleWidth()  * p.scale;
+        float fullH = visibleHeight() * p.scale;
 
-        // Положение самой сетки (левый верх)
-        int gx = p.gridX;
-        int gy = p.gridY;
+        // фактический размер отрисованной сетки
+        float gridWf = fullW * PAGE_GRID_SCALE;
+        float gridHf = fullH * PAGE_GRID_SCALE;
+
+        // смещение внутрь "полного" прямоугольника, чтобы сетка была по центру
+        float offX = (fullW - gridWf) / 2.0f;
+        float offY = (fullH - gridHf) / 2.0f;
+
+        int gridW = Math.round(gridWf);
+        int gridH = Math.round(gridHf);
+
+        // фактический левый верх сетки (как мы её рисуем)
+        int gx = p.gridX + Math.round(offX);
+        int gy = p.gridY + Math.round(offY);
 
         if (mouseX < gx || mouseX >= gx + gridW || mouseY < gy || mouseY >= gy + gridH) return -1;
 
-        int cellW = Math.round(cell * p.scale);
-        int cellH = Math.round(cell * p.scale);
+        int cellW = Math.round(cell * p.scale * PAGE_GRID_SCALE);
+        int cellH = Math.round(cell * p.scale * PAGE_GRID_SCALE);
 
         int relX = mouseX - gx;
         int relY = mouseY - gy;
@@ -798,7 +848,7 @@ public class GuiOrderTerminal extends GuiContainer {
 
         if (col < 0 || col >= VISIBLE_COLS_COUNT || row < 0 || row >= VISIBLE_ROWS_COUNT) return -1;
 
-        return row * VISIBLE_COLS_COUNT + col; // 0..34
+        return row * VISIBLE_COLS_COUNT + col;
     }
 
     private void adjustDraftFor(ItemStack stack, int delta) {
@@ -968,60 +1018,30 @@ public class GuiOrderTerminal extends GuiContainer {
                 GlStateManager.SourceFactor.SRC_ALPHA, GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
                 GlStateManager.SourceFactor.ONE, GlStateManager.DestFactor.ZERO
         );
-        layoutButtonsToOrderPaper();
-        layoutDraftPaper();
 
-        // бумага слева
-        mc.getTextureManager().bindTexture(TEX_PAPER_GILDED);
-        drawModalRectWithCustomSizedTexture(this.leftLeft-39, this.leftTop-35, 0F,0F,128,128,128F,128F);
+        // ---- Рисуем общий фон GUI (order_terminal.png), центрируется за счёт xSize/ySize ----
+        mc.getTextureManager().bindTexture(TEX_BG);
+        drawModalRectWithCustomSizedTexture(
+                this.guiLeft, this.guiTop,
+                0, 0,
+                this.xSize, this.ySize,
+                354, 256
+        );
 
-        // сетка 3x3 слева
-        final int baseW = 3*cell, baseH = 3*cell;
-        final int targetW = Math.round(baseW*NET_GRID_SCALE);
-        final int targetH = Math.round(baseH*NET_GRID_SCALE);
-        int gridDrawX = leftLeft - (targetW-baseW)/2 + Math.round(GRID_ADJ_X);
-        int gridDrawY = leftTop  - (targetH-baseH)/2 + Math.round(GRID_ADJ_Y);
+        // ---- Превью заказа слева (3×3, иконки 16×16), начало в (17,39) относительно PNG ----
+        List<ItemStack> leftNine = isFrozen()
+                ? ClientCatalogCache.getPending(isCraftMode())
+                : ClientCatalogCache.getDraft(isCraftMode());
+        List<Integer> leftCnt = isFrozen()
+                ? ClientCatalogCache.getPendingCounts(isCraftMode())
+                : ClientCatalogCache.getDraftCounts(isCraftMode());
 
-        // --- подложка 4px под ПРАВУЮ 3×3 сетку приёмных слотов (по фактическим координатам слотов) ---
-        // --- PNG-подложка под ПРАВУЮ 3×3 (без дорисовок, только сам PNG) ---
-        {
-            int[] inner = rightReceiverInnerRect(); // как раньше
-            if (inner != null) {
-                final int FRAME = 4;
-                int outerX = inner[0] - FRAME;
-                int outerY = inner[1] - FRAME;
-                int outerW = inner[2] + FRAME * 2;
-                int outerH = inner[3] + FRAME * 2;
+        int previewX = this.guiLeft + DRAFT_GRID_X;
+        int previewY = this.guiTop  + DRAFT_GRID_Y;
+        int previewW = DRAFT_GRID_W;
+        int previewH = DRAFT_GRID_H;
 
-                mc.getTextureManager().bindTexture(TEX_RECV_FRAME);
-                GlStateManager.pushMatrix();
-                glResetForUi();
-                drawModalRectWithCustomSizedTexture(
-                        outerX, outerY,
-                        0, 0,
-                        outerW, outerH,
-                        128, 128
-                );
-                GlStateManager.popMatrix();
-            }
-        }
-
-
-        GlStateManager.pushMatrix();
-        GlStateManager.translate(gridDrawX, gridDrawY, 0);
-        GlStateManager.scale(targetW/(float)NET_GRID_W, targetH/(float)NET_GRID_H, 1f);
-        mc.getTextureManager().bindTexture(TEX_NET);
-        drawTexturedModalRect(0,0,NET_GRID_U,NET_GRID_V,NET_GRID_W,NET_GRID_H);
-        GlStateManager.popMatrix();
-
-        // фон инвентаря
-        mc.getTextureManager().bindTexture(TEX_BASE_TC);
-        drawTexturedModalRect(playerLeft-8, playerTop-8, INV_U, INV_V, INV_W, INV_H);
-
-        // 3x3 визуал
-        List<ItemStack> leftNine = isFrozen() ? ClientCatalogCache.getPending(isCraftMode()) : ClientCatalogCache.getDraft(isCraftMode());
-        List<Integer> leftCnt    = isFrozen() ? ClientCatalogCache.getPendingCounts(isCraftMode()) : ClientCatalogCache.getDraftCounts(isCraftMode());
-        render3x3CenteredInRect(leftNine, leftCnt, gridDrawX, gridDrawY, targetW, targetH);
+        render3x3CenteredInRect(leftNine, leftCnt, previewX, previewY, previewW, previewH);
 
         // === СТРАНИЦЫ С ГЛУБИНОЙ ===
         beginDepthLayeringForGui();
@@ -1112,12 +1132,17 @@ public class GuiOrderTerminal extends GuiContainer {
         final float sStack = PAGE_SCALE;
 
         // Одна и та же линия центра для стопок и активной
-        final int centerYLineStack = centerLineYForScale(sStack);          // центр для стопок
+        final int centerYLineStack = this.guiTop + 49;
         final int stackGridH       = Math.round(visibleHeight() * sStack);
-        final int baseY            = centerYLineStack - stackGridH / 2;    // top-left Y для ВЕРХА стопок
+        final int baseY            = centerYLineStack - stackGridH / 2;
 
-        final int rightBaseX = gridXAlignedToRight(playerRightEdge(), sStack) + STACK_SHIFT_X;
-        final int leftBaseX  = mirrorGridXAcrossCenter(rightBaseX, sStack);
+        // Центры стопок по требованию
+        int leftCenterX  = this.guiLeft + 128;
+        int rightCenterX = this.guiLeft + 210;
+
+        // gridX – это левый край сетки, поэтому смещаем от центра на половину ширины сетки
+        final int leftBaseX  = leftCenterX  - Math.round(visibleWidth() * sStack) / 2;
+        final int rightBaseX = rightCenterX - Math.round(visibleWidth() * sStack) / 2;
 
         int max = maxPageToDraw();
         if (max <= 0) return;
@@ -1145,7 +1170,7 @@ public class GuiOrderTerminal extends GuiContainer {
             GlStateManager.translate(-c[0], -c[1], 0);
 
             drawPagePaperUnderGridZ(gx, gy, sStack, 0f, true);
-            drawPageGridOnlyZ   (snap, gx, gy, sStack, /*showCounts=*/false, 0f, /*isActive=*/false);
+            drawPageGridOnlyZ   (snap, gx, gy, sStack, /*showCounts=*/true, 0f, /*isActive=*/false);
 
             GlStateManager.popMatrix();
             popDepthSlice();
@@ -1180,7 +1205,7 @@ public class GuiOrderTerminal extends GuiContainer {
             GlStateManager.translate(-c[0], -c[1], 0);
 
             drawPagePaperUnderGridZ(gx, gy, sStack, 0f, true);
-            drawPageGridOnlyZ   (snap, gx, gy, sStack, /*showCounts=*/false, 0f, /*isActive=*/false);
+            drawPageGridOnlyZ   (snap, gx, gy, sStack, /*showCounts=*/true, 0f, /*isActive=*/false);
 
             GlStateManager.popMatrix();
             popDepthSlice();
@@ -1265,14 +1290,14 @@ public class GuiOrderTerminal extends GuiContainer {
         // ---- [A] СНАЧАЛА: клик по левой 3×3 "заказной" сетке (ЛКМ +, ПКМ −, Ctrl ×10, Shift ×64) ----
         {
             int[] r = new int[4];
-            getDraftGridDrawXY(r); // r[0]=x, r[1]=y, r[2]=w, r[3]=h — те же координаты, что в draw(...)
+            getDraftGridDrawXY(r);
             int gx = r[0], gy = r[1], gw = r[2], gh = r[3];
 
+            int step = DRAFT_ICON_SIZE + DRAFT_ICON_GAP; // 16 (шаг по сетке)
+
             if (mouseX >= gx && mouseX < gx + gw && mouseY >= gy && mouseY < gy + gh) {
-                // попали в прямоугольник 3×3
-                int cellW = gw / 3, cellH = gh / 3;
-                int cx = (mouseX - gx) / cellW; // 0..2
-                int cy = (mouseY - gy) / cellH; // 0..2
+                int cx = (mouseX - gx) / step; // 0..2
+                int cy = (mouseY - gy) / step; // 0..2
                 if (cx >= 0 && cx < 3 && cy >= 0 && cy < 3) {
                     int slot = cy * 3 + cx;
 
@@ -1289,12 +1314,13 @@ public class GuiOrderTerminal extends GuiContainer {
                             boolean shift = Keyboard.isKeyDown(Keyboard.KEY_LSHIFT) || Keyboard.isKeyDown(Keyboard.KEY_RSHIFT);
                             boolean ctrl  = Keyboard.isKeyDown(Keyboard.KEY_LCONTROL) || Keyboard.isKeyDown(Keyboard.KEY_RCONTROL);
 
-                            int step = incByMods(shift, ctrl); // 1 / 10 / 64
-                            int sign = (mouseButton == 1) ? -1 : +1; // ЛКМ +, ПКМ −
-                            sendAdjust(st, sign * step);
+                            int amount = incByMods(shift, ctrl); // 1 / 10 / 64
+                            int sign   = (mouseButton == 1) ? -1 : +1; // ЛКМ +, ПКМ −
+                            sendAdjust(st, sign * amount);
 
-                            mc.player.playSound(net.minecraft.init.SoundEvents.UI_BUTTON_CLICK, 0.5f, (sign > 0) ? 1.1f : 0.9f);
-                            return; // ВАЖНО: не пропускать к обработке стопок/активной страницы
+                            mc.player.playSound(net.minecraft.init.SoundEvents.UI_BUTTON_CLICK,
+                                    0.5f, (sign > 0) ? 1.1f : 0.9f);
+                            return; // не пропускаем к обработке стопок/активной страницы
                         }
                     }
                 }
@@ -1330,19 +1356,27 @@ public class GuiOrderTerminal extends GuiContainer {
         int max = maxPageToDraw();
         if (max <= 0) return;
 
-        final float sStack = PAGE_SCALE;
-        final int centerYLineStack = centerLineYForScale(sStack);
-        final int stackGridH       = Math.round(visibleHeight() * sStack);
-        final int baseY            = centerYLineStack - stackGridH / 2;
-
-        final int rightBaseX = gridXAlignedToRight(playerRightEdge(), sStack) + STACK_SHIFT_X;
-        final int leftBaseX  = mirrorGridXAcrossCenter(rightBaseX, sStack);
-
         final int topRight = (baseStackOffset + 1) <= max ? (baseStackOffset + 1) : -1;
         final int topLeft  = baseStackOffset;
 
-        boolean hitRight = (topRight >= 1) && hitTopRightPage(mouseX, mouseY, topRight, rightBaseX, baseY, sStack);
-        boolean hitLeft  = (topLeft  >= 1) && hitTopLeftPage (mouseX, mouseY, topLeft,  leftBaseX,  baseY, sStack);
+        // Прямоугольники стопок в координатах экрана
+        int leftX1  = this.guiLeft + 85;
+        int leftY1  = this.guiTop  + 1;
+        int leftX2  = this.guiLeft + 133;
+        int leftY2  = this.guiTop  + 102;
+
+        int rightX1 = this.guiLeft + 204;
+        int rightY1 = this.guiTop  + 1;
+        int rightX2 = this.guiLeft + 252;
+        int rightY2 = this.guiTop  + 102;
+
+        boolean hitLeft  = (topLeft  >= 1) &&
+                mouseX >= leftX1 && mouseX <= leftX2 &&
+                mouseY >= leftY1 && mouseY <= leftY2;
+
+        boolean hitRight = (topRight >= 1) &&
+                mouseX >= rightX1 && mouseX <= rightX2 &&
+                mouseY >= rightY1 && mouseY <= rightY2;
 
         switch (animState) {
             case IDLE: {
@@ -1418,14 +1452,12 @@ public class GuiOrderTerminal extends GuiContainer {
     }
 
 
-    /** Координаты фактической отрисовки 3×3 (такие же, как в draw…) */
-    private void getDraftGridDrawXY(int[] out){ // out[0]=x, out[1]=y, out[2]=w, out[3]=h
-        final int baseW = 3*cell, baseH = 3*cell;
-        final int targetW = Math.round(baseW*NET_GRID_SCALE);
-        final int targetH = Math.round(baseH*NET_GRID_SCALE);
-        int x = leftLeft - (targetW - baseW)/2 + Math.round(GRID_ADJ_X);
-        int y = leftTop  - (targetH - baseH)/2 + Math.round(GRID_ADJ_Y);
-        out[0]=x; out[1]=y; out[2]=targetW; out[3]=targetH;
+    /** Координаты фактической отрисовки 3×3 превью заказа. */
+    private void getDraftGridDrawXY(int[] out) { // out[0]=x, out[1]=y, out[2]=w, out[3]=h
+        out[0] = this.guiLeft + DRAFT_GRID_X;
+        out[1] = this.guiTop  + DRAFT_GRID_Y;
+        out[2] = DRAFT_GRID_W;
+        out[3] = DRAFT_GRID_H;
     }
 
     /** Прямоугольник активной страницы в центре (без EXTRA_PAD). null если не CENTERED. */
@@ -1446,18 +1478,20 @@ public class GuiOrderTerminal extends GuiContainer {
 
     /* ===== Z-слои: страничные методы ===== */
     private void drawPagePaperUnderGridZ(int gridX, int gridY, float scale, float baseZ, boolean depthByAlpha) {
-        final int gridW = Math.round(visibleWidth()  * scale);
-        final int gridH = Math.round(visibleHeight() * scale);
-        final int contentW = Math.round((visibleWidth()  + PAD_X_EFF) * scale);
-        final int contentH = Math.round((visibleHeight() + PAD_Y_EFF) * scale);
+        // ширина/высота сетки каталога при данном масштабе
+        int gridW = Math.round(visibleWidth()  * scale);
+        int gridH = Math.round(visibleHeight() * scale);
 
-        final int contentLeft = gridX - Math.round((contentW - gridW) / 2f);
-        final int contentTop  = gridY - Math.round((contentH - gridH) / 2f);
+        // центр сетки
+        int centerX = gridX + gridW / 2;
+        int centerY = gridY + gridH / 2;
 
-        final int paperDrawW = contentW + 2 * Math.round(PAGE_PAPER_MARGIN * scale);
-        final int paperDrawH = contentH + 2 * Math.round(PAGE_PAPER_MARGIN * scale);
-        final int paperDrawX = contentLeft - Math.round(PAGE_PAPER_MARGIN * scale);
-        final int paperDrawY = contentTop  - Math.round(PAGE_PAPER_MARGIN * scale);
+        // реальный размер страницы = 74×94 с учётом масштаба
+        int paperDrawW = Math.round(PAGE_PAPER_W * scale); // 74 * scale
+        int paperDrawH = Math.round(PAGE_PAPER_H * scale); // 94 * scale
+
+        int paperDrawX = centerX - paperDrawW / 2;
+        int paperDrawY = centerY - paperDrawH / 2;
 
         mc.getTextureManager().bindTexture(TEX_PAGE_PAPER);
 
@@ -1471,7 +1505,7 @@ public class GuiOrderTerminal extends GuiContainer {
         GlStateManager.colorMask(false, false, false, false);
 
         int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
-        GL11.glDepthFunc(GL11.GL_ALWAYS); // всегда писать (но отсечём альфой)
+        GL11.glDepthFunc(GL11.GL_ALWAYS);
         boolean disabledAlpha = false;
 
         if (depthByAlpha) {
@@ -1483,8 +1517,10 @@ public class GuiOrderTerminal extends GuiContainer {
 
         GlStateManager.pushMatrix();
         GlStateManager.translate(paperDrawX, paperDrawY, 0);
-        GlStateManager.scale(paperDrawW / (float) PAGE_PAPER_W, paperDrawH / (float) PAGE_PAPER_H, 1f);
-        drawModalRectWithCustomSizedTexture(0, 0, 0, 0, PAGE_PAPER_W, PAGE_PAPER_H, 128, 128);
+        GlStateManager.scale(paperDrawW / (float) PAGE_PAPER_W,
+                paperDrawH / (float) PAGE_PAPER_H,
+                1f);
+        drawModalRectWithCustomSizedTexture(0, 0, 0, 0, PAGE_PAPER_W, PAGE_PAPER_H, PAGE_PAPER_W, PAGE_PAPER_H);
         GlStateManager.popMatrix();
 
         if (disabledAlpha) GL11.glEnable(GL11.GL_ALPHA_TEST);
@@ -1497,8 +1533,10 @@ public class GuiOrderTerminal extends GuiContainer {
 
         GlStateManager.pushMatrix();
         GlStateManager.translate(paperDrawX, paperDrawY, 0);
-        GlStateManager.scale(paperDrawW / (float) PAGE_PAPER_W, paperDrawH / (float) PAGE_PAPER_H, 1f);
-        drawModalRectWithCustomSizedTexture(0, 0, 0, 0, PAGE_PAPER_W, PAGE_PAPER_H, 128, 128);
+        GlStateManager.scale(paperDrawW / (float) PAGE_PAPER_W,
+                paperDrawH / (float) PAGE_PAPER_H,
+                1f);
+        drawModalRectWithCustomSizedTexture(0, 0, 0, 0, PAGE_PAPER_W, PAGE_PAPER_H, PAGE_PAPER_W, PAGE_PAPER_H);
         GlStateManager.popMatrix();
 
         // restore
@@ -1507,15 +1545,29 @@ public class GuiOrderTerminal extends GuiContainer {
         GlStateManager.popMatrix();
     }
 
+
     private void drawPageGridOnlyZ(PageSnap p, int x, int y, float scale,
                                    boolean showCounts, float baseZ, boolean isActive) {
         if (p == null || p.items == null) return;
 
         final float usedBaseZ = isActive ? zForActivePage() : baseZ;
 
+        // "полный" размер сетки (как раньше)
+        float fullGridW = visibleWidth()  * scale; // 5 * cell * scale
+        float fullGridH = visibleHeight() * scale; // 7 * cell * scale
+
+        // ужатая сетка: 2/3 от прежней (10px иконка + 2px зазор)
+        float gridW = fullGridW * PAGE_GRID_SCALE;
+        float gridH = fullGridH * PAGE_GRID_SCALE;
+
+        // чтобы сетка была по центру страницы — смещаем внутрь на половину разницы
+        float offsetX = (fullGridW - gridW) / 2.0f;
+        float offsetY = (fullGridH - gridH) / 2.0f;
+
         GlStateManager.pushMatrix();
-        GlStateManager.translate(x, y, usedBaseZ + Z_GRID_LOCAL);
-        GlStateManager.scale(scale, scale, 1f);
+        // x,y — это левый верх "полной" сетки; добавляем смещение вовнутрь
+        GlStateManager.translate(x + offsetX, y + offsetY, usedBaseZ + Z_GRID_LOCAL);
+        GlStateManager.scale(scale * PAGE_GRID_SCALE, scale * PAGE_GRID_SCALE, 1f);
 
         RenderHelper.enableGUIStandardItemLighting();
 
@@ -1528,7 +1580,8 @@ public class GuiOrderTerminal extends GuiContainer {
             if (st == null || st.isEmpty()) continue;
 
             int vcol = i % VISIBLE_COLS_COUNT, vrow = i / VISIBLE_COLS_COUNT;
-            int cx = vcol * cell, cy = vrow * cell;
+            int cx = vcol * cell;
+            int cy = vrow * cell;
 
             itemRender.renderItemAndEffectIntoGUI(st, cx, cy);
             itemRender.renderItemOverlayIntoGUI(this.fontRenderer, st, cx, cy, "");
@@ -1539,18 +1592,23 @@ public class GuiOrderTerminal extends GuiContainer {
                         : Math.max(1, st.getCount());
                 if (cnt > 1) {
                     final float REL_Z_TEXT = Z_TEXT_OVER;
-                    drawTextOutlinedRightBottomZ(formatCount(cnt), cx, cy, 0.50f,
-                            0xFFF8E1, 0xC0000000, REL_Z_TEXT);
+                    drawTextOutlinedRightBottomZ(
+                            formatCount(cnt),
+                            cx, cy,
+                            0.50f,
+                            0xFFF8E1, 0xC0000000,
+                            REL_Z_TEXT
+                    );
                 }
-                // ... после блока с обычным cnt (нижний-правый)
+
                 if (isCraftMode() && p.makeCounts != null) {
                     int craftCnt = (i < p.makeCounts.size() && p.makeCounts.get(i) != null)
                             ? Math.max(0, p.makeCounts.get(i))
                             : 0;
                     if (craftCnt > 0) {
                         final float REL_Z_TEXT = Z_TEXT_OVER;
-                        final int MAIN_BLUE    = 0xFF3A8AE6;   // основной синий
-                        final int OUTLINE_COL  = 0xFF000000;   // плотный чёрный контур
+                        final int MAIN_BLUE    = 0xFF3A8AE6;
+                        final int OUTLINE_COL  = 0xFF000000;
 
                         drawTextOutlinedRightTopZC(
                                 formatCount(craftCnt),
@@ -1561,14 +1619,12 @@ public class GuiOrderTerminal extends GuiContainer {
                         );
                     }
                 }
-
             }
         }
 
         this.itemRender.zLevel = prevZ;
         RenderHelper.disableStandardItemLighting();
         GlStateManager.popMatrix();
-
     }
 
     /** Текст с контуром в правом-верхнем углу слота (над иконкой), с относительным Z. */
@@ -1608,21 +1664,6 @@ public class GuiOrderTerminal extends GuiContainer {
         GlStateManager.enableDepth();
     }
 
-
-    private void drawDevOverlayIfNeeded() {
-        int y = this.guiTop + 6;
-        String s = String.format(
-                "snap=%d pages=%s inflight=%s total=%s hasMore=%s baseOff=%d taken=%d state=%s",
-                ClientCatalogCache.getActiveSnapshotId(isCraftMode()),
-                pageCache.keySet().toString(),
-                inflight.keySet().toString(),
-                ClientCatalogCache.isTotalKnown(isCraftMode()) ? ClientCatalogCache.getTotalPages(isCraftMode()) : "-",
-                ClientCatalogCache.getHasMoreFlag(isCraftMode()),
-                baseStackOffset, takenPageNo, animState.name()
-        );
-        this.fontRenderer.drawString(s, this.guiLeft + 8, y, 0xFFFFFF);
-    }
-
     private boolean isFrozen() {
         List<ItemStack> p = ClientCatalogCache.getPending(isCraftMode());
         if (p==null) return false;
@@ -1637,73 +1678,57 @@ public class GuiOrderTerminal extends GuiContainer {
         return Integer.toString(n);
     }
 
-    private void render3x3CenteredInRect(List<ItemStack> nine, List<Integer> counts, int rectX, int rectY, int rectW, int rectH) {
-        if (nine==null) return;
-        final float cw=rectW/3f, ch=rectH/3f;
-        RenderHelper.enableGUIStandardItemLighting();
-        for (int i=0;i<Math.min(9,nine.size());i++) {
-            ItemStack st = nine.get(i);
-            if (st==null || st.isEmpty()) continue;
-            int col=i%3, row=i/3;
-            int cx = Math.round(rectX+(col+0.5f)*cw)-8;
-            int cy = Math.round(rectY+(row+0.5f)*ch)-8;
-            itemRender.renderItemAndEffectIntoGUI(st, cx, cy);
-            itemRender.renderItemOverlayIntoGUI(this.fontRenderer, st, cx, cy, "");
-            int cnt = (counts!=null && i<counts.size() && counts.get(i)!=null)? counts.get(i) : 1;
-            if (cnt > 1)
-                drawTextOutlinedRightBottom(formatCount(cnt), cx, cy, 0.50f,
-                        0xFFF8E1, 0xC0000000);
+    private void render3x3CenteredInRect(List<ItemStack> nine, List<Integer> counts,
+                                         int rectX, int rectY, int rectW, int rectH) {
+        if (nine == null) return;
 
+        RenderHelper.enableGUIStandardItemLighting();
+
+        final int icon = DRAFT_ICON_SIZE;                    // 12
+        final int step = DRAFT_ICON_SIZE + DRAFT_ICON_GAP;   // 12 + 4 = 16
+        final float iconScale = icon / 16.0f;                // 12/16 = 0.75
+
+        for (int i = 0; i < Math.min(9, nine.size()); i++) {
+            ItemStack st = nine.get(i);
+            if (st == null || st.isEmpty()) continue;
+
+            int col = i % 3;
+            int row = i / 3;
+
+            // Левый верхний угол ячейки 12×12:
+            int cx = rectX + col * step; // X = 20, 36, 52...
+            int cy = rectY + row * step; // Y = 41, 57, 73...
+
+            // --- иконка 12×12 ---
+            GlStateManager.pushMatrix();
+            GlStateManager.translate(cx, cy, 0F);
+            GlStateManager.scale(iconScale, iconScale, 1F); // 16 → 12
+            itemRender.renderItemAndEffectIntoGUI(st, 0, 0);
+            itemRender.renderItemOverlayIntoGUI(this.fontRenderer, st, 0, 0, "");
+            GlStateManager.popMatrix();
+
+            // --- счётчик под 12×12, а не 16×16 ---
+            // drawTextOutlinedRightBottom опирается на (slotX + 16, slotY + 16),
+            // поэтому подвинем слот так, чтобы этот угол стал (cx + 12, cy + 12).
+            int slotX = cx - (16 - icon); // cx - 4
+            int slotY = cy - (16 - icon); // cy - 4
+
+            int cnt = (counts != null && i < counts.size() && counts.get(i) != null)
+                    ? counts.get(i)
+                    : 1;
+
+            if (cnt > 1) {
+                drawTextOutlinedRightBottom(
+                        formatCount(cnt),
+                        slotX, slotY,
+                        0.45f,                // чуть меньше, чем 0.5, чтобы аккуратно влезло в 12×12
+                        0xFFF8E1, 0xC0000000
+                );
+            }
         }
+
         RenderHelper.disableStandardItemLighting();
     }
-
-
-
-    /** Счётчик в правом-верхнем углу слота: белый контур + лёгкая тень, потом основной цвет. */
-    private void drawSmallTextRightTopZ(String txt, int slotX, int slotY,
-                                          float scale, int mainColor, float relZ) {
-        if (txt == null || txt.isEmpty()) return;
-
-        GlStateManager.disableDepth();
-        GlStateManager.depthMask(false);
-
-        GlStateManager.disableLighting();
-        GlStateManager.enableBlend();
-        GlStateManager.enableAlpha();
-        GlStateManager.color(1F, 1F, 1F, 1F);
-
-        GlStateManager.pushMatrix();
-        // якорь: правый-верх слота. baseline одинаковый с нижним счётчиком (-8)
-        GlStateManager.translate(slotX + 16F, slotY + 0F, relZ);
-        GlStateManager.scale(scale, scale, 1F);
-
-        int w = this.fontRenderer.getStringWidth(txt);
-        int x = -w;
-        int y = -8;
-
-        int outline = 0xFFFFFFFF;   // белый контур (как у ваниллы)
-        int shadow  = 0xAA000000;   // мягкая тень
-
-        // контур (4 направления)
-        this.fontRenderer.drawString(txt, x + 1, y,     outline, false);
-        this.fontRenderer.drawString(txt, x - 1, y,     outline, false);
-        this.fontRenderer.drawString(txt, x,     y + 1, outline, false);
-        this.fontRenderer.drawString(txt, x,     y - 1, outline, false);
-
-        // лёгкая тень вниз-вправо
-        this.fontRenderer.drawString(txt, x + 1, y + 1, shadow,  false);
-
-        // основной текст (синий)
-        this.fontRenderer.drawString(txt, x,     y,     mainColor, false);
-
-        GlStateManager.popMatrix();
-
-        GlStateManager.depthMask(true);
-        GlStateManager.enableDepth();
-    }
-
-
 
     private void layoutDraftPaper() {
         final int targetW = 3*cell, targetH = 3*cell;
@@ -1741,37 +1766,24 @@ public class GuiOrderTerminal extends GuiContainer {
         GlStateManager.color(1F, 1F, 1F, 1F);
     }
 
-    /** правый край бэкграунда инвентаря игрока */
-    private int playerRightEdge() {
-        return (playerLeft - 8) + INV_W;
-    }
-
-    /** X левого края сетки так, чтобы правый край бумаги совпал с правым краем инвентаря */
-    private int gridXAlignedToRight(int rightEdge, float scale) {
-        float gridW    = visibleWidth() * scale;
-        float contentW = (visibleWidth() + PAD_X_EFF) * scale;
-        float m        = PAGE_PAPER_MARGIN * scale;
-        float need = (contentW + gridW) / 2f + m;
-        return Math.round(rightEdge - need);
-    }
-
     /** Геометрия бумаги для данной страницы — в координатах GUI */
     private void computePaperRectForGrid(int gridX, int gridY, float scale, int[] outXYWH) {
         int gridW = Math.round(visibleWidth()  * scale);
         int gridH = Math.round(visibleHeight() * scale);
 
-        int contentW = Math.round((visibleWidth()  + PAD_X_EFF) * scale);
-        int contentH = Math.round((visibleHeight() + PAD_Y_EFF) * scale);
+        int centerX = gridX + gridW / 2;
+        int centerY = gridY + gridH / 2;
 
-        int contentLeft = gridX - Math.round((contentW - gridW) / 2f);
-        int contentTop  = gridY - Math.round((contentH - gridH) / 2f);
+        // базовый размер бумаги
+        int paperW = Math.round(PAGE_PAPER_W * scale);
+        int paperH = Math.round(PAGE_PAPER_H * scale);
 
-        int paperMargin = Math.round(PAGE_PAPER_MARGIN * scale);
-        int paperW = contentW + 2 * paperMargin + 2 * STACK_EXTRA_PAD;
-        int paperH = contentH + 2 * paperMargin + 2 * STACK_EXTRA_PAD;
+        // добавим запас для "стопки", чтобы при повороте края не обрезались
+        paperW += 2 * STACK_EXTRA_PAD;
+        paperH += 2 * STACK_EXTRA_PAD;
 
-        int paperX = contentLeft - paperMargin - STACK_EXTRA_PAD;
-        int paperY = contentTop  - paperMargin - STACK_EXTRA_PAD;
+        int paperX = centerX - paperW / 2;
+        int paperY = centerY - paperH / 2;
 
         outXYWH[0] = paperX;
         outXYWH[1] = paperY;
@@ -1784,18 +1796,14 @@ public class GuiOrderTerminal extends GuiContainer {
         int gridW = Math.round(visibleWidth()  * scale);
         int gridH = Math.round(visibleHeight() * scale);
 
-        int contentW = Math.round((visibleWidth()  + PAD_X_EFF) * scale);
-        int contentH = Math.round((visibleHeight() + PAD_Y_EFF) * scale);
+        int centerX = gridX + gridW / 2;
+        int centerY = gridY + gridH / 2;
 
-        int contentLeft = gridX - Math.round((contentW - gridW) / 2f);
-        int contentTop  = gridY - Math.round((contentH - gridH) / 2f);
+        int paperW = Math.round(PAGE_PAPER_W * scale); // ровно 74 * scale
+        int paperH = Math.round(PAGE_PAPER_H * scale); // ровно 94 * scale
 
-        int paperMargin = Math.round(PAGE_PAPER_MARGIN * scale);
-        int paperW = contentW + 2 * paperMargin;
-        int paperH = contentH + 2 * paperMargin;
-
-        int paperX = contentLeft - paperMargin;
-        int paperY = contentTop  - paperMargin;
+        int paperX = centerX - paperW / 2;
+        int paperY = centerY - paperH / 2;
 
         outXYWH[0] = paperX;
         outXYWH[1] = paperY;
@@ -1813,15 +1821,22 @@ public class GuiOrderTerminal extends GuiContainer {
     private float animT = 0f;         // 0..1
     private long  animStartMs = 0L;
     private static final long  ANIM_MS = 280L;
-    private static final float TARGET_SCALE = 1.0f;
+    private static final float TARGET_SCALE = 1.15f*PAGE_SCALE;
 
     private static float lerp(float a, float b, float t){ return a + (b - a) * t; }
 
     private int centerGridXForScale(float s){
-        int centerX = this.guiLeft + this.xSize/2;
-        int gridW   = Math.round(visibleWidth()*s);
-        return centerX - gridW/2;
+        // Центры стопок в локальных координатах GUI
+        int leftCenterX  = this.guiLeft + 128;
+        int rightCenterX = this.guiLeft + 210;
+
+        // Центр активной страницы – ровно посередине между стопками
+        int centerX = (leftCenterX + rightCenterX) / 2;
+
+        int gridW = Math.round(visibleWidth() * s);
+        return centerX - gridW / 2;
     }
+
 
     // depth режим: включить/выключить на время страниц
     private void beginDepthLayeringForGui() {
@@ -1841,42 +1856,6 @@ public class GuiOrderTerminal extends GuiContainer {
     /** Активная — фиксированно ближе всех */
     private float zForActivePage() { return Z_ACTIVE_BASE; }
 
-    /** Правый верхний лист: клик только по реальной бумаге, активную игнорируем. */
-    private boolean hitTopRightPage(int mouseX, int mouseY, int topPageNo, int rightBaseX, int baseY, float sStack) {
-        PageSnap snap = pageCache.get(topPageNo);
-        if (snap == null) return false;
-
-        int[] topR = new int[4];
-        computePaperRectForGridHit(rightBaseX, rightStackYForPage(topPageNo, baseY), sStack, topR);
-
-        int[] act = getActivePageRectIfCentered();
-        if (act != null && hitRect(mouseX, mouseY, act)) return false;
-
-        return hitRect(mouseX, mouseY, topR);
-    }
-
-    /** Левый верхний лист: аналогично. */
-    private boolean hitTopLeftPage(int mouseX, int mouseY, int topPageNo, int leftBaseX, int baseY, float sStack) {
-        PageSnap snap = pageCache.get(topPageNo);
-        if (snap == null) return false;
-
-        int[] topL = new int[4];
-        computePaperRectForGridHit(leftBaseX, leftStackYForPage(topPageNo, baseY), sStack, topL);
-
-        int[] act = getActivePageRectIfCentered();
-        if (act != null && hitRect(mouseX, mouseY, act)) return false;
-
-        return hitRect(mouseX, mouseY, topL);
-    }
-
-
-    /** Зеркалим X-координату левого края сетки страницы относительно центра GUI. */
-    private int mirrorGridXAcrossCenter(int gridX, float scale) {
-        int gridW   = Math.round(visibleWidth() * scale);
-        int centerX = this.guiLeft + this.xSize / 2;
-        return 2 * centerX - (gridX + gridW);
-    }
-
     /** Случайный детерминированный угол поворота [-8..+8] для страницы. */
     private float angleForPage(int pageNo, boolean left) {
         int h = pageNo * 1103515245 + (left ? 0x9E3779B9 : 0x3C6EF372);
@@ -1892,54 +1871,10 @@ public class GuiOrderTerminal extends GuiContainer {
         outXY[1] = r[1] + r[3] / 2;
     }
 
-    /** Y-координата центра сетки страницы при масштабе s для линии перекладки. */
+    /** Y-координата линии центра страниц при любом масштабе */
     private int centerLineYForScale(float s) {
-        int top = rowTopForScale(s);                 // top-left Y для страницы при масштабе s
-        int gridH = Math.round(visibleHeight() * s); // высота сетки при масштабе s
-        return top + gridH / 2;                      // центр = top + H/2
+        // Книга: 1..102, центр около 49 — привязываемся к нему
+        return this.guiTop + 49;
     }
-
-    /** Находит прямоугольник 3×3 приёмных слотов справа по фактическим координатам слотов контейнера.
-     *  Возвращает int[4] {x,y,w,h} или null, если не найден кластер. */
-    @Nullable
-    private int[] findRightReceiverGridRect() {
-        // верх инвентаря игрока: playerTop - 8 (как фон)
-        int invTopY = this.playerTop - 8;
-        int screenMidX = this.guiLeft + this.xSize / 2;
-
-        // Соберём все "кандидаты" — слоты над инвентарём игрока и правее центра.
-        int minX = Integer.MAX_VALUE, minY = Integer.MAX_VALUE;
-        int maxX = Integer.MIN_VALUE, maxY = Integer.MIN_VALUE;
-        int count = 0;
-
-        for (net.minecraft.inventory.Slot s : this.inventorySlots.inventorySlots) {
-            int sx = s.xPos + this.guiLeft;
-            int sy = s.yPos + this.guiTop;
-            // правее центра и выше инвентаря игрока
-            if (sx >= screenMidX && sy < invTopY) {
-                minX = Math.min(minX, sx);
-                minY = Math.min(minY, sy);
-                maxX = Math.max(maxX, sx);
-                maxY = Math.max(maxY, sy);
-                count++;
-            }
-        }
-
-        // ожидаем минимум 9 слотов (3×3). Если меньше — не рисуем.
-        if (count < 9 || minX == Integer.MAX_VALUE) return null;
-
-        // Нормализуем под сетку 3×3 кратную cell=18
-        final int cellSize = cell; // 18
-        // ширина/высота реальной сетки = 3*cell
-        int gridW = 3 * cellSize;
-        int gridH = 3 * cellSize;
-
-        // округлим minX/minY к сетке 18, чтобы рамка совпала с рендером предметов
-        int baseX = (minX / cellSize) * cellSize;
-        int baseY = (minY / cellSize) * cellSize;
-
-        return new int[]{ baseX, baseY, gridW, gridH };
-    }
-
 
 }

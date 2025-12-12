@@ -89,6 +89,7 @@ public class BlockInfusionRequester extends BlockHorizontal {
         return new BlockStateContainer(this, FACING);
     }
 
+
     @Override
     public boolean onBlockActivated(World world, BlockPos pos, IBlockState state, EntityPlayer player,
                                     EnumHand hand, EnumFacing facing, float hitX, float hitY, float hitZ) {
@@ -138,8 +139,9 @@ public class BlockInfusionRequester extends BlockHorizontal {
 
     @Override
     public EnumBlockRenderType getRenderType(IBlockState state) {
-        return EnumBlockRenderType.INVISIBLE;
+        return EnumBlockRenderType.ENTITYBLOCK_ANIMATED;
     }
+
 
     @SideOnly(Side.CLIENT)
     @Override
@@ -159,14 +161,10 @@ public class BlockInfusionRequester extends BlockHorizontal {
     }
 
     @Override
-    public boolean isOpaqueCube(IBlockState state) {
-        return false;
-    }
+    public boolean isOpaqueCube(IBlockState state) { return false; }
 
     @Override
-    public boolean isFullCube(IBlockState state) {
-        return false;
-    }
+    public boolean isFullCube(IBlockState state) { return false; }
 
     @Override
     public boolean getUseNeighborBrightness(IBlockState state) {

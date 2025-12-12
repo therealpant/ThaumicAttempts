@@ -76,7 +76,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     }
 
     /* ===== Буфер 3×3 ===== */
-    private final ItemStackHandler buffer = new ItemStackHandler(9) {
+    private final ItemStackHandler buffer = new ItemStackHandler(15) {
         @Override protected void onContentsChanged(int slot) {
             markDirty();
             if (world != null && !world.isRemote) {

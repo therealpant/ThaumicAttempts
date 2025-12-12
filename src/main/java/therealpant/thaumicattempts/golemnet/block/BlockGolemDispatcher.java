@@ -21,7 +21,7 @@ import javax.annotation.Nullable;
 public class BlockGolemDispatcher extends Block {
 
     private static final AxisAlignedBB AABB =
-            new AxisAlignedBB(0, 0, 0, 1, 6.0 / 16.0, 1);
+            new AxisAlignedBB(0, 0, 0, 1, 20/ 16.0, 1);
 
     public BlockGolemDispatcher() {
         super(Material.ROCK);

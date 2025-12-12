@@ -93,7 +93,7 @@ public class BlockMirrorManager extends Block {
         return false;
     }
 
-    private static final AxisAlignedBB AABB_LOW = new AxisAlignedBB(0, 0, 0, 1, 7.0/16.0, 1);
+    private static final AxisAlignedBB AABB_LOW = new AxisAlignedBB(0, 0, 0, 1, 30.0/16.0, 1);
     @Override
     public AxisAlignedBB getBoundingBox(IBlockState state, IBlockAccess world, BlockPos pos) {
         return AABB_LOW;                    // контур выбора

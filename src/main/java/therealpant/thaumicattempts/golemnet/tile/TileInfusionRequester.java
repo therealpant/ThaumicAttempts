@@ -24,7 +24,12 @@ import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
 import net.minecraftforge.items.*;
 import net.minecraftforge.items.wrapper.CombinedInvWrapper;
+import software.bernie.geckolib3.core.AnimationState;
 import software.bernie.geckolib3.core.IAnimatable;
+import software.bernie.geckolib3.core.PlayState;
+import software.bernie.geckolib3.core.builder.AnimationBuilder;
+import software.bernie.geckolib3.core.controller.AnimationController;
+import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.capabilities.IPlayerKnowledge;
@@ -51,7 +56,9 @@ import java.util.function.Consumer;
  * - знает владельца и кликает по матрице с его исследованиями
  */
 public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
-        ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider, IAnimatable {    public static final int PATTERN_SLOT_COUNT = 15;
+        ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider, IAnimatable {
+    public static final int PATTERN_SLOT_COUNT = 15;
+    private final AnimationFactory factory = new AnimationFactory(this);
     private static final String TAG_PATTERNS = "patterns";
     private static final String TAG_SPECIAL  = "special";
     private static final String TAG_RESULTS  = "results";
@@ -128,12 +135,24 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     @Override
     public void registerControllers(AnimationData data) {
-
+        data.addAnimationController(new AnimationController<>(
+                this,
+                "infusion_requester_controller",
+                0,
+                this::animationPredicate
+        ));
     }
 
     @Override
     public AnimationFactory getFactory() {
-        return null;
+        return factory;
+    }
+
+    private <E extends IAnimatable> PlayState animationPredicate(AnimationEvent<E> event) {
+        event.getController().setAnimation(
+                new AnimationBuilder().addAnimation("animation.infusion_requester.new", true)
+        );
+        return PlayState.CONTINUE;
     }
 
     private static final class PendingCrafterDelivery {
