@@ -115,6 +115,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
      * Ключ – позиция потребителя (терминал/реквестер и т.п.).
      */
     private final Map<BlockPos, MirrorKey> consumerMirrors = new HashMap<>();
+    private final Map<BlockPos, Integer> consumerActiveOrders = new HashMap<>();
+    private final Map<BlockPos, Long> consumerFocusCooldowns = new HashMap<>();
 
     private final List<MirrorSlot> activeMirrors = new ArrayList<>(MAX_SLOTS);
     private long renderSeed = 0L;
@@ -193,11 +195,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private static final int RINGS = 4;
     private static final int SLOTS_PER_RING = 6;
     private static final int MAX_SLOTS = RINGS * SLOTS_PER_RING;
+    private static final int MIRROR_FOCUS_TICKS = 80;
+    private static final int MIRROR_FOCUS_RELEASE_TICKS = 40;
 
     private static final String TAG_MIRRORS = "mirrors";
     private static final String TAG_RENDER_SEED = "renderSeed";
     private static final String TAG_PEND_EJECTS = "pendEjects";
     private static final String TAG_DISPATCHERS = "boundDispatchers";
+    private static final String TAG_CONSUMER_ORDERS = "consumerOrders";
+    private static final String TAG_CONSUMER_FOCUS_GRACE = "consumerFocusGrace";
+
     // ЕДИНАЯ занятость слотов
     private final boolean[][] slotBusy = new boolean[RINGS][SLOTS_PER_RING];
 
@@ -208,6 +215,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         // пока > worldTime — зеркало считается «в фокусе»
         public long focusUntil;
+        public float renderYaw = Float.NaN;
+        public float renderFocus = 0f;
 
         public MirrorSlot(int r, int s, long p) {
             ring = r;
@@ -216,11 +225,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             focusUntil = 0L;
         }
 
-        public void focus(long now, int durationTicks) {
+        public boolean focus(long now, int durationTicks) {
             long target = now + durationTicks;
-            if (target > focusUntil) {
+            long remaining = focusUntil - now;
+            if ((focusUntil < now || remaining < (durationTicks / 4)) && target > focusUntil) {
                 focusUntil = target;
+                return true;
             }
+            return false;
         }
     }
 
@@ -459,16 +471,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     /**
-     * Выбрать случайный занятый слот со зеркалом, либо -1/-1 если пусто.
-     */
-    public int[] pickRandomMirrorSlot() {
-        if (activeMirrors.isEmpty()) return new int[]{-1, -1};
-        Random rnd = new Random(world.getTotalWorldTime() ^ pos.toLong() ^ System.nanoTime());
-        MirrorSlot m = activeMirrors.get(rnd.nextInt(activeMirrors.size()));
-        return new int[]{m.ring, m.slot};
-    }
-
-    /**
      * Добавить активное зеркало, если есть свободный слот (для визуала/лимита).
      */
     public boolean addMirror() {
@@ -492,6 +494,106 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         markDirtyAndSync();
         pruneBindingsByRangeAndCapacity();
         return new ItemStack(thaumcraft.api.blocks.BlocksTC.mirror);
+    }
+
+    private boolean focusMirrorForConsumer(BlockPos consumerPos, int durationTicks) {
+        if (world == null || world.isRemote || consumerPos == null) return false;
+        if (!boundTerminals.contains(consumerPos) && !boundRequesters.contains(consumerPos)) return false;
+
+        MirrorKey mk = getOrAssignMirrorForConsumer(consumerPos);
+        if (mk == null) return false;
+
+        MirrorSlot ms = findMirrorSlot(mk);
+        if (ms != null && ms.focus(world.getTotalWorldTime(), durationTicks)) {
+            markDirtyAndSync();
+            return true;
+        }
+        return false;
+    }
+
+    private void focusMirrorForConsumer(BlockPos consumerPos) {
+        focusMirrorForConsumer(consumerPos, MIRROR_FOCUS_TICKS);
+    }
+
+    @Nullable
+    private BlockPos resolveConsumerForDestination(BlockPos destPos) {
+        if (destPos == null) return null;
+        if (boundTerminals.contains(destPos) || boundRequesters.contains(destPos)) return destPos;
+
+        if (world != null) {
+            TileEntity te = world.getTileEntity(destPos);
+            if (te instanceof TileEntityGolemCrafter) {
+                BlockPos up = destPos.up();
+                if (boundTerminals.contains(up) || boundRequesters.contains(up)) {
+                    return up;
+                }
+            }
+        }
+        return null;
+    }
+
+    private void focusMirrorForDeliveryTarget(BlockPos destPos) {
+        BlockPos consumerPos = resolveConsumerForDestination(destPos);
+        if (consumerPos != null) {
+            focusMirrorForConsumer(consumerPos);
+        }
+    }
+
+    private void registerOrderForConsumer(BlockPos destPos) {
+        if (world == null || world.isRemote) return;
+        BlockPos consumerPos = resolveConsumerForDestination(destPos);
+        if (consumerPos == null) return;
+
+        BlockPos key = consumerPos.toImmutable();
+        consumerActiveOrders.put(key, consumerActiveOrders.getOrDefault(key, 0) + 1);
+        consumerFocusCooldowns.remove(key);
+        focusMirrorForConsumer(key);
+        markDirty();
+    }
+
+    private void completeOrderForConsumer(BlockPos destPos) {
+        if (world == null || world.isRemote) return;
+        BlockPos consumerPos = resolveConsumerForDestination(destPos);
+        if (consumerPos == null) return;
+
+        BlockPos key = consumerPos.toImmutable();
+        int active = consumerActiveOrders.getOrDefault(key, 0);
+        if (active <= 1) {
+            consumerActiveOrders.remove(key);
+            consumerFocusCooldowns.put(key, world.getTotalWorldTime() + MIRROR_FOCUS_RELEASE_TICKS);
+        } else {
+            consumerActiveOrders.put(key, active - 1);
+        }
+        focusMirrorForConsumer(key, MIRROR_FOCUS_TICKS);
+        markDirty();
+    }
+
+    private void tickConsumerFocus() {
+        if (world == null || world.isRemote) return;
+
+        long now = world.getTotalWorldTime();
+        boolean changed = false;
+        Set<BlockPos> keys = new HashSet<>();
+        keys.addAll(consumerActiveOrders.keySet());
+        keys.addAll(consumerFocusCooldowns.keySet());
+
+        for (BlockPos key : keys) {
+            int active = consumerActiveOrders.getOrDefault(key, 0);
+            long grace = consumerFocusCooldowns.getOrDefault(key, 0L);
+            boolean keepFocus = active > 0 || grace > now;
+            if (!keepFocus) {
+                consumerFocusCooldowns.remove(key);
+                changed = true;
+                continue;
+            }
+
+            int duration = (active > 0) ? MIRROR_FOCUS_TICKS : MIRROR_FOCUS_RELEASE_TICKS;
+            focusMirrorForConsumer(key, duration);
+        }
+
+        if (changed) {
+            markDirty();
+        }
     }
 
     private void markDirtyAndSync() {
@@ -1362,26 +1464,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         assignLinesToGolemsRoundRobin(b.lines);
 
         batchQueues.get(q).addLast(b);
-        markDirty();
+        registerOrderForConsumer(dest);
     }
-    private boolean isGolemFreeForManager(UUID golemId) {
-        if (golemId == null) return false;
-        ConcurrentHashMap<Integer, Task> tasks = ThaumcraftProvisionHelper.getTasksSafe();
-        if (tasks == null) return true; // не смогли получить — не блокируем
-
-        for (Task t : tasks.values()) {
-            if (t == null) continue;
-            if (t.isCompleted() || t.isSuspended()) continue;
-            if (!golemId.equals(t.getGolemUUID())) continue;
-
-            // Наш голем в активном таске. Проверяем, что это именно наш менеджер.
-            if (t.getSealPos() != null && this.pos.equals(t.getSealPos().pos)) {
-                return false; // уже несёт что-то для этого менеджера
-            }
-        }
-        return true;
-    }
-
 
     private int harvestAnyFromCrafterOutput(BlockPos requesterPos) {
         if (world == null || requesterPos == null) return 0;
@@ -1570,6 +1654,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         // ставим в очередь только craft-батчи для крафтеров
         for (Batch b : craftBatches) {
             batchQueues.get(q).addLast(b);
+            registerOrderForConsumer(dest);
         }
 
         activeQueue = q;
@@ -1587,7 +1672,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return null;
     }
 
-    private void popBatch() {
+    private void popBatch(@Nullable Batch b) {
+        if (b != null) {
+            completeOrderForConsumer(b.dest);
+        }
         Deque<Batch> q = batchQueues.get(activeQueue);
         if (!q.isEmpty()) q.removeFirst();
         markDirty();
@@ -1678,21 +1766,18 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (world == null || world.isRemote) return;
         if (destPos == null || like == null || like.isEmpty()) return;
 
-        // Нас интересуют именно привязанные потребители
-        if (!boundTerminals.contains(destPos) && !boundRequesters.contains(destPos)) {
-            return;
-        }
+        BlockPos consumerPos = resolveConsumerForDestination(destPos);
+        if (consumerPos == null) return;
 
-        MirrorKey mk = getOrAssignMirrorForConsumer(destPos);
+        MirrorKey mk = getOrAssignMirrorForConsumer(consumerPos);
         if (mk == null) return;
 
         MirrorSlot ms = findMirrorSlot(mk);
-        if (ms != null) {
-            ms.focus(world.getTotalWorldTime(), EJECT_HOVER_TICKS);
+        boolean focused = ms != null && ms.focus(world.getTotalWorldTime(), EJECT_HOVER_TICKS);
+        if (focused) {
+            // синхронизируем focusUntil на клиент
+            markDirtyAndSync();
         }
-
-        // синхронизируем focusUntil на клиент
-        markDirtyAndSync();
 
         int dur = 36 + world.rand.nextInt(16);
         long seed = world.rand.nextLong();
@@ -2035,13 +2120,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         b.seenTick = tickCounter;
 
         if (b.lines.isEmpty()) {
-            popBatch();
+            popBatch(b);
             return;
         }
         if (!hasItemCapAt(b.dest, b.destSide)) {
-            popBatch();
+            popBatch(b);
             return;
         }
+
+        focusMirrorForConsumer(b.dest);
 
         if (b.index >= b.lines.size()) {
             b.index = 0;
@@ -2119,7 +2206,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         if (b.lines.isEmpty()) {
-            popBatch();
+            popBatch(b);
             return;
         }
 
@@ -2166,6 +2253,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             processBatchHead(b);
             activeQueue = (activeQueue + 1) % 6;
         }
+
+        tickConsumerFocus();
 
         // Периодически актуализируем список складов под SealProvide
         if ((tickCounter % PROVIDER_RESCAN_TICKS) == 0) {
@@ -2745,6 +2834,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     public void ensureDeliveryFor(BlockPos dest, Map<ItemKey, Integer> needs, int queueId) {
         if (world == null || world.isRemote || dest == null || needs == null || needs.isEmpty()) return;
 
+        focusMirrorForDeliveryTarget(dest);
+
         List<Map.Entry<ItemKey, Integer>> miss = new ArrayList<>();
 
         for (Map.Entry<ItemKey, Integer> e : needs.entrySet()) {
@@ -2773,6 +2864,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     public void ensureDeliveryForExact(BlockPos dest, Map<ItemKey, Integer> needs, int queueId) {
         if (world == null || world.isRemote || dest == null || needs == null || needs.isEmpty()) return;
+
+        focusMirrorForDeliveryTarget(dest);
 
         List<Map.Entry<ItemKey, Integer>> miss = new ArrayList<>();
 
@@ -2850,6 +2943,24 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
         nbt.setTag(TAG_DISPATCHERS, dl);
 
+        NBTTagList co = new NBTTagList();
+        for (Map.Entry<BlockPos, Integer> entry : consumerActiveOrders.entrySet()) {
+            NBTTagCompound c = new NBTTagCompound();
+            c.setLong("pos", entry.getKey().toLong());
+            c.setInteger("count", entry.getValue());
+            co.appendTag(c);
+        }
+        nbt.setTag(TAG_CONSUMER_ORDERS, co);
+
+        NBTTagList cf = new NBTTagList();
+        for (Map.Entry<BlockPos, Long> entry : consumerFocusCooldowns.entrySet()) {
+            NBTTagCompound c = new NBTTagCompound();
+            c.setLong("pos", entry.getKey().toLong());
+            c.setLong("until", entry.getValue());
+            cf.appendTag(c);
+        }
+        nbt.setTag(TAG_CONSUMER_FOCUS_GRACE, cf);
+
         // зеркала (активные)
         NBTTagList ml = new NBTTagList();
         for (MirrorSlot m : activeMirrors) {
@@ -2910,6 +3021,29 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 stats.golems = Math.max(0, c.getInteger("golems"));
                 stats.busy = 0;
                 boundDispatchers.put(dp.toImmutable(), stats);
+            }
+        }
+
+        consumerActiveOrders.clear();
+        if (nbt.hasKey(TAG_CONSUMER_ORDERS, 9)) {
+            NBTTagList co = nbt.getTagList(TAG_CONSUMER_ORDERS, 10);
+            for (int i = 0; i < co.tagCount(); i++) {
+                NBTTagCompound c = co.getCompoundTagAt(i);
+                if (!c.hasKey("pos")) continue;
+                BlockPos cp = BlockPos.fromLong(c.getLong("pos"));
+                int cnt = Math.max(0, c.getInteger("count"));
+                if (cnt > 0) consumerActiveOrders.put(cp.toImmutable(), cnt);
+            }
+        }
+
+        consumerFocusCooldowns.clear();
+        if (nbt.hasKey(TAG_CONSUMER_FOCUS_GRACE, 9)) {
+            NBTTagList cf = nbt.getTagList(TAG_CONSUMER_FOCUS_GRACE, 10);
+            for (int i = 0; i < cf.tagCount(); i++) {
+                NBTTagCompound c = cf.getCompoundTagAt(i);
+                if (!c.hasKey("pos")) continue;
+                BlockPos cp = BlockPos.fromLong(c.getLong("pos"));
+                consumerFocusCooldowns.put(cp.toImmutable(), c.getLong("until"));
             }
         }
 

@@ -41,6 +41,10 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
     private static final float  SPIN_BASE = 1.6f;
     private static final float  SCALE = 0.60f;
     private static final float  RING_SHIFT_YAW = 30f;
+    private static final float  FOCUS_NORMAL_YAW = -90f;
+    private static final float  FOCUS_BLEND_SPEED = 0.25f;
+    private static final float  FOCUS_LERP_SPEED = 18f;
+    private static final float  SPIN_LERP_SPEED = 90f;
 
     private final ItemStack renderMirror = new ItemStack(BlocksTC.mirror);
 
@@ -140,8 +144,17 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             float phaseF = (m.phase & 0xFFFF) * 0.001f;
 
             // зеркало "дышит" чуть меньше, когда в фокусе
-            boolean focused = (m.focusUntil > t);
-            float bobAmp = focused ? (BOB_AMPL * 0.35f) : BOB_AMPL;
+            boolean focused = (m.focusUntil > (t + partialTicks));
+            float targetFocus = focused ? 1f : 0f;
+            float focusStep = FOCUS_BLEND_SPEED * partialTicks;
+            if (m.renderFocus < targetFocus) {
+                m.renderFocus = Math.min(targetFocus, m.renderFocus + focusStep);
+            } else if (m.renderFocus > targetFocus) {
+                m.renderFocus = Math.max(targetFocus, m.renderFocus - focusStep);
+            }
+
+            float bobAmp = (float) MathHelper.clampedLerp(BOB_AMPL, BOB_AMPL * 0.35f, m.renderFocus);
+
             float bob = MathHelper.sin((tt + phaseF) * BOB_SPEED) * bobAmp;
             float py = BASE_Y + m.ring * Y_STEP + bob;
 
@@ -149,15 +162,16 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             float dir = (((m.phase >> 9) & 1) == 0) ? 1f : -1f;
             float spin = ((tt + phaseF * 60f) * SPIN_BASE * speedMul * dir) % 360f;
 
-            // если зеркало в фокусе – оно поворачивается лицом к менеджеру
-            // (т.е. строго "по радиусу") и не крутится
-            float yaw;
-            if (focused) {
-                // если вдруг окажется, что "лицом" нужно 180° от base — просто поменяй на base + 180f
-                yaw = base;
-            } else {
-                yaw = base + spin;
-            }
+            float radialYaw = (float) Math.toDegrees(Math.atan2(pz, px));
+            float focusYaw = MathHelper.wrapDegrees(radialYaw + FOCUS_NORMAL_YAW);
+            float spinYaw = base + spin;
+            float targetYaw = spinYaw + MathHelper.wrapDegrees(focusYaw - spinYaw) * m.renderFocus;
+            float yaw = m.renderYaw;
+            if (Float.isNaN(yaw)) yaw = targetYaw;
+
+            float step = (float) MathHelper.clampedLerp(SPIN_LERP_SPEED, FOCUS_LERP_SPEED, m.renderFocus) * partialTicks;
+            yaw = approachDegrees(yaw, targetYaw, step);
+            m.renderYaw = yaw;
 
             GlStateManager.pushMatrix();
             GlStateManager.translate(px, py, pz);
@@ -333,4 +347,22 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
         GlStateManager.disableBlend();
         GlStateManager.popMatrix();
     }
+
+
+    /**
+     * Плавно поворачивает current к target по кратчайшему пути, не более чем на step градусов за вызов.
+     */
+    private static float approachDegrees(float current, float target, float step) {
+        // Разница углов с учётом -180..180
+        float delta = MathHelper.wrapDegrees(target - current);
+
+        if (delta > step) {
+            delta = step;
+        } else if (delta < -step) {
+            delta = -step;
+        }
+
+        return current + delta;
+    }
+
 }
