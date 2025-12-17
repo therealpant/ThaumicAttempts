@@ -41,10 +41,10 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
     private static final float  SPIN_BASE = 1.6f;
     private static final float  SCALE = 0.60f;
     private static final float  RING_SHIFT_YAW = 30f;
-    private static final float  FOCUS_NORMAL_YAW = -90f;
     private static final float  FOCUS_BLEND_SPEED = 0.25f;
     private static final float  FOCUS_LERP_SPEED = 18f;
     private static final float  SPIN_LERP_SPEED = 90f;
+    private static final float  DELIVERY_SPIN_ACCEL = 1.5f;
 
     private final ItemStack renderMirror = new ItemStack(BlocksTC.mirror);
 
@@ -54,6 +54,12 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
 
     private static Vec3d addXYZ(Vec3d v, double dx, double dy, double dz) {
         return new Vec3d(v.x + dx, v.y + dy, v.z + dz);
+    }
+
+    private static float computeZeroYaw(double px, double pz) {
+        double nx = -px;
+        double nz = -pz;
+        return (float) MathHelper.wrapDegrees(Math.toDegrees(Math.atan2(nx, nz)));
     }
 
     /**
@@ -140,12 +146,15 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             double px = Math.cos(ang) * RADIUS;
             double pz = Math.sin(ang) * RADIUS;
 
-            float tt = (t + partialTicks);
+            float time = (t + partialTicks);
             float phaseF = (m.phase & 0xFFFF) * 0.001f;
 
-            // зеркало "дышит" чуть меньше, когда в фокусе
-            boolean focused = (m.focusUntil > (t + partialTicks));
-            float targetFocus = focused ? 1f : 0f;
+            float deltaTime = Float.isNaN(m.lastRenderTime) ? 0f : (time - m.lastRenderTime);
+            m.lastRenderTime = time;
+            float dt = (deltaTime > 0f) ? deltaTime : partialTicks;
+
+            boolean delivering = (m.focusUntil > (t + partialTicks));
+            float targetFocus = delivering ? 1f : 0f;
             float focusStep = FOCUS_BLEND_SPEED * partialTicks;
             if (m.renderFocus < targetFocus) {
                 m.renderFocus = Math.min(targetFocus, m.renderFocus + focusStep);
@@ -153,23 +162,35 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                 m.renderFocus = Math.max(targetFocus, m.renderFocus - focusStep);
             }
 
-            float bobAmp = (float) MathHelper.clampedLerp(BOB_AMPL, BOB_AMPL * 0.35f, m.renderFocus);
+            if (m.renderDelivering != delivering) {
+                if (!delivering) {
+                    m.idleSpin = 0f;
+                }
+                m.lastRenderTime = time;
+                m.renderDelivering = delivering;
+            }
 
-            float bob = MathHelper.sin((tt + phaseF) * BOB_SPEED) * bobAmp;
+            float bob = MathHelper.sin((time + phaseF) * BOB_SPEED) * BOB_AMPL;
             float py = BASE_Y + m.ring * Y_STEP + bob;
 
             float speedMul = 0.9f + ((m.phase & 255) / 255f) * 0.4f;
             float dir = (((m.phase >> 9) & 1) == 0) ? 1f : -1f;
-            float spin = ((tt + phaseF * 60f) * SPIN_BASE * speedMul * dir) % 360f;
+            if (!delivering) {
+                float spinStep = SPIN_BASE * speedMul * dir;
+                m.idleSpin = (m.idleSpin + spinStep * dt) % 360f;
+            }
 
-            float radialYaw = (float) Math.toDegrees(Math.atan2(pz, px));
-            float focusYaw = MathHelper.wrapDegrees(radialYaw + FOCUS_NORMAL_YAW);
-            float spinYaw = base + spin;
-            float targetYaw = spinYaw + MathHelper.wrapDegrees(focusYaw - spinYaw) * m.renderFocus;
+            float zeroYaw = computeZeroYaw(px, pz);
+            float targetYaw = MathHelper.wrapDegrees(zeroYaw + m.idleSpin * (1f - m.renderFocus));
             float yaw = m.renderYaw;
             if (Float.isNaN(yaw)) yaw = targetYaw;
 
-            float step = (float) MathHelper.clampedLerp(SPIN_LERP_SPEED, FOCUS_LERP_SPEED, m.renderFocus) * partialTicks;
+            float frameDt = dt > 0f ? dt : partialTicks;
+            float settleSpeed = Math.max(Math.abs(m.lastSpinStep) * DELIVERY_SPIN_ACCEL, SPIN_BASE * DELIVERY_SPIN_ACCEL);
+            float lerpSpeed = delivering
+                    ? Math.max(settleSpeed, FOCUS_LERP_SPEED)
+                    : (float) MathHelper.clampedLerp(SPIN_LERP_SPEED, FOCUS_LERP_SPEED, m.renderFocus);
+            float step = lerpSpeed * (delivering ? frameDt : partialTicks);
             yaw = approachDegrees(yaw, targetYaw, step);
             m.renderYaw = yaw;
 
@@ -251,7 +272,7 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             double ang = Math.toRadians(base);
 
             // Конечная точка у зеркала
-            Vec3d P3 = new Vec3d(
+            Vec3d P2 = new Vec3d(
                     Math.cos(ang) * RADIUS,
                     BASE_Y + f.ring * Y_STEP,
                     Math.sin(ang) * RADIUS
@@ -261,33 +282,18 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             Vec3d P0 = new Vec3d(0.0, BASE_Y + 0.15, 0.0);
 
             // Горизонтальный радиальный вектор от центра к зеркалу
-            Vec3d radial = new Vec3d(P3.x, 0.0, P3.z);
-            if (radial.lengthSquared() < 1.0e-6) {
-                radial = new Vec3d(0, 0, 1);
+            // Промежуточная точка на плоскости старта в сторону зеркала
+            Vec3d dir = new Vec3d(P2.x - P0.x, 0.0, P2.z - P0.z);
+            if (dir.lengthSquared() < 1.0e-6) {
+                dir = new Vec3d(0, 0, 1);
             } else {
-                radial = radial.normalize();
+                dir = dir.normalize();
             }
-
-            // Горизонтальный касательный (по окружности)
-            Vec3d tang = new Vec3d(-radial.z, 0.0, radial.x);
-
-            double r = RADIUS;
-            double up1 = 3.0 / 16.0; // максимум подъёма на первом участке
-            double up2 = 0.45;       // доп. подъём на дуге
-
-            // Контрольные точки для плавной «петли»
-            Vec3d B0 = P0;
-            Vec3d B1 = new Vec3d(
-                    P0.x + radial.x * (r * 0.7),
-                    P0.y + up1,
-                    P0.z + radial.z * (r * 0.7)
-            );
-            Vec3d B2 = new Vec3d(
-                    P0.x + radial.x * r + tang.x * (r * 0.35),
-                    BASE_Y + f.ring * Y_STEP + up2,
-                    P0.z + radial.z * r + tang.z * (r * 0.35)
-            );
-            Vec3d B3 = P3;
+            Vec3d P1 = P0.add(dir.scale(0.72));
+            // Вычисляем контрольную точку квадратичной Безье, чтобы кривая проходила через P1 при t=0.5
+            Vec3d control = P1.scale(2.0)
+                    .subtract(P0.scale(0.5))
+                    .subtract(P2.scale(0.5));
 
             float tt2 = (t + partialTicks) - f.start;
             float p = MathHelper.clamp(tt2 / (float) f.duration, 0f, 1f);
@@ -298,20 +304,17 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                     : (1f - (float) Math.pow(-2f * p + 2f, 2) / 2f);
 
             // обрезаем хвост (чтоб не влетал внутрь зеркала)
-            float cut = 0.92f + (((f.seed >> 17) & 15) / 15f) * 0.04f;
+            float cut = 0.88f;
             if (ease >= cut) continue;
-            float tail = 0.08f;
+            float tail = 0.06f;
             float a = 1f;
             if (ease > cut - tail) a = MathHelper.clamp((cut - ease) / tail, 0f, 1f);
 
-            double tBez = ease;
-            double it = 1.0 - tBez;
-
-            // Кубическая кривая Безье
-            Vec3d pos = B0.scale(it * it * it)
-                    .add(B1.scale(3 * it * it * tBez))
-                    .add(B2.scale(3 * it * tBez * tBez))
-                    .add(B3.scale(tBez * tBez * tBez));
+            double tSeg = ease;
+            double it = 1.0 - tSeg;
+            Vec3d pos = P0.scale(it * it)
+                    .add(control.scale(2 * it * tSeg))
+                    .add(P2.scale(tSeg * tSeg));
 
             float wob = (float) Math.sin((f.seed % 1000) * 0.013 + (t + partialTicks) * 0.25) * 6f;
             float spin = ((t + partialTicks) * (1.2f + ((f.seed & 255) / 255f))) % 360f;

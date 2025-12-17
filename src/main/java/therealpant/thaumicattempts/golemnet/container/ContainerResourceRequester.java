@@ -16,32 +16,23 @@ public class ContainerResourceRequester extends Container {
     public static final int CELL = 18;
 
     /** ===== PATTERN (ItemResourceList) – поле 3×5 ===== */
-    public static final int PATTERN_COLS = 5;
-    public static final int PATTERN_ROWS = 3;
+    public static final int PATTERN_COLS = 3;
+    public static final int PATTERN_ROWS = 5;
 
     /** ===== ВНУТРЕННИЙ ИНВЕНТАРЬ БЛОКА – 3×3 ===== */
     public static final int BUFFER_COLS = 3;
     public static final int BUFFER_ROWS = 3;
 
-    /** ===== БАЗОВЫЕ КООРДИНАТЫ ===== */
+    /** ===== БАЗОВЫЕ КООРДИНАТЫ (под новый фон 354×256) ===== */
+    public static final int PLAYER_INV_LEFT = 89;
+    public static final int PLAYER_INV_TOP  = 164;
+    public static final int HOTBAR_TOP      = PLAYER_INV_TOP + 58; // 222
 
-    // Игрок (оставляем как был)
-    public static final int PLAYER_INV_LEFT = 8;
+    public static final int PATTERN_LEFT = 62;
+    public static final int PATTERN_TOP  = 28;
 
-    // СТАРАЯ позиция буфера была (LEFT=8, TOP≈83). Ставим туда PATTERN 3×5.
-    public static final int PATTERN_LEFT = 8;
-    public static final int PATTERN_TOP  = 83;
-
-    // Буфер 3×3: по Y — там же, где и PATTERN,
-    // по X — совмещаем 3 колонки с 7-8-9 колонками инвентаря игрока.
-    // Колонки игрока: x = PLAYER_INV_LEFT + col * CELL, col=0..8
-    // Нам нужны col = 6,7,8 → BUFFER_LEFT = x(col=6)
-    public static final int BUFFER_LEFT = PLAYER_INV_LEFT + (9 - BUFFER_COLS) * CELL; // 8 + 6*18 = 116
-    public static final int BUFFER_TOP  = PATTERN_TOP; // по Y оставляем как было у старого буфера
-
-    // Инвентарь игрока – под всем этим
-    public static final int PLAYER_INV_TOP = BUFFER_TOP + BUFFER_ROWS * CELL + 14; // 83 + 3*18 + 14 = 151
-    public static final int HOTBAR_TOP     = PLAYER_INV_TOP + 58;                  // 209
+    public static final int BUFFER_LEFT = 224;
+    public static final int BUFFER_TOP  = 64;
 
     private final TileResourceRequester tile;
     private final IItemHandler patternHandler;

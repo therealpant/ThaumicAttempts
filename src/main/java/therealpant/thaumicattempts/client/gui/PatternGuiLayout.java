@@ -29,7 +29,7 @@ public class PatternGuiLayout {
     public static final int PREVIEW_TOP = PAPER_TOP + 11;
 
     public static final int INFUSION_CENTER_LEFT = PAPER_LEFT + 42;
-    public static final int INFUSION_CENTER_TOP = PAPER_TOP + 52;
+    public static final int INFUSION_CENTER_TOP = PAPER_TOP + 60;
 
     public static final int CELL = 18;
 

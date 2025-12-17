@@ -17,19 +17,19 @@ public class ContainerInfusionRequester extends Container {
     public static final int PATTERN_COLS = 5;
     public static final int PATTERN_ROWS = 3;
 
-    public static final int PATTERN_LEFT = 8;
-    public static final int PATTERN_TOP = 20;
+    public static final int PATTERN_LEFT = 62;
+    public static final int PATTERN_TOP = 28;
 
-    public static final int SPECIAL_LEFT = PATTERN_LEFT + PATTERN_COLS * CELL + 14;
-    public static final int SPECIAL_TOP = PATTERN_TOP;
+    public static final int SPECIAL_LEFT = 255;
+    public static final int SPECIAL_TOP = 35;
 
-    public static final int RESULT_COLS = 2;
-    public static final int RESULT_ROWS = 2;
-    public static final int RESULT_LEFT = SPECIAL_LEFT;
-    public static final int RESULT_TOP = SPECIAL_TOP + CELL + 10;
+    public static final int RESULT_COLS = 3;
+    public static final int RESULT_ROWS = 3;
+    public static final int RESULT_LEFT = 224;
+    public static final int RESULT_TOP = 64;
 
-    public static final int PLAYER_INV_LEFT = 8;
-    public static final int PLAYER_INV_TOP = PATTERN_TOP + PATTERN_ROWS * CELL + 34;
+    public static final int PLAYER_INV_LEFT = 89;
+    public static final int PLAYER_INV_TOP = 164;
     public static final int HOTBAR_TOP = PLAYER_INV_TOP + 58;
 
     private final TileInfusionRequester tile;

@@ -164,6 +164,7 @@ public class ContainerInfusionPattern extends Container implements IPatternConta
     @Override
     public boolean enchantItem(EntityPlayer player, int id) {
         boolean changed = false;
+
         if (id == 0) {
             ItemStack held = player.inventory.getItemStack();
             if (!held.isEmpty()) {
@@ -177,6 +178,7 @@ public class ContainerInfusionPattern extends Container implements IPatternConta
                     }
                 }
             }
+
         } else if (id == 1) {
             for (int i = ORDER_SIZE - 1; i >= 0; i--) {
                 if (!ghostInv.getStackInSlot(i).isEmpty()) {
@@ -185,12 +187,36 @@ public class ContainerInfusionPattern extends Container implements IPatternConta
                     break;
                 }
             }
+
+        } else if (id == 2 || id == 3) {
+            // 2 = ПКМ (если repeat==1), 3 = shift+ПКМ (всегда)
+            if (patternStack.getItem() instanceof ItemInfusionPattern) {
+
+                // если и так пусто — можно не трогать
+                boolean hadPreview = !ghostInv.getStackInSlot(resultIndex).isEmpty();
+
+                // читаем текущий order из ghostInv
+                NonNullList<ItemStack> order = NonNullList.withSize(ORDER_SIZE, ItemStack.EMPTY);
+                for (int i = 0; i < ORDER_SIZE; i++) {
+                    ItemStack s = ghostInv.getStackInSlot(i);
+                    order.set(i, s.isEmpty() ? ItemStack.EMPTY : s.copy());
+                }
+
+                // записываем NBT с пустым результатом -> TAG_RESULT удалится
+                ItemInfusionPattern.writeInventoryToStack(patternStack, order, ItemStack.EMPTY);
+
+                // чистим слот превью в контейнере
+                ghostInv.setInventorySlotContents(resultIndex, ItemStack.EMPTY);
+
+                changed = hadPreview || patternStack.hasTagCompound(); // не идеально, но ок
+            }
         }
 
         if (changed) {
+            player.inventory.markDirty();
             detectAndSendChanges();
         }
-
         return changed;
     }
+
 }

@@ -3,37 +3,78 @@ package therealpant.thaumicattempts.client.gui;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.entity.player.InventoryPlayer;
+import net.minecraft.item.ItemStack;
+import net.minecraft.util.NonNullList;
 import net.minecraft.util.ResourceLocation;
+import net.minecraftforge.items.IItemHandler;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemnet.container.ContainerResourceRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 
 public class GuiResourceRequester extends GuiContainer {
 
-    private static final ResourceLocation TEX_TERMINAL =
-            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/gui_terminal.png");
-    private static final ResourceLocation TEX_CRAFTER =
-            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/gui_crafter3_5.png");
-    private static final ResourceLocation TEX_BASE_TC =
-            new ResourceLocation("thaumcraft","textures/gui/gui_base.png");
-    // gui_terminal: весь атлас 128×128, вырез под 3×3 – 60×60 из (0,0)
-    private static final int TERM_U = 0, TERM_V = 166;
-    private static final int TERM_W = 60, TERM_H = 60;
-    private static final int TERM_TEX_W = 128, TERM_TEX_H = 128;
+    private static final ResourceLocation TEX_BG =
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/resourse_requester.png");
 
-    // gui_crafter3_5: весь атлас 354×256, вырез под 3×5 – 60×96 из (0,60)
-    private static final int CRAFTER_U = 0, CRAFTER_V = 60;
-    private static final int CRAFTER_W = 60, CRAFTER_H = 96;
-    private static final int CRAFTER_TEX_W = 354, CRAFTER_TEX_H = 256;
+    private static final int TEX_W = 354;
+    private static final int TEX_H = 256;
+
+    private static final int GRID_LEFT = 143;
+    private static final int GRID_TOP  = 46;
+    private static final int GRID_STEP = 18;
 
     private final TileResourceRequester tile;
+
+    private final IItemHandler patterns;
+
+    private int tickCounter = 0;
+    private int lastSwitchTick = 0;
+    private int currentSlot = -1;
+    private final int switchPeriod = 30;
 
     public GuiResourceRequester(InventoryPlayer playerInv, TileResourceRequester tile) {
         super(new ContainerResourceRequester(playerInv, tile));
         this.tile = tile;
-        this.xSize = 194;
-        this.ySize = 230;
+        this.patterns = tile.getPatternHandler();
+        this.xSize = TEX_W;
+        this.ySize = TEX_H;
+    }
+
+    @Override
+    public void updateScreen() {
+        super.updateScreen();
+        tickCounter++;
+
+        boolean powered = tile.getWorld() != null && tile.getWorld().isBlockPowered(tile.getPos());
+        Integer active = powered ? tile.getActivePatternIndex() : null;
+        if (powered && active != null) {
+            currentSlot = active;
+            return;
+        }
+
+        if (tickCounter - lastSwitchTick >= switchPeriod) {
+            lastSwitchTick = tickCounter;
+            nextNonEmptyPattern();
+        }
+    }
+
+    private void nextNonEmptyPattern() {
+        if (patterns == null) { currentSlot = -1; return; }
+        int slots = Math.min(ContainerResourceRequester.PATTERN_COLS * ContainerResourceRequester.PATTERN_ROWS, patterns.getSlots());
+        if (slots <= 0) { currentSlot = -1; return; }
+
+        int start = (currentSlot + 1 + slots) % slots;
+        int i = start;
+        do {
+            ItemStack st = patterns.getStackInSlot(i);
+            if (!st.isEmpty()) { currentSlot = i; return; }
+            i = (i + 1) % slots;
+        } while (i != start);
+
+        currentSlot = -1;
     }
 
     @Override
@@ -54,40 +95,72 @@ public class GuiResourceRequester extends GuiContainer {
         int left = this.guiLeft;
         int top  = this.guiTop;
 
-        // === PATTERN 3×5 (ItemResourceList) ===
-        Minecraft.getMinecraft().getTextureManager().bindTexture(TEX_CRAFTER);
-        // левый верх подложки привязываем к левому верхнему углу сетки PATTERN
-        this.drawModalRectWithCustomSizedTexture(
-                left + ContainerResourceRequester.PATTERN_LEFT - 4,
-                top  + ContainerResourceRequester.PATTERN_TOP  - 4,
-                CRAFTER_U, CRAFTER_V,
-                CRAFTER_H, CRAFTER_W,
-                CRAFTER_TEX_W, CRAFTER_TEX_H
-        );
+        mc.getTextureManager().bindTexture(TEX_BG);
+        this.drawModalRectWithCustomSizedTexture(left, top, 0, 0, TEX_W, TEX_H, TEX_W, TEX_H);
 
-        // === BUFFER 3×3 (внутренний инвентарь блока) ===
-        Minecraft.getMinecraft().getTextureManager().bindTexture(TEX_TERMINAL);
-        this.drawModalRectWithCustomSizedTexture(
-                left + ContainerResourceRequester.BUFFER_LEFT - 4,
-                top  + ContainerResourceRequester.BUFFER_TOP  - 4,
-                0,0,
-                TERM_W, TERM_H,
-                TERM_TEX_W, TERM_TEX_H
-        );
+        renderItemListPreview(left, top);
+        highlightCurrentPattern(left, top);
+    }
 
-        /* ===== Инвентарь игрока (фон из gui_terminal, тот же вырез что и у 3×3) ===== */
-        int invLeft = left + ContainerResourceRequester.PLAYER_INV_LEFT;
-        int invTop  = top  + ContainerResourceRequester.PLAYER_INV_TOP;
+    private void renderItemListPreview(int guiLeft, int guiTop) {
+        ItemStack pattern = getCurrentPattern();
+        if (pattern.isEmpty()) return;
 
-        // общая область: 9×3 + зазор + хотбар, с рамкой по 4px
-        int areaX = invLeft - 4;
-        int areaY = invTop  - 4;
+        NonNullList<ItemStack> grid = ItemResourceList.readGrid(pattern);
+        if (grid == null || grid.isEmpty()) return;
 
-        mc.getTextureManager().bindTexture(TEX_BASE_TC);
-        this.drawTexturedModalRect(
-                areaX-4, areaY-4,
-                TERM_U, TERM_V,          // тот же угол обрезки, что и у 3×3
-                176, 90   // габарит png (128×128)
-        );
+        RenderHelper.enableGUIStandardItemLighting();
+        for (int i = 0; i < Math.min(9, grid.size()); i++) {
+            ItemStack st = grid.get(i);
+            if (st == null || st.isEmpty()) continue;
+
+            int col = i % 3;
+            int row = i / 3;
+
+            int x = guiLeft + GRID_LEFT + col * GRID_STEP;
+            int y = guiTop  + GRID_TOP  + row * GRID_STEP;
+
+            itemRender.renderItemAndEffectIntoGUI(st, x, y);
+            itemRender.renderItemOverlayIntoGUI(this.fontRenderer, st, x, y, null);
+        }
+        RenderHelper.disableStandardItemLighting();
+    }
+
+    private void highlightCurrentPattern(int guiLeft, int guiTop) {
+        if (currentSlot < 0) return;
+
+        int baseX = guiLeft + ContainerResourceRequester.PATTERN_LEFT;
+        int baseY = guiTop  + ContainerResourceRequester.PATTERN_TOP;
+
+        int col = currentSlot % ContainerResourceRequester.PATTERN_COLS;
+        int row = currentSlot / ContainerResourceRequester.PATTERN_COLS;
+
+        int sx = baseX + col * ContainerResourceRequester.CELL;
+        int sy = baseY + row * ContainerResourceRequester.CELL;
+
+        GlStateManager.disableLighting();
+        GlStateManager.enableBlend();
+        drawRect(sx, sy, sx + 16, sy + 16, 0x80FFFFFF);
+        GlStateManager.disableBlend();
+        GlStateManager.enableLighting();
+    }
+
+    private ItemStack getCurrentPattern() {
+        if (patterns == null || currentSlot < 0 || currentSlot >= patterns.getSlots()) return ItemStack.EMPTY;
+        return patterns.getStackInSlot(currentSlot);
+    }
+
+    @Override
+    public void initGui() {
+        super.initGui();
+
+        boolean powered = tile.getWorld() != null && tile.getWorld().isBlockPowered(tile.getPos());
+        if (powered) {
+            Integer active = tile.getActivePatternIndex();
+            if (active != null) currentSlot = active;
+        }
+
+        if (currentSlot < 0) nextNonEmptyPattern();
+        lastSwitchTick = tickCounter;
     }
 }

@@ -127,6 +127,8 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
 
     @Override
     public ItemStackHandler getPatternHandler() { return patterns; }
+
+    public Integer getActivePatternIndex() { return activeSlot; }
     public ItemStackHandler getBufferHandler() { return buffer; }
 
     public boolean tryInsertPattern(ItemStack stack) {

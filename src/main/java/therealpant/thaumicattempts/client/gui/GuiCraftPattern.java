@@ -29,7 +29,7 @@ public class GuiCraftPattern extends GuiContainer {
     private static final int PAPER_V_INFUSION = 0;
 
     private boolean blurOn = false;
-    private static final int INFUSION_RADIUS = 20;
+    private static final int INFUSION_RADIUS = 29;
 
     private final IPatternContainer patternContainer;
 
@@ -71,8 +71,8 @@ public class GuiCraftPattern extends GuiContainer {
             GlStateManager.disableLighting();
             GlStateManager.disableDepth();
             this.fontRenderer.drawStringWithShadow(text,
-                    resultX + 12 - this.fontRenderer.getStringWidth(text),
-                    resultY - 10,
+                    resultX + 16 - 1 - this.fontRenderer.getStringWidth(text),
+                    resultY + 8,
                     0xFFFFFF);
             GlStateManager.enableLighting();
             GlStateManager.enableDepth();
@@ -154,6 +154,25 @@ public class GuiCraftPattern extends GuiContainer {
 
     @Override
     protected void mouseClicked(int mouseX, int mouseY, int mouseButton) throws java.io.IOException {
+
+        // ---- 1) Очистка превью слота ----
+        if (mouseButton == 1 && isPreviewAreaClick(mouseX, mouseY)) { // ПКМ по превью
+            ItemStack pat = patternContainer.getPatternStack();
+            int repeat = ItemBasePattern.getRepeatCount(pat);
+
+            boolean shift = isShiftKeyDown();
+
+            // Вариант A: shift+ПКМ всегда чистит
+            // Вариант B: ПКМ чистит, если repeat == 1 (цифры нет)
+            if (shift || repeat <= 1) {
+                int action = shift ? 3 : 2; // 2 = clear preview (simple), 3 = clear preview (shift-forced)
+                this.mc.playerController.sendEnchantPacket(this.inventorySlots.windowId, action);
+                return;
+            }
+            // если repeat > 1 и shift не нажат — не чистим, даём обычной логике работать
+        }
+
+        // ---- 2) Инфузионная зона (у тебя уже есть) ----
         Slot slot = this.getSlotUnderMouse();
         if (slot != null) {
             super.mouseClicked(mouseX, mouseY, mouseButton);
@@ -164,6 +183,7 @@ public class GuiCraftPattern extends GuiContainer {
             super.mouseClicked(mouseX, mouseY, mouseButton);
         }
     }
+
 
     private boolean isInfusionAreaClick(int mouseX, int mouseY) {
         if (!patternContainer.isInfusionMode()) return false;
@@ -219,5 +239,16 @@ public class GuiCraftPattern extends GuiContainer {
             this.itemRender.renderItemOverlayIntoGUI(this.fontRenderer, stack, drawX, drawY, null);
             rendered++;
         }
+    }
+
+    private boolean isPreviewAreaClick(int mouseX, int mouseY) {
+        final int x = (width - xSize) / 2;
+        final int y = (height - ySize) / 2;
+
+        int px = x + PatternGuiLayout.PREVIEW_LEFT;
+        int py = y + PatternGuiLayout.PREVIEW_TOP;
+
+        return mouseX >= px && mouseX < px + 16 &&
+                mouseY >= py && mouseY < py + 16;
     }
 }

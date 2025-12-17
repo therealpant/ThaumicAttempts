@@ -10,6 +10,7 @@ import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.SlotItemHandler;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
+import therealpant.thaumicattempts.golemnet.container.ContainerInfusionRequester;
 
 import java.lang.reflect.Method;
 
@@ -19,22 +20,25 @@ public class ContainerGolemCrafter extends Container {
     private IItemHandler patterns;
 
     private int teStart = 0, teEnd = 0;
+    private int resultStart = 0, resultEnd = 0;
 
-    /* ---------- Геометрия GUI (xSize = 370, центр = 185) ---------- */
+    /* ---------- Геометрия GUI ---------- */
 
-    // Инвентарь игрока — по центру (как в GUI паттернов)
-    public static final int PLAYER_TOP  = 130;
-    public static final int PLAYER_LEFT = 104;
+    // Инвентарь игрока
+    public static final int PLAYER_TOP  = 164;
+    public static final int PLAYER_LEFT = 89;
 
-    // Панель 3×5 (60×96 наружу, рамка 4 px): СЛЕВА от сетки
+    // Панель 3×5 (паттерны)
     public static final int PANEL_COLS = 3;
     public static final int PANEL_ROWS = 5;
+    public static final int PANEL_LEFT = 62;
+    public static final int PANEL_TOP  = 28;
 
-    // Внутренние координаты СЛОТОВ панели (после рамки 4 px)
-    // Расчёт: общий блок по X центрирован; для xSize=370 → panelInnerLeft = 109.
-    public static final int PANEL_LEFT = 109;
-    // Верх панели выровнен по верху превью/сетки: наружный top = 17 → inner = 17 + 4 = 21
-    public static final int PANEL_TOP  = 21;
+    // Сетка результатов 3×3
+    public static final int RESULT_COLS = 3;
+    public static final int RESULT_ROWS = 3;
+    public static final int RESULT_LEFT = 224;
+    public static final int RESULT_TOP  = 64;
 
     public ContainerGolemCrafter(InventoryPlayer playerInv, TileEntityGolemCrafter te) {
         this.te = te;
@@ -63,6 +67,24 @@ public class ContainerGolemCrafter extends Container {
             teStart = teEnd = 0;
         }
 
+        // 9 выходных слотов 3×3
+        IItemHandler output = te.getOutputHandler();
+        if (output != null && output.getSlots() > 0) {
+            resultStart = this.inventorySlots.size();
+            int slots = Math.min(output.getSlots(), RESULT_COLS * RESULT_ROWS);
+            for (int i = 0; i < slots; i++) {
+                int col = i % RESULT_COLS;
+                int row = i / RESULT_COLS;
+                this.addSlotToContainer(new SlotResultOnly(
+                        output,
+                        i,
+                        RESULT_LEFT + col * 18,
+                        RESULT_TOP  + row * 18
+                ));
+            }
+            resultEnd = this.inventorySlots.size();
+        }
+
         // Инвентарь игрока — по центру
         int invLeft = PLAYER_LEFT;
         int invTop  = PLAYER_TOP;
@@ -86,6 +108,17 @@ public class ContainerGolemCrafter extends Container {
         return null;
     }
 
+    private static class SlotResultOnly extends SlotItemHandler {
+        SlotResultOnly(IItemHandler itemHandler, int index, int xPosition, int yPosition) {
+            super(itemHandler, index, xPosition, yPosition);
+        }
+
+        @Override
+        public boolean isItemValid(ItemStack stack) {
+            return false;
+        }
+    }
+
     @Override public boolean canInteractWith(EntityPlayer playerIn) {
         return playerIn.getDistanceSq(te.getPos()) <= 64.0D;
     }
@@ -98,10 +131,10 @@ public class ContainerGolemCrafter extends Container {
             ItemStack in = slot.getStack();
             stack = in.copy();
 
-            int playerStart = teEnd;
+            int playerStart = resultEnd > resultStart ? resultEnd : teEnd;
             int playerEnd   = this.inventorySlots.size();
 
-            if (index < teEnd) {
+            if (index < teEnd || (resultEnd > resultStart && index < resultEnd)) {
                 if (!mergeItemStack(in, playerStart, playerEnd, true)) return ItemStack.EMPTY;
             } else {
                 if (teEnd > teStart) {

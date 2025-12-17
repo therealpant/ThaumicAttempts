@@ -51,7 +51,7 @@ import java.util.function.Consumer;
  * Инфузионный реквестер:
  * - 15 паттернов (ItemInfusionPattern)
  * - 1 спец-слот (перчатка/триггер)
- * - 4 слота результата
+ * - 9 слота результата
  * - внутренний входной буфер ресурсов
  * - знает владельца и кликает по матрице с его исследованиями
  */
@@ -115,7 +115,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
     };
 
-    private final ItemStackHandler results = new ItemStackHandler(4) {
+    private final ItemStackHandler results = new ItemStackHandler(9) {
         @Override
         protected void onContentsChanged(int slot) {
             markDirtyAndSync();
@@ -258,6 +258,10 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     public ItemStackHandler getResultHandler() {
         return results;
+    }
+
+    public Integer getActivePatternIndex() {
+        return activeSlot;
     }
 
     public @Nullable BlockPos getManagerPos() {
@@ -1472,6 +1476,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (compound.hasKey(TAG_PATTERNS)) patterns.deserializeNBT(compound.getCompoundTag(TAG_PATTERNS));
         if (compound.hasKey(TAG_SPECIAL))  specialSlot.deserializeNBT(compound.getCompoundTag(TAG_SPECIAL));
         if (compound.hasKey(TAG_RESULTS))  results.deserializeNBT(compound.getCompoundTag(TAG_RESULTS));
+        if (results.getSlots() < 9) results.setSize(9);
 
         storages.clear();
         if (compound.hasKey(TAG_STORAGES, Constants.NBT.TAG_LIST)) {

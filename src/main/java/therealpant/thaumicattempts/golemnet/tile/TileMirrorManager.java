@@ -196,7 +196,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private static final int SLOTS_PER_RING = 6;
     private static final int MAX_SLOTS = RINGS * SLOTS_PER_RING;
     private static final int MIRROR_FOCUS_TICKS = 80;
-    private static final int MIRROR_FOCUS_RELEASE_TICKS = 40;
+    private static final int MIRROR_FOCUS_RELEASE_TICKS = 20;
 
     private static final String TAG_MIRRORS = "mirrors";
     private static final String TAG_RENDER_SEED = "renderSeed";
@@ -217,6 +217,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         public long focusUntil;
         public float renderYaw = Float.NaN;
         public float renderFocus = 0f;
+        public boolean renderDelivering = false;
+        public float idleSpin = 0f;
+        public float lastRenderTime = Float.NaN;
+        public float lastSpinStep = 0f;
 
         public MirrorSlot(int r, int s, long p) {
             ring = r;
@@ -3064,6 +3068,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         // зеркала
+        Map<MirrorKey, MirrorSlot> prevMirrors = new HashMap<>();
+        for (MirrorSlot m : activeMirrors) {
+            prevMirrors.put(new MirrorKey(m.ring, m.slot), m);
+        }
         for (int rr = 0; rr < RINGS; rr++) Arrays.fill(slotBusy[rr], false);
         activeMirrors.clear();
         if (nbt.hasKey(TAG_MIRRORS, 9)) {
@@ -3078,6 +3086,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     slotBusy[r][s] = true;
                     MirrorSlot ms = new MirrorSlot(r, s, ph);
                     ms.focusUntil = fu;
+                    MirrorSlot old = prevMirrors.get(new MirrorKey(ms.ring, ms.slot));
+                    if (old != null) {
+                        ms.renderYaw = old.renderYaw;
+                        ms.renderFocus = old.renderFocus;
+                        ms.renderDelivering = old.renderDelivering;
+                        ms.idleSpin = old.idleSpin;
+                        ms.lastRenderTime = old.lastRenderTime;
+                        ms.lastSpinStep = old.lastSpinStep;
+                    }
                     activeMirrors.add(ms);
                 }
             }
