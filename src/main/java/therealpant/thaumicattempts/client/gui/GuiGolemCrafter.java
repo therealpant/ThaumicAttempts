@@ -16,7 +16,6 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemcraft.container.ContainerGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
-import therealpant.thaumicattempts.golemcraft.tile.TileEntityArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 
 import java.lang.reflect.Method;
@@ -25,8 +24,8 @@ import java.util.List;
 
 public class GuiGolemCrafter extends GuiContainer {
 
-    private static final int TEX_W = 354;
-    private static final int TEX_H = 256;
+    protected  static final int TEX_W = 354;
+    protected  static final int TEX_H = 256;
 
     private static final int PREVIEW_X = 242;
     private static final int PREVIEW_Y = 35;
@@ -35,24 +34,11 @@ public class GuiGolemCrafter extends GuiContainer {
     private static final int GRID_TOP_GOLEM = 44;
     private static final int GRID_STEP_GOLEM = 20; // 16 + 4 gap
 
-    private static final int GRID_LEFT_ARCANE = 143;
-    private static final int GRID_TOP_ARCANE = 46;
-    private static final int GRID_STEP_ARCANE = 18; // стандартный 16 + 2
-
-    private static final int PATTERN_STEP = 18;
-
-    private static final int[][] ARCANE_CRYSTAL_POINTS = new int[][]{
-            {161, 26},
-            {124, 47},
-            {124, 81},
-            {161, 102},
-            {199, 81},
-            {199, 47}
-    };
+    protected static final int PATTERN_STEP = 18;
 
     private final TileEntityGolemCrafter te;
+    private final ContainerGolemCrafter container;
     private final ResourceLocation backgroundTex;
-    private final boolean isArcaneCrafter;
     private IItemHandler patterns;
 
     // цикл предпросмотра
@@ -62,16 +48,52 @@ public class GuiGolemCrafter extends GuiContainer {
     private final int switchPeriod = 30; // 1.5 сек @20 TPS
 
     public GuiGolemCrafter(InventoryPlayer playerInv, TileEntityGolemCrafter te) {
-        super(new ContainerGolemCrafter(playerInv, te));
+        this(playerInv, te, new ContainerGolemCrafter(playerInv, te));
+    }
+
+    protected GuiGolemCrafter(InventoryPlayer playerInv, TileEntityGolemCrafter te, ContainerGolemCrafter container) {
+        super(container);
         this.te = te;
-        this.isArcaneCrafter = te instanceof TileEntityArcaneCrafter;
-        this.backgroundTex = new ResourceLocation(ThaumicAttempts.MODID,
-                "textures/gui/" + (isArcaneCrafter ? "a_crafter.png" : "crafter.png"));
+
+        this.container = container;
+        this.backgroundTex = getBackgroundTexture();
 
         this.xSize = TEX_W;
         this.ySize = TEX_H;
 
         this.patterns = tryGetPatternHandlerReflective(te);
+    }
+
+    protected ResourceLocation getBackgroundTexture() {
+        return new ResourceLocation(ThaumicAttempts.MODID, "textures/gui/crafter.png");
+    }
+
+    protected int getPreviewX() {
+        return PREVIEW_X;
+    }
+
+    protected int getPreviewY() {
+        return PREVIEW_Y;
+    }
+
+    protected int getGridLeft() {
+        return GRID_LEFT_GOLEM;
+    }
+
+    protected int getGridTop() {
+        return GRID_TOP_GOLEM;
+    }
+
+    protected int getGridStep() {
+        return GRID_STEP_GOLEM;
+    }
+
+    protected boolean shouldRenderArcaneCrystals() {
+        return false;
+    }
+
+    protected int[][] getArcaneCrystalPoints() {
+        return null;
     }
 
     private static IItemHandler tryGetPatternHandlerReflective(TileEntityGolemCrafter te) {
@@ -152,9 +174,8 @@ public class GuiGolemCrafter extends GuiContainer {
     private void highlightCurrentPatternSlot(int guiLeft, int guiTop) {
         if (currentSlot < 0) return;
 
-
-        final int baseX = guiLeft + ContainerGolemCrafter.PANEL_LEFT;
-        final int baseY = guiTop  + ContainerGolemCrafter.PANEL_TOP;
+        final int baseX = guiLeft + container.getPanelLeft();
+        final int baseY = guiTop  + container.getPanelTop();
 
         int col = currentSlot % ContainerGolemCrafter.PANEL_COLS; // 0..2
         int row = currentSlot / ContainerGolemCrafter.PANEL_COLS; // 0..4
@@ -173,9 +194,9 @@ public class GuiGolemCrafter extends GuiContainer {
         if (grid == null) grid = java.util.Collections.emptyList();
 
         // внутренняя область сетки (после рамки 4 px)
-        final int left = guiLeft + (isArcaneCrafter ? GRID_LEFT_ARCANE : GRID_LEFT_GOLEM);
-        final int top  = guiTop  + (isArcaneCrafter ? GRID_TOP_ARCANE  : GRID_TOP_GOLEM);
-        final int step = isArcaneCrafter ? GRID_STEP_ARCANE : GRID_STEP_GOLEM;
+        final int left = guiLeft + getGridLeft();
+        final int top  = guiTop  + getGridTop();
+        final int step = getGridStep();
 
         RenderHelper.enableGUIStandardItemLighting();
         for (int i = 0; i < Math.min(9, grid.size()); i++) {
@@ -199,31 +220,33 @@ public class GuiGolemCrafter extends GuiContainer {
         if (preview == null || preview.isEmpty()) return;
 
         RenderHelper.enableGUIStandardItemLighting();
-        int itemX = guiLeft + PREVIEW_X;
-        int itemY = guiTop  + PREVIEW_Y;
+        int itemX = guiLeft + getPreviewX();
+        int itemY = guiTop  + getPreviewY();
         itemRender.renderItemAndEffectIntoGUI(preview, itemX, itemY);
         itemRender.renderItemOverlayIntoGUI(this.fontRenderer, preview, itemX, itemY, null);
         RenderHelper.disableStandardItemLighting();
     }
 
     private void renderArcaneCrystals(int guiLeft, int guiTop) {
-        if (!isArcaneCrafter) return;
+        if (!shouldRenderArcaneCrystals()) return;
 
         ItemStack pattern = getCurrentPatternStack();
         if (pattern.isEmpty()) return;
 
         int[] counts = ItemArcanePattern.getCrystalCounts(pattern);
         Aspect[] primals = ItemArcanePattern.PRIMALS;
+        int[][] crystalPoints = getArcaneCrystalPoints();
+        if (crystalPoints == null || crystalPoints.length == 0) return;
 
         RenderHelper.enableGUIStandardItemLighting();
         GlStateManager.pushMatrix();
         GlStateManager.translate(0.5F, 0F, 0F);
-        for (int i = 0; i < ARCANE_CRYSTAL_POINTS.length && i < primals.length; i++) {
+        for (int i = 0; i < crystalPoints.length && i < primals.length; i++) {
             if (counts == null || i >= counts.length || counts[i] <= 0) continue;
 
             ItemStack icon = ThaumcraftApiHelper.makeCrystal(primals[i], counts[i]);
-            int cx = guiLeft + ARCANE_CRYSTAL_POINTS[i][0];
-            int cy = guiTop  + ARCANE_CRYSTAL_POINTS[i][1];
+            int cx = guiLeft + crystalPoints[i][0];
+            int cy = guiTop  + crystalPoints[i][1];
 
             itemRender.renderItemAndEffectIntoGUI(icon, cx, cy);
             String overlay = counts[i] > 1 ? String.valueOf(Math.min(99, counts[i])) : null;

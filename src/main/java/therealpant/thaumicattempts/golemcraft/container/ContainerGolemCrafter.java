@@ -10,7 +10,6 @@ import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.SlotItemHandler;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
-import therealpant.thaumicattempts.golemnet.container.ContainerInfusionRequester;
 
 import java.lang.reflect.Method;
 
@@ -25,23 +24,43 @@ public class ContainerGolemCrafter extends Container {
     /* ---------- Геометрия GUI ---------- */
 
     // Инвентарь игрока
-    public static final int PLAYER_TOP  = 164;
-    public static final int PLAYER_LEFT = 89;
+    public static final int PLAYER_TOP_DEFAULT  = 164;
+    public static final int PLAYER_LEFT_DEFAULT = 89;
 
     // Панель 3×5 (паттерны)
     public static final int PANEL_COLS = 3;
     public static final int PANEL_ROWS = 5;
-    public static final int PANEL_LEFT = 62;
-    public static final int PANEL_TOP  = 28;
+    public static final int PANEL_LEFT_DEFAULT = 62;
+    public static final int PANEL_TOP_DEFAULT  = 28;
 
     // Сетка результатов 3×3
     public static final int RESULT_COLS = 3;
     public static final int RESULT_ROWS = 3;
-    public static final int RESULT_LEFT = 224;
-    public static final int RESULT_TOP  = 64;
+    public static final int RESULT_LEFT_DEFAULT = 224;
+    public static final int RESULT_TOP_DEFAULT  = 64;
+
+    private final int playerTop;
+    private final int playerLeft;
+    private final int panelLeft;
+    private final int panelTop;
+    private final int resultLeft;
+    private final int resultTop;
 
     public ContainerGolemCrafter(InventoryPlayer playerInv, TileEntityGolemCrafter te) {
+        this(playerInv, te, PLAYER_LEFT_DEFAULT, PLAYER_TOP_DEFAULT, PANEL_LEFT_DEFAULT, PANEL_TOP_DEFAULT,
+                RESULT_LEFT_DEFAULT, RESULT_TOP_DEFAULT);
+    }
+
+    protected ContainerGolemCrafter(InventoryPlayer playerInv, TileEntityGolemCrafter te, int playerLeft, int playerTop,
+                                    int panelLeft, int panelTop, int resultLeft, int resultTop) {
+
         this.te = te;
+        this.playerLeft = playerLeft;
+        this.playerTop = playerTop;
+        this.panelLeft = panelLeft;
+        this.panelTop = panelTop;
+        this.resultLeft = resultLeft;
+        this.resultTop = resultTop;
 
         this.patterns = tryGetPatternHandlerReflective(te);
         if (this.patterns == null) {
@@ -58,8 +77,8 @@ public class ContainerGolemCrafter extends Container {
                     int idx = r * PANEL_COLS + c; // 0..14
                     this.addSlotToContainer(new SlotItemHandler(
                             this.patterns, idx,
-                            PANEL_LEFT + c * 18,   // шаг 18 = 16 + 2
-                            PANEL_TOP  + r * 18));
+                            panelLeft + c * 18,   // шаг 18 = 16 + 2
+                            panelTop  + r * 18));
                 }
             }
             teEnd = this.inventorySlots.size();
@@ -78,16 +97,16 @@ public class ContainerGolemCrafter extends Container {
                 this.addSlotToContainer(new SlotResultOnly(
                         output,
                         i,
-                        RESULT_LEFT + col * 18,
-                        RESULT_TOP  + row * 18
+                        resultLeft + col * 18,
+                        resultTop  + row * 18
                 ));
             }
             resultEnd = this.inventorySlots.size();
         }
 
         // Инвентарь игрока — по центру
-        int invLeft = PLAYER_LEFT;
-        int invTop  = PLAYER_TOP;
+        int invLeft =  playerLeft;
+        int invTop  = playerTop;
         for (int r = 0; r < 3; r++) {
             for (int c = 0; c < 9; c++) {
                 this.addSlotToContainer(new Slot(playerInv, c + r * 9 + 9, invLeft + c * 18, invTop + r * 18));
@@ -97,6 +116,29 @@ public class ContainerGolemCrafter extends Container {
         for (int c = 0; c < 9; c++) {
             this.addSlotToContainer(new Slot(playerInv, c, invLeft + c * 18, hotTop));
         }
+    }
+    public int getPanelLeft() {
+        return panelLeft;
+    }
+
+    public int getPanelTop() {
+        return panelTop;
+    }
+
+    public int getResultLeft() {
+        return resultLeft;
+    }
+
+    public int getResultTop() {
+        return resultTop;
+    }
+
+    public int getPlayerLeft() {
+        return playerLeft;
+    }
+
+    public int getPlayerTop() {
+        return playerTop;
     }
 
     private static IItemHandler tryGetPatternHandlerReflective(TileEntityGolemCrafter te) {

@@ -6,12 +6,14 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.common.network.IGuiHandler;
+import therealpant.thaumicattempts.golemcraft.container.ContainerArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.container.ContainerCraftPattern;
 import therealpant.thaumicattempts.golemcraft.container.ContainerInfusionPattern;
 import therealpant.thaumicattempts.golemcraft.container.ContainerGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 
+import therealpant.thaumicattempts.golemcraft.tile.TileEntityArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
@@ -30,6 +32,9 @@ public class GuiHandler implements IGuiHandler {
         switch (ID) {
             case GUI_GOLEM_CRAFTER: {
                 TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof TileEntityArcaneCrafter) {
+                    return new ContainerArcaneCrafter(player.inventory, (TileEntityArcaneCrafter) te);
+                }
                 if (te instanceof TileEntityGolemCrafter) {
                     return new ContainerGolemCrafter(player.inventory, (TileEntityGolemCrafter) te);
                 }
@@ -87,6 +92,9 @@ public class GuiHandler implements IGuiHandler {
         switch (ID) {
             case GUI_GOLEM_CRAFTER: {
                 TileEntity te = world.getTileEntity(new BlockPos(x, y, z));
+                if (te instanceof TileEntityArcaneCrafter) {
+                    return new GuiArcaneCrafter(player.inventory, (TileEntityArcaneCrafter) te);
+                }
                 if (te instanceof TileEntityGolemCrafter) {
                     return new GuiGolemCrafter(player.inventory, (TileEntityGolemCrafter) te);
                 }

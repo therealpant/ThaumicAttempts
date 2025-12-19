@@ -472,8 +472,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
             // 3) Пытаемся кликнуть по матрице
             boolean triggered = performTargetInteraction();
+            if (!triggered) {
+                // Перезапускаем задержку и пробуем снова через INTERACT_DELAY_TICKS
+                interactDelayCounter = 0;
+                markDirtyAndSync();
+                return;
+            }
 
-            // Мы больше не зависим от triggered, просто считаем, что матрица запущена
             stage = Stage.WAIT_PICKUP;
             pickupBaseline = snapshotFirstStorageCount();
             markDirtyAndSync();
@@ -1071,13 +1076,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
         ItemStack stack = specialSlot.getStackInSlot(0);
         if (stack.isEmpty()) {
-            return true;
+            return false;
         }
 
         IBlockState state = world.getBlockState(targetPos);
         Block block = state.getBlock();
         if (block == null || block.isAir(state, world, targetPos)) {
-            return true;
+            return false;
         }
 
         if (!(world instanceof WorldServer)) {
@@ -1156,9 +1161,10 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         // === 3. вызываем интерфейс IInteractWithCaster напрямую ===
         TileEntity te = world.getTileEntity(targetPos);
+        boolean triggered = false;
         if (te instanceof IInteractWithCaster) {
             IInteractWithCaster casterTarget = (IInteractWithCaster) te;
-            boolean res = casterTarget.onCasterRightClick(
+            triggered = casterTarget.onCasterRightClick(
                     world, held, fake, targetPos, EnumFacing.UP, EnumHand.MAIN_HAND
             );
         } else {
@@ -1168,8 +1174,10 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                     EnumHand.MAIN_HAND, EnumFacing.UP,
                     0.5F, 0.5F, 0.5F
             );
-            if (itemRes != EnumActionResult.SUCCESS) {
-                boolean blockRes = block.onBlockActivated(
+            if (itemRes == EnumActionResult.SUCCESS) {
+                triggered = true;
+            } else {
+                triggered = block.onBlockActivated(
                         world, targetPos, state,
                         fake, EnumHand.MAIN_HAND,
                         EnumFacing.UP,
@@ -1183,8 +1191,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         specialSlot.setStackInSlot(0, after);
         markDirtyAndSync();
 
-        // Всегда true — дальше просто ждём появления результата
-        return true;
+        return triggered;
     }
 
     /* === ФАЗА 3: ожидание результата и его затягивание === */
