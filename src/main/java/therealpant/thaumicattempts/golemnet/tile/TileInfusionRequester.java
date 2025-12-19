@@ -6,6 +6,8 @@ import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
+import net.minecraft.inventory.IInventory;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
@@ -16,7 +18,6 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.text.TextComponentString;
 import net.minecraft.world.WorldServer;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.util.Constants;
@@ -24,7 +25,8 @@ import net.minecraftforge.common.util.FakePlayer;
 import net.minecraftforge.common.util.FakePlayerFactory;
 import net.minecraftforge.items.*;
 import net.minecraftforge.items.wrapper.CombinedInvWrapper;
-import software.bernie.geckolib3.core.AnimationState;
+import net.minecraftforge.items.wrapper.InvWrapper;
+import net.minecraftforge.items.wrapper.RangedWrapper;
 import software.bernie.geckolib3.core.IAnimatable;
 import software.bernie.geckolib3.core.PlayState;
 import software.bernie.geckolib3.core.builder.AnimationBuilder;
@@ -34,31 +36,25 @@ import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.capabilities.IPlayerKnowledge;
 import thaumcraft.api.capabilities.ThaumcraftCapabilities;
+import thaumcraft.api.casters.IInteractWithCaster;
 import thaumcraft.api.golems.GolemHelper;
+import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
+
+import thaumcraft.common.golems.EntityThaumcraftGolem;
 import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
-import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
-import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.ItemKey;
-import thaumcraft.common.golems.EntityThaumcraftGolem;
-import thaumcraft.api.casters.IInteractWithCaster;
 
 import javax.annotation.Nullable;
 import java.util.*;
 import java.util.function.Consumer;
 
-/**
- * Инфузионный реквестер:
- * - 15 паттернов (ItemInfusionPattern)
- * - 1 спец-слот (перчатка/триггер)
- * - 9 слота результата
- * - внутренний входной буфер ресурсов
- * - знает владельца и кликает по матрице с его исследованиями
- */
 public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
         ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider, IAnimatable {
+
     public static final int PATTERN_SLOT_COUNT = 15;
     private final AnimationFactory factory = new AnimationFactory(this);
+
     private static final String TAG_PATTERNS = "patterns";
     private static final String TAG_SPECIAL  = "special";
     private static final String TAG_RESULTS  = "results";
@@ -70,6 +66,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private static final String TAG_MANAGER  = "manager";
     private static final String TAG_OWNER_ID   = "OwnerId";
     private static final String TAG_OWNER_NAME = "OwnerName";
+
     private static final String TAG_JOB_ACTIVE       = "JobActive";
     private static final String TAG_JOB_STAGE        = "JobStage";
     private static final String TAG_JOB_SLOT         = "JobSlot";
@@ -78,88 +75,115 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private static final String TAG_JOB_PICKUP_BASE  = "JobPickupBaseline";
     private static final String TAG_CRAFT_DELIVERIES = "CraftDeliveries";
 
+    // (оставлено для NBT совместимости, но больше НЕ используется как стоп-условие)
+    private static final String TAG_JOB_MATRIX_POS   = "JobMatrixPos";
+    private static final String TAG_JOB_MATRIX_SEEN  = "JobMatrixSeen";
+    private static final String TAG_JOB_MATRIX_LAST  = "JobMatrixLast";
+
     private static final int MAX_QUEUED_ORDERS = 8;
 
-    /** Задержка перед кликом по матрице (2 секунды при 20 TPS). */
     private static final int INTERACT_DELAY_TICKS = 40;
-
-    /** Пауза между заполнением соседних пьедесталов (1 секунда при 20 TPS). */
     private static final int PEDESTAL_DELAY_TICKS = 20;
+
+    // === pickup polling ===
+    private static final int PICKUP_POLL_INTERVAL = 20; // 1 second (можешь 40 вернуть)
+    private int pickupPollCounter = 0;
+
+    private final Map<Integer, Integer> storageBaselines = new HashMap<>();
+    private ItemStack expectedResultLike1 = ItemStack.EMPTY;
 
     private int interactDelayCounter = 0;
 
-    /** Внутренний буфер ресурсов, сюда големы всё носят. */
+    /** Внутренний буфер ресурсов (воронки кладут сюда через capability) */
     private final ItemStackHandler input = new ItemStackHandler(27) {
-        @Override
-        protected void onContentsChanged(int slot) {
-            markDirtyAndSync();
-        }
+        @Override protected void onContentsChanged(int slot) { markDirtyAndSync(); }
     };
 
     private final ItemStackHandler patterns = new ItemStackHandler(PATTERN_SLOT_COUNT) {
-        @Override
-        public boolean isItemValid(int slot, ItemStack stack) {
+        @Override public boolean isItemValid(int slot, ItemStack stack) {
             return !stack.isEmpty() && stack.getItem() instanceof ItemInfusionPattern;
         }
-
-        @Override
-        protected void onContentsChanged(int slot) {
-            markDirtyAndSync();
-        }
+        @Override protected void onContentsChanged(int slot) { markDirtyAndSync(); }
     };
 
     private final ItemStackHandler specialSlot = new ItemStackHandler(1) {
-        @Override
-        protected void onContentsChanged(int slot) {
-            markDirtyAndSync();
-        }
+        @Override protected void onContentsChanged(int slot) { markDirtyAndSync(); }
     };
 
+    /** 9 слотов результата */
     private final ItemStackHandler results = new ItemStackHandler(9) {
-        @Override
-        protected void onContentsChanged(int slot) {
-            markDirtyAndSync();
-        }
+        @Override protected void onContentsChanged(int slot) { markDirtyAndSync(); }
+        @Override public boolean isItemValid(int slot, ItemStack stack) { return true; }
     };
 
-    /** Важно: input первым, чтобы големы клали ресурсы именно туда. */
+    /** combined: важно, что input первым */
     private final IItemHandler combined = new CombinedInvWrapper(input, patterns, specialSlot, results);
 
+    /** наружу вниз отдаём только results (чтобы воронки забирали результат) */
+    private final IItemHandler resultsOnly = new RangedWrapper(results, 0, results.getSlots());
+
     private final List<BlockPos> storages = new ArrayList<>();
-    @Nullable
-    private BlockPos targetPos = null;
+    @Nullable private BlockPos targetPos = null;
     private final LinkedHashSet<UUID> boundGolems = new LinkedHashSet<>();
 
     private final ArrayDeque<Integer> queuedTriggers = new ArrayDeque<>();
     private int lastSignal = 0;
 
+    // === job state ===
+    private final ArrayDeque<PendingCrafterDelivery> pendingCraftDeliveries = new ArrayDeque<>();
+    private boolean jobActive = false;
+    private int activeSlot = -1;
+    private int tickCounter = 0;
+
+    private enum Stage { NONE, WAIT_RESOURCES, INTERACT_TARGET, WAIT_PICKUP }
+    private Stage stage = Stage.NONE;
+
+    private final Map<ItemKey, Integer> pendingToRequester = new LinkedHashMap<>();
+    private final Map<ItemKey, Integer> baselineToRequester = new HashMap<>();
+    private final Map<Integer, Map<ItemKey, Integer>> pendingByStorage = new LinkedHashMap<>();
+
+    private boolean needsEnsure = false;
+    private int lastEnsureTick = -9999;
+    private int nextProvisionTick = 0;
+    private static final int PROVISION_INTERVAL = 10;
+    private static final int ENSURE_INTERVAL = 20;
+
+    private int pickupBaseline = -1;
+
+    @Nullable private BlockPos managerPos = null;
+    private boolean managerFromPattern = false;
+
+    @Nullable private UUID ownerId = null;
+    @Nullable private String ownerName = null;
+
+    private int distributeCurrentStorage = -1;
+    private int distributeDelayTicks = 0;
+    private boolean distributeFxPlayed = false;
+
+    // === matrix tracking: только позиция матрицы (без crafting-проверок) ===
+    @Nullable private BlockPos jobMatrixPos = null;
+
+    // -------------------- GeckoLib --------------------
+
     @Override
     public void registerControllers(AnimationData data) {
-        data.addAnimationController(new AnimationController<>(
-                this,
-                "infusion_requester_controller",
-                0,
-                this::animationPredicate
-        ));
+        data.addAnimationController(new AnimationController<>(this, "infusion_requester_controller", 0, this::animationPredicate));
     }
 
     @Override
-    public AnimationFactory getFactory() {
-        return factory;
-    }
+    public AnimationFactory getFactory() { return factory; }
 
     private <E extends IAnimatable> PlayState animationPredicate(AnimationEvent<E> event) {
-        event.getController().setAnimation(
-                new AnimationBuilder().addAnimation("animation.infusion_requester.new", true)
-        );
+        event.getController().setAnimation(new AnimationBuilder().addAnimation("animation.infusion_requester.new", true));
         return PlayState.CONTINUE;
     }
+
+    // -------------------- Internal classes --------------------
 
     private static final class PendingCrafterDelivery {
         final BlockPos dest;
         final int destSide;
-        @Nullable
-        final BlockPos manager;
+        @Nullable final BlockPos manager;
         final ItemStack like1;
         int remaining;
 
@@ -176,9 +200,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             NBTTagCompound tag = new NBTTagCompound();
             tag.setLong("Dest", dest.toLong());
             tag.setInteger("Side", destSide);
-            if (manager != null) {
-                tag.setLong("Mgr", manager.toLong());
-            }
+            if (manager != null) tag.setLong("Mgr", manager.toLong());
             tag.setTag("Like", like1.serializeNBT());
             tag.setInteger("Remain", remaining);
             return tag;
@@ -194,44 +216,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
     }
 
-    private final ArrayDeque<PendingCrafterDelivery> pendingCraftDeliveries = new ArrayDeque<>();
-    private boolean jobActive = false;
-    private int activeSlot = -1;
-    private int tickCounter = 0;
-
-    private enum Stage { NONE, WAIT_RESOURCES, INTERACT_TARGET, WAIT_PICKUP }
-
-    private Stage stage = Stage.NONE;
-
-    /** Чего не хватает именно в реквестере (во входном буфере). */
-    private final Map<ItemKey, Integer> pendingToRequester = new LinkedHashMap<>();
-    private final Map<ItemKey, Integer> baselineToRequester = new HashMap<>();
-
-    /** План раскладки ресурсов по привязанным хранилищам. */
-    private final Map<Integer, Map<ItemKey, Integer>> pendingByStorage = new LinkedHashMap<>();
-
-    private boolean needsEnsure = false;
-    private int lastEnsureTick = -9999;
-    private int nextProvisionTick = 0;
-    private static final int PROVISION_INTERVAL = 10;
-    private static final int ENSURE_INTERVAL = 20;
-
-    private int pickupBaseline = -1;
-
-    @Nullable
-    private BlockPos managerPos = null;
-    private boolean managerFromPattern = false;
-
-    /** Владелец блока (от него берём исследования). */
-    @Nullable
-    private UUID ownerId = null;
-    @Nullable
-    private String ownerName = null;
-
-    /** Состояние раскладки по пьедесталам (фаза 2). */
-    private int distributeCurrentStorage = -1;
-    private int distributeDelayTicks = 0;
-    private boolean distributeFxPlayed = false;
+    // -------------------- IPatternedWorksite --------------------
 
     @Override
     public PatternRedstoneMode getRedstoneMode() {
@@ -243,44 +228,17 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         return new PatternProvisioningSpec(EnumFacing.UP, true, true, PROVISION_INTERVAL);
     }
 
-    @Override
-    public ItemStackHandler getPatternHandler() {
-        return patterns;
-    }
+    @Override public ItemStackHandler getPatternHandler() { return patterns; }
+    public ItemStackHandler getInputHandler() { return input; }
+    public ItemStackHandler getSpecialHandler() { return specialSlot; }
+    public ItemStackHandler getResultHandler() { return results; }
+    public Integer getActivePatternIndex() { return activeSlot; }
+    public @Nullable BlockPos getManagerPos() { return managerPos; }
 
-    public ItemStackHandler getInputHandler() {
-        return input;
-    }
+    @Override public void setManagerPosFromPattern(@Nullable BlockPos managerPos) { setManagerPos(managerPos); }
+    @Override public @Nullable BlockPos getManagerPosForPattern() { return managerPos; }
 
-    public ItemStackHandler getSpecialHandler() {
-        return specialSlot;
-    }
-
-    public ItemStackHandler getResultHandler() {
-        return results;
-    }
-
-    public Integer getActivePatternIndex() {
-        return activeSlot;
-    }
-
-    public @Nullable BlockPos getManagerPos() {
-        return managerPos;
-    }
-
-    @Override
-    public void setManagerPosFromPattern(@Nullable BlockPos managerPos) {
-        setManagerPos(managerPos);
-    }
-
-    @Override
-    public @Nullable BlockPos getManagerPosForPattern() {
-        return managerPos;
-    }
-
-    public void setManagerPos(@Nullable BlockPos pos) {
-        setManagerPos(pos, false);
-    }
+    public void setManagerPos(@Nullable BlockPos pos) { setManagerPos(pos, false); }
 
     private boolean hasPatternRequesterAbove() {
         if (world == null) return false;
@@ -329,9 +287,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
     }
 
-    /* ====== ВЛАДЕЛЕЦ ====== */
-
-    /** Вызывай из блока при установке / первом клике. */
     public void setOwner(@Nullable EntityPlayer player) {
         if (player == null) {
             this.ownerId = null;
@@ -342,7 +297,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
         markDirtyAndSync();
     }
-    /* ====================== */
 
     public boolean tryInsertPattern(ItemStack stack) {
         if (stack.isEmpty() || !(stack.getItem() instanceof ItemInfusionPattern)) return false;
@@ -373,10 +327,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (slot < 0) return 0;
         return enqueueFromPatternRequester(slot, times);
     }
-    /**
-     * Новый API для MirrorManager: заказ крафта с автоматической доставкой
-     * результата в заказчик (OrderTerminal).
-     */
+
     public int enqueueCrafterOrder(@Nullable BlockPos managerPos, BlockPos dest, int destSide, ItemStack resultLike, int items) {
         if (dest == null || resultLike == null || resultLike.isEmpty() || items <= 0) return 0;
 
@@ -406,15 +357,14 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         return ItemStack.EMPTY;
     }
 
+    // ========================= UPDATE =========================
+
     @Override
     public void update() {
         if (world == null) return;
 
         if (!world.isRemote) {
-            // 1) подтягиваем менеджер от паттерн-реквестера сверху
             syncManagerFromPattern();
-
-            // 2) регистрируем себя как реквестер в менеджере (для каталога крафта)
             if (managerPos != null) {
                 TileEntity te = world.getTileEntity(managerPos);
                 if (te instanceof TileMirrorManager) {
@@ -441,57 +391,189 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         if (!jobActive) {
             tryStartNextJob();
+            deliverStoredResultsToDestinations();
             return;
         }
 
         if (stage == Stage.WAIT_RESOURCES) {
             boolean changed = reconcilePendingToRequester();
             ensurePendingToRequester(changed ? 0 : ENSURE_INTERVAL);
+
             if (pendingToRequester.isEmpty()) {
-                // Все ресурсы в реквестере — можно раскладывать по хранилищам
                 stage = Stage.INTERACT_TARGET;
-                pickupBaseline = -1;
                 interactDelayCounter = 0;
+                pickupBaseline = -1;
+
+                pickupPollCounter = 0;
+                storageBaselines.clear();
+                expectedResultLike1 = computeExpectedResultLike1(activeSlot);
+
                 markDirtyAndSync();
             }
-        } else if (stage == Stage.INTERACT_TARGET) {
-            // 1) Раскладываем по привязанным хранилищам (последовательно по пьедесталам)
+        }
+        else if (stage == Stage.INTERACT_TARGET) {
+
             boolean distributed = distributeFromInputToStorages();
             if (!distributed) {
-                // ещё не всё разложено
+                deliverStoredResultsToDestinations();
                 return;
             }
 
-            // 2) Когда всё разложено, ждём задержку
+            if (storageBaselines.isEmpty()) {
+                captureAllStorageBaselines();
+                pickupBaseline = snapshotFirstStorageState(); // оставить для NBT совместимости
+                markDirtyAndSync();
+            }
+
             if (interactDelayCounter < INTERACT_DELAY_TICKS) {
-                if (interactDelayCounter == 0) {
-                }
                 interactDelayCounter++;
+                deliverStoredResultsToDestinations();
                 return;
             }
 
-            // 3) Пытаемся кликнуть по матрице
             boolean triggered = performTargetInteraction();
             if (!triggered) {
-                // Перезапускаем задержку и пробуем снова через INTERACT_DELAY_TICKS
                 interactDelayCounter = 0;
                 markDirtyAndSync();
+                deliverStoredResultsToDestinations();
                 return;
             }
 
+            // ВАЖНО: сразу переходим в WAIT_PICKUP, БЕЗ проверок crafting.
             stage = Stage.WAIT_PICKUP;
-            pickupBaseline = snapshotFirstStorageCount();
+
+            // Вычисляем/уточняем позицию матрицы.
+            jobMatrixPos = targetPos;
+            if (jobMatrixPos != null) {
+                TileEntity te = world.getTileEntity(jobMatrixPos);
+                if (!(te instanceof TileInfusionMatrix)) {
+                    BlockPos up2 = jobMatrixPos.up(2);
+                    if (world.getTileEntity(up2) instanceof TileInfusionMatrix) jobMatrixPos = up2;
+
+                    BlockPos down2 = jobMatrixPos.down(2);
+                    if (world.getTileEntity(down2) instanceof TileInfusionMatrix) jobMatrixPos = down2;
+                }
+            }
+
+            pickupPollCounter = 0;
+            interactDelayCounter = 0;
+
+            if (expectedResultLike1.isEmpty() && activeSlot >= 0) {
+                expectedResultLike1 = computeExpectedResultLike1(activeSlot);
+            }
+
             markDirtyAndSync();
-        } else if (stage == Stage.WAIT_PICKUP) {
-            // Просто периодически пытаемся забрать результат,
-            // когда на первом хранилище появится предмет как в превью паттерна.
-            if (tryPullResultFromFirstStorage()) {
+
+            // СРАЗУ пробуем забрать (на случай мгновенного результата / перезахода)
+            if (pickupExpectedFromMatrixCentralPedestalStrict()) {
+                clearJob();
+                deliverStoredResultsToDestinations();
+                return;
+            }
+        }
+        else if (stage == Stage.WAIT_PICKUP) {
+
+            pickupPollCounter++;
+
+            // периодически пытаемся забрать результат из FIRST storage (storages[0])
+            if (pickupPollCounter % PICKUP_POLL_INTERVAL == 0) {
+
+                if (tryPullResultFromFirstStorage()) {
+                    clearJob();
+                    deliverStoredResultsToDestinations(); // если у тебя есть доставка заказов — оставить
+                    return;
+                }
+            }
+
+            // safety: не висим вечно
+            if (pickupPollCounter > 20 * 180) { // 3 минуты
+                // на всякий случай вытягиваем всё из первого storage в results
+                pullFirstStorageIntoResults();
                 clearJob();
             }
         }
 
+
         deliverStoredResultsToDestinations();
     }
+
+    /**
+     * Пытаемся забрать с первого storage (storages[0]) именно результат крафта
+     * (по превью паттерна activeSlot). Возвращает true, если что-то забрали.
+     */
+    private boolean tryPullResultFromFirstStorage() {
+        if (world == null || storages.isEmpty()) return false;
+        if (activeSlot < 0 || !hasPatternInSlot(activeSlot)) return false;
+
+        BlockPos storagePos = storages.get(0);
+        IItemHandler handler = getStorageHandler(storagePos);
+        if (handler == null) return false;
+
+        // ожидаемый результат из паттерна
+        ItemStack pat = patterns.getStackInSlot(activeSlot);
+        ItemStack preview = ItemInfusionPattern.calcResultPreview(pat, world);
+        preview = TerminalOrderApi.stripOrderIconData(preview); // если у тебя есть такой хелпер, иначе убери
+        if (preview.isEmpty()) {
+            // если вдруг превью пустое — вытягиваем всё (старое fallback-поведение)
+            pullFirstStorageIntoResults();
+            return true;
+        }
+
+        ItemStack like = preview.copy();
+        like.setCount(1);
+
+        // ищем предмет, совпадающий с превью
+        for (int i = 0; i < handler.getSlots(); i++) {
+            ItemStack slot = handler.getStackInSlot(i);
+            if (slot.isEmpty()) continue;
+
+            if (!ItemHandlerHelper.canItemStacksStackRelaxed(slot, like)) continue;
+
+            int toExtract = slot.getCount(); // можно ограничить до preview.getCount() при желании
+            ItemStack extracted = handler.extractItem(i, toExtract, false);
+            if (!extracted.isEmpty()) {
+                insertIntoResultsOrDrop(extracted);
+                markDirtyAndSync();
+                return true;
+            }
+        }
+
+        return false;
+    }
+
+    /** Вытягиваем ВЕСЬ инвентарь первого storage (storages[0]) в results (fallback / timeout). */
+    private void pullFirstStorageIntoResults() {
+        if (world == null || storages.isEmpty()) return;
+
+        BlockPos storagePos = storages.get(0);
+        IItemHandler handler = getStorageHandler(storagePos);
+        if (handler == null) return;
+
+        for (int i = 0; i < handler.getSlots(); i++) {
+            ItemStack canExtract = handler.extractItem(i, handler.getSlotLimit(i), true);
+            if (canExtract.isEmpty()) continue;
+
+            ItemStack extracted = handler.extractItem(i, canExtract.getCount(), false);
+            if (!extracted.isEmpty()) {
+                insertIntoResultsOrDrop(extracted);
+            }
+        }
+
+        markDirtyAndSync();
+    }
+
+    /** Вставляет стак в results, остаток дропает. */
+    private void insertIntoResultsOrDrop(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return;
+
+        ItemStack remaining = ItemHandlerHelper.insertItem(results, stack, false);
+        if (!remaining.isEmpty()) {
+            dropStack(remaining);
+        }
+    }
+
+
+    // ========================= TERMINAL / CRAFT API =========================
 
     @Override
     public void onLoad() {
@@ -499,6 +581,11 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (world != null && !world.isRemote) {
             this.lastSignal = readSignal();
             syncManagerFromPattern();
+
+            // если загрузились в WAIT_PICKUP — восстановим expected
+            if (jobActive && stage == Stage.WAIT_PICKUP && expectedResultLike1.isEmpty() && activeSlot >= 0) {
+                expectedResultLike1 = computeExpectedResultLike1(activeSlot);
+            }
         }
     }
 
@@ -522,7 +609,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemStack pat = patterns.getStackInSlot(i);
             if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) continue;
 
-            ItemStack preview = therealpant.thaumicattempts.api.TerminalOrderApi
+            ItemStack preview = TerminalOrderApi
                     .stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
             if (preview.isEmpty()) continue;
 
@@ -540,7 +627,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         for (int i = 0; i < patterns.getSlots(); i++) {
             ItemStack pat = patterns.getStackInSlot(i);
             if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) continue;
-            ItemStack preview = therealpant.thaumicattempts.api.TerminalOrderApi
+
+            ItemStack preview = TerminalOrderApi
                     .stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
             if (preview.isEmpty()) continue;
 
@@ -578,9 +666,11 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     }
 
     @Override
-    public java.util.Set<String> getCraftOrderTags() {
+    public Set<String> getCraftOrderTags() {
         return CraftOrderApi.singletonTag(CraftOrderApi.TAG_CRAFTER);
     }
+
+    // ========================= PATTERN LOOKUP / MATCH =========================
 
     public int findPatternSlotFor(ItemStack like) {
         if (world == null || like == null || like.isEmpty()) return -1;
@@ -588,7 +678,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemStack pat = patterns.getStackInSlot(i);
             if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) continue;
 
-            ItemStack preview = therealpant.thaumicattempts.api.TerminalOrderApi
+            ItemStack preview = TerminalOrderApi
                     .stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
             if (preview.isEmpty()) continue;
 
@@ -608,6 +698,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
         return ItemHandlerHelper.canItemStacksStackRelaxed(preview, like);
     }
+
+    // ========================= DELIVERY OUT (results -> destinations) =========================
 
     private int deliverPendingCraftResult(ItemStack stack) {
         if (stack == null || stack.isEmpty() || world == null || pendingCraftDeliveries.isEmpty()) return 0;
@@ -675,6 +767,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
     }
 
+    // ========================= JOB QUEUE =========================
+
     private void enqueueTrigger(int slot, int count) {
         if (slot < 0 || slot >= patterns.getSlots()) return;
         if (count <= 0) return;
@@ -732,21 +826,24 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         pickupBaseline = -1;
         interactDelayCounter = 0;
 
+        pickupPollCounter = 0;
+        storageBaselines.clear();
+        expectedResultLike1 = computeExpectedResultLike1(slot);
+
+        jobMatrixPos = null;
+
         int storageCount = storages.size();
         int idx = 0;
 
-        // Считаем, сколько чего надо в реквестере, и сразу же строим план раскладки по хранилищам
         for (PatternResourceList.Entry entry : resources) {
             if (entry == null || entry.getKey() == null || entry.getKey() == ItemKey.EMPTY) continue;
 
             ItemKey key = entry.getKey();
             int count = Math.max(1, entry.getCount());
 
-            // Для фазы 1: всё должно оказаться в реквестере
             baselineToRequester.putIfAbsent(key, countInInputLike(key));
             pendingToRequester.merge(key, count, Integer::sum);
 
-            // Для фазы 2: как будем раскладывать по storages
             if (storageCount > 0) {
                 int target = Math.min(idx, storageCount - 1);
                 Map<ItemKey, Integer> need = pendingByStorage.computeIfAbsent(target, k -> new LinkedHashMap<>());
@@ -763,19 +860,30 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         jobActive = false;
         activeSlot = -1;
         stage = Stage.NONE;
+
         pendingToRequester.clear();
         baselineToRequester.clear();
         pendingByStorage.clear();
+
         needsEnsure = false;
-        lastEnsureTick = -9999;
         lastEnsureTick = tickCounter;
         nextProvisionTick = tickCounter;
+
         pickupBaseline = -1;
         interactDelayCounter = 0;
+
+        pickupPollCounter = 0;
+        storageBaselines.clear();
+        expectedResultLike1 = ItemStack.EMPTY;
+
+        jobMatrixPos = null;
+
         resetDistributionState();
         markDirtyAndSync();
         tryStartNextJob();
     }
+
+    // ========================= RESOURCES PHASE 1 =========================
 
     private boolean hasPatternInSlot(int slot) {
         if (slot < 0 || slot >= patterns.getSlots()) return false;
@@ -788,8 +896,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (!hasPatternInSlot(slot)) return Collections.emptyList();
         return PatternResourceList.build(patterns.getStackInSlot(slot));
     }
-
-    /* === ФАЗА 1: ресурсы в самом реквестере === */
 
     private int countInInputLike(ItemKey key) {
         if (key == null || key == ItemKey.EMPTY) return 0;
@@ -880,7 +986,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         needsEnsure = false;
     }
 
-    /* === ФАЗА 2: раскладка из реквестера по storages === */
+    // ========================= RESOURCES PHASE 2 (DISTRIBUTE) =========================
 
     private int moveFromInputToStorage(ItemKey key, int maxAmount, IItemHandler storageHandler) {
         if (key == null || key == ItemKey.EMPTY || maxAmount <= 0) return 0;
@@ -908,7 +1014,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         return moved;
     }
 
-    /** FX как у матрицы при завершении крафта: cloud над пьедесталом. */
     private void playPedestalFinishFX(BlockPos pedestalPos) {
         if (world == null || world.isRemote || pedestalPos == null) return;
 
@@ -916,11 +1021,9 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         Block block = state.getBlock();
         if (block == null) return;
 
-        // Матрица в craftingFinish кидает blockEvent(..., 12, 0)
         world.addBlockEvent(pedestalPos, block, 12, 0);
     }
 
-    /** Выбор следующего индекса хранилища, которое ещё что-то хочет. */
     private int findNextStorageIndex() {
         if (pendingByStorage.isEmpty()) return -1;
         int bestGreater = Integer.MAX_VALUE;
@@ -928,28 +1031,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         for (Integer idx : pendingByStorage.keySet()) {
             if (idx == null || idx < 0) continue;
-            if (idx > distributeCurrentStorage && idx < bestGreater) {
-                bestGreater = idx;
-            }
-            if (idx < bestAny) {
-                bestAny = idx;
-            }
+            if (idx > distributeCurrentStorage && idx < bestGreater) bestGreater = idx;
+            if (idx < bestAny) bestAny = idx;
         }
-
         if (bestGreater != Integer.MAX_VALUE) return bestGreater;
         return bestAny == Integer.MAX_VALUE ? -1 : bestAny;
     }
 
-    /**
-     * Раскладываем ресурсы по привязанным хранилищам согласно pendingByStorage.
-     *
-     * ВАЖНО:
-     * - Обрабатываем по одному пьедесталу за раз.
-     * - Между пьедесталами есть пауза PEDESTAL_DELAY_TICKS.
-     * - Облако (FX) вызывается в тот же тик, когда первый предмет реально лег на пьедестал.
-     *
-     * Возвращаем true, когда всё разложено по всем хранилищам.
-     */
     private boolean distributeFromInputToStorages() {
         if (world == null) return true;
         if (storages.isEmpty() || pendingByStorage.isEmpty()) {
@@ -957,22 +1045,16 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             return true;
         }
 
-        // Пауза между пьедесталами
         if (distributeDelayTicks > 0) {
             distributeDelayTicks--;
             return false;
         }
 
-        // Если текущий пьедестал не выбран или для него больше нет нужд — выбираем следующий
         Map<ItemKey, Integer> needs = pendingByStorage.get(distributeCurrentStorage);
         if (distributeCurrentStorage < 0 || needs == null || needs.isEmpty()) {
-            // удаляем пустую запись
-            if (needs != null && needs.isEmpty()) {
-                pendingByStorage.remove(distributeCurrentStorage);
-            }
+            if (needs != null && needs.isEmpty()) pendingByStorage.remove(distributeCurrentStorage);
 
             if (pendingByStorage.isEmpty()) {
-                // Всё разложено
                 resetDistributionState();
                 return true;
             }
@@ -981,29 +1063,16 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             distributeFxPlayed = false;
 
             if (distributeCurrentStorage < 0) {
-                // На всякий случай — если что-то пошло не так
                 resetDistributionState();
                 return true;
             }
 
             needs = pendingByStorage.get(distributeCurrentStorage);
-            if (needs == null || needs.isEmpty()) {
-                // попробуем на следующем тике
-                return false;
-            }
+            if (needs == null || needs.isEmpty()) return false;
         }
 
-        // Есть активный пьедестал и набор потребностей
         BlockPos storagePos = storages.get(Math.max(0, Math.min(distributeCurrentStorage, storages.size() - 1)));
-        TileEntity te = world.getTileEntity(storagePos);
-        if (te == null || !te.hasCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, EnumFacing.UP)) {
-            // Нечего делать — считаем, что этот пьедестал пропускаем
-            pendingByStorage.remove(distributeCurrentStorage);
-            distributeCurrentStorage = -1;
-            return pendingByStorage.isEmpty();
-        }
-
-        IItemHandler handler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, EnumFacing.UP);
+        IItemHandler handler = getStorageHandler(storagePos);
         if (handler == null) {
             pendingByStorage.remove(distributeCurrentStorage);
             distributeCurrentStorage = -1;
@@ -1021,118 +1090,80 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (moved > 0) {
                 anyMovedHere = true;
 
-                // В тот же тик, когда впервые что-то перегнали на этот пьедестал — показываем облако
                 if (!distributeFxPlayed) {
                     playPedestalFinishFX(storagePos);
                     distributeFxPlayed = true;
                 }
 
                 int left = Math.max(0, want - moved);
-                if (left <= 0) {
-                    itNeed.remove();
-                } else {
-                    needEntry.setValue(left);
-                }
+                if (left <= 0) itNeed.remove();
+                else needEntry.setValue(left);
             }
         }
 
-        if (anyMovedHere) {
-            markDirtyAndSync();
-        }
+        if (anyMovedHere) markDirtyAndSync();
 
-        // Если этот пьедестал полностью удовлетворён — убираем его и запускаем паузу
         if (needs.isEmpty()) {
             pendingByStorage.remove(distributeCurrentStorage);
             distributeCurrentStorage = -1;
 
             if (pendingByStorage.isEmpty()) {
-                // Последний пьедестал — больше не ждём, сразу true
                 resetDistributionState();
                 return true;
             } else {
-                // Есть ещё пьедесталы — между ними выдерживаем паузу
                 distributeDelayTicks = PEDESTAL_DELAY_TICKS;
                 distributeFxPlayed = false;
                 return false;
             }
         }
 
-        // На этом пьедестале ещё остались нужды — продолжим на следующем тике
         return false;
     }
 
-    /* === ФАЗА 2.5: клик по матрице от имени владельца === */
+    // ========================= INTERACT (CLICK MATRIX) =========================
 
-    /**
-     * ПКМ перчаткой из спец-слота по матрице.
-     * Мы больше не завязываемся на результат onCasterRightClick — просто запускаем и идём ждать результат.
-     */
     private boolean performTargetInteraction() {
-        if (world == null) return false;
-        if (world.isRemote) return false;
+        if (world == null || world.isRemote) return false;
+        if (targetPos == null) return true;
 
-        if (targetPos == null) {
-            return true; // нечего кликать
-        }
         ItemStack stack = specialSlot.getStackInSlot(0);
-        if (stack.isEmpty()) {
-            return false;
-        }
+        if (stack.isEmpty()) return false;
 
         IBlockState state = world.getBlockState(targetPos);
         Block block = state.getBlock();
-        if (block == null || block.isAir(state, world, targetPos)) {
-            return false;
-        }
+        if (block == null || block.isAir(state, world, targetPos)) return false;
 
-        if (!(world instanceof WorldServer)) {
-            return false;
-        }
+        if (!(world instanceof WorldServer)) return false;
         WorldServer ws = (WorldServer) world;
 
-        // === 1. выбираем "владельца" / игрока-источник знаний ===
         EntityPlayerMP ownerEntity = null;
 
         if (ownerId != null) {
             for (EntityPlayerMP p : ws.getMinecraftServer().getPlayerList().getPlayers()) {
-                if (p.getUniqueID().equals(ownerId)) {
-                    ownerEntity = p;
-                    break;
-                }
+                if (p.getUniqueID().equals(ownerId)) { ownerEntity = p; break; }
             }
         }
         if (ownerEntity == null && ownerName != null) {
             for (EntityPlayerMP p : ws.getMinecraftServer().getPlayerList().getPlayers()) {
-                if (ownerName.equals(p.getName())) {
-                    ownerEntity = p;
-                    break;
-                }
+                if (ownerName.equals(p.getName())) { ownerEntity = p; break; }
             }
         }
 
-        // если владельца нет — используем ближайшего игрока
         if (ownerEntity == null) {
-            double cx = targetPos.getX() + 0.5;
-            double cy = targetPos.getY() + 0.5;
-            double cz = targetPos.getZ() + 0.5;
+            double cx = targetPos.getX() + 0.5, cy = targetPos.getY() + 0.5, cz = targetPos.getZ() + 0.5;
             double bestDist = Double.MAX_VALUE;
             for (EntityPlayerMP p : ws.getMinecraftServer().getPlayerList().getPlayers()) {
                 double d = p.getDistanceSq(cx, cy, cz);
-                if (d < bestDist) {
-                    bestDist = d;
-                    ownerEntity = p;
-                }
+                if (d < bestDist) { bestDist = d; ownerEntity = p; }
             }
         }
 
-        // === 2. создаём фейкового игрока ===
         GameProfile profile = (ownerEntity != null)
                 ? ownerEntity.getGameProfile()
                 : new GameProfile(UUID.randomUUID(), "[TA_Infusion_NoOwner]");
 
         FakePlayer fake = FakePlayerFactory.get(ws, profile);
 
-        // копируем исследования, если есть реальный игрок
         if (ownerEntity != null) {
             IPlayerKnowledge src = ThaumcraftCapabilities.getKnowledge(ownerEntity);
             IPlayerKnowledge dst = ThaumcraftCapabilities.getKnowledge(fake);
@@ -1140,53 +1171,27 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 Capability<IPlayerKnowledge> cap = ThaumcraftCapabilities.KNOWLEDGE;
                 @SuppressWarnings("unchecked")
                 NBTBase data = cap.getStorage().writeNBT(cap, src, null);
-                if (data != null) {
-                    cap.getStorage().readNBT(cap, dst, null, data);
-                }
+                if (data != null) cap.getStorage().readNBT(cap, dst, null, data);
             }
         }
 
-        // позиция фейка – в центре матрицы
-        fake.setPosition(
-                targetPos.getX() + 0.5,
-                targetPos.getY() + 0.5,
-                targetPos.getZ() + 0.5
-        );
+        fake.setPosition(targetPos.getX() + 0.5, targetPos.getY() + 0.5, targetPos.getZ() + 0.5);
         fake.rotationYaw = 0;
         fake.rotationPitch = 0;
 
-        // предмет в руке
         ItemStack held = stack.copy();
         fake.setHeldItem(EnumHand.MAIN_HAND, held);
 
-        // === 3. вызываем интерфейс IInteractWithCaster напрямую ===
         TileEntity te = world.getTileEntity(targetPos);
-        boolean triggered = false;
+        boolean triggered;
         if (te instanceof IInteractWithCaster) {
-            IInteractWithCaster casterTarget = (IInteractWithCaster) te;
-            triggered = casterTarget.onCasterRightClick(
-                    world, held, fake, targetPos, EnumFacing.UP, EnumHand.MAIN_HAND
-            );
+            triggered = ((IInteractWithCaster) te).onCasterRightClick(world, held, fake, targetPos, EnumFacing.UP, EnumHand.MAIN_HAND);
         } else {
-
-            EnumActionResult itemRes = held.onItemUse(
-                    fake, world, targetPos,
-                    EnumHand.MAIN_HAND, EnumFacing.UP,
-                    0.5F, 0.5F, 0.5F
-            );
-            if (itemRes == EnumActionResult.SUCCESS) {
-                triggered = true;
-            } else {
-                triggered = block.onBlockActivated(
-                        world, targetPos, state,
-                        fake, EnumHand.MAIN_HAND,
-                        EnumFacing.UP,
-                        0.5F, 0.5F, 0.5F
-                );
-            }
+            EnumActionResult itemRes = held.onItemUse(fake, world, targetPos, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 0.5F, 0.5F);
+            if (itemRes == EnumActionResult.SUCCESS) triggered = true;
+            else triggered = block.onBlockActivated(world, targetPos, state, fake, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 0.5F, 0.5F);
         }
 
-        // что осталось в руке – обратно в слот
         ItemStack after = fake.getHeldItemMainhand();
         specialSlot.setStackInSlot(0, after);
         markDirtyAndSync();
@@ -1194,140 +1199,178 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         return triggered;
     }
 
-    /* === ФАЗА 3: ожидание результата и его затягивание === */
+    // ========================= STORAGE SNAPSHOTS (оставлено) =========================
 
-    private int snapshotFirstStorageCount() {
-        if (storages.isEmpty()) return 0;
-        BlockPos storagePos = storages.get(0);
-        int total = 0;
-        TileEntity te = world == null ? null : world.getTileEntity(storagePos);
-        if (te != null && te.hasCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, EnumFacing.UP)) {
-            IItemHandler handler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, EnumFacing.UP);
-            if (handler != null) {
-                for (int i = 0; i < handler.getSlots(); i++) {
-                    ItemStack s = handler.getStackInSlot(i);
-                    if (!s.isEmpty()) total += s.getCount();
-                }
-            }
-        }
-        return total;
+    private ItemStack computeExpectedResultLike1(int patternSlot) {
+        if (world == null) return ItemStack.EMPTY;
+        if (patternSlot < 0 || patternSlot >= patterns.getSlots()) return ItemStack.EMPTY;
+
+        ItemStack pat = patterns.getStackInSlot(patternSlot);
+        if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) return ItemStack.EMPTY;
+
+        ItemStack preview = ItemInfusionPattern.calcResultPreview(pat, world);
+        preview = TerminalOrderApi.stripOrderIconData(preview);
+        if (preview.isEmpty()) return ItemStack.EMPTY;
+
+        ItemStack like1 = preview.copy();
+        like1.setCount(1);
+        return like1;
     }
+
+    private void captureAllStorageBaselines() {
+        storageBaselines.clear();
+        for (int i = 0; i < storages.size(); i++) {
+            storageBaselines.put(i, snapshotStorageState(i));
+        }
+    }
+
+    private int snapshotStorageState(int storageIndex) {
+        if (world == null || storages.isEmpty()) return 0;
+        if (storageIndex < 0 || storageIndex >= storages.size()) return 0;
+
+        IItemHandler handler = getStorageHandler(storages.get(storageIndex));
+        if (handler == null) return 0;
+
+        int hash = 1;
+        for (int i = 0; i < handler.getSlots(); i++) {
+            hash = 31 * hash + stackFingerprint(handler.getStackInSlot(i));
+        }
+        return hash;
+    }
+
+    private int snapshotFirstStorageState() {
+        if (storages.isEmpty() || world == null) return 0;
+        IItemHandler handler = getStorageHandler(storages.get(0));
+        if (handler == null) return 0;
+
+        int hash = 1;
+        for (int i = 0; i < handler.getSlots(); i++) {
+            hash = 31 * hash + stackFingerprint(handler.getStackInSlot(i));
+        }
+        return hash;
+    }
+
+    private int stackFingerprint(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return 0;
+        int hash = 1;
+        hash = 31 * hash + Item.getIdFromItem(stack.getItem());
+        hash = 31 * hash + stack.getMetadata();
+        hash = 31 * hash + stack.getCount();
+        if (stack.hasTagCompound()) {
+            hash = 31 * hash + stack.getTagCompound().toString().hashCode();
+        }
+        return hash;
+    }
+
+    // ========================= PICKUP (STRICT) =========================
+
+    /**
+     * Забирает ТОЛЬКО ожидаемый результат (expectedResultLike1) из центрального пьедестала матрицы (matrixPos.down(2)).
+     * Сравнение СТРОГО:
+     * - item
+     * - meta (если есть subtypes)
+     * - NBT: строгое равенство, но ТОЛЬКО если expected содержит NBT
+     */
+    private boolean pickupExpectedFromMatrixCentralPedestalStrict() {
+        if (world == null) return false;
+        if (jobMatrixPos == null) return false;
+        if (expectedResultLike1 == null || expectedResultLike1.isEmpty()) return false;
+
+        BlockPos pedPos = jobMatrixPos.down(2);
+        TileEntity te = world.getTileEntity(pedPos);
+        if (!(te instanceof IInventory)) return false;
+
+        IInventory inv = (IInventory) te;
+
+        for (int i = 0; i < inv.getSizeInventory(); i++) {
+            ItemStack st = inv.getStackInSlot(i);
+            if (st.isEmpty()) continue;
+
+            if (!stacksEqualStrictLike(expectedResultLike1, st)) continue;
+
+            ItemStack extracted = st.copy();
+            inv.setInventorySlotContents(i, ItemStack.EMPTY);
+            inv.markDirty();
+            te.markDirty();
+
+            ItemStack rem = ItemHandlerHelper.insertItem(results, extracted, false);
+            if (!rem.isEmpty()) dropStack(rem);
+
+            markDirtyAndSync();
+            return true;
+        }
+
+        return false;
+    }
+
+    /**
+     * Строгое сравнение like1 с результатом:
+     * - item совпал
+     * - meta совпал, если у любого есть subtypes
+     * - NBT: если expected (like1) имеет NBT, то NBT обязано совпасть полностью; если expected без NBT — NBT результата игнорируем.
+     * Count игнорируем.
+     */
+    private boolean stacksEqualStrictLike(ItemStack like1, ItemStack stack) {
+        if (like1 == null || stack == null || like1.isEmpty() || stack.isEmpty()) return false;
+
+        if (like1.getItem() != stack.getItem()) return false;
+
+        if (like1.getHasSubtypes() || stack.getHasSubtypes()) {
+            if (like1.getMetadata() != stack.getMetadata()) return false;
+        }
+
+        NBTTagCompound expected = like1.getTagCompound();
+        if (expected == null) {
+            return true;
+        }
+
+        NBTTagCompound got = stack.getTagCompound();
+        return got != null && expected.equals(got);
+    }
+
+    // ========================= HELPERS =========================
 
     private void dropStack(ItemStack stack) {
         if (world == null || stack == null || stack.isEmpty()) return;
-        EntityItem entity = new EntityItem(world,
-                pos.getX() + 0.5,
-                pos.getY() + 0.2,
-                pos.getZ() + 0.5,
-                stack);
+        EntityItem entity = new EntityItem(world, pos.getX() + 0.5, pos.getY() + 0.2, pos.getZ() + 0.5, stack);
         entity.setDefaultPickupDelay();
         world.spawnEntity(entity);
     }
 
-    private void pullFirstStorageIntoResults() {
+    private void pullAllStoragesIntoResults() {
         if (world == null || storages.isEmpty()) return;
-        BlockPos storagePos = storages.get(0);
-        TileEntity te = world.getTileEntity(storagePos);
-        if (te == null || !te.hasCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, EnumFacing.UP)) return;
-        IItemHandler handler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, EnumFacing.UP);
+
+        for (BlockPos storagePos : storages) {
+            IItemHandler handler = getStorageHandler(storagePos);
+            if (handler == null) continue;
+            drainHandlerIntoResults(handler);
+        }
+    }
+
+    private void drainHandlerIntoResults(IItemHandler handler) {
         if (handler == null) return;
 
         Consumer<ItemStack> inserter = stack -> {
             ItemStack remaining = stack;
-            for (int i = 0; i < results.getSlots() && !remaining.isEmpty(); i++) {
-                remaining = ItemHandlerHelper.insertItem(results, remaining, false);
-            }
-            if (!remaining.isEmpty()) {
-                dropStack(remaining);
-            }
+            remaining = ItemHandlerHelper.insertItem(results, remaining, false);
+            if (!remaining.isEmpty()) dropStack(remaining);
         };
 
         for (int i = 0; i < handler.getSlots(); i++) {
-            ItemStack slot = handler.extractItem(i, handler.getSlotLimit(i), true);
-            if (slot.isEmpty()) continue;
-            ItemStack extracted = handler.extractItem(i, slot.getCount(), false);
-            if (!extracted.isEmpty()) {
-                inserter.accept(extracted);
-            }
+            ItemStack canExtract = handler.extractItem(i, handler.getSlotLimit(i), true);
+            if (canExtract.isEmpty()) continue;
+
+            ItemStack extracted = handler.extractItem(i, canExtract.getCount(), false);
+            if (!extracted.isEmpty()) inserter.accept(extracted);
         }
+
+        markDirtyAndSync();
     }
-
-    /**
-     * Пытаемся забрать с первого хранилища именно результат крафта
-     * (по превью паттерна activeSlot). Возвращает true, если что-то забрали.
-     */
-    private boolean tryPullResultFromFirstStorage() {
-        if (world == null || storages.isEmpty()) return false;
-        if (activeSlot < 0 || !hasPatternInSlot(activeSlot)) {
-            return false;
-        }
-
-        BlockPos storagePos = storages.get(0);
-        TileEntity te = world.getTileEntity(storagePos);
-        if (te == null) {
-            return false;
-        }
-
-        IItemHandler handler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, EnumFacing.UP);
-        if (handler == null) {
-            // на всякий случай попробуем без стороны
-            handler = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, null);
-        }
-        if (handler == null) {
-            return false;
-        }
-
-        // Ожидаемый результат из паттерна
-        ItemStack preview = therealpant.thaumicattempts.api.TerminalOrderApi
-                .stripOrderIconData(ItemInfusionPattern.calcResultPreview(patterns.getStackInSlot(activeSlot), world));
-        if (preview.isEmpty()) {
-            // на всякий случай: если вдруг нет превью – старое поведение
-            pullFirstStorageIntoResults();
-            return true;
-        }
-
-        ItemStack like = preview.copy();
-        like.setCount(1);
-
-        // Вспомогательный инсертер в наши слоты результата
-        Consumer<ItemStack> inserter = stack -> {
-            ItemStack remaining = stack;
-            for (int i = 0; i < results.getSlots() && !remaining.isEmpty(); i++) {
-                remaining = ItemHandlerHelper.insertItem(results, remaining, false);
-            }
-            if (!remaining.isEmpty()) {
-                dropStack(remaining);
-            }
-        };
-
-        // Ищем в первом хранилище предмет, совпадающий с превью
-        for (int i = 0; i < handler.getSlots(); i++) {
-            ItemStack slot = handler.getStackInSlot(i);
-            if (slot.isEmpty()) continue;
-            if (!ItemHandlerHelper.canItemStacksStackRelaxed(slot, like)) continue;
-
-            // Нашли результат – забираем весь стак (или можно ограничить до preview.getCount())
-            int toExtract = slot.getCount();
-            ItemStack extracted = handler.extractItem(i, toExtract, false);
-            if (!extracted.isEmpty()) {
-                int moved = deliverPendingCraftResult(extracted);
-                if (!extracted.isEmpty()) inserter.accept(extracted);
-                return moved > 0 || !extracted.isEmpty();
-            }
-        }
-
-        // Пока результата нет
-        return false;
-    }
-
-    /* === Вспомогательное === */
 
     private int readSignal() {
         if (world == null) return 0;
         int signal = 0;
-        for (EnumFacing f : EnumFacing.values()) {
-            signal = Math.max(signal, world.getRedstonePower(pos, f));
-        }
+        for (EnumFacing f : EnumFacing.values()) signal = Math.max(signal, world.getRedstonePower(pos, f));
         signal = Math.max(signal, world.getStrongPower(pos));
         return Math.max(0, Math.min(15, signal));
     }
@@ -1341,32 +1384,23 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (pos == null) return -1;
         BlockPos immutable = pos.toImmutable();
         int existing = storages.indexOf(immutable);
-        if (existing >= 0) {
-            return existing + 1;
-        }
+        if (existing >= 0) return existing + 1;
         storages.add(immutable);
         markDirtyAndSync();
         return storages.size();
     }
 
-    public List<BlockPos> getStorages() {
-        return new ArrayList<>(storages);
-    }
+    public List<BlockPos> getStorages() { return new ArrayList<>(storages); }
 
     public boolean setTargetPos(BlockPos pos) {
         BlockPos immutable = pos == null ? null : pos.toImmutable();
-        if ((targetPos == null && immutable == null) || (targetPos != null && targetPos.equals(immutable))) {
-            return false;
-        }
+        if ((targetPos == null && immutable == null) || (targetPos != null && targetPos.equals(immutable))) return false;
         targetPos = immutable;
         markDirtyAndSync();
         return true;
     }
 
-    @Nullable
-    public BlockPos getTargetPos() {
-        return targetPos;
-    }
+    @Nullable public BlockPos getTargetPos() { return targetPos; }
 
     public boolean tryBindGolem(EntityThaumcraftGolem golem) {
         if (world == null || world.isRemote) return false;
@@ -1380,9 +1414,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         return true;
     }
 
-    public Set<UUID> getBoundGolemsSnapshot() {
-        return new LinkedHashSet<>(boundGolems);
-    }
+    public Set<UUID> getBoundGolemsSnapshot() { return new LinkedHashSet<>(boundGolems); }
 
     public void dropContents() {
         if (world == null || world.isRemote) return;
@@ -1399,46 +1431,63 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     }
 
     @Nullable
+    private IItemHandler getStorageHandler(BlockPos storagePos) {
+        if (world == null || storagePos == null) return null;
+        TileEntity te = world.getTileEntity(storagePos);
+        if (te == null) return null;
+
+        for (EnumFacing f : EnumFacing.values()) {
+            IItemHandler h = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, f);
+            if (h != null) return h;
+        }
+        IItemHandler h = te.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, null);
+        if (h != null) return h;
+
+        if (te instanceof IInventory) {
+            return new InvWrapper((IInventory) te);
+        }
+
+        return null;
+    }
+
+    @Nullable
     @Override
     public <T> T getCapability(Capability<T> capability, @Nullable EnumFacing facing) {
         if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) {
+            if (facing == EnumFacing.DOWN) {
+                return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(resultsOnly);
+            }
             return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(combined);
         }
         return super.getCapability(capability, facing);
     }
 
+    // ========================= NBT =========================
+
     @Override
     public NBTTagCompound writeToNBT(NBTTagCompound compound) {
         super.writeToNBT(compound);
+
         compound.setTag(TAG_INPUT,   input.serializeNBT());
         compound.setTag(TAG_PATTERNS, patterns.serializeNBT());
         compound.setTag(TAG_SPECIAL,  specialSlot.serializeNBT());
         compound.setTag(TAG_RESULTS,  results.serializeNBT());
 
         NBTTagList storeList = new NBTTagList();
-        for (BlockPos pos : storages) {
-            if (pos == null) continue;
+        for (BlockPos p : storages) {
+            if (p == null) continue;
             NBTTagCompound el = new NBTTagCompound();
-            el.setLong("p", pos.toLong());
+            el.setLong("p", p.toLong());
             storeList.appendTag(el);
         }
         compound.setTag(TAG_STORAGES, storeList);
 
-        if (targetPos != null) {
-            compound.setLong(TAG_TARGET, targetPos.toLong());
-        }
-
-        if (managerPos != null) {
-            compound.setLong(TAG_MANAGER, managerPos.toLong());
-        }
+        if (targetPos != null) compound.setLong(TAG_TARGET, targetPos.toLong());
+        if (managerPos != null) compound.setLong(TAG_MANAGER, managerPos.toLong());
         compound.setBoolean("ManagerPattern", managerFromPattern && managerPos != null);
 
-        if (ownerId != null) {
-            compound.setUniqueId(TAG_OWNER_ID, ownerId);
-        }
-        if (ownerName != null) {
-            compound.setString(TAG_OWNER_NAME, ownerName);
-        }
+        if (ownerId != null) compound.setUniqueId(TAG_OWNER_ID, ownerId);
+        if (ownerName != null) compound.setString(TAG_OWNER_NAME, ownerName);
 
         NBTTagList golemList = new NBTTagList();
         for (UUID id : boundGolems) {
@@ -1456,12 +1505,16 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         }
         compound.setTag(TAG_CRAFT_DELIVERIES, craftList);
 
-        // ====== СОХРАНЯЕМ СОСТОЯНИЕ ДЖОБА ======
         compound.setBoolean(TAG_JOB_ACTIVE, jobActive);
         compound.setInteger(TAG_JOB_STAGE, stage.ordinal());
         compound.setInteger(TAG_JOB_SLOT, activeSlot);
         compound.setInteger(TAG_JOB_INTERACT, interactDelayCounter);
         compound.setInteger(TAG_JOB_PICKUP_BASE, pickupBaseline);
+
+        if (jobMatrixPos != null) compound.setLong(TAG_JOB_MATRIX_POS, jobMatrixPos.toLong());
+        // старые флаги — пишем false для совместимости
+        compound.setBoolean(TAG_JOB_MATRIX_SEEN, false);
+        compound.setBoolean(TAG_JOB_MATRIX_LAST, false);
 
         NBTTagList qList = new NBTTagList();
         for (Integer s : queuedTriggers) {
@@ -1471,7 +1524,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             qList.appendTag(el);
         }
         compound.setTag(TAG_JOB_QUEUE, qList);
-        // =======================================
 
         return compound;
     }
@@ -1479,20 +1531,18 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     @Override
     public void readFromNBT(NBTTagCompound compound) {
         super.readFromNBT(compound);
+
         if (compound.hasKey(TAG_INPUT))    input.deserializeNBT(compound.getCompoundTag(TAG_INPUT));
         if (compound.hasKey(TAG_PATTERNS)) patterns.deserializeNBT(compound.getCompoundTag(TAG_PATTERNS));
         if (compound.hasKey(TAG_SPECIAL))  specialSlot.deserializeNBT(compound.getCompoundTag(TAG_SPECIAL));
         if (compound.hasKey(TAG_RESULTS))  results.deserializeNBT(compound.getCompoundTag(TAG_RESULTS));
-        if (results.getSlots() < 9) results.setSize(9);
 
         storages.clear();
         if (compound.hasKey(TAG_STORAGES, Constants.NBT.TAG_LIST)) {
             NBTTagList list = compound.getTagList(TAG_STORAGES, Constants.NBT.TAG_COMPOUND);
             for (int i = 0; i < list.tagCount(); i++) {
                 NBTTagCompound el = list.getCompoundTagAt(i);
-                if (el.hasKey("p")) {
-                    storages.add(BlockPos.fromLong(el.getLong("p")));
-                }
+                if (el.hasKey("p")) storages.add(BlockPos.fromLong(el.getLong("p")));
             }
         }
 
@@ -1501,11 +1551,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         managerPos = compound.hasKey(TAG_MANAGER) ? BlockPos.fromLong(compound.getLong(TAG_MANAGER)) : null;
         managerFromPattern = compound.getBoolean("ManagerPattern") && managerPos != null;
 
-        if (compound.hasUniqueId(TAG_OWNER_ID)) {
-            ownerId = compound.getUniqueId(TAG_OWNER_ID);
-        } else {
-            ownerId = null;
-        }
+        ownerId = compound.hasUniqueId(TAG_OWNER_ID) ? compound.getUniqueId(TAG_OWNER_ID) : null;
         ownerName = compound.hasKey(TAG_OWNER_NAME) ? compound.getString(TAG_OWNER_NAME) : null;
 
         boundGolems.clear();
@@ -1513,9 +1559,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             NBTTagList list = compound.getTagList(TAG_GOLEMS, Constants.NBT.TAG_COMPOUND);
             for (int i = 0; i < list.tagCount(); i++) {
                 NBTTagCompound el = list.getCompoundTagAt(i);
-                if (el.hasUniqueId(TAG_GOLEM_ID)) {
-                    boundGolems.add(el.getUniqueId(TAG_GOLEM_ID));
-                }
+                if (el.hasUniqueId(TAG_GOLEM_ID)) boundGolems.add(el.getUniqueId(TAG_GOLEM_ID));
             }
         }
 
@@ -1528,41 +1572,38 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             }
         }
 
-        // ====== ВОССТАНАВЛИВАЕМ СОСТОЯНИЕ ДЖОБА ======
         jobActive = compound.getBoolean(TAG_JOB_ACTIVE);
 
         int stOrd = compound.getInteger(TAG_JOB_STAGE);
-        if (stOrd < 0 || stOrd >= Stage.values().length) {
-            stage = Stage.NONE;
-        } else {
-            stage = Stage.values()[stOrd];
-        }
+        if (stOrd < 0 || stOrd >= Stage.values().length) stage = Stage.NONE;
+        else stage = Stage.values()[stOrd];
 
         activeSlot = compound.getInteger(TAG_JOB_SLOT);
         interactDelayCounter = compound.getInteger(TAG_JOB_INTERACT);
-        pickupBaseline = compound.hasKey(TAG_JOB_PICKUP_BASE)
-                ? compound.getInteger(TAG_JOB_PICKUP_BASE)
-                : -1;
+        pickupBaseline = compound.hasKey(TAG_JOB_PICKUP_BASE) ? compound.getInteger(TAG_JOB_PICKUP_BASE) : -1;
+
+        jobMatrixPos = compound.hasKey(TAG_JOB_MATRIX_POS) ? BlockPos.fromLong(compound.getLong(TAG_JOB_MATRIX_POS)) : null;
+        // TAG_JOB_MATRIX_SEEN / LAST читаем не нужно — игнорируем (совместимость)
 
         queuedTriggers.clear();
         if (compound.hasKey(TAG_JOB_QUEUE, Constants.NBT.TAG_LIST)) {
             NBTTagList qList = compound.getTagList(TAG_JOB_QUEUE, Constants.NBT.TAG_COMPOUND);
             for (int i = 0; i < qList.tagCount(); i++) {
                 NBTTagCompound el = qList.getCompoundTagAt(i);
-                if (el.hasKey("s")) {
-                    queuedTriggers.add(el.getInteger("s"));
-                }
+                if (el.hasKey("s")) queuedTriggers.add(el.getInteger("s"));
             }
         }
 
-        // Состояние раскладки по пьедесталам после загрузки обнуляем:
-        // если мы были в WAIT_PICKUP, оно уже не нужно;
-        // если перезашли в середине раскладки, он просто не будет досыпать
-        // (в худшем случае останутся лишние ресурсы в input).
         resetDistributionState();
-        // ============================================
-    }
 
+        pickupPollCounter = 0;
+        storageBaselines.clear();
+        expectedResultLike1 = ItemStack.EMPTY;
+
+        if (jobActive && stage == Stage.WAIT_PICKUP && expectedResultLike1.isEmpty() && activeSlot >= 0) {
+            expectedResultLike1 = computeExpectedResultLike1(activeSlot);
+        }
+    }
 
     private void dropHandler(ItemStackHandler handler) {
         if (handler == null || world == null) return;
@@ -1570,8 +1611,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemStack stack = handler.getStackInSlot(i);
             if (!stack.isEmpty()) {
                 handler.setStackInSlot(i, ItemStack.EMPTY);
-                ItemStack copy = stack.copy();
-                EntityItem ei = new EntityItem(world, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, copy);
+                EntityItem ei = new EntityItem(world, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5, stack.copy());
                 world.spawnEntity(ei);
             }
         }
@@ -1583,5 +1623,4 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             world.notifyBlockUpdate(pos, world.getBlockState(pos), world.getBlockState(pos), 3);
         }
     }
-
 }
