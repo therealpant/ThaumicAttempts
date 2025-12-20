@@ -7,7 +7,6 @@ import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.inventory.IInventory;
-import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
@@ -27,6 +26,8 @@ import net.minecraftforge.items.*;
 import net.minecraftforge.items.wrapper.CombinedInvWrapper;
 import net.minecraftforge.items.wrapper.InvWrapper;
 import net.minecraftforge.items.wrapper.RangedWrapper;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import software.bernie.geckolib3.core.IAnimatable;
 import software.bernie.geckolib3.core.PlayState;
 import software.bernie.geckolib3.core.builder.AnimationBuilder;
@@ -38,9 +39,8 @@ import thaumcraft.api.capabilities.IPlayerKnowledge;
 import thaumcraft.api.capabilities.ThaumcraftCapabilities;
 import thaumcraft.api.casters.IInteractWithCaster;
 import thaumcraft.api.golems.GolemHelper;
-import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
-
 import thaumcraft.common.golems.EntityThaumcraftGolem;
+import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
 import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.util.ItemKey;
@@ -49,8 +49,43 @@ import javax.annotation.Nullable;
 import java.util.*;
 import java.util.function.Consumer;
 
+/**
+ * Infusion Requester:
+ * - 15 patterns (ItemInfusionPattern)
+ * - 1 special slot (gauntlet / caster)
+ * - 9 result slots
+ * - internal input buffer for delivered resources
+ * - bound storages (pedestals) where resources are distributed before starting matrix
+ *
+ * PICKUP LOGIC:
+ * - After click: wait until TileInfusionMatrix.crafting becomes TRUE (craft started)
+ * - Then wait until it becomes FALSE (craft finished)
+ * - Then pull EVERYTHING from ALL bound storages into results (leftovers -> drop)
+ */
 public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
         ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider, IAnimatable {
+
+    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/InfusionRequester");
+
+    // выключи если логов слишком много
+    private static final boolean DEBUG = true;
+
+    private void logDebug(String msg, Object... args) {
+        if (!DEBUG) return;
+        LOG.info("[{} @ {}] " + msg,
+                world == null ? "no-world" : (world.isRemote ? "C" : "S"),
+                pos == null ? "nullpos" : pos.toString(),
+                args);
+    }
+
+    private void logWarn(String msg, Object... args) {
+        LOG.warn("[{} @ {}] " + msg,
+                world == null ? "no-world" : (world.isRemote ? "C" : "S"),
+                pos == null ? "nullpos" : pos.toString(),
+                args);
+    }
+
+    // -------------------- constants --------------------
 
     public static final int PATTERN_SLOT_COUNT = 15;
     private final AnimationFactory factory = new AnimationFactory(this);
@@ -67,34 +102,28 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private static final String TAG_OWNER_ID   = "OwnerId";
     private static final String TAG_OWNER_NAME = "OwnerName";
 
-    private static final String TAG_JOB_ACTIVE       = "JobActive";
-    private static final String TAG_JOB_STAGE        = "JobStage";
-    private static final String TAG_JOB_SLOT         = "JobSlot";
-    private static final String TAG_JOB_QUEUE        = "JobQueue";
-    private static final String TAG_JOB_INTERACT     = "JobInteractDelay";
-    private static final String TAG_JOB_PICKUP_BASE  = "JobPickupBaseline";
-    private static final String TAG_CRAFT_DELIVERIES = "CraftDeliveries";
-
-    // (оставлено для NBT совместимости, но больше НЕ используется как стоп-условие)
-    private static final String TAG_JOB_MATRIX_POS   = "JobMatrixPos";
-    private static final String TAG_JOB_MATRIX_SEEN  = "JobMatrixSeen";
-    private static final String TAG_JOB_MATRIX_LAST  = "JobMatrixLast";
+    private static final String TAG_JOB_ACTIVE         = "JobActive";
+    private static final String TAG_JOB_STAGE          = "JobStage";
+    private static final String TAG_JOB_SLOT           = "JobSlot";
+    private static final String TAG_JOB_QUEUE          = "JobQueue";
+    private static final String TAG_JOB_INTERACT       = "JobInteractDelay";
+    private static final String TAG_JOB_MATRIX_POS     = "JobMatrixPos";
+    private static final String TAG_JOB_MATRIX_STARTED = "JobMatrixStarted";
+    private static final String TAG_JOB_MATRIX_TICKS   = "JobMatrixTicks";
+    private static final String TAG_CRAFT_DELIVERIES   = "CraftDeliveries";
 
     private static final int MAX_QUEUED_ORDERS = 8;
 
     private static final int INTERACT_DELAY_TICKS = 40;
     private static final int PEDESTAL_DELAY_TICKS = 20;
 
-    // === pickup polling ===
-    private static final int PICKUP_POLL_INTERVAL = 20; // 1 second (можешь 40 вернуть)
-    private int pickupPollCounter = 0;
-
-    private final Map<Integer, Integer> storageBaselines = new HashMap<>();
-    private ItemStack expectedResultLike1 = ItemStack.EMPTY;
+    private static final int WAIT_MATRIX_TIMEOUT_TICKS = 20 * 180; // 3 minutes
 
     private int interactDelayCounter = 0;
 
-    /** Внутренний буфер ресурсов (воронки кладут сюда через capability) */
+    // -------------------- inventories --------------------
+
+    /** Internal buffer where golems/hoppers insert resources. */
     private final ItemStackHandler input = new ItemStackHandler(27) {
         @Override protected void onContentsChanged(int slot) { markDirtyAndSync(); }
     };
@@ -110,17 +139,18 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         @Override protected void onContentsChanged(int slot) { markDirtyAndSync(); }
     };
 
-    /** 9 слотов результата */
+    /** 9 result slots */
     private final ItemStackHandler results = new ItemStackHandler(9) {
         @Override protected void onContentsChanged(int slot) { markDirtyAndSync(); }
         @Override public boolean isItemValid(int slot, ItemStack stack) { return true; }
     };
 
-    /** combined: важно, что input первым */
+    /** combined: IMPORTANT input first */
     private final IItemHandler combined = new CombinedInvWrapper(input, patterns, specialSlot, results);
-
-    /** наружу вниз отдаём только results (чтобы воронки забирали результат) */
+    /** expose only results to DOWN (so hoppers pull only craft output) */
     private final IItemHandler resultsOnly = new RangedWrapper(results, 0, results.getSlots());
+
+    // -------------------- links --------------------
 
     private final List<BlockPos> storages = new ArrayList<>();
     @Nullable private BlockPos targetPos = null;
@@ -129,7 +159,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private final ArrayDeque<Integer> queuedTriggers = new ArrayDeque<>();
     private int lastSignal = 0;
 
-    // === job state ===
+    // -------------------- job state --------------------
+
     private final ArrayDeque<PendingCrafterDelivery> pendingCraftDeliveries = new ArrayDeque<>();
     private boolean jobActive = false;
     private int activeSlot = -1;
@@ -138,17 +169,22 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private enum Stage { NONE, WAIT_RESOURCES, INTERACT_TARGET, WAIT_PICKUP }
     private Stage stage = Stage.NONE;
 
+    // Phase 1: deliver resources to requester (input)
     private final Map<ItemKey, Integer> pendingToRequester = new LinkedHashMap<>();
     private final Map<ItemKey, Integer> baselineToRequester = new HashMap<>();
-    private final Map<Integer, Map<ItemKey, Integer>> pendingByStorage = new LinkedHashMap<>();
 
+    // Phase 2: distribute from requester(input) to storages
+    private final Map<Integer, Map<ItemKey, Integer>> pendingByStorage = new LinkedHashMap<>();
+    private int distributeCurrentStorage = -1;
+    private int distributeDelayTicks = 0;
+    private boolean distributeFxPlayed = false;
+
+    // provisioning
     private boolean needsEnsure = false;
     private int lastEnsureTick = -9999;
     private int nextProvisionTick = 0;
     private static final int PROVISION_INTERVAL = 10;
     private static final int ENSURE_INTERVAL = 20;
-
-    private int pickupBaseline = -1;
 
     @Nullable private BlockPos managerPos = null;
     private boolean managerFromPattern = false;
@@ -156,25 +192,25 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     @Nullable private UUID ownerId = null;
     @Nullable private String ownerName = null;
 
-    private int distributeCurrentStorage = -1;
-    private int distributeDelayTicks = 0;
-    private boolean distributeFxPlayed = false;
-
-    // === matrix tracking: только позиция матрицы (без crafting-проверок) ===
+    // matrix tracking
     @Nullable private BlockPos jobMatrixPos = null;
+    private boolean jobMatrixStarted = false;
+    private int waitMatrixTicks = 0;
 
     // -------------------- GeckoLib --------------------
 
     @Override
     public void registerControllers(AnimationData data) {
-        data.addAnimationController(new AnimationController<>(this, "infusion_requester_controller", 0, this::animationPredicate));
+        data.addAnimationController(new AnimationController<>(
+                this, "infusion_requester_controller", 0, this::animationPredicate));
     }
 
     @Override
     public AnimationFactory getFactory() { return factory; }
 
     private <E extends IAnimatable> PlayState animationPredicate(AnimationEvent<E> event) {
-        event.getController().setAnimation(new AnimationBuilder().addAnimation("animation.infusion_requester.new", true));
+        event.getController().setAnimation(
+                new AnimationBuilder().addAnimation("animation.infusion_requester.new", true));
         return PlayState.CONTINUE;
     }
 
@@ -257,11 +293,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (above instanceof TilePatternRequester) {
             TilePatternRequester requester = (TilePatternRequester) above;
             BlockPos patternManager = requester.getManagerPos();
-            if (patternManager != null) {
-                setManagerPos(patternManager, true);
-            } else if (managerFromPattern) {
-                setManagerPos(null, false);
-            }
+            if (patternManager != null) setManagerPos(patternManager, true);
+            else if (managerFromPattern) setManagerPos(null, false);
         } else if (managerFromPattern) {
             setManagerPos(null, false);
         }
@@ -271,6 +304,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         boolean previousManager = useManagerForProvision();
         BlockPos newPos = pos == null ? null : pos.toImmutable();
         boolean newFlag = fromPattern && newPos != null;
+
         if (!Objects.equals(this.managerPos, newPos) || this.managerFromPattern != newFlag) {
             this.managerPos = newPos;
             this.managerFromPattern = newFlag;
@@ -284,6 +318,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 lastEnsureTick = tickCounter;
                 nextProvisionTick = tickCounter;
             }
+
+            logDebug("Manager set to {} fromPattern={}", this.managerPos, this.managerFromPattern);
         }
     }
 
@@ -296,6 +332,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             this.ownerName = player.getName();
         }
         markDirtyAndSync();
+        logDebug("Owner set id={} name={}", ownerId, ownerName);
     }
 
     public boolean tryInsertPattern(ItemStack stack) {
@@ -306,6 +343,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 copy.setCount(1);
                 patterns.setStackInSlot(i, copy);
                 markDirtyAndSync();
+                logDebug("Inserted pattern into slot {}", i);
                 return true;
             }
         }
@@ -317,7 +355,9 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         int before = queuedTriggers.size();
         enqueueTrigger(patternSlot, Math.max(1, times));
         int after = queuedTriggers.size();
-        return Math.max(0, after - before);
+        int added = Math.max(0, after - before);
+        logDebug("enqueueFromPatternRequester slot={} times={} added={} queueNow={}", patternSlot, times, added, queuedTriggers.size());
+        return added;
     }
 
     @Override
@@ -338,10 +378,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         int totalOut = Math.max(1, accepted * perCraft);
         pendingCraftDeliveries.add(new PendingCrafterDelivery(dest, destSide, managerPos, resultLike, totalOut));
-        if (managerPos != null && this.managerPos == null) {
-            setManagerPos(managerPos, true);
-        }
+
+        if (managerPos != null && this.managerPos == null) setManagerPos(managerPos, true);
         markDirtyAndSync();
+
+        logDebug("enqueueCrafterOrder dest={} side={} like={} items={} crafts={} accepted={} totalOut={}",
+                dest, destSide, resultLike, items, crafts, accepted, totalOut);
+
         return accepted;
     }
 
@@ -351,6 +394,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (!st.isEmpty()) {
                 patterns.setStackInSlot(i, ItemStack.EMPTY);
                 markDirtyAndSync();
+                logDebug("Extracted pattern from slot {}", i);
                 return st;
             }
         }
@@ -358,6 +402,16 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     }
 
     // ========================= UPDATE =========================
+
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        if (world != null && !world.isRemote) {
+            this.lastSignal = readSignal();
+            syncManagerFromPattern();
+            logDebug("onLoad signal={} storages={} target={} manager={}", lastSignal, storages.size(), targetPos, managerPos);
+        }
+    }
 
     @Override
     public void update() {
@@ -377,8 +431,16 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         tickCounter++;
 
+        // редкий статусный лог
+        if (DEBUG && (tickCounter % 40 == 0)) {
+            logDebug("tick stage={} jobActive={} activeSlot={} queue={} storages={} target={} matrixPos={} matrixStarted={} waitTicks={} pendingReq={} pendingStorages={}",
+                    stage, jobActive, activeSlot, queuedTriggers.size(), storages.size(), targetPos, jobMatrixPos, jobMatrixStarted, waitMatrixTicks,
+                    pendingToRequester.size(), pendingByStorage.size());
+        }
+
         int signal = readSignal();
         if (signal != lastSignal) {
+            logDebug("Redstone changed {} -> {}", lastSignal, signal);
             if (signal > 0) {
                 int slot = patternIndexFromSignal(signal);
                 if (slot >= 0) {
@@ -402,13 +464,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (pendingToRequester.isEmpty()) {
                 stage = Stage.INTERACT_TARGET;
                 interactDelayCounter = 0;
-                pickupBaseline = -1;
-
-                pickupPollCounter = 0;
-                storageBaselines.clear();
-                expectedResultLike1 = computeExpectedResultLike1(activeSlot);
-
                 markDirtyAndSync();
+                logDebug("Stage -> INTERACT_TARGET");
             }
         }
         else if (stage == Stage.INTERACT_TARGET) {
@@ -417,12 +474,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (!distributed) {
                 deliverStoredResultsToDestinations();
                 return;
-            }
-
-            if (storageBaselines.isEmpty()) {
-                captureAllStorageBaselines();
-                pickupBaseline = snapshotFirstStorageState(); // оставить для NBT совместимости
-                markDirtyAndSync();
             }
 
             if (interactDelayCounter < INTERACT_DELAY_TICKS) {
@@ -435,159 +486,73 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (!triggered) {
                 interactDelayCounter = 0;
                 markDirtyAndSync();
+                logDebug("performTargetInteraction returned FALSE -> stay INTERACT_TARGET (will retry)");
                 deliverStoredResultsToDestinations();
                 return;
             }
 
-            // ВАЖНО: сразу переходим в WAIT_PICKUP, БЕЗ проверок crafting.
             stage = Stage.WAIT_PICKUP;
+            jobMatrixStarted = false;
+            waitMatrixTicks = 0;
 
-            // Вычисляем/уточняем позицию матрицы.
             jobMatrixPos = targetPos;
-            if (jobMatrixPos != null) {
-                TileEntity te = world.getTileEntity(jobMatrixPos);
-                if (!(te instanceof TileInfusionMatrix)) {
-                    BlockPos up2 = jobMatrixPos.up(2);
-                    if (world.getTileEntity(up2) instanceof TileInfusionMatrix) jobMatrixPos = up2;
+            TileInfusionMatrix mx = resolveMatrix();
 
-                    BlockPos down2 = jobMatrixPos.down(2);
-                    if (world.getTileEntity(down2) instanceof TileInfusionMatrix) jobMatrixPos = down2;
-                }
-            }
+            logDebug("Stage -> WAIT_PICKUP, matrix={} matrixPos={}", mx == null ? "null" : "found", jobMatrixPos);
 
-            pickupPollCounter = 0;
             interactDelayCounter = 0;
-
-            if (expectedResultLike1.isEmpty() && activeSlot >= 0) {
-                expectedResultLike1 = computeExpectedResultLike1(activeSlot);
-            }
-
             markDirtyAndSync();
 
-            // СРАЗУ пробуем забрать (на случай мгновенного результата / перезахода)
-            if (pickupExpectedFromMatrixCentralPedestalStrict()) {
-                clearJob();
-                deliverStoredResultsToDestinations();
-                return;
-            }
+            deliverStoredResultsToDestinations();
         }
         else if (stage == Stage.WAIT_PICKUP) {
 
-            pickupPollCounter++;
+            waitMatrixTicks++;
 
-            // периодически пытаемся забрать результат из FIRST storage (storages[0])
-            if (pickupPollCounter % PICKUP_POLL_INTERVAL == 0) {
-
-                if (tryPullResultFromFirstStorage()) {
+            TileInfusionMatrix matrix = resolveMatrix();
+            if (matrix == null) {
+                if (waitMatrixTicks >= WAIT_MATRIX_TIMEOUT_TICKS) {
+                    logWarn("WAIT_PICKUP timeout: matrix not found for {} ticks. Pulling storages and clearing job.", waitMatrixTicks);
+                    pullAllStoragesIntoResults();
                     clearJob();
-                    deliverStoredResultsToDestinations(); // если у тебя есть доставка заказов — оставить
-                    return;
                 }
+                deliverStoredResultsToDestinations();
+                return;
             }
 
-            // safety: не висим вечно
-            if (pickupPollCounter > 20 * 180) { // 3 минуты
-                // на всякий случай вытягиваем всё из первого storage в results
-                pullFirstStorageIntoResults();
+            boolean crafting = matrix.crafting;
+            boolean active = matrix.active;
+
+            if (DEBUG && (waitMatrixTicks % 20 == 0)) {
+                logDebug("WAIT_PICKUP status: matrixPos={} active={} crafting={} started={} waitTicks={}",
+                        jobMatrixPos, active, crafting, jobMatrixStarted, waitMatrixTicks);
+            }
+
+            if (!jobMatrixStarted) {
+                if (crafting) {
+                    jobMatrixStarted = true;
+                    markDirtyAndSync();
+                    logDebug("Matrix crafting START detected");
+                }
+                deliverStoredResultsToDestinations();
+                return;
+            }
+
+            if (!crafting) {
+                logDebug("Matrix crafting FINISH detected -> pulling all storages into results");
+                pullAllStoragesIntoResults();
                 clearJob();
+                deliverStoredResultsToDestinations();
+                return;
             }
-        }
 
+            deliverStoredResultsToDestinations();
+        }
 
         deliverStoredResultsToDestinations();
     }
 
-    /**
-     * Пытаемся забрать с первого storage (storages[0]) именно результат крафта
-     * (по превью паттерна activeSlot). Возвращает true, если что-то забрали.
-     */
-    private boolean tryPullResultFromFirstStorage() {
-        if (world == null || storages.isEmpty()) return false;
-        if (activeSlot < 0 || !hasPatternInSlot(activeSlot)) return false;
-
-        BlockPos storagePos = storages.get(0);
-        IItemHandler handler = getStorageHandler(storagePos);
-        if (handler == null) return false;
-
-        // ожидаемый результат из паттерна
-        ItemStack pat = patterns.getStackInSlot(activeSlot);
-        ItemStack preview = ItemInfusionPattern.calcResultPreview(pat, world);
-        preview = TerminalOrderApi.stripOrderIconData(preview); // если у тебя есть такой хелпер, иначе убери
-        if (preview.isEmpty()) {
-            // если вдруг превью пустое — вытягиваем всё (старое fallback-поведение)
-            pullFirstStorageIntoResults();
-            return true;
-        }
-
-        ItemStack like = preview.copy();
-        like.setCount(1);
-
-        // ищем предмет, совпадающий с превью
-        for (int i = 0; i < handler.getSlots(); i++) {
-            ItemStack slot = handler.getStackInSlot(i);
-            if (slot.isEmpty()) continue;
-
-            if (!ItemHandlerHelper.canItemStacksStackRelaxed(slot, like)) continue;
-
-            int toExtract = slot.getCount(); // можно ограничить до preview.getCount() при желании
-            ItemStack extracted = handler.extractItem(i, toExtract, false);
-            if (!extracted.isEmpty()) {
-                insertIntoResultsOrDrop(extracted);
-                markDirtyAndSync();
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    /** Вытягиваем ВЕСЬ инвентарь первого storage (storages[0]) в results (fallback / timeout). */
-    private void pullFirstStorageIntoResults() {
-        if (world == null || storages.isEmpty()) return;
-
-        BlockPos storagePos = storages.get(0);
-        IItemHandler handler = getStorageHandler(storagePos);
-        if (handler == null) return;
-
-        for (int i = 0; i < handler.getSlots(); i++) {
-            ItemStack canExtract = handler.extractItem(i, handler.getSlotLimit(i), true);
-            if (canExtract.isEmpty()) continue;
-
-            ItemStack extracted = handler.extractItem(i, canExtract.getCount(), false);
-            if (!extracted.isEmpty()) {
-                insertIntoResultsOrDrop(extracted);
-            }
-        }
-
-        markDirtyAndSync();
-    }
-
-    /** Вставляет стак в results, остаток дропает. */
-    private void insertIntoResultsOrDrop(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return;
-
-        ItemStack remaining = ItemHandlerHelper.insertItem(results, stack, false);
-        if (!remaining.isEmpty()) {
-            dropStack(remaining);
-        }
-    }
-
-
     // ========================= TERMINAL / CRAFT API =========================
-
-    @Override
-    public void onLoad() {
-        super.onLoad();
-        if (world != null && !world.isRemote) {
-            this.lastSignal = readSignal();
-            syncManagerFromPattern();
-
-            // если загрузились в WAIT_PICKUP — восстановим expected
-            if (jobActive && stage == Stage.WAIT_PICKUP && expectedResultLike1.isEmpty() && activeSlot >= 0) {
-                expectedResultLike1 = computeExpectedResultLike1(activeSlot);
-            }
-        }
-    }
 
     public void triggerExternalRequest(int slot, int count) {
         if (world == null || world.isRemote) return;
@@ -609,8 +574,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemStack pat = patterns.getStackInSlot(i);
             if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) continue;
 
-            ItemStack preview = TerminalOrderApi
-                    .stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
+            ItemStack preview = TerminalOrderApi.stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
             if (preview.isEmpty()) continue;
 
             ItemStack icon = TerminalOrderApi.makeOrderIcon(preview, world.getBlockState(pos).getBlock(), pos, i);
@@ -628,8 +592,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemStack pat = patterns.getStackInSlot(i);
             if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) continue;
 
-            ItemStack preview = TerminalOrderApi
-                    .stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
+            ItemStack preview = TerminalOrderApi.stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
             if (preview.isEmpty()) continue;
 
             ItemStack one = preview.copy();
@@ -678,8 +641,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemStack pat = patterns.getStackInSlot(i);
             if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) continue;
 
-            ItemStack preview = TerminalOrderApi
-                    .stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
+            ItemStack preview = TerminalOrderApi.stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
             if (preview.isEmpty()) continue;
 
             boolean match = (preview.getMaxStackSize() == 1)
@@ -704,6 +666,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private int deliverPendingCraftResult(ItemStack stack) {
         if (stack == null || stack.isEmpty() || world == null || pendingCraftDeliveries.isEmpty()) return 0;
         int before = stack.getCount();
+
         for (Iterator<PendingCrafterDelivery> it = pendingCraftDeliveries.iterator(); it.hasNext() && !stack.isEmpty(); ) {
             PendingCrafterDelivery order = it.next();
             if (!matchesOrder(order.like1, stack)) continue;
@@ -744,25 +707,28 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 if (order.remaining <= 0) it.remove();
             }
         }
+
         return before - (stack.isEmpty() ? 0 : stack.getCount());
     }
 
     private void deliverStoredResultsToDestinations() {
         if (pendingCraftDeliveries.isEmpty()) return;
+
         for (int i = 0; i < results.getSlots(); i++) {
             ItemStack slot = results.getStackInSlot(i);
             if (slot.isEmpty()) continue;
+
             ItemStack copy = slot.copy();
             int moved = deliverPendingCraftResult(copy);
             if (moved > 0) {
                 int left = Math.max(0, slot.getCount() - moved);
-                if (left <= 0) {
-                    results.setStackInSlot(i, ItemStack.EMPTY);
-                } else {
+                if (left <= 0) results.setStackInSlot(i, ItemStack.EMPTY);
+                else {
                     copy.setCount(left);
                     results.setStackInSlot(i, copy);
                 }
                 markDirtyAndSync();
+                logDebug("deliverStoredResults moved={} from resultSlot={} pendingDeliveries={}", moved, i, pendingCraftDeliveries.size());
             }
         }
     }
@@ -779,14 +745,17 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         int toAdd = Math.min(count, room);
         for (int i = 0; i < toAdd; i++) queuedTriggers.add(slot);
         markDirtyAndSync();
+        logDebug("enqueueTrigger slot={} count={} queueNow={}", slot, toAdd, queuedTriggers.size());
     }
 
     private void tryStartNextJob() {
         if (jobActive) return;
+
         Integer next = queuedTriggers.poll();
         if (next == null) return;
 
         if (!hasPatternInSlot(next) || storages.isEmpty()) {
+            logWarn("tryStartNextJob: cannot start. hasPattern={} storages={}", hasPatternInSlot(next), storages.size());
             markDirtyAndSync();
             return;
         }
@@ -794,6 +763,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         jobActive = true;
         activeSlot = next;
         markDirtyAndSync();
+        logDebug("Job START slot={} queueLeft={}", next, queuedTriggers.size());
         onJobTriggered(next);
     }
 
@@ -805,12 +775,14 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     private void onJobTriggered(int slot) {
         if (!hasPatternInSlot(slot) || storages.isEmpty()) {
+            logWarn("onJobTriggered: invalid start slot={} storages={}", slot, storages.size());
             clearJob();
             return;
         }
 
         List<PatternResourceList.Entry> resources = getResourcesForSlot(slot);
         if (resources.isEmpty()) {
+            logWarn("onJobTriggered: pattern has no resources slot={}", slot);
             clearJob();
             return;
         }
@@ -823,14 +795,11 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         stage = Stage.WAIT_RESOURCES;
         jobActive = true;
         activeSlot = slot;
-        pickupBaseline = -1;
         interactDelayCounter = 0;
 
-        pickupPollCounter = 0;
-        storageBaselines.clear();
-        expectedResultLike1 = computeExpectedResultLike1(slot);
-
         jobMatrixPos = null;
+        jobMatrixStarted = false;
+        waitMatrixTicks = 0;
 
         int storageCount = storages.size();
         int idx = 0;
@@ -852,11 +821,16 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             idx++;
         }
 
+        logDebug("onJobTriggered slot={} resources={} pendingToRequester={} pendingByStorageKeys={}",
+                slot, resources.size(), pendingToRequester.size(), pendingByStorage.keySet());
+
         ensurePendingToRequester(0);
         markDirtyAndSync();
     }
 
     private void clearJob() {
+        logDebug("clearJob: stage={} activeSlot={} started={} waitTicks={}", stage, activeSlot, jobMatrixStarted, waitMatrixTicks);
+
         jobActive = false;
         activeSlot = -1;
         stage = Stage.NONE;
@@ -869,14 +843,11 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         lastEnsureTick = tickCounter;
         nextProvisionTick = tickCounter;
 
-        pickupBaseline = -1;
         interactDelayCounter = 0;
 
-        pickupPollCounter = 0;
-        storageBaselines.clear();
-        expectedResultLike1 = ItemStack.EMPTY;
-
         jobMatrixPos = null;
+        jobMatrixStarted = false;
+        waitMatrixTicks = 0;
 
         resetDistributionState();
         markDirtyAndSync();
@@ -899,29 +870,32 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     private int countInInputLike(ItemKey key) {
         if (key == null || key == ItemKey.EMPTY) return 0;
+
         ItemStack like = key.toStack(1);
         if (like.isEmpty()) return 0;
+
         int total = 0;
         for (int i = 0; i < input.getSlots(); i++) {
             ItemStack slot = input.getStackInSlot(i);
             if (slot.isEmpty()) continue;
-            if (ItemHandlerHelper.canItemStacksStackRelaxed(slot, like)) {
-                total += slot.getCount();
-            }
+            if (ItemHandlerHelper.canItemStacksStackRelaxed(slot, like)) total += slot.getCount();
         }
         return total;
     }
 
     private boolean reconcilePendingToRequester() {
         boolean changed = false;
+
         for (Iterator<Map.Entry<ItemKey, Integer>> it = pendingToRequester.entrySet().iterator(); it.hasNext(); ) {
             Map.Entry<ItemKey, Integer> e = it.next();
             ItemKey key = e.getKey();
             int want = Math.max(1, e.getValue());
             int baseline = Math.max(0, baselineToRequester.getOrDefault(key, 0));
+
             int have = countInInputLike(key);
             int delivered = Math.max(0, have - baseline);
             int left = Math.max(0, want - delivered);
+
             if (left <= 0) {
                 it.remove();
                 changed = true;
@@ -930,10 +904,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 changed = true;
             }
         }
+
         if (changed) {
             needsEnsure = true;
             markDirtyAndSync();
+            logDebug("reconcilePendingToRequester changed. pendingNow={}", pendingToRequester);
         }
+
         return changed;
     }
 
@@ -946,12 +923,15 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     private void requestProvisionToRequester(Map<ItemKey, Integer> needs) {
         if (world == null || needs == null || needs.isEmpty()) return;
+
         BlockPos here = this.pos;
         for (Map.Entry<ItemKey, Integer> entry : needs.entrySet()) {
             ItemKey key = entry.getKey();
             if (key == null || key == ItemKey.EMPTY) continue;
+
             ItemStack like = key.toStack(1);
             if (like.isEmpty()) continue;
+
             int remaining = Math.max(1, entry.getValue());
             while (remaining > 0) {
                 int chunk = Math.min(remaining, Math.max(1, like.getMaxStackSize()));
@@ -962,6 +942,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 remaining -= chunk;
             }
         }
+
+        logDebug("requestProvisionToRequester sent needs={}", needs);
     }
 
     private void ensurePendingToRequester(int interval) {
@@ -973,6 +955,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             mgr.ensureDeliveryForExact(pos, new LinkedHashMap<>(pendingToRequester), 0);
             needsEnsure = false;
             lastEnsureTick = tickCounter;
+            logDebug("ensurePendingToRequester via manager={} needs={}", managerPos, pendingToRequester);
             return;
         }
 
@@ -981,6 +964,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (!useManagerForProvision()) {
             requestProvisionToRequester(pendingToRequester);
         }
+
         lastEnsureTick = tickCounter;
         nextProvisionTick = tickCounter + PROVISION_INTERVAL;
         needsEnsure = false;
@@ -1022,10 +1006,12 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (block == null) return;
 
         world.addBlockEvent(pedestalPos, block, 12, 0);
+        logDebug("playPedestalFinishFX at {}", pedestalPos);
     }
 
     private int findNextStorageIndex() {
         if (pendingByStorage.isEmpty()) return -1;
+
         int bestGreater = Integer.MAX_VALUE;
         int bestAny = Integer.MAX_VALUE;
 
@@ -1034,12 +1020,14 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (idx > distributeCurrentStorage && idx < bestGreater) bestGreater = idx;
             if (idx < bestAny) bestAny = idx;
         }
+
         if (bestGreater != Integer.MAX_VALUE) return bestGreater;
         return bestAny == Integer.MAX_VALUE ? -1 : bestAny;
     }
 
     private boolean distributeFromInputToStorages() {
         if (world == null) return true;
+
         if (storages.isEmpty() || pendingByStorage.isEmpty()) {
             resetDistributionState();
             return true;
@@ -1074,6 +1062,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         BlockPos storagePos = storages.get(Math.max(0, Math.min(distributeCurrentStorage, storages.size() - 1)));
         IItemHandler handler = getStorageHandler(storagePos);
         if (handler == null) {
+            logWarn("distribute: storage handler missing at {} (idx={})", storagePos, distributeCurrentStorage);
             pendingByStorage.remove(distributeCurrentStorage);
             distributeCurrentStorage = -1;
             return pendingByStorage.isEmpty();
@@ -1101,7 +1090,10 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             }
         }
 
-        if (anyMovedHere) markDirtyAndSync();
+        if (anyMovedHere) {
+            markDirtyAndSync();
+            logDebug("distribute: moved into {} pendingHereNow={}", storagePos, needs);
+        }
 
         if (needs.isEmpty()) {
             pendingByStorage.remove(distributeCurrentStorage);
@@ -1109,10 +1101,12 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
             if (pendingByStorage.isEmpty()) {
                 resetDistributionState();
+                logDebug("distribute: finished all storages");
                 return true;
             } else {
                 distributeDelayTicks = PEDESTAL_DELAY_TICKS;
                 distributeFxPlayed = false;
+                logDebug("distribute: finished one storage, delay {} ticks", distributeDelayTicks);
                 return false;
             }
         }
@@ -1122,16 +1116,29 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     // ========================= INTERACT (CLICK MATRIX) =========================
 
+    /**
+     * FIX: TileInfusionMatrix.onCasterRightClick(...) returns FALSE always.
+     * So we treat "triggered" for matrix as: after click -> matrix.active || matrix.crafting.
+     */
     private boolean performTargetInteraction() {
         if (world == null || world.isRemote) return false;
-        if (targetPos == null) return true;
+        if (targetPos == null) {
+            logWarn("performTargetInteraction: targetPos is NULL");
+            return true;
+        }
 
         ItemStack stack = specialSlot.getStackInSlot(0);
-        if (stack.isEmpty()) return false;
+        if (stack.isEmpty()) {
+            logWarn("performTargetInteraction: specialSlot empty");
+            return false;
+        }
 
         IBlockState state = world.getBlockState(targetPos);
         Block block = state.getBlock();
-        if (block == null || block.isAir(state, world, targetPos)) return false;
+        if (block == null || block.isAir(state, world, targetPos)) {
+            logWarn("performTargetInteraction: target block is air at {}", targetPos);
+            return false;
+        }
 
         if (!(world instanceof WorldServer)) return false;
         WorldServer ws = (WorldServer) world;
@@ -1148,7 +1155,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 if (ownerName.equals(p.getName())) { ownerEntity = p; break; }
             }
         }
-
         if (ownerEntity == null) {
             double cx = targetPos.getX() + 0.5, cy = targetPos.getY() + 0.5, cz = targetPos.getZ() + 0.5;
             double bestDist = Double.MAX_VALUE;
@@ -1183,152 +1189,152 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         fake.setHeldItem(EnumHand.MAIN_HAND, held);
 
         TileEntity te = world.getTileEntity(targetPos);
-        boolean triggered;
-        if (te instanceof IInteractWithCaster) {
-            triggered = ((IInteractWithCaster) te).onCasterRightClick(world, held, fake, targetPos, EnumFacing.UP, EnumHand.MAIN_HAND);
-        } else {
-            EnumActionResult itemRes = held.onItemUse(fake, world, targetPos, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 0.5F, 0.5F);
-            if (itemRes == EnumActionResult.SUCCESS) triggered = true;
-            else triggered = block.onBlockActivated(world, targetPos, state, fake, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 0.5F, 0.5F);
+
+        boolean triggered = false;
+        boolean calledCaster = false;
+
+        try {
+            if (te instanceof IInteractWithCaster) {
+                calledCaster = true;
+                boolean res = ((IInteractWithCaster) te).onCasterRightClick(world, held, fake, targetPos, EnumFacing.UP, EnumHand.MAIN_HAND);
+
+                // IMPORTANT FIX for infusion matrix
+                if (te instanceof TileInfusionMatrix) {
+                    TileInfusionMatrix m = (TileInfusionMatrix) te;
+                    triggered = m.active || m.crafting;
+                    logDebug("performTargetInteraction: Matrix click res={} -> active={} crafting={} => triggered={}",
+                            res, m.active, m.crafting, triggered);
+                } else {
+                    triggered = res;
+                    logDebug("performTargetInteraction: IInteractWithCaster res={} te={}", res, te.getClass().getName());
+                }
+            } else {
+                EnumActionResult itemRes = held.onItemUse(fake, world, targetPos, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 0.5F, 0.5F);
+                if (itemRes == EnumActionResult.SUCCESS) {
+                    triggered = true;
+                    logDebug("performTargetInteraction: onItemUse SUCCESS");
+                } else {
+                    boolean act = block.onBlockActivated(world, targetPos, state, fake, EnumHand.MAIN_HAND, EnumFacing.UP, 0.5F, 0.5F, 0.5F);
+                    triggered = act;
+                    logDebug("performTargetInteraction: onBlockActivated={}", act);
+                }
+            }
+        } catch (Throwable t) {
+            logWarn("performTargetInteraction exception: {}", t.toString());
+            triggered = false;
         }
 
         ItemStack after = fake.getHeldItemMainhand();
         specialSlot.setStackInSlot(0, after);
         markDirtyAndSync();
 
+        // дополнительный fallback: если матрица уже активна/крафтит, но triggered=false
+        if (!triggered && te instanceof TileInfusionMatrix) {
+            TileInfusionMatrix m = (TileInfusionMatrix) te;
+            if (m.active || m.crafting) {
+                triggered = true;
+                logDebug("performTargetInteraction fallback: matrix active/crafting -> treat as triggered");
+            }
+        }
+
+        if (!triggered) {
+            logDebug("performTargetInteraction FAILED (calledCaster={} te={})", calledCaster, te == null ? "null" : te.getClass().getName());
+        }
+
         return triggered;
     }
 
-    // ========================= STORAGE SNAPSHOTS (оставлено) =========================
+    // ========================= MATRIX RESOLVE =========================
 
-    private ItemStack computeExpectedResultLike1(int patternSlot) {
-        if (world == null) return ItemStack.EMPTY;
-        if (patternSlot < 0 || patternSlot >= patterns.getSlots()) return ItemStack.EMPTY;
+    @Nullable
+    private TileInfusionMatrix resolveMatrix() {
+        if (world == null) return null;
 
-        ItemStack pat = patterns.getStackInSlot(patternSlot);
-        if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) return ItemStack.EMPTY;
+        BlockPos base = (jobMatrixPos != null) ? jobMatrixPos : targetPos;
+        if (base == null) return null;
 
-        ItemStack preview = ItemInfusionPattern.calcResultPreview(pat, world);
-        preview = TerminalOrderApi.stripOrderIconData(preview);
-        if (preview.isEmpty()) return ItemStack.EMPTY;
+        BlockPos[] scan = new BlockPos[] {
+                base,
+                base.up(), base.up(2), base.up(3),
+                base.down(), base.down(2), base.down(3)
+        };
 
-        ItemStack like1 = preview.copy();
-        like1.setCount(1);
-        return like1;
-    }
-
-    private void captureAllStorageBaselines() {
-        storageBaselines.clear();
-        for (int i = 0; i < storages.size(); i++) {
-            storageBaselines.put(i, snapshotStorageState(i));
+        for (BlockPos p : scan) {
+            TileEntity te = world.getTileEntity(p);
+            if (te instanceof TileInfusionMatrix) {
+                if (jobMatrixPos == null || !jobMatrixPos.equals(p)) {
+                    logDebug("resolveMatrix: found matrix at {} (base={})", p, base);
+                }
+                jobMatrixPos = p.toImmutable();
+                return (TileInfusionMatrix) te;
+            }
         }
+
+        // редкий лог
+        if (DEBUG && (tickCounter % 40 == 0)) {
+            logWarn("resolveMatrix: NOT FOUND. base={} target={} jobMatrixPos={}", base, targetPos, jobMatrixPos);
+        }
+
+        return null;
     }
 
-    private int snapshotStorageState(int storageIndex) {
-        if (world == null || storages.isEmpty()) return 0;
-        if (storageIndex < 0 || storageIndex >= storages.size()) return 0;
+    // ========================= PULL ALL FROM STORAGES =========================
 
-        IItemHandler handler = getStorageHandler(storages.get(storageIndex));
+    private void pullAllStoragesIntoResults() {
+        if (world == null || storages.isEmpty()) {
+            logWarn("pullAllStoragesIntoResults: nothing (storages={})", storages.size());
+            return;
+        }
+
+        int movedTotal = 0;
+
+        for (BlockPos storagePos : storages) {
+            if (storagePos == null) continue;
+            IItemHandler handler = getStorageHandler(storagePos);
+            if (handler == null) {
+                logWarn("pullAllStoragesIntoResults: no handler at {}", storagePos);
+                continue;
+            }
+            movedTotal += drainHandlerIntoResults(handler, storagePos);
+        }
+
+        markDirtyAndSync();
+        logDebug("pullAllStoragesIntoResults DONE movedTotal={} storages={}", movedTotal, storages.size());
+    }
+
+    private int drainHandlerIntoResults(IItemHandler handler, BlockPos storagePos) {
         if (handler == null) return 0;
 
-        int hash = 1;
+        final int[] moved = new int[]{0};
+
+        Consumer<ItemStack> inserter = stack -> {
+            if (stack == null || stack.isEmpty()) return;
+
+            ItemStack before = stack.copy();
+            ItemStack remaining = ItemHandlerHelper.insertItem(results, before, false);
+
+            int inserted = before.getCount() - (remaining.isEmpty() ? 0 : remaining.getCount());
+            if (inserted > 0) moved[0] += inserted;
+
+            if (!remaining.isEmpty()) dropStack(remaining);
+        };
+
         for (int i = 0; i < handler.getSlots(); i++) {
-            hash = 31 * hash + stackFingerprint(handler.getStackInSlot(i));
+            int limit = Math.max(1, handler.getSlotLimit(i));
+            ItemStack canExtract = handler.extractItem(i, limit, true);
+            if (canExtract.isEmpty()) continue;
+
+            ItemStack extracted = handler.extractItem(i, canExtract.getCount(), false);
+            if (!extracted.isEmpty()) {
+                inserter.accept(extracted);
+                logDebug("drain {} slot={} extracted={} (handler={})",
+                        storagePos, i, extracted, handler.getClass().getName());
+            }
         }
-        return hash;
+
+        return moved[0];
     }
 
-    private int snapshotFirstStorageState() {
-        if (storages.isEmpty() || world == null) return 0;
-        IItemHandler handler = getStorageHandler(storages.get(0));
-        if (handler == null) return 0;
-
-        int hash = 1;
-        for (int i = 0; i < handler.getSlots(); i++) {
-            hash = 31 * hash + stackFingerprint(handler.getStackInSlot(i));
-        }
-        return hash;
-    }
-
-    private int stackFingerprint(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return 0;
-        int hash = 1;
-        hash = 31 * hash + Item.getIdFromItem(stack.getItem());
-        hash = 31 * hash + stack.getMetadata();
-        hash = 31 * hash + stack.getCount();
-        if (stack.hasTagCompound()) {
-            hash = 31 * hash + stack.getTagCompound().toString().hashCode();
-        }
-        return hash;
-    }
-
-    // ========================= PICKUP (STRICT) =========================
-
-    /**
-     * Забирает ТОЛЬКО ожидаемый результат (expectedResultLike1) из центрального пьедестала матрицы (matrixPos.down(2)).
-     * Сравнение СТРОГО:
-     * - item
-     * - meta (если есть subtypes)
-     * - NBT: строгое равенство, но ТОЛЬКО если expected содержит NBT
-     */
-    private boolean pickupExpectedFromMatrixCentralPedestalStrict() {
-        if (world == null) return false;
-        if (jobMatrixPos == null) return false;
-        if (expectedResultLike1 == null || expectedResultLike1.isEmpty()) return false;
-
-        BlockPos pedPos = jobMatrixPos.down(2);
-        TileEntity te = world.getTileEntity(pedPos);
-        if (!(te instanceof IInventory)) return false;
-
-        IInventory inv = (IInventory) te;
-
-        for (int i = 0; i < inv.getSizeInventory(); i++) {
-            ItemStack st = inv.getStackInSlot(i);
-            if (st.isEmpty()) continue;
-
-            if (!stacksEqualStrictLike(expectedResultLike1, st)) continue;
-
-            ItemStack extracted = st.copy();
-            inv.setInventorySlotContents(i, ItemStack.EMPTY);
-            inv.markDirty();
-            te.markDirty();
-
-            ItemStack rem = ItemHandlerHelper.insertItem(results, extracted, false);
-            if (!rem.isEmpty()) dropStack(rem);
-
-            markDirtyAndSync();
-            return true;
-        }
-
-        return false;
-    }
-
-    /**
-     * Строгое сравнение like1 с результатом:
-     * - item совпал
-     * - meta совпал, если у любого есть subtypes
-     * - NBT: если expected (like1) имеет NBT, то NBT обязано совпасть полностью; если expected без NBT — NBT результата игнорируем.
-     * Count игнорируем.
-     */
-    private boolean stacksEqualStrictLike(ItemStack like1, ItemStack stack) {
-        if (like1 == null || stack == null || like1.isEmpty() || stack.isEmpty()) return false;
-
-        if (like1.getItem() != stack.getItem()) return false;
-
-        if (like1.getHasSubtypes() || stack.getHasSubtypes()) {
-            if (like1.getMetadata() != stack.getMetadata()) return false;
-        }
-
-        NBTTagCompound expected = like1.getTagCompound();
-        if (expected == null) {
-            return true;
-        }
-
-        NBTTagCompound got = stack.getTagCompound();
-        return got != null && expected.equals(got);
-    }
-
-    // ========================= HELPERS =========================
 
     private void dropStack(ItemStack stack) {
         if (world == null || stack == null || stack.isEmpty()) return;
@@ -1337,35 +1343,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         world.spawnEntity(entity);
     }
 
-    private void pullAllStoragesIntoResults() {
-        if (world == null || storages.isEmpty()) return;
-
-        for (BlockPos storagePos : storages) {
-            IItemHandler handler = getStorageHandler(storagePos);
-            if (handler == null) continue;
-            drainHandlerIntoResults(handler);
-        }
-    }
-
-    private void drainHandlerIntoResults(IItemHandler handler) {
-        if (handler == null) return;
-
-        Consumer<ItemStack> inserter = stack -> {
-            ItemStack remaining = stack;
-            remaining = ItemHandlerHelper.insertItem(results, remaining, false);
-            if (!remaining.isEmpty()) dropStack(remaining);
-        };
-
-        for (int i = 0; i < handler.getSlots(); i++) {
-            ItemStack canExtract = handler.extractItem(i, handler.getSlotLimit(i), true);
-            if (canExtract.isEmpty()) continue;
-
-            ItemStack extracted = handler.extractItem(i, canExtract.getCount(), false);
-            if (!extracted.isEmpty()) inserter.accept(extracted);
-        }
-
-        markDirtyAndSync();
-    }
+    // ========================= HELPERS =========================
 
     private int readSignal() {
         if (world == null) return 0;
@@ -1387,6 +1365,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (existing >= 0) return existing + 1;
         storages.add(immutable);
         markDirtyAndSync();
+        logDebug("bindStorage added {} total={}", immutable, storages.size());
         return storages.size();
     }
 
@@ -1397,6 +1376,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if ((targetPos == null && immutable == null) || (targetPos != null && targetPos.equals(immutable))) return false;
         targetPos = immutable;
         markDirtyAndSync();
+        logDebug("setTargetPos -> {}", targetPos);
         return true;
     }
 
@@ -1411,6 +1391,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (boundGolems.contains(id)) return true;
         boundGolems.add(id);
         markDirtyAndSync();
+        logDebug("Bound golem {}", id);
         return true;
     }
 
@@ -1509,12 +1490,10 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         compound.setInteger(TAG_JOB_STAGE, stage.ordinal());
         compound.setInteger(TAG_JOB_SLOT, activeSlot);
         compound.setInteger(TAG_JOB_INTERACT, interactDelayCounter);
-        compound.setInteger(TAG_JOB_PICKUP_BASE, pickupBaseline);
 
         if (jobMatrixPos != null) compound.setLong(TAG_JOB_MATRIX_POS, jobMatrixPos.toLong());
-        // старые флаги — пишем false для совместимости
-        compound.setBoolean(TAG_JOB_MATRIX_SEEN, false);
-        compound.setBoolean(TAG_JOB_MATRIX_LAST, false);
+        compound.setBoolean(TAG_JOB_MATRIX_STARTED, jobMatrixStarted);
+        compound.setInteger(TAG_JOB_MATRIX_TICKS, waitMatrixTicks);
 
         NBTTagList qList = new NBTTagList();
         for (Integer s : queuedTriggers) {
@@ -1580,10 +1559,10 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         activeSlot = compound.getInteger(TAG_JOB_SLOT);
         interactDelayCounter = compound.getInteger(TAG_JOB_INTERACT);
-        pickupBaseline = compound.hasKey(TAG_JOB_PICKUP_BASE) ? compound.getInteger(TAG_JOB_PICKUP_BASE) : -1;
 
         jobMatrixPos = compound.hasKey(TAG_JOB_MATRIX_POS) ? BlockPos.fromLong(compound.getLong(TAG_JOB_MATRIX_POS)) : null;
-        // TAG_JOB_MATRIX_SEEN / LAST читаем не нужно — игнорируем (совместимость)
+        jobMatrixStarted = compound.getBoolean(TAG_JOB_MATRIX_STARTED);
+        waitMatrixTicks = compound.hasKey(TAG_JOB_MATRIX_TICKS) ? compound.getInteger(TAG_JOB_MATRIX_TICKS) : 0;
 
         queuedTriggers.clear();
         if (compound.hasKey(TAG_JOB_QUEUE, Constants.NBT.TAG_LIST)) {
@@ -1596,13 +1575,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         resetDistributionState();
 
-        pickupPollCounter = 0;
-        storageBaselines.clear();
-        expectedResultLike1 = ItemStack.EMPTY;
-
-        if (jobActive && stage == Stage.WAIT_PICKUP && expectedResultLike1.isEmpty() && activeSlot >= 0) {
-            expectedResultLike1 = computeExpectedResultLike1(activeSlot);
-        }
+        logDebug("readFromNBT: jobActive={} stage={} activeSlot={} storages={} target={} matrixPos={} started={} waitTicks={} queue={}",
+                jobActive, stage, activeSlot, storages.size(), targetPos, jobMatrixPos, jobMatrixStarted, waitMatrixTicks, queuedTriggers.size());
     }
 
     private void dropHandler(ItemStackHandler handler) {
