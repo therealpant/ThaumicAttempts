@@ -64,8 +64,8 @@ public class GuiArcanePattern extends GuiContainer {
             GlStateManager.disableLighting();
             GlStateManager.disableDepth();
             this.fontRenderer.drawStringWithShadow(text,
-                    resultX + 12 - this.fontRenderer.getStringWidth(text),
-                    resultY - 10,
+                    resultX + 16 - 1 - this.fontRenderer.getStringWidth(text),
+                    resultY + 8,
                     0xFFFFFF);
             GlStateManager.enableLighting();
             GlStateManager.enableDepth();

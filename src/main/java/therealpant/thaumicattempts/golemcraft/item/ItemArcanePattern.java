@@ -1,10 +1,6 @@
 package therealpant.thaumicattempts.golemcraft.item;
 
 import javax.annotation.Nullable;
-import net.minecraft.client.Minecraft;
-import net.minecraft.client.gui.GuiScreen;
-import net.minecraft.client.resources.I18n;
-import net.minecraft.client.util.ITooltipFlag;
 import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.Container;
@@ -142,31 +138,6 @@ public class ItemArcanePattern extends ItemBasePattern  implements IPatternResou
         if (vis <= 0) vis = fallbackFromCrystals(pattern); // если рецепт не найден, минималка
         int aurum = (vis + 4) / 5; // ceil(vis/5)
         return Math.max(1, aurum);
-    }
-
-    /** Подсказка: показываем потенциальный результат (превью). */
-    @SideOnly(Side.CLIENT)
-    @Override
-    public void addInformation(ItemStack stack, @Nullable World world, List<String> tooltip, ITooltipFlag flag) {
-        World ctx = world == null ? Minecraft.getMinecraft().world : world;
-        NonNullList<ItemStack> grid = readGrid(stack);
-        ItemStack out = ctx == null ? ItemStack.EMPTY : calcArcaneResultPreview(stack, ctx);
-        boolean hasRecipe = hasAnyStack(grid) || !out.isEmpty();
-        int[] crystals = getCrystalCounts(stack);
-        boolean hasCrystals = false;
-        for (int v : crystals) { if (v > 0) { hasCrystals = true; break; } }
-
-        if (GuiScreen.isShiftKeyDown() && hasRecipe) {
-            tooltip.add(I18n.format("ta.tooltip.result", out.isEmpty()
-                    ? I18n.format("ta.tooltip.result.unknown")
-                    : out.getDisplayName()));
-            addIconPreviewLines(tooltip, 3 + (hasCrystals ? 1 : 0));
-        } else if (!out.isEmpty()) {
-            tooltip.add(I18n.format("ta.tooltip.result", out.getDisplayName()));
-            tooltip.add(I18n.format("ta.tooltip.hold_shift"));
-        } else if (hasRecipe) {
-            tooltip.add(I18n.format("ta.tooltip.hold_shift"));
-        }
     }
 
     private int findVisCost(ItemStack pattern, World world) {

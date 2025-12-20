@@ -9,30 +9,18 @@ tile.thaumicattempts.math_core.name=Вычислительное Ядро
 tile.thaumicattempts.mirror_stabilizer.name=Зеркальный Стабилизатор
 tile.thaumicattempts.resource_requester.name=Ящик из Великого дерева
 tile.thaumicattempts.golem_dispatcher.name=Распределитель Задач
-tile.thaumicattempts.delivery_station.name=Станция Доставки
+tile.thaumicattempts.infusion_requester.name=Управляющий Наполнением
 
 
 item.thaumicattempts.craft_pattern.name=Инструкции по Сборке
-item.thaumicattempts.craft_pattern_infusion.name=Инструкции Инфузии
+item.thaumicattempts.infusion_pattern.name=Инструкции для Наполнения
 item.thaumicattempts.arcane_pattern.name=Мистические Инструкции
 item.thaumicattempts.resource_list.name=Заказ на Доставку
-item.thaumicattempts.delivery_pattern.name=Лист доставки
 
-thaumicattempts.delivery_station.inserted_pattern=Паттерн сохранен
-thaumicattempts.delivery_station.inserted_payload=Предмет для действия сохранен
-thaumicattempts.link.start=Привязка начата: кликайте хранилища колокольчиком
-thaumicattempts.link.storage_added=Запомнил хранилище №%1$s в %2$s %3$s %4$s
-thaumicattempts.link.click_target=Цель клика: %1$s %2$s %3$s
-thaumicattempts.link.saved=Привязки сохранены (%s целей)
-thaumicattempts.link.missing=Станция не найдена на сохраненной позиции
 
 container.golem_crafter=Верстак Голема
 container.arcane_crafter=Мистический Верстак Голема
 
-ta.tooltip.result=Результат: %s
-ta.tooltip.result.unknown=?
-ta.tooltip.slot.empty=пусто
-ta.tooltip.hold_shift=§7(Зажмите §eShift§7, чтобы увидеть рецепт)
 
 mod.thaumicattempts.name=ThaumicAttempts
 itemGroup.thaumicattempts=Thaumic Attempts

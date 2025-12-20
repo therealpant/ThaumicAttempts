@@ -197,6 +197,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private static final int MAX_SLOTS = RINGS * SLOTS_PER_RING;
     private static final int MIRROR_FOCUS_TICKS = 80;
     private static final int MIRROR_FOCUS_RELEASE_TICKS = 20;
+    private static final int MIRROR_DELIVERY_MAX_TICKS = 150;
 
     private static final String TAG_MIRRORS = "mirrors";
     private static final String TAG_RENDER_SEED = "renderSeed";
@@ -221,6 +222,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         public float idleSpin = 0f;
         public float lastRenderTime = Float.NaN;
         public float lastSpinStep = 0f;
+        public long focusStarted = 0L;
 
         public MirrorSlot(int r, int s, long p) {
             ring = r;
@@ -230,10 +232,22 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         public boolean focus(long now, int durationTicks) {
+            if (focusUntil < now) {
+                focusStarted = 0L;
+            }
+            if (focusStarted > 0L && now - focusStarted >= MIRROR_DELIVERY_MAX_TICKS) {
+                focusUntil = now;
+                focusStarted = 0L;
+                return false;
+            }
+
             long target = now + durationTicks;
             long remaining = focusUntil - now;
             if ((focusUntil < now || remaining < (durationTicks / 4)) && target > focusUntil) {
                 focusUntil = target;
+                if (focusStarted == 0L) {
+                    focusStarted = now;
+                }
                 return true;
             }
             return false;
@@ -522,16 +536,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     @Nullable
     private BlockPos resolveConsumerForDestination(BlockPos destPos) {
         if (destPos == null) return null;
-        if (boundTerminals.contains(destPos) || boundRequesters.contains(destPos)) return destPos;
+        if (boundTerminals.contains(destPos) || boundRequesters.contains(destPos)) {
+            return destPos;
+        }
 
-        if (world != null) {
-            TileEntity te = world.getTileEntity(destPos);
-            if (te instanceof TileEntityGolemCrafter) {
-                BlockPos up = destPos.up();
-                if (boundTerminals.contains(up) || boundRequesters.contains(up)) {
-                    return up;
-                }
-            }
+        BlockPos up = destPos.up();
+        if (boundTerminals.contains(up) || boundRequesters.contains(up)) {
+            return up;
         }
         return null;
     }

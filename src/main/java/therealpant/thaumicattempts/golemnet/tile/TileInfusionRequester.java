@@ -42,6 +42,7 @@ import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
 import therealpant.thaumicattempts.api.*;
+import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.util.ItemKey;
 
@@ -110,6 +111,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private static final String TAG_JOB_MATRIX_POS     = "JobMatrixPos";
     private static final String TAG_JOB_MATRIX_STARTED = "JobMatrixStarted";
     private static final String TAG_JOB_MATRIX_TICKS   = "JobMatrixTicks";
+    private static final String TAG_JOB_CRAFTS_TOTAL   = "JobCraftsTotal";
+    private static final String TAG_JOB_CRAFTS_LEFT    = "JobCraftsLeft";
     private static final String TAG_CRAFT_DELIVERIES   = "CraftDeliveries";
 
     private static final int MAX_QUEUED_ORDERS = 8;
@@ -156,7 +159,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     @Nullable private BlockPos targetPos = null;
     private final LinkedHashSet<UUID> boundGolems = new LinkedHashSet<>();
 
-    private final ArrayDeque<Integer> queuedTriggers = new ArrayDeque<>();
+    private final ArrayDeque<QueuedJob> queuedTriggers = new ArrayDeque<>();
     private int lastSignal = 0;
 
     // -------------------- job state --------------------
@@ -164,6 +167,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private final ArrayDeque<PendingCrafterDelivery> pendingCraftDeliveries = new ArrayDeque<>();
     private boolean jobActive = false;
     private int activeSlot = -1;
+    private int jobCraftsTotal = 1;
+    private int jobCraftsLeft = 0;
     private int tickCounter = 0;
 
     private enum Stage { NONE, WAIT_RESOURCES, INTERACT_TARGET, WAIT_PICKUP }
@@ -249,6 +254,29 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemStack like = new ItemStack(tag.getCompoundTag("Like"));
             int remain = tag.getInteger("Remain");
             return new PendingCrafterDelivery(dest, side, manager, like, remain);
+        }
+    }
+
+    private static final class QueuedJob {
+        final int slot;
+        final int crafts;
+
+        QueuedJob(int slot, int crafts) {
+            this.slot = slot;
+            this.crafts = Math.max(1, crafts);
+        }
+
+        NBTTagCompound serialize() {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setInteger("s", slot);
+            tag.setInteger("c", crafts);
+            return tag;
+        }
+
+        static QueuedJob deserialize(NBTTagCompound tag) {
+            int slot = tag.getInteger("s");
+            int crafts = tag.hasKey("c") ? tag.getInteger("c") : 1;
+            return new QueuedJob(slot, crafts);
         }
     }
 
@@ -353,7 +381,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     @Override
     public int enqueueFromPatternRequester(int patternSlot, int times) {
         int before = queuedTriggers.size();
-        enqueueTrigger(patternSlot, Math.max(1, times));
+        enqueueTrigger(patternSlot, Math.max(1, times), false);
         int after = queuedTriggers.size();
         int added = Math.max(0, after - before);
         logDebug("enqueueFromPatternRequester slot={} times={} added={} queueNow={}", patternSlot, times, added, queuedTriggers.size());
@@ -431,20 +459,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         tickCounter++;
 
-        // редкий статусный лог
-        if (DEBUG && (tickCounter % 40 == 0)) {
-            logDebug("tick stage={} jobActive={} activeSlot={} queue={} storages={} target={} matrixPos={} matrixStarted={} waitTicks={} pendingReq={} pendingStorages={}",
-                    stage, jobActive, activeSlot, queuedTriggers.size(), storages.size(), targetPos, jobMatrixPos, jobMatrixStarted, waitMatrixTicks,
-                    pendingToRequester.size(), pendingByStorage.size());
-        }
-
         int signal = readSignal();
         if (signal != lastSignal) {
             logDebug("Redstone changed {} -> {}", lastSignal, signal);
             if (signal > 0) {
                 int slot = patternIndexFromSignal(signal);
                 if (slot >= 0) {
-                    enqueueTrigger(slot, 1);
+                    enqueueTrigger(slot, 1, true);
                     tryStartNextJob();
                 }
             }
@@ -532,16 +553,19 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 if (crafting) {
                     jobMatrixStarted = true;
                     markDirtyAndSync();
-                    logDebug("Matrix crafting START detected");
                 }
                 deliverStoredResultsToDestinations();
                 return;
             }
 
             if (!crafting) {
-                logDebug("Matrix crafting FINISH detected -> pulling all storages into results");
                 pullAllStoragesIntoResults();
-                clearJob();
+                if (jobCraftsLeft > 1) {
+                    jobCraftsLeft--;
+                    prepareNextCraft();
+                } else {
+                    clearJob();
+                }
                 deliverStoredResultsToDestinations();
                 return;
             }
@@ -556,7 +580,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     public void triggerExternalRequest(int slot, int count) {
         if (world == null || world.isRemote) return;
-        enqueueTrigger(slot, count);
+        enqueueTrigger(slot, count, false);
         tryStartNextJob();
     }
 
@@ -728,43 +752,45 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                     results.setStackInSlot(i, copy);
                 }
                 markDirtyAndSync();
-                logDebug("deliverStoredResults moved={} from resultSlot={} pendingDeliveries={}", moved, i, pendingCraftDeliveries.size());
             }
         }
     }
 
     // ========================= JOB QUEUE =========================
 
-    private void enqueueTrigger(int slot, int count) {
+    private void enqueueTrigger(int slot, int count, boolean applyPatternRepeat) {
         if (slot < 0 || slot >= patterns.getSlots()) return;
         if (count <= 0) return;
 
-        int room = MAX_QUEUED_ORDERS - queuedTriggers.size();
+        int repeat = applyPatternRepeat ? getPatternRepeatCount(slot) : 1;
+        int total = Math.max(1, count) * Math.max(1, repeat);
+        int room = MAX_QUEUED_ORDERS - getQueuedCraftsCount();
         if (room <= 0) return;
 
-        int toAdd = Math.min(count, room);
-        for (int i = 0; i < toAdd; i++) queuedTriggers.add(slot);
+        int toAdd = Math.min(total, room);
+        if (toAdd <= 0) return;
+
+        queuedTriggers.add(new QueuedJob(slot, toAdd));
         markDirtyAndSync();
-        logDebug("enqueueTrigger slot={} count={} queueNow={}", slot, toAdd, queuedTriggers.size());
     }
 
     private void tryStartNextJob() {
         if (jobActive) return;
 
-        Integer next = queuedTriggers.poll();
+        QueuedJob  next = queuedTriggers.poll();
         if (next == null) return;
 
-        if (!hasPatternInSlot(next) || storages.isEmpty()) {
-            logWarn("tryStartNextJob: cannot start. hasPattern={} storages={}", hasPatternInSlot(next), storages.size());
+        if (!hasPatternInSlot(next.slot) || storages.isEmpty()) {
             markDirtyAndSync();
             return;
         }
 
         jobActive = true;
-        activeSlot = next;
+        activeSlot = next.slot;
+        jobCraftsTotal = Math.max(1, next.crafts);
+        jobCraftsLeft = jobCraftsTotal;
         markDirtyAndSync();
-        logDebug("Job START slot={} queueLeft={}", next, queuedTriggers.size());
-        onJobTriggered(next);
+        onJobTriggered(next.slot, jobCraftsLeft);
     }
 
     private void resetDistributionState() {
@@ -773,16 +799,14 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         distributeFxPlayed = false;
     }
 
-    private void onJobTriggered(int slot) {
+    private void onJobTriggered(int slot, int crafts) {
         if (!hasPatternInSlot(slot) || storages.isEmpty()) {
-            logWarn("onJobTriggered: invalid start slot={} storages={}", slot, storages.size());
             clearJob();
             return;
         }
 
         List<PatternResourceList.Entry> resources = getResourcesForSlot(slot);
         if (resources.isEmpty()) {
-            logWarn("onJobTriggered: pattern has no resources slot={}", slot);
             clearJob();
             return;
         }
@@ -795,6 +819,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         stage = Stage.WAIT_RESOURCES;
         jobActive = true;
         activeSlot = slot;
+        jobCraftsTotal = Math.max(1, crafts);
+        jobCraftsLeft = jobCraftsTotal;
         interactDelayCounter = 0;
 
         jobMatrixPos = null;
@@ -802,7 +828,34 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         waitMatrixTicks = 0;
 
         int storageCount = storages.size();
-        int idx = 0;
+
+        for (PatternResourceList.Entry entry : resources) {
+            if (entry == null || entry.getKey() == null || entry.getKey() == ItemKey.EMPTY) continue;
+
+            ItemKey key = entry.getKey();
+            int count = Math.max(1, entry.getCount());
+            int total = Math.max(1, count) * jobCraftsLeft;
+
+            baselineToRequester.putIfAbsent(key, countInInputLike(key));
+            pendingToRequester.merge(key, total, Integer::sum);
+        }
+
+        buildPendingByStorageForCraft(resources, storageCount);
+
+        ensurePendingToRequester(0);
+        markDirtyAndSync();
+    }
+
+    private void prepareNextCraft() {
+        if (!hasPatternInSlot(activeSlot) || storages.isEmpty()) return;
+
+        List<PatternResourceList.Entry> resources = getResourcesForSlot(activeSlot);
+        if (resources.isEmpty()) return;
+
+        pendingToRequester.clear();
+        baselineToRequester.clear();
+        int storageCount = storages.size();
+        buildPendingByStorageForCraft(resources, storageCount);
 
         for (PatternResourceList.Entry entry : resources) {
             if (entry == null || entry.getKey() == null || entry.getKey() == ItemKey.EMPTY) continue;
@@ -810,30 +863,32 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemKey key = entry.getKey();
             int count = Math.max(1, entry.getCount());
 
-            baselineToRequester.putIfAbsent(key, countInInputLike(key));
-            pendingToRequester.merge(key, count, Integer::sum);
-
-            if (storageCount > 0) {
-                int target = Math.min(idx, storageCount - 1);
-                Map<ItemKey, Integer> need = pendingByStorage.computeIfAbsent(target, k -> new LinkedHashMap<>());
-                need.merge(key, count, Integer::sum);
+            int have = countInInputLike(key);
+            if (have < count) {
+                pendingToRequester.put(key, count - have);
+                baselineToRequester.put(key, have);
             }
-            idx++;
+        }
+        if (pendingToRequester.isEmpty()) {
+            stage = Stage.INTERACT_TARGET;
+        } else {
+            stage = Stage.WAIT_RESOURCES;
+            ensurePendingToRequester(0);
         }
 
-        logDebug("onJobTriggered slot={} resources={} pendingToRequester={} pendingByStorageKeys={}",
-                slot, resources.size(), pendingToRequester.size(), pendingByStorage.keySet());
-
-        ensurePendingToRequester(0);
+        interactDelayCounter = 0;
+        jobMatrixStarted = false;
+        waitMatrixTicks = 0;
         markDirtyAndSync();
     }
 
     private void clearJob() {
-        logDebug("clearJob: stage={} activeSlot={} started={} waitTicks={}", stage, activeSlot, jobMatrixStarted, waitMatrixTicks);
 
         jobActive = false;
         activeSlot = -1;
         stage = Stage.NONE;
+        jobCraftsTotal = 1;
+        jobCraftsLeft = 0;
 
         pendingToRequester.clear();
         baselineToRequester.clear();
@@ -861,6 +916,46 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         ItemStack stack = patterns.getStackInSlot(slot);
         if (stack.isEmpty() || !(stack.getItem() instanceof ItemInfusionPattern)) return false;
         return !PatternResourceList.build(stack).isEmpty();
+    }
+
+    private int getPatternRepeatCount(int slot) {
+        if (slot < 0 || slot >= patterns.getSlots()) return 1;
+        ItemStack stack = patterns.getStackInSlot(slot);
+        if (stack.isEmpty()) return 1;
+        if (stack.getItem() instanceof ItemBasePattern) {
+            return ItemBasePattern.getRepeatCount(stack);
+        }
+        return 1;
+    }
+
+    private int getQueuedCraftsCount() {
+        int total = 0;
+        for (QueuedJob job : queuedTriggers) {
+            if (job != null) total += Math.max(0, job.crafts);
+        }
+        return total;
+    }
+
+    private void buildPendingByStorageForCraft(List<PatternResourceList.Entry> resources, int storageCount) {
+        pendingByStorage.clear();
+        resetDistributionState();
+
+        if (storageCount <= 0 || resources == null || resources.isEmpty()) return;
+
+        int idx = 0;
+        for (PatternResourceList.Entry entry : resources) {
+            if (entry == null || entry.getKey() == null || entry.getKey() == ItemKey.EMPTY) continue;
+
+            ItemKey key = entry.getKey();
+            int count = Math.max(1, entry.getCount());
+
+            for (int i = 0; i < count; i++) {
+                int target = idx % storageCount;
+                Map<ItemKey, Integer> need = pendingByStorage.computeIfAbsent(target, k -> new LinkedHashMap<>());
+                need.merge(key, 1, Integer::sum);
+                idx++;
+            }
+        }
     }
 
     public List<PatternResourceList.Entry> getResourcesForSlot(int slot) {
@@ -1490,17 +1585,17 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         compound.setInteger(TAG_JOB_STAGE, stage.ordinal());
         compound.setInteger(TAG_JOB_SLOT, activeSlot);
         compound.setInteger(TAG_JOB_INTERACT, interactDelayCounter);
+        compound.setInteger(TAG_JOB_CRAFTS_TOTAL, jobCraftsTotal);
+        compound.setInteger(TAG_JOB_CRAFTS_LEFT, jobCraftsLeft);
 
         if (jobMatrixPos != null) compound.setLong(TAG_JOB_MATRIX_POS, jobMatrixPos.toLong());
         compound.setBoolean(TAG_JOB_MATRIX_STARTED, jobMatrixStarted);
         compound.setInteger(TAG_JOB_MATRIX_TICKS, waitMatrixTicks);
 
         NBTTagList qList = new NBTTagList();
-        for (Integer s : queuedTriggers) {
-            if (s == null) continue;
-            NBTTagCompound el = new NBTTagCompound();
-            el.setInteger("s", s);
-            qList.appendTag(el);
+        for (QueuedJob job : queuedTriggers) {
+            if (job == null) continue;
+            qList.appendTag(job.serialize());
         }
         compound.setTag(TAG_JOB_QUEUE, qList);
 
@@ -1559,6 +1654,11 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         activeSlot = compound.getInteger(TAG_JOB_SLOT);
         interactDelayCounter = compound.getInteger(TAG_JOB_INTERACT);
+        jobCraftsTotal = compound.hasKey(TAG_JOB_CRAFTS_TOTAL) ? compound.getInteger(TAG_JOB_CRAFTS_TOTAL) : 1;
+        jobCraftsLeft = compound.hasKey(TAG_JOB_CRAFTS_LEFT) ? compound.getInteger(TAG_JOB_CRAFTS_LEFT) : 0;
+        if (jobActive && jobCraftsLeft <= 0) {
+            jobCraftsLeft = Math.max(1, jobCraftsTotal);
+        }
 
         jobMatrixPos = compound.hasKey(TAG_JOB_MATRIX_POS) ? BlockPos.fromLong(compound.getLong(TAG_JOB_MATRIX_POS)) : null;
         jobMatrixStarted = compound.getBoolean(TAG_JOB_MATRIX_STARTED);
@@ -1569,14 +1669,12 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             NBTTagList qList = compound.getTagList(TAG_JOB_QUEUE, Constants.NBT.TAG_COMPOUND);
             for (int i = 0; i < qList.tagCount(); i++) {
                 NBTTagCompound el = qList.getCompoundTagAt(i);
-                if (el.hasKey("s")) queuedTriggers.add(el.getInteger("s"));
+                if (el.hasKey("s")) queuedTriggers.add(QueuedJob.deserialize(el));
             }
         }
 
         resetDistributionState();
 
-        logDebug("readFromNBT: jobActive={} stage={} activeSlot={} storages={} target={} matrixPos={} started={} waitTicks={} queue={}",
-                jobActive, stage, activeSlot, storages.size(), targetPos, jobMatrixPos, jobMatrixStarted, waitMatrixTicks, queuedTriggers.size());
     }
 
     private void dropHandler(ItemStackHandler handler) {
