@@ -17,11 +17,7 @@ import therealpant.thaumicattempts.client.render.*;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemnet.block.BlockMathCore;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer;
-import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
-import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
-import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
-import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
-import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
+import therealpant.thaumicattempts.golemnet.tile.*;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
@@ -57,7 +53,6 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(ModBlocksItems.ARCANE_CRAFTER, ThaumicAttempts.MODID + ":arcane_crafter");
         registerItemBlockModel(ModBlocksItems.MATH_CORE, ThaumicAttempts.MODID + ":math_core");
         registerItemBlockModel(ModBlocksItems.MIRROR_STABILIZER, ThaumicAttempts.MODID + ":mirror_stabilizer");
-        registerItemBlockModel(TABlocks.MIRROR_MANAGER_BASE, ThaumicAttempts.MODID + ":mirror_manager_base");
         registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
 
         // ухо — используем таумовскую иконку предмета

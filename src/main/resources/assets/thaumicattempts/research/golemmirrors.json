@@ -33,7 +33,8 @@
           "text": "research.TA_GOLEM_MIRRORS.text.1",
           "recipes": [
             "thaumicattempts:order_terminal",
-            "thaumicattempts:mirror_manager_infusion"
+            "thaumicattempts:mirror_manager_infusion",
+            "thaumicattempts:mirror_manager_multiblock"
           ]
         }
       ]

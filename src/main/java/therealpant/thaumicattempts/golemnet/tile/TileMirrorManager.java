@@ -2467,16 +2467,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         net.minecraft.block.Block seedBlock = world.getBlockState(seed).getBlock();
         boolean seedIsStab = seedBlock == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MIRROR_STABILIZER && stabsAll.contains(seed);
         boolean seedIsCore = seedBlock == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MATH_CORE && coresAll.contains(seed);
-        boolean seedIsBase = seedBlock == therealpant.thaumicattempts.init.TABlocks.MIRROR_MANAGER_BASE;
+
 
         if (seedIsStab) stabsActive.add(seed);
         if (seedIsCore) coresActive.add(seed);
-        if (seedIsBase) {
-            for (BlockPos nb : faceNeighbors(seed)) {
-                if (stabsAll.contains(nb)) stabsActive.add(nb);
-                else if (coresAll.contains(nb)) coresActive.add(nb);
-            }
-        }
+
 
         boolean changed = true;
         while (changed) {

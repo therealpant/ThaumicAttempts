@@ -13,6 +13,8 @@ import net.minecraft.util.EnumHand;
 import net.minecraft.util.SoundCategory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 import thaumcraft.api.blocks.BlocksTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
@@ -23,11 +25,65 @@ public class BlockMirrorManagerCore extends Block {
 
     public BlockMirrorManagerCore() {
         super(Material.ROCK);
+        setLightOpacity(0);
         setHardness(2.5F);
         setResistance(12.0F);
         setTranslationKey(ThaumicAttempts.MODID + ".mirror_manager_core");
         setRegistryName(ThaumicAttempts.MODID, "mirror_manager_core");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
+    }
+
+    @Override
+    public net.minecraft.util.EnumBlockRenderType getRenderType(IBlockState state) {
+        return net.minecraft.util.EnumBlockRenderType.INVISIBLE;
+    }
+
+    @Override
+    public boolean isOpaqueCube(IBlockState state) {
+        return false;
+    }
+
+    @Override
+    public boolean isFullCube(IBlockState state) {
+        return false;
+    }
+
+    @Override
+    public int getLightOpacity(IBlockState state, net.minecraft.world.IBlockAccess world, BlockPos pos) {
+        return 0;
+    }
+
+    @Override
+    public boolean isTranslucent(IBlockState state) {
+        return true;
+    }
+
+    @Override
+    public boolean getUseNeighborBrightness(IBlockState state) {
+        return true;
+    }
+
+    @Override
+    public boolean doesSideBlockRendering(IBlockState state, net.minecraft.world.IBlockAccess world,
+                                          BlockPos pos, EnumFacing face) {
+        return false;
+    }
+
+    @SideOnly(Side.CLIENT)
+    @Override
+    public net.minecraft.util.BlockRenderLayer getRenderLayer() {
+        return net.minecraft.util.BlockRenderLayer.CUTOUT_MIPPED;
+    }
+
+    @SideOnly(Side.CLIENT)
+    @Override
+    public boolean canRenderInLayer(IBlockState state, net.minecraft.util.BlockRenderLayer layer) {
+        return layer == net.minecraft.util.BlockRenderLayer.CUTOUT_MIPPED;
+    }
+
+    @Override
+    public float getAmbientOcclusionLightValue(IBlockState state) {
+        return 1.0F;
     }
 
     @Override
@@ -61,7 +117,7 @@ public class BlockMirrorManagerCore extends Block {
     }
 
     private static boolean isValidStructure(World world, BlockPos pos) {
-        return world.getBlockState(pos.down()).getBlock() == TABlocks.MIRROR_MANAGER_BASE
+        return world.getBlockState(pos.down()).getBlock() == BlocksTC.stoneEldritchTile
                 && world.getBlockState(pos.up()).getBlock() == BlocksTC.stoneEldritchTile;
     }
 }
