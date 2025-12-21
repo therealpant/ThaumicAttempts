@@ -168,6 +168,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private int ordoBuffer = 0; // текущее кол-во Ordo в буфере
 
 
+    // запускать проверку стабильности только когда была доставка
+    private boolean stabilityCheckPending = false;
+    private int stabilityCheckTick = -1; // чтобы не вызывать 10 раз за тик
+
+
     /* ===================== Голем-логистика ===================== */
 
     private static final int REQ_DEBOUNCE_TICKS = 5;
@@ -274,6 +279,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
             return false;
         }
+    }
+
+    private void markDeliveryHappened() {
+        // отметим, что в этом тике была доставка
+        stabilityCheckPending = true;
     }
 
     @Nullable
@@ -753,6 +763,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (te instanceof TileOrderTerminal) {
             ((TileOrderTerminal) te).clearManagerPosFromManager(this.pos); // «тихо»
             cancelAllForDestination(terminalPos); // подчистить очереди
+        } else if (te instanceof TileResourceRequester) {
+            TileResourceRequester requester = (TileResourceRequester) te;
+            requester.setManagerPos(null);
+            requester.cancelActiveJob();
         }
     }
 
@@ -1884,6 +1898,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         int pushed0 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
         if (pushed0 > 0) {
+            markDeliveryHappened();
             ln.remaining -= pushed0;
             if (ln.reserved > 0) ln.reserved = Math.max(0, ln.reserved - pushed0);
             lastProgressTick.put(key, tickCounter);
@@ -1976,6 +1991,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         int pushed1 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
         if (pushed1 > 0) {
+            markDeliveryHappened();
             ln.remaining -= pushed1;
             if (ln.reserved > 0) ln.reserved = Math.max(0, ln.reserved - pushed1);
             lastProgressTick.put(key, tickCounter);
@@ -2280,10 +2296,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         tickCounter++;
 
-        if ((tickCounter % STABILITY_CHECK_PERIOD) == 0) {
-            tickStabilityAndFlux();
-        }
-
         intakeNearbyItems();
         processMirrorItemsInBuffer();
         tickMirrorEjects();
@@ -2301,6 +2313,18 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if ((tickCounter % PROVIDER_RESCAN_TICKS) == 0) {
             rebuildProvideSetFromSeals();
         }
+
+        if (stabilityCheckPending && stabilityCheckTick != tickCounter) {
+            stabilityCheckTick = tickCounter;
+            stabilityCheckPending = false;
+
+            // можно подкачать буфер "впрок" именно во время доставки
+            pullOrdoToBuffer(ORDO_PULL_PER_CHECK);
+
+            // и уже затем расчёт стабильности/ordo/флакса
+            tickStabilityAndFlux();
+        }
+
         rebuildProvideSetFromSeals();
     }
 
@@ -3546,6 +3570,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     public void unregisterRequester(BlockPos pos) {
         if (pos != null && requesters.remove(pos)) markDirty();
+    }
+
+    boolean isConsumerBound(BlockPos pos) {
+        if (pos == null) return false;
+        return boundTerminals.contains(pos) || boundRequesters.contains(pos);
     }
 
     /* ===================== NBT owner allow (оставлено как было) ===================== */

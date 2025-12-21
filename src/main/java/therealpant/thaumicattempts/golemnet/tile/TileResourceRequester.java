@@ -523,11 +523,32 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             BlockPos patternManager = requester.getManagerPos();
             if (patternManager != null) {
                 setManagerPos(patternManager, true);
+                ensureBoundToManager(patternManager);
             } else if (managerFromPattern) {
+                unbindFromManager();
                 setManagerPos(null, false);
             }
         } else if (managerFromPattern) {
+            unbindFromManager();
             setManagerPos(null, false);
+        }
+    }
+
+    private void ensureBoundToManager(BlockPos manager) {
+        if (world == null || world.isRemote || manager == null) return;
+        TileEntity te = world.getTileEntity(manager);
+        if (!(te instanceof TileMirrorManager)) return;
+        TileMirrorManager mgr = (TileMirrorManager) te;
+        if (!mgr.isConsumerBound(this.pos)) {
+            mgr.tryBindTerminal(this.pos);
+        }
+    }
+
+    private void unbindFromManager() {
+        if (world == null || world.isRemote || managerPos == null) return;
+        TileEntity te = world.getTileEntity(managerPos);
+        if (te instanceof TileMirrorManager) {
+            ((TileMirrorManager) te).unbind(this.pos);
         }
     }
 

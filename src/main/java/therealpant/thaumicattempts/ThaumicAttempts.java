@@ -119,6 +119,7 @@ public class ThaumicAttempts {
         ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemmirrors"));
         ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_delivery"));
         ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_controling"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_infusion"));
 
         proxy.init(e);
     }

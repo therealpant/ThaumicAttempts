@@ -3,6 +3,8 @@ package therealpant.thaumicattempts.data;
 
 import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
+import net.minecraft.init.Items;
+import net.minecraft.item.EnumDyeColor;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
@@ -10,6 +12,7 @@ import net.minecraft.util.ResourceLocation;
 import thaumcraft.api.ThaumcraftApi;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
+import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.api.crafting.InfusionRecipe;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.blocks.BlockTC;
@@ -95,10 +98,10 @@ public final class TAInfusionRecipes {
                 ItemStack OUT = new ItemStack(outItem);
 
                 // центр: мозг в банке (thaumcraft:jar_brain)
-                Object CENTER = ItemsTC.golemBell;
+                Object CENTER = ItemsTC.primordialPearl;
 
                 Object[] COMPS = new Object[]{
-                        new ItemStack(ItemsTC.primordialPearl),
+                        new ItemStack(ItemsTC.mind, 1, 1),
                         new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
                         new ItemStack(ItemsTC.mirroredGlass),
                         new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
@@ -109,9 +112,9 @@ public final class TAInfusionRecipes {
                 };
 
                 AspectList AS = new AspectList()
-                        .add(Aspect.ELDRITCH, 150)
-                        .add(Aspect.MOTION, 100)
-                        .add(Aspect.ORDER, 100);
+                        .add(Aspect.ELDRITCH, 250)
+                        .add(Aspect.MOTION, 150)
+                        .add(Aspect.ORDER, 150);
 
                 ThaumcraftApi.addInfusionCraftingRecipe(
                         new ResourceLocation(ThaumicAttempts.MODID, "mirror_manager_infusion"),
@@ -151,7 +154,7 @@ public final class TAInfusionRecipes {
         } catch (Throwable t) {
             System.out.println("[TA] Skip requester_infusion: " + t);
         }
-
+        // ------------ Распеределитель Задачь ------------ \\
         try {
             ThaumcraftApi.addInfusionCraftingRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "dispatcher_infusion"),
@@ -178,6 +181,34 @@ public final class TAInfusionRecipes {
             System.out.println("[TA] Registered infusion: dispatcher_infusion");
         } catch (Throwable t) {
             System.out.println("[TA] Skip dispatcher_infusion: " + t);
+        }
+        // ------------ Управляющий Наполнением ------------ \\
+        try {
+            ThaumcraftApi.addInfusionCraftingRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "infusion_requester_infusion"),
+                    new InfusionRecipe(
+                            "TA_GOLEMINFUSION",
+                            new ItemStack(TABlocks.INFUSION_REQUESTER_ITEM),
+                            8,
+                            new AspectList()
+                                    .add(Aspect.MECHANISM, 125)
+                                    .add(Aspect.ELDRITCH, 75)
+                                    .add(Aspect.MIND, 150),
+                            new ItemStack(Item.getItemFromBlock(TABlocks.RESOURCE_REQUESTER)),
+                            new ItemStack(Item.getItemFromBlock(BlocksTC.banners.get(EnumDyeColor.RED))),
+                            new ItemStack(Item.getItemFromBlock(BlocksTC.stoneArcane)),
+                            new ItemStack(ItemsTC.mind, 1, 1),
+                            new ItemStack(Item.getItemFromBlock(BlocksTC.stoneArcane)),
+                            new ItemStack(Item.getItemFromBlock(BlocksTC.banners.get(EnumDyeColor.RED))),
+                            new ItemStack(Item.getItemFromBlock(BlocksTC.stoneArcane)),
+                            Items.ENDER_PEARL,
+                            new ItemStack(Item.getItemFromBlock(BlocksTC.stoneArcane))
+
+                    )
+            );
+            System.out.println("[TA] Registered infusion: infusion_requester_infusion");
+        } catch (Throwable t) {
+            System.out.println("[TA] Skip infusion_requester_infusion: " + t);
         }
     }
 }

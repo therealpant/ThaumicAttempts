@@ -1,0 +1,38 @@
+{
+  "entries": [
+    {
+      "key": "TA_GOLEMINFUSION",
+      "name": "research.TA_GOLEMINFUSION.title",
+      "icons": [
+        "thaumicattempts:infusion_requester"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "TA_GOLEMCRAFT_AD",
+        "TA_GOLEMDELIVERY"
+      ],
+      "siblings": [],
+      "location": [
+        5,
+        9
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEMINFUSION.text.intro",
+          "required_knowledge": ["THEORY;GOLEMANCY;2", "THEORY;ARTIFICE;2", "THEORY;INFUSION;1"],
+          "required_item": [
+            "thaumicattempts:resource_requester",
+            "thaumcraft:infusion_matrix"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEMINFUSION.text.main",
+          "recipes": [
+            "thaumicattempts:pattern_infusion_arcane",
+            "thaumicattempts:infusion_requester_infusion"
+          ]
+        }
+      ]
+    }
+  ]
+}
