@@ -18,6 +18,8 @@ import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorManager;
+import therealpant.thaumicattempts.golemnet.block.BlockMirrorManagerBase;
+import therealpant.thaumicattempts.golemnet.block.BlockMirrorManagerCore;
 import therealpant.thaumicattempts.golemnet.block.BlockOrderTerminal;
 import therealpant.thaumicattempts.golemnet.block.BlockPatternRequester;
 import therealpant.thaumicattempts.golemnet.block.BlockResourceRequester;
@@ -69,6 +71,8 @@ public final class ModBlocksItems {
 
         // Сетап блоков сети (если у них НЕТ setRegistryName в конструкторе — задай тут)
         TABlocks.MIRROR_MANAGER    = new BlockMirrorManager();    // .setRegistryName(MODID, "mirror_manager");
+        TABlocks.MIRROR_MANAGER_BASE = new BlockMirrorManagerBase();
+        TABlocks.MIRROR_MANAGER_CORE = new BlockMirrorManagerCore();
         TABlocks.ORDER_TERMINAL    = new BlockOrderTerminal();    // .setRegistryName(MODID, "order_terminal");
         TABlocks.PATTERN_REQUESTER = new BlockPatternRequester(); // .setRegistryName(MODID, "pattern_requester");
         TABlocks.RESOURCE_REQUESTER = new BlockResourceRequester();
@@ -78,6 +82,8 @@ public final class ModBlocksItems {
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
+                TABlocks.MIRROR_MANAGER_BASE,
+                TABlocks.MIRROR_MANAGER_CORE,
                 TABlocks.ORDER_TERMINAL,
                 TABlocks.PATTERN_REQUESTER,
                 TABlocks.RESOURCE_REQUESTER,
@@ -132,6 +138,10 @@ public final class ModBlocksItems {
         // ItemBlock'и сети
         TABlocks.MIRROR_MANAGER_ITEM = new ItemBlock(TABlocks.MIRROR_MANAGER)
                 .setRegistryName(TABlocks.MIRROR_MANAGER.getRegistryName());
+        TABlocks.MIRROR_MANAGER_BASE_ITEM = new ItemBlock(TABlocks.MIRROR_MANAGER_BASE)
+                .setRegistryName(TABlocks.MIRROR_MANAGER_BASE.getRegistryName());
+        TABlocks.MIRROR_MANAGER_CORE_ITEM = new ItemBlock(TABlocks.MIRROR_MANAGER_CORE)
+                .setRegistryName(TABlocks.MIRROR_MANAGER_CORE.getRegistryName());
         TABlocks.ORDER_TERMINAL_ITEM = new ItemBlock(TABlocks.ORDER_TERMINAL)
                 .setRegistryName(TABlocks.ORDER_TERMINAL.getRegistryName());
         TABlocks.PATTERN_REQUESTER_ITEM = new ItemBlock(TABlocks.PATTERN_REQUESTER)
@@ -145,6 +155,8 @@ public final class ModBlocksItems {
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
+                TABlocks.MIRROR_MANAGER_BASE_ITEM,
+                TABlocks.MIRROR_MANAGER_CORE_ITEM,
                 TABlocks.ORDER_TERMINAL_ITEM,
                 TABlocks.PATTERN_REQUESTER_ITEM,
                 TABlocks.RESOURCE_REQUESTER_ITEM,

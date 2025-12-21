@@ -17,8 +17,10 @@ import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
+import thaumcraft.api.blocks.BlocksTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
+import therealpant.thaumicattempts.init.TABlocks;
 
 import javax.annotation.Nullable;
 
@@ -141,6 +143,7 @@ public class BlockMirrorManager extends Block {
     }
 
     @Override public EnumBlockRenderType getRenderType(IBlockState state) { return EnumBlockRenderType.INVISIBLE; }
+
 }
 
 

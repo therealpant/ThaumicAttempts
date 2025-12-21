@@ -119,6 +119,27 @@ public final class TAArcaneRecipes {
             System.out.println("[TA] Skip order_terminal: " + t);
         }
 
+        /* ---------- Mirror Manager Base (Arcane Workbench, 50 vis; EARTH/ORDER x2) ---------- */
+        try {
+            ShapedArcaneRecipe base = new ShapedArcaneRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "mirror_manager_base_arcane"),
+                    "TA_GOLEM_MIRRORS",
+                    50,
+                    new AspectList().add(Aspect.EARTH, 2).add(Aspect.ORDER, 2),
+                    new ItemStack(Item.getByNameOrId(ThaumicAttempts.MODID + ":mirror_manager_base")),
+                    "EVE",
+                    "VSV",
+                    "EVE",
+                    'E', new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
+                    'V', new ItemStack(ItemsTC.plate, 1, 3),
+                    'S', new ItemStack(ItemsTC.mechanismSimple)
+            );
+            base.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "mirror_manager_base_arcane"));
+            e.getRegistry().register(base);
+        } catch (Throwable t) {
+            System.out.println("[TA] Skip mirror_manager_base: " + t);
+        }
+
         /* ---------- Математическое ядро (Arcane Workbench, 500 vis; AER/FIRE/ORDO x3) ---------- */
         try {
             ShapedArcaneRecipe mathCore = new ShapedArcaneRecipe(

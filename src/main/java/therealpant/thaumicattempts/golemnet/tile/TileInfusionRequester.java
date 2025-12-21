@@ -35,6 +35,9 @@ import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
+import thaumcraft.api.ThaumcraftApiHelper;
+import thaumcraft.api.aspects.Aspect;
+import thaumcraft.api.aspects.IEssentiaTransport;
 import thaumcraft.api.capabilities.IPlayerKnowledge;
 import thaumcraft.api.capabilities.ThaumcraftCapabilities;
 import thaumcraft.api.casters.IInteractWithCaster;
@@ -64,7 +67,8 @@ import java.util.function.Consumer;
  * - Then pull EVERYTHING from ALL bound storages into results (leftovers -> drop)
  */
 public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
-        ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider, IAnimatable {
+        ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider,
+        IAnimatable, IEssentiaTransport {
 
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/InfusionRequester");
 
@@ -123,6 +127,20 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private static final int WAIT_MATRIX_TIMEOUT_TICKS = 20 * 180; // 3 minutes
 
     private int interactDelayCounter = 0;
+
+    // -------------------- essentia --------------------
+
+    private static final Aspect REQUIRED_ASPECT = Aspect.ELDRITCH;
+    private static final int ESSENTIA_COST_PER_ITEM = 8;
+    private static final int ESSENTIA_CAP = 128;
+    private static final int ESSENTIA_SUCTION = 128;
+    private static final EnumFacing[] ESSENTIA_INPUT_FACES = {
+            EnumFacing.DOWN, EnumFacing.NORTH, EnumFacing.SOUTH, EnumFacing.WEST, EnumFacing.EAST
+    };
+
+    private int essentiaAmount = 0;
+    private int suctionPingCooldown = 0;
+    private int drawDelay = 0;
 
     // -------------------- inventories --------------------
 
@@ -458,6 +476,11 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (world.isRemote) return;
 
         tickCounter++;
+        drawEssentiaTicked();
+        if (suctionPingCooldown-- <= 0) {
+            if (essentiaAmount < ESSENTIA_CAP) pingNeighbors();
+            suctionPingCooldown = 20;
+        }
 
         int signal = readSignal();
         if (signal != lastSignal) {
@@ -1072,6 +1095,10 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         ItemStack like = key.toStack(1);
         if (like.isEmpty()) return 0;
 
+        int maxByEssentia = essentiaAmount / ESSENTIA_COST_PER_ITEM;
+        if (maxByEssentia <= 0) return 0;
+        maxAmount = Math.min(maxAmount, maxByEssentia);
+
         int moved = 0;
         for (int i = 0; i < input.getSlots() && maxAmount > 0; i++) {
             ItemStack slot = input.getStackInSlot(i);
@@ -1086,6 +1113,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             int inserted = toInsert.getCount() - (remaining.isEmpty() ? 0 : remaining.getCount());
             if (inserted > 0) {
                 input.extractItem(i, inserted, false);
+                consumeEssentia(inserted * ESSENTIA_COST_PER_ITEM);
                 moved += inserted;
                 maxAmount -= inserted;
             }
@@ -1587,6 +1615,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         compound.setInteger(TAG_JOB_INTERACT, interactDelayCounter);
         compound.setInteger(TAG_JOB_CRAFTS_TOTAL, jobCraftsTotal);
         compound.setInteger(TAG_JOB_CRAFTS_LEFT, jobCraftsLeft);
+        compound.setInteger("EssentiaAmount", essentiaAmount);
 
         if (jobMatrixPos != null) compound.setLong(TAG_JOB_MATRIX_POS, jobMatrixPos.toLong());
         compound.setBoolean(TAG_JOB_MATRIX_STARTED, jobMatrixStarted);
@@ -1663,6 +1692,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         jobMatrixPos = compound.hasKey(TAG_JOB_MATRIX_POS) ? BlockPos.fromLong(compound.getLong(TAG_JOB_MATRIX_POS)) : null;
         jobMatrixStarted = compound.getBoolean(TAG_JOB_MATRIX_STARTED);
         waitMatrixTicks = compound.hasKey(TAG_JOB_MATRIX_TICKS) ? compound.getInteger(TAG_JOB_MATRIX_TICKS) : 0;
+        essentiaAmount = compound.hasKey("EssentiaAmount") ? compound.getInteger("EssentiaAmount") : 0;
 
         queuedTriggers.clear();
         if (compound.hasKey(TAG_JOB_QUEUE, Constants.NBT.TAG_LIST)) {
@@ -1695,4 +1725,83 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             world.notifyBlockUpdate(pos, world.getBlockState(pos), world.getBlockState(pos), 3);
         }
     }
+
+    private void pingNeighbors() {
+        if (world == null || world.isRemote) return;
+        try {
+            IBlockState state = world.getBlockState(pos);
+            world.notifyBlockUpdate(pos, state, state, 3);
+            world.notifyNeighborsOfStateChange(pos, state.getBlock(), true);
+            for (EnumFacing f : EnumFacing.VALUES) {
+                BlockPos np = pos.offset(f);
+                world.notifyNeighborsOfStateChange(np, world.getBlockState(np).getBlock(), true);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private boolean drawEssentiaTicked() {
+        if (++drawDelay % 5 != 0 || world == null || world.isRemote) return false;
+        if (essentiaAmount >= ESSENTIA_CAP) return false;
+        boolean pulled = false;
+        for (EnumFacing inFace : ESSENTIA_INPUT_FACES) {
+            TileEntity te = ThaumcraftApiHelper.getConnectableTile(world, pos, inFace);
+            if (!(te instanceof IEssentiaTransport)) continue;
+            IEssentiaTransport ic = (IEssentiaTransport) te;
+            EnumFacing opp = inFace.getOpposite();
+            if (!ic.canOutputTo(opp)) continue;
+            if (ic.getSuctionAmount(opp) < this.getSuctionAmount(inFace)) {
+                int taken = ic.takeEssentia(REQUIRED_ASPECT, 1, opp);
+                if (taken > 0) {
+                    essentiaAmount = Math.min(ESSENTIA_CAP, essentiaAmount + taken);
+                    pulled = true;
+                    break;
+                }
+            }
+        }
+        if (pulled) { markDirtyAndSync(); pingNeighbors(); }
+        return pulled;
+    }
+
+    private void consumeEssentia(int amount) {
+        if (amount <= 0) return;
+        if (essentiaAmount <= 0) return;
+        int taken = Math.min(amount, essentiaAmount);
+        essentiaAmount -= taken;
+        markDirtyAndSync();
+        pingNeighbors();
+    }
+
+    private static boolean canFaceInput(EnumFacing face) {
+        if (face == null) return false;
+        for (EnumFacing f : ESSENTIA_INPUT_FACES) if (f == face) return true;
+        return false;
+    }
+
+    // ========================= IEssentiaTransport =========================
+
+    @Override public boolean isConnectable(EnumFacing face) { return canFaceInput(face); }
+    @Override public boolean canInputFrom(EnumFacing face)  { return canFaceInput(face); }
+    @Override public boolean canOutputTo(EnumFacing face)   { return false; }
+    @Override public void setSuction(Aspect aspect, int amount) {}
+    @Override public Aspect getSuctionType(EnumFacing face) {
+        return (canFaceInput(face) && essentiaAmount < ESSENTIA_CAP) ? REQUIRED_ASPECT : null;
+    }
+    @Override public int getSuctionAmount(EnumFacing face) {
+        return (canFaceInput(face) && essentiaAmount < ESSENTIA_CAP) ? ESSENTIA_SUCTION : 0;
+    }
+    @Override public int addEssentia(Aspect aspect, int amount, EnumFacing face) {
+        if (!canFaceInput(face)) return 0;
+        if (aspect != REQUIRED_ASPECT || amount <= 0) return 0;
+        int can = Math.min(amount, ESSENTIA_CAP - essentiaAmount);
+        if (can <= 0) return 0;
+        essentiaAmount += can;
+        markDirtyAndSync();
+        pingNeighbors();
+        return can;
+    }
+    @Override public int takeEssentia(Aspect aspect, int amount, EnumFacing face) { return 0; }
+    @Override public Aspect getEssentiaType(EnumFacing face) { return essentiaAmount > 0 ? REQUIRED_ASPECT : null; }
+    @Override public int getEssentiaAmount(EnumFacing face)  { return essentiaAmount; }
+    @Override public int getMinimumSuction()                 { return 8; }
 }
+

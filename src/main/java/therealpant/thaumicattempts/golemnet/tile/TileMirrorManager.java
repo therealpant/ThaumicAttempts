@@ -28,11 +28,14 @@ import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.ThaumcraftInvHelper;
+import thaumcraft.api.aspects.Aspect;
+import thaumcraft.api.aura.AuraHelper;
 import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.golems.seals.SealEntity;
 import thaumcraft.common.golems.seals.SealHandler;
 import thaumcraft.common.golems.seals.SealProvide;
+import thaumcraft.common.lib.events.EssentiaHandler;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.CraftOrderApi;
@@ -145,6 +148,25 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private boolean isUnlinking = false;
     private int staleSweepTicker = 0;
     private boolean suppressAcceptAnim = false;
+
+    // ===================== Stability / Flux =====================
+    private static final int STABILITY_CHECK_PERIOD = 250;      // каждые 40 тиков
+    private static final int ORDO_STAB_PER_UNIT = 10;          // 1 Ordo = +10 стабильности
+    private static final float FLUX_PER_10_INSTAB = 2f;      // за каждые 10 отриц. очков -> 0.5 флакса
+    private static final int ORDO_DRAIN_RANGE = 16;            // радиус поиска источников эссенции (банки/зеркала)
+
+    // для отладки/GUI (необязательно, но полезно)
+    private int lastStabPlus = 0;
+    private int lastInstabMinus = 0;
+    private int lastOrdoUsed = 0;
+    private float lastFluxMade = 0f;
+
+    // ===================== Ordo buffer =====================
+    private static final int ORDO_BUFFER_CAP = 100;     // вместимость буфера
+    private static final int ORDO_PULL_PER_CHECK = 8;   // сколько максимум пытаемся подкачать за одну проверку (40 тиков)
+
+    private int ordoBuffer = 0; // текущее кол-во Ordo в буфере
+
 
     /* ===================== Голем-логистика ===================== */
 
@@ -2258,6 +2280,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         tickCounter++;
 
+        if ((tickCounter % STABILITY_CHECK_PERIOD) == 0) {
+            tickStabilityAndFlux();
+        }
+
         intakeNearbyItems();
         processMirrorItemsInBuffer();
         tickMirrorEjects();
@@ -2441,9 +2467,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         net.minecraft.block.Block seedBlock = world.getBlockState(seed).getBlock();
         boolean seedIsStab = seedBlock == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MIRROR_STABILIZER && stabsAll.contains(seed);
         boolean seedIsCore = seedBlock == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MATH_CORE && coresAll.contains(seed);
+        boolean seedIsBase = seedBlock == therealpant.thaumicattempts.init.TABlocks.MIRROR_MANAGER_BASE;
 
         if (seedIsStab) stabsActive.add(seed);
         if (seedIsCore) coresActive.add(seed);
+        if (seedIsBase) {
+            for (BlockPos nb : faceNeighbors(seed)) {
+                if (stabsAll.contains(nb)) stabsActive.add(nb);
+                else if (coresAll.contains(nb)) coresActive.add(nb);
+            }
+        }
 
         boolean changed = true;
         while (changed) {
@@ -2907,6 +2940,105 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
+    private void tickStabilityAndFlux() {
+        if (world == null || world.isRemote) return;
+
+        // раз в проверку подкачиваем Ordo в буфер
+        pullOrdoToBuffer(ORDO_PULL_PER_CHECK);
+
+        // 1) считаем "с нуля"
+        int mirrorsInstab = getActiveMirrorCount(); // каждое зеркало = +1 нестабильности
+
+        // потребители: терминалы + реквестеры + диспетчеры (если "потребитель" = любая привязка)
+        int consumersInstab = boundTerminals.size() + boundRequesters.size() + boundDispatchers.size();
+
+        // математические ядра: +2 нестабильности за каждое АКТИВНОЕ ядро
+        int mathCoreInstab = lastActiveCores.size() * 2;
+
+        int instab = mirrorsInstab + consumersInstab + mathCoreInstab;
+
+        // стабилизаторы: +1 стабильности за каждый АКТИВНЫЙ стаб
+        int stab = lastActiveStabs.size();
+
+        // итог: (+) - (-)
+        int net = stab - instab;
+
+        // 2) если отрицательно — пытаемся "докупиться" Ordo
+        int ordoUsed = 0;
+        if (net < 0) {
+            int needPoints = -net;
+            int needOrdo = (needPoints + (ORDO_STAB_PER_UNIT - 1)) / ORDO_STAB_PER_UNIT; // ceil
+
+            // 1) сначала тратим буфер
+            int fromBuf = consumeOrdoFromBuffer(needOrdo);
+            ordoUsed += fromBuf;
+            net += fromBuf * ORDO_STAB_PER_UNIT;
+
+            // 2) если всё ещё не хватает — дотягиваем из мира (по 1) и сразу считаем как использованное
+            while (net < 0) {
+                boolean ok = EssentiaHandler.drainEssentia(this, Aspect.ORDER, EnumFacing.UP, ORDO_DRAIN_RANGE, 0);
+                if (!ok) break;
+                ordoUsed++;
+                net += ORDO_STAB_PER_UNIT;
+            }
+        }
+
+        // 3) если всё ещё отрицательно — флакс
+        float flux = 0f;
+        if (net < 0) {
+            int stillBad = -net;
+            int chunks10 = (stillBad + 9) / 10; // ceil(stillBad/10)
+            flux = FLUX_PER_10_INSTAB * chunks10;
+            if (flux < FLUX_PER_10_INSTAB) flux = FLUX_PER_10_INSTAB;
+
+            // загрязняем ауру флаксом (как у TC)
+            AuraHelper.polluteAura(world, pos, flux, true);
+        }
+
+        // 4) сохраняем для отладки/GUI
+        lastStabPlus = stab;
+        lastInstabMinus = instab;
+        lastOrdoUsed = ordoUsed;
+        lastFluxMade = flux;
+
+        // (по желанию) лог раз в 40 тиков можно включать только при проблемах:
+        // ThaumicAttempts.LOGGER.debug("[MM Stability] +{} -{} net={} ordoUsed={} flux={}",
+        //         stab, instab, (stab - instab), ordoUsed, flux);
+    }
+
+    /**
+     * Подкачать Ordo в буфер из банок/зеркал, как у матрицы.
+     * Возвращает сколько реально закачали.
+     */
+    private int pullOrdoToBuffer(int maxPull) {
+        if (ordoBuffer >= ORDO_BUFFER_CAP) return 0;
+        int pulled = 0;
+
+        int canTake = Math.min(maxPull, ORDO_BUFFER_CAP - ordoBuffer);
+        for (int i = 0; i < canTake; i++) {
+            // EssentiaHandler сам ищет банки/зеркала в радиусе и шлёт FX
+            boolean ok = EssentiaHandler.drainEssentia(this, Aspect.ORDER, EnumFacing.UP, ORDO_DRAIN_RANGE, 0);
+            if (!ok) break;
+            ordoBuffer++;
+            pulled++;
+        }
+
+        if (pulled > 0) markDirty();
+        return pulled;
+    }
+
+    /**
+     * Потратить Ordo из буфера (сколько есть).
+     * Возвращает сколько реально потратили.
+     */
+    private int consumeOrdoFromBuffer(int amount) {
+        if (amount <= 0 || ordoBuffer <= 0) return 0;
+        int used = Math.min(amount, ordoBuffer);
+        ordoBuffer -= used;
+        if (used > 0) markDirty();
+        return used;
+    }
+
     public void ensureDeliveryFor(BlockPos dest, Map<ItemKey, Integer> needs) {
         ensureDeliveryFor(dest, needs, 0);
     }
@@ -2934,6 +3066,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         nbt.setInteger("calcMirrorCap", calcMirrorCap);
         nbt.setInteger("calcComputeCap", calcComputeCap);
         nbt.setInteger("dispatcherColor", dispatcherSealColor);
+        nbt.setInteger("ordoBuffer", ordoBuffer);
 
         NBTTagList t = new NBTTagList();
         for (BlockPos bp : boundTerminals) t.appendTag(new NBTTagLong(bp.toLong()));
@@ -3023,6 +3156,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             for (int i = 0; i < r.tagCount(); i++)
                 boundRequesters.add(BlockPos.fromLong(((NBTTagLong) r.get(i)).getLong()));
         }
+
+        ordoBuffer = nbt.getInteger("ordoBuffer");
+        if (ordoBuffer < 0) ordoBuffer = 0;
+        if (ordoBuffer > ORDO_BUFFER_CAP) ordoBuffer = ORDO_BUFFER_CAP;
 
         boundDispatchers.clear();
         dispatcherBusyQueue.clear();

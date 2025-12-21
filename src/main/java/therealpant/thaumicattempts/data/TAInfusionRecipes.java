@@ -88,9 +88,9 @@ public final class TAInfusionRecipes {
                 new InfusionRecipe("TA_GOLEMCRAFT", OUT_ARC, /*instab*/7, AS2, CENTER2, COMPS2)
         );
 
-        // ===== MIRROR_MANAGER (инфузия из Brain in a Jar) =====
+        // ===== MIRROR_MANAGER_CORE  =====
         {
-            Item outItem = Item.getByNameOrId(ThaumicAttempts.MODID + ":mirror_manager");
+            Item outItem = Item.getByNameOrId(ThaumicAttempts.MODID + ":mirror_manager_core");
             if (outItem != null) {
                 ItemStack OUT = new ItemStack(outItem);
 
@@ -119,7 +119,7 @@ public final class TAInfusionRecipes {
                 );
                 System.out.println("[TA] Registered infusion: thaumicattempts:mirror_manager_infusion");
             } else {
-                System.out.println("[TA] Skip mirror_manager: item not found");
+                System.out.println("[TA] Skip mirror_manager_core: item not found");
             }
         }
         // ------------ Зеркальный Моячек ------------ \\

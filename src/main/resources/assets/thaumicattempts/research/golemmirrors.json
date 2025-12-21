@@ -4,7 +4,7 @@
       "key": "TA_GOLEM_MIRRORS",
       "name": "research.TA_GOLEM_MIRRORS.title",
       "icons": [
-        "thaumicattempts:order_terminal"
+        "thaumicattempts:mirror_manager"
       ],
       "category": "GOLEMANCY",
       "parents": [

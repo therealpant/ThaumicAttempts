@@ -57,6 +57,8 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(ModBlocksItems.ARCANE_CRAFTER, ThaumicAttempts.MODID + ":arcane_crafter");
         registerItemBlockModel(ModBlocksItems.MATH_CORE, ThaumicAttempts.MODID + ":math_core");
         registerItemBlockModel(ModBlocksItems.MIRROR_STABILIZER, ThaumicAttempts.MODID + ":mirror_stabilizer");
+        registerItemBlockModel(TABlocks.MIRROR_MANAGER_BASE, ThaumicAttempts.MODID + ":mirror_manager_base");
+        registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
 
         // ухо — используем таумовскую иконку предмета
         ModelLoader.setCustomModelResourceLocation(
@@ -74,6 +76,7 @@ public final class ClientModels extends CommonProxy {
 
         // предметы-«тайлы»
         registerItemModel(TABlocks.MIRROR_MANAGER_ITEM);
+        attachTileRenderer(TABlocks.MIRROR_MANAGER_ITEM, TileMirrorManager::new);
         registerItemModel(TABlocks.ORDER_TERMINAL_ITEM);
         registerItemModel(TABlocks.PATTERN_REQUESTER_ITEM);
         registerItemModel(TABlocks.RESOURCE_REQUESTER_ITEM);
