@@ -398,11 +398,9 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     @Override
     public int enqueueFromPatternRequester(int patternSlot, int times) {
-        int before = queuedTriggers.size();
-        enqueueTrigger(patternSlot, Math.max(1, times), false);
-        int after = queuedTriggers.size();
-        int added = Math.max(0, after - before);
-        logDebug("enqueueFromPatternRequester slot={} times={} added={} queueNow={}", patternSlot, times, added, queuedTriggers.size());
+        int added = enqueueTrigger(patternSlot, Math.max(1, times), false);
+        logDebug("enqueueFromPatternRequester slot={} times={} addedCrafts={} queueNow={}",
+                patternSlot, times, added, queuedTriggers.size());
         return added;
     }
 
@@ -781,20 +779,21 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     // ========================= JOB QUEUE =========================
 
-    private void enqueueTrigger(int slot, int count, boolean applyPatternRepeat) {
-        if (slot < 0 || slot >= patterns.getSlots()) return;
-        if (count <= 0) return;
+    private int enqueueTrigger(int slot, int count, boolean applyPatternRepeat) {
+        if (slot < 0 || slot >= patterns.getSlots()) return 0;
+        if (count <= 0) return 0;
 
         int repeat = applyPatternRepeat ? getPatternRepeatCount(slot) : 1;
         int total = Math.max(1, count) * Math.max(1, repeat);
         int room = MAX_QUEUED_ORDERS - getQueuedCraftsCount();
-        if (room <= 0) return;
+        if (room <= 0) return 0;
 
         int toAdd = Math.min(total, room);
-        if (toAdd <= 0) return;
+        if (toAdd <= 0) return 0;
 
         queuedTriggers.add(new QueuedJob(slot, toAdd));
         markDirtyAndSync();
+        return toAdd;
     }
 
     private void tryStartNextJob() {

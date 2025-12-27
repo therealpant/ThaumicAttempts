@@ -9,6 +9,7 @@ import net.minecraftforge.fml.common.SidedProxy;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPostInitializationEvent;
 import net.minecraftforge.fml.common.event.FMLPreInitializationEvent;
+import net.minecraftforge.fml.common.event.FMLServerStartingEvent;
 import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.network.simpleimpl.SimpleNetworkWrapper;
 import net.minecraftforge.fml.common.registry.GameRegistry;
@@ -19,6 +20,8 @@ import software.bernie.geckolib3.GeckoLib;
 import thaumcraft.api.ThaumcraftApi;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_RECIPE;
+
+import therealpant.thaumicattempts.command.CommandSpawnFluxAnomaly;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
 import therealpant.thaumicattempts.data.research.TAResearchAddenda;
@@ -32,6 +35,7 @@ import therealpant.thaumicattempts.golemnet.net.msg.C2S_OrderSubmit;
 import therealpant.thaumicattempts.golemnet.net.msg.C2S_RequestCatalogPage;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
+import therealpant.thaumicattempts.init.ModEntities;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -71,6 +75,8 @@ public class ThaumicAttempts {
 
     @Mod.EventHandler
     public void preInit(FMLPreInitializationEvent e) {
+
+        ModEntities.register();
 
         GeckoLib.initialize();
 
@@ -164,5 +170,9 @@ public class ThaumicAttempts {
                 therealpant.thaumicattempts.golemnet.net.msg.S2C_SnapshotCreated.class, id++, Side.CLIENT);
     }
 
+    @Mod.EventHandler
+    public void serverStarting(FMLServerStartingEvent e) {
+        e.registerServerCommand(new CommandSpawnFluxAnomaly());
+    }
 
 }

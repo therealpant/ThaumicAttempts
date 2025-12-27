@@ -232,6 +232,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         int freeDistinct = Math.max(0, 9 - pend.size());
         List<Map.Entry<ItemKey, Integer>> movedRaw = new ArrayList<>();
         List<TerminalOrderRequest> directTerminalOrders = new ArrayList<>();
+        Map<BlockPos, List<Map.Entry<ItemStack, Integer>>> directInfusionOrders = new HashMap<>();
 
         for (Map.Entry<ItemKey, Integer> e : new ArrayList<>(draft.entrySet())) {
             ItemKey key = e.getKey();
@@ -241,7 +242,13 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             if (TerminalOrderApi.isOrderIcon(keyStack)) {
                 BlockPos target = TerminalOrderApi.getOrderIconPos(keyStack);
                 int slot = TerminalOrderApi.getOrderIconSlot(keyStack);
+                ItemStack resultLike = TerminalOrderApi.stripOrderIconData(keyStack);
                 if (target != null && slot >= 0) {
+                    if (!resultLike.isEmpty()) {
+                        directInfusionOrders
+                                .computeIfAbsent(target, k -> new ArrayList<>())
+                                .add(new AbstractMap.SimpleEntry<>(resultLike, amt));
+                    }
                     directTerminalOrders.add(new TerminalOrderRequest(target, slot, amt));
                 }
                 draft.remove(key);
@@ -276,11 +283,49 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         if (!directTerminalOrders.isEmpty()) {
             markDirty();
+            boolean pendingCraftChanged = false;
             for (TerminalOrderRequest order : directTerminalOrders) {
                 TileEntity te = world.getTileEntity(order.pos);
+                if (te instanceof TileInfusionRequester) {
+                    List<Map.Entry<ItemStack, Integer>> infusionOrders = directInfusionOrders.remove(order.pos);
+                    if (infusionOrders != null) {
+                        TileInfusionRequester requester = (TileInfusionRequester) te;
+                        for (Map.Entry<ItemStack, Integer> orderEntry : infusionOrders) {
+                            int accepted = requester.enqueueCrafterOrder(
+                                    managerPos, this.pos, -1, orderEntry.getKey(), orderEntry.getValue());
+                            if (accepted > 0) {
+                                int perCraft = Math.max(1, requester.getPerCraftOutputCountFor(orderEntry.getKey()));
+                                int totalOut = Math.max(1, accepted * perCraft);
+                                addToMap(pendingCraft, ItemKey.of(orderEntry.getKey()), totalOut);
+                                pendingCraftChanged = true;
+                            }
+                        }
+                        continue;
+                    }
+                }
                 if (te instanceof ITerminalOrderAcceptor) {
                     ((ITerminalOrderAcceptor) te).triggerFromTerminal(order.slot, order.count);
                 }
+            }
+            if (!directInfusionOrders.isEmpty()) {
+                for (Map.Entry<BlockPos, List<Map.Entry<ItemStack, Integer>>> entry : directInfusionOrders.entrySet()) {
+                    TileEntity te = world.getTileEntity(entry.getKey());
+                    if (!(te instanceof TileInfusionRequester)) continue;
+                    TileInfusionRequester inf = (TileInfusionRequester) te;
+                    for (Map.Entry<ItemStack, Integer> infOrder : entry.getValue()) {
+                        int accepted = inf.enqueueCrafterOrder(
+                                managerPos, this.pos, -1, infOrder.getKey(), infOrder.getValue());
+                        if (accepted > 0) {
+                            int perCraft = Math.max(1, inf.getPerCraftOutputCountFor(infOrder.getKey()));
+                            int totalOut = Math.max(1, accepted * perCraft);
+                            addToMap(pendingCraft, ItemKey.of(infOrder.getKey()), totalOut);
+                            pendingCraftChanged = true;
+                        }
+                    }
+                }
+            }
+            if (pendingCraftChanged) {
+                sendSnapshotToViewers(true);
             }
         }
 
