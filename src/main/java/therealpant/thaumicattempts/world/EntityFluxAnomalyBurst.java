@@ -5,6 +5,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLiving;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
@@ -18,11 +19,14 @@ public class EntityFluxAnomalyBurst extends Entity {
 
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts|FluxAnomaly");
 
+    private static final int MIN_CORRUPTION_RADIUS = 10;
+    private static final int MAX_CORRUPTION_RADIUS = 15;
+
     private UUID anomalyId = UUID.randomUUID();
 
     private BlockPos center = BlockPos.ORIGIN;
 
-    private int radiusBlocks = 20;     // 2–3 чанка ковром
+    private int radiusBlocks = MAX_CORRUPTION_RADIUS;      // 2–3 чанка ковром
     private int totalSpreads = 16500;   // сколько spreadFibres всего
     private int budgetPerTick = 220;   // сколько spreadFibres за тик
 
@@ -41,7 +45,7 @@ public class EntityFluxAnomalyBurst extends Entity {
     public EntityFluxAnomalyBurst(World worldIn, BlockPos center, int radiusBlocks, int totalSpreads, int budgetPerTick) {
         this(worldIn);
         this.center = center.toImmutable();
-        this.radiusBlocks = Math.max(8, radiusBlocks);
+        this.radiusBlocks = MathHelper.clamp(radiusBlocks, MIN_CORRUPTION_RADIUS, MAX_CORRUPTION_RADIUS);
         this.totalSpreads = Math.max(0, totalSpreads);
         this.budgetPerTick = Math.max(1, budgetPerTick);
         this.remainingSpreads = this.totalSpreads;
@@ -170,16 +174,21 @@ public class EntityFluxAnomalyBurst extends Entity {
     }
 
     private BlockPos pickTargetColumn(Random rnd) {
-        int dx, dz;
-        while (true) {
-            dx = rnd.nextInt(radiusBlocks * 2 + 1) - radiusBlocks;
-            dz = rnd.nextInt(radiusBlocks * 2 + 1) - radiusBlocks;
-            int d2 = dx * dx + dz * dz;
-            if (d2 > radiusBlocks * radiusBlocks) continue;
+        float angle = rnd.nextFloat() * (float) (Math.PI * 2);
 
-            float falloff = 1.0f - (float) d2 / (float) (radiusBlocks * radiusBlocks);
-            if (rnd.nextFloat() <= Math.max(0.15f, falloff)) break;
+        float targetRadius;
+        if (rnd.nextFloat() < 0.55f) {
+            // плотное заражение в пределах безопасной зоны
+            targetRadius = MIN_CORRUPTION_RADIUS * MathHelper.sqrt(rnd.nextFloat());
+        } else {
+            float outerBase = MIN_CORRUPTION_RADIUS + rnd.nextFloat() * (radiusBlocks - MIN_CORRUPTION_RADIUS);
+            float jitter = (rnd.nextFloat() - rnd.nextFloat()) * 3.0f;
+            targetRadius = MathHelper.clamp(outerBase + jitter, MIN_CORRUPTION_RADIUS * 0.5f, radiusBlocks);
         }
+
+        int dx = Math.round(MathHelper.cos(angle) * targetRadius);
+        int dz = Math.round(MathHelper.sin(angle) * targetRadius);
+
         return new BlockPos(center.getX() + dx, 0, center.getZ() + dz);
     }
 
@@ -190,7 +199,7 @@ public class EntityFluxAnomalyBurst extends Entity {
 
         center = new BlockPos(tag.getInteger("cx"), tag.getInteger("cy"), tag.getInteger("cz"));
 
-        radiusBlocks = Math.max(8, tag.getInteger("rad"));
+        radiusBlocks = MathHelper.clamp(tag.getInteger("rad"), MIN_CORRUPTION_RADIUS, MAX_CORRUPTION_RADIUS);
         totalSpreads = Math.max(0, tag.getInteger("total"));
         budgetPerTick = Math.max(1, tag.getInteger("budget"));
         remainingSpreads = Math.max(0, tag.getInteger("remain"));

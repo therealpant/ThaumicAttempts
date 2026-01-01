@@ -42,6 +42,9 @@ public final class ModBlocksItems {
     public static Item INFUSION_PATTERN;
     public static Item ARCANE_PATTERN;
     public static Item RESOURCE_LIST;
+    public static Item RIFT_FLOWER;
+    public static Item RIFT_STONE;
+    public static Item RIFT_CRISTAL;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -112,8 +115,28 @@ public final class ModBlocksItems {
                 .setRegistryName(ThaumicAttempts.MODID, "infusion_pattern");
         RESOURCE_LIST  = new ItemResourceList()
                 .setRegistryName(ThaumicAttempts.MODID, "resource_list");
+        RIFT_FLOWER = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".rift_flover")
+                .setRegistryName(ThaumicAttempts.MODID, "rift_flover");
+        RIFT_STONE = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".rift_stone")
+                .setRegistryName(ThaumicAttempts.MODID, "rift_stone");
+        RIFT_CRISTAL = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".rift_cristal")
+                .setRegistryName(ThaumicAttempts.MODID, "rift_cristal");
 
-        e.getRegistry().registerAll(CRAFT_PATTERN, INFUSION_PATTERN, ARCANE_PATTERN, RESOURCE_LIST);
+        e.getRegistry().registerAll(
+                CRAFT_PATTERN,
+                INFUSION_PATTERN,
+                ARCANE_PATTERN,
+                RESOURCE_LIST,
+                RIFT_FLOWER,
+                RIFT_STONE,
+                RIFT_CRISTAL
+        );
 
         // ItemBlock'и
         e.getRegistry().register(new ItemBlock(GOLEM_CRAFTER)

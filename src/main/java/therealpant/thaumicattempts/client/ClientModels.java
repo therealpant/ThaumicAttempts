@@ -48,6 +48,18 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.RESOURCE_LIST, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":resource_list", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.RIFT_FLOWER, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":rift_flover", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.RIFT_STONE, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":rift_stone", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.RIFT_CRISTAL, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":rift_cristal", "inventory")
+        );
         // ItemBlock'и наших блоков (иконки!)
         registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER, ThaumicAttempts.MODID + ":golem_crafter");
         registerItemBlockModel(ModBlocksItems.ARCANE_CRAFTER, ThaumicAttempts.MODID + ":arcane_crafter");

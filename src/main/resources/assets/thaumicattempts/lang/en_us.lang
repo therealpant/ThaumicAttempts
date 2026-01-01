@@ -18,6 +18,9 @@ item.thaumicattempts.craft_pattern.name=Crafting Note
 item.thaumicattempts.infusion_pattern.name=Infusion Note
 item.thaumicattempts.arcane_pattern.name=Arcane Note
 item.thaumicattempts.resource_list.name=Resource List
+item.thaumicattempts.rift_flover.name=Rift Flower
+item.thaumicattempts.rift_stone.name=Rift Stone
+item.thaumicattempts.rift_cristal.name=Rift Crystal
 
 
 container.golem_crafter=Crafter

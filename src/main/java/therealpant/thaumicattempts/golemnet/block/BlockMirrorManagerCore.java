@@ -87,38 +87,4 @@ public class BlockMirrorManagerCore extends Block {
         return 1.0F;
     }
 
-    @Override
-    public boolean onBlockActivated(World world, BlockPos pos, IBlockState state,
-                                    EntityPlayer player, EnumHand hand, EnumFacing facing,
-                                    float hitX, float hitY, float hitZ) {
-        if (world.isRemote) return true;
-
-        ItemStack held = player.getHeldItem(hand);
-        if (!isMagicDust(held)) return false;
-
-        if (!isValidStructure(world, pos)) return false;
-
-        if (!player.capabilities.isCreativeMode) {
-            held.shrink(1);
-        }
-
-        world.setBlockState(pos, TABlocks.MIRROR_MANAGER.getDefaultState(), 3);
-        TileEntity te = world.getTileEntity(pos);
-        if (te instanceof TileMirrorManager) {
-            ((TileMirrorManager) te).setOwnerUuid(player.getUniqueID().toString());
-        }
-        world.playSound(null, pos, SoundEvents.BLOCK_ENCHANTMENT_TABLE_USE, SoundCategory.BLOCKS, 0.8f, 1.0f);
-        return true;
-    }
-
-    private static boolean isMagicDust(ItemStack stack) {
-        if (stack.isEmpty()) return false;
-        Item dust = Item.getByNameOrId(DUST_ID);
-        return dust != null && stack.getItem() == dust;
-    }
-
-    private static boolean isValidStructure(World world, BlockPos pos) {
-        return world.getBlockState(pos.down()).getBlock() == BlocksTC.stoneEldritchTile
-                && world.getBlockState(pos.up()).getBlock() == BlocksTC.stoneEldritchTile;
-    }
 }

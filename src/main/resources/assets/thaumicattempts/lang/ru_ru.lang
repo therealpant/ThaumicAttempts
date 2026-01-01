@@ -18,6 +18,9 @@ item.thaumicattempts.craft_pattern.name=Инструкции по Сборке
 item.thaumicattempts.infusion_pattern.name=Инструкции для Наполнения
 item.thaumicattempts.arcane_pattern.name=Мистические Инструкции
 item.thaumicattempts.resource_list.name=Заказ на Доставку
+item.thaumicattempts.rift_flover.name=Цветок Разлома
+item.thaumicattempts.rift_stone.name=Камень Разлома
+item.thaumicattempts.rift_cristal.name=Кристалл Разлома
 
 
 container.golem_crafter=Верстак Голема
