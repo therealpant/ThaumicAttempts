@@ -13,6 +13,8 @@ tile.thaumicattempts.resource_requester.name=Greatwood Box
 tile.thaumicattempts.golem_dispatcher.name=Task Distributor
 tile.thaumicattempts.infusion_requester.name=Infusion Supplier
 tile.thaumicattempts.anomaly_stone.name=Anomaly Stone
+tile.thaumicattempts.rift_bush.name=Rift Bush
+tile.thaumicattempts.rift_geod.name=Rift Geode
 
 
 item.thaumicattempts.craft_pattern.name=Crafting Note
@@ -23,6 +25,8 @@ item.thaumicattempts.rift_flover.name=Rift Flower
 item.thaumicattempts.rift_stone.name=Rift Stone
 item.thaumicattempts.rift_cristal.name=Rift Crystal
 item.thaumicattempts.anomaly_stone.name=Anomaly Stone
+item.thaumicattempts.rift_bush.name=Rift Bush
+item.thaumicattempts.rift_geod.name=Rift Geode
 
 
 container.golem_crafter=Crafter

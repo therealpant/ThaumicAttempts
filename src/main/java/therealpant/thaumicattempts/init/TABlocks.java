@@ -13,6 +13,8 @@ public class TABlocks {
     public static Block GOLEM_DISPATCHER;
     public static Block INFUSION_REQUESTER;
     public static Block ANOMALY_STONE;
+    public static Block RIFT_BUSH;
+    public static Block RIFT_GEOD;
 
     public static Item MIRROR_MANAGER_ITEM;
     public static Item MIRROR_MANAGER_CORE_ITEM;
@@ -22,5 +24,7 @@ public class TABlocks {
     public static Item GOLEM_DISPATCHER_ITEM;
     public static Item INFUSION_REQUESTER_ITEM;
     public static Item ANOMALY_STONE_ITEM;
+    public static Item RIFT_BUSH_ITEM;
+    public static Item RIFT_GEOD_ITEM;
 }
 

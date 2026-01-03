@@ -22,6 +22,7 @@ import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
+import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import java.util.function.Supplier;
 
@@ -67,6 +68,7 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(ModBlocksItems.MATH_CORE, ThaumicAttempts.MODID + ":math_core");
         registerItemBlockModel(ModBlocksItems.MIRROR_STABILIZER, ThaumicAttempts.MODID + ":mirror_stabilizer");
         registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
+        registerItemBlockModel(TABlocks.RIFT_BUSH, ThaumicAttempts.MODID + ":rift_bush");
 
         // ухо — используем таумовскую иконку предмета
         ModelLoader.setCustomModelResourceLocation(
@@ -95,6 +97,8 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.GOLEM_DISPATCHER_ITEM, TileGolemDispatcher::new);
         registerItemModel(TABlocks.ANOMALY_STONE_ITEM);
         attachTileRenderer(TABlocks.ANOMALY_STONE_ITEM, therealpant.thaumicattempts.world.tile.TileAnomalyStone::new);
+        registerItemModel(TABlocks.RIFT_GEOD_ITEM);
+        attachTileRenderer(TABlocks.RIFT_GEOD_ITEM, TileRiftGeod::new);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 
         // наши крафтеры: игнорируем таумовский ENABLED (если присутствует)
@@ -163,6 +167,10 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 therealpant.thaumicattempts.world.tile.TileAnomalyStone.class,
                 new RenderAnomalyStone()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftGeod.class,
+                new RenderRiftGeod()
         );
     }
 

@@ -17,6 +17,8 @@ import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
+import therealpant.thaumicattempts.world.block.BlockRiftBush;
+import therealpant.thaumicattempts.world.block.BlockRiftGeod;
 
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorManager;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorManagerCore;
@@ -26,6 +28,7 @@ import therealpant.thaumicattempts.golemnet.block.BlockResourceRequester;
 import therealpant.thaumicattempts.golemnet.block.BlockGolemDispatcher;
 import therealpant.thaumicattempts.golemnet.block.BlockInfusionRequester;
 import therealpant.thaumicattempts.golemnet.tile.*;
+import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
@@ -77,6 +80,8 @@ public final class ModBlocksItems {
         TABlocks.GOLEM_DISPATCHER = new BlockGolemDispatcher();
         TABlocks.INFUSION_REQUESTER = new BlockInfusionRequester();
         TABlocks.ANOMALY_STONE = new BlockAnomalyStone();
+        TABlocks.RIFT_BUSH = new BlockRiftBush();
+        TABlocks.RIFT_GEOD = new BlockRiftGeod();
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -86,7 +91,9 @@ public final class ModBlocksItems {
                 TABlocks.RESOURCE_REQUESTER,
                 TABlocks.GOLEM_DISPATCHER,
                 TABlocks.INFUSION_REQUESTER,
-                TABlocks.ANOMALY_STONE
+                TABlocks.ANOMALY_STONE,
+                TABlocks.RIFT_BUSH,
+                TABlocks.RIFT_GEOD
 
         );
 
@@ -105,6 +112,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "infusion_requester"));
         GameRegistry.registerTileEntity(TileAnomalyStone.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "anomaly_stone"));
+        GameRegistry.registerTileEntity(TileRiftGeod.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_geod"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -172,6 +181,10 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.INFUSION_REQUESTER.getRegistryName());
         TABlocks.ANOMALY_STONE_ITEM = new ItemBlock(TABlocks.ANOMALY_STONE)
                 .setRegistryName(TABlocks.ANOMALY_STONE.getRegistryName());
+        TABlocks.RIFT_BUSH_ITEM = new ItemBlock(TABlocks.RIFT_BUSH)
+                .setRegistryName(TABlocks.RIFT_BUSH.getRegistryName());
+        TABlocks.RIFT_GEOD_ITEM = new ItemBlock(TABlocks.RIFT_GEOD)
+                .setRegistryName(TABlocks.RIFT_GEOD.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -181,7 +194,9 @@ public final class ModBlocksItems {
                 TABlocks.RESOURCE_REQUESTER_ITEM,
                 TABlocks.GOLEM_DISPATCHER_ITEM,
                 TABlocks.INFUSION_REQUESTER_ITEM,
-                TABlocks.ANOMALY_STONE_ITEM
+                TABlocks.ANOMALY_STONE_ITEM,
+                TABlocks.RIFT_BUSH_ITEM,
+                TABlocks.RIFT_GEOD_ITEM
 
         );
     }

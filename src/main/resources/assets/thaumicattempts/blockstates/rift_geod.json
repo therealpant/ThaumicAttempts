@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=down": { "model": "thaumicattempts:rift_geod", "x": 180 },
+    "facing=up": { "model": "thaumicattempts:rift_geod" },
+    "facing=north": { "model": "thaumicattempts:rift_geod", "x": 90 },
+    "facing=south": { "model": "thaumicattempts:rift_geod", "x": 270 },
+    "facing=west": { "model": "thaumicattempts:rift_geod", "x": 90, "y": 90 },
+    "facing=east": { "model": "thaumicattempts:rift_geod", "x": 90, "y": 270 }
+  }
+}

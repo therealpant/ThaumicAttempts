@@ -1,0 +1,6 @@
+{
+  "parent": "block/cross",
+  "textures": {
+    "cross": "thaumicattempts:blocks/rift_bush_bottom"
+  }
+}

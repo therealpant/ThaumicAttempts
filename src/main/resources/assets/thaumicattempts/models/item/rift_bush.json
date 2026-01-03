@@ -1,0 +1,6 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "thaumicattempts:blocks/rift_bush_bottom"
+  }
+}
