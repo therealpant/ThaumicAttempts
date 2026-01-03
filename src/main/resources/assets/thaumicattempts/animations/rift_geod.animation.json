@@ -1,0 +1,9 @@
+{
+	"format_version": "1.8.0",
+	"animations": {
+		"rift_geod.animation": {
+			"loop": true
+		}
+	},
+	"geckolib_format_version": 2
+}
