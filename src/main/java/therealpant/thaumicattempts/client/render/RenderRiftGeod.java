@@ -19,6 +19,8 @@ import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 @SideOnly(Side.CLIENT)
 public class RenderRiftGeod extends GeoBlockRenderer<TileRiftGeod> {
 
+    private EnumFacing lastFacing = EnumFacing.NORTH;
+
     private static final ResourceLocation TEX_EMISSIVE =
             new ResourceLocation(ThaumicAttempts.MODID, "textures/blocks/rift_geod_e.png");
     private static final float EMISSIVE_Y_OFFSET = 0.01f;
@@ -60,8 +62,11 @@ public class RenderRiftGeod extends GeoBlockRenderer<TileRiftGeod> {
 
     @Override
     public void rotateBlock(EnumFacing facing) {
+        // Запоминаем facing, который GeckoLib реально использует для основного слоя
+        this.lastFacing = (facing == null) ? EnumFacing.UP : facing;
+
         GlStateManager.translate(0.0F, 0.5F, 0.0F);
-        applyFacingTransform(facing);
+        applyFacingTransform(this.lastFacing);
         GlStateManager.translate(0.0F, -0.5F, 0.0F);
     }
 
@@ -79,8 +84,7 @@ public class RenderRiftGeod extends GeoBlockRenderer<TileRiftGeod> {
         try {
             GlStateManager.translate(x + 0.5, y + EMISSIVE_Y_OFFSET, z + 0.5);
 
-            EnumFacing facing = getFacing(te);
-            rotateBlock(facing);
+            rotateBlock(this.lastFacing);
 
             OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
 
