@@ -12,6 +12,7 @@ tile.thaumicattempts.mirror_stabilizer.name=Зеркальный Стабили�
 tile.thaumicattempts.resource_requester.name=Ящик из Великого дерева
 tile.thaumicattempts.golem_dispatcher.name=Распределитель Задач
 tile.thaumicattempts.infusion_requester.name=Управляющий Наполнением
+tile.thaumicattempts.anomaly_stone.name=Аномальный камень
 
 
 item.thaumicattempts.craft_pattern.name=Инструкции по Сборке
@@ -21,6 +22,7 @@ item.thaumicattempts.resource_list.name=Заказ на Доставку
 item.thaumicattempts.rift_flover.name=Цветок Разлома
 item.thaumicattempts.rift_stone.name=Камень Разлома
 item.thaumicattempts.rift_cristal.name=Кристалл Разлома
+item.thaumicattempts.anomaly_stone.name=Аномальный камень
 
 
 container.golem_crafter=Верстак Голема

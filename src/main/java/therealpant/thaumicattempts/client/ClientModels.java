@@ -21,6 +21,7 @@ import therealpant.thaumicattempts.golemnet.tile.*;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
+import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 
 import java.util.function.Supplier;
 
@@ -92,6 +93,8 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.INFUSION_REQUESTER_ITEM, TileInfusionRequester::new);
         registerItemModel(TABlocks.GOLEM_DISPATCHER_ITEM);
         attachTileRenderer(TABlocks.GOLEM_DISPATCHER_ITEM, TileGolemDispatcher::new);
+        registerItemModel(TABlocks.ANOMALY_STONE_ITEM);
+        attachTileRenderer(TABlocks.ANOMALY_STONE_ITEM, therealpant.thaumicattempts.world.tile.TileAnomalyStone::new);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 
         // наши крафтеры: игнорируем таумовский ENABLED (если присутствует)
@@ -156,6 +159,10 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TilePillar.class,
                 new RenderPillar()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                therealpant.thaumicattempts.world.tile.TileAnomalyStone.class,
+                new RenderAnomalyStone()
         );
     }
 

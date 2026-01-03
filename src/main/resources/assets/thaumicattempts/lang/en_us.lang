@@ -12,6 +12,7 @@ tile.thaumicattempts.mirror_stabilizer.name=Mirror Stabilizer
 tile.thaumicattempts.resource_requester.name=Greatwood Box
 tile.thaumicattempts.golem_dispatcher.name=Task Distributor
 tile.thaumicattempts.infusion_requester.name=Infusion Supplier
+tile.thaumicattempts.anomaly_stone.name=Anomaly Stone
 
 
 item.thaumicattempts.craft_pattern.name=Crafting Note
@@ -21,6 +22,7 @@ item.thaumicattempts.resource_list.name=Resource List
 item.thaumicattempts.rift_flover.name=Rift Flower
 item.thaumicattempts.rift_stone.name=Rift Stone
 item.thaumicattempts.rift_cristal.name=Rift Crystal
+item.thaumicattempts.anomaly_stone.name=Anomaly Stone
 
 
 container.golem_crafter=Crafter

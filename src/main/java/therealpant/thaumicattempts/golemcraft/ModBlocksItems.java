@@ -16,6 +16,7 @@ import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
+import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
 
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorManager;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorManagerCore;
@@ -27,6 +28,7 @@ import therealpant.thaumicattempts.golemnet.block.BlockInfusionRequester;
 import therealpant.thaumicattempts.golemnet.tile.*;
 
 import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public final class ModBlocksItems {
@@ -74,7 +76,7 @@ public final class ModBlocksItems {
         TABlocks.RESOURCE_REQUESTER = new BlockResourceRequester();
         TABlocks.GOLEM_DISPATCHER = new BlockGolemDispatcher();
         TABlocks.INFUSION_REQUESTER = new BlockInfusionRequester();
-
+        TABlocks.ANOMALY_STONE = new BlockAnomalyStone();
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -83,7 +85,8 @@ public final class ModBlocksItems {
                 TABlocks.PATTERN_REQUESTER,
                 TABlocks.RESOURCE_REQUESTER,
                 TABlocks.GOLEM_DISPATCHER,
-                TABlocks.INFUSION_REQUESTER
+                TABlocks.INFUSION_REQUESTER,
+                TABlocks.ANOMALY_STONE
 
         );
 
@@ -100,6 +103,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "golem_dispatcher"));
         GameRegistry.registerTileEntity(TileInfusionRequester.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "infusion_requester"));
+        GameRegistry.registerTileEntity(TileAnomalyStone.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "anomaly_stone"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -165,6 +170,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.GOLEM_DISPATCHER.getRegistryName());
         TABlocks.INFUSION_REQUESTER_ITEM = new ItemBlock(TABlocks.INFUSION_REQUESTER)
                 .setRegistryName(TABlocks.INFUSION_REQUESTER.getRegistryName());
+        TABlocks.ANOMALY_STONE_ITEM = new ItemBlock(TABlocks.ANOMALY_STONE)
+                .setRegistryName(TABlocks.ANOMALY_STONE.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -173,7 +180,8 @@ public final class ModBlocksItems {
                 TABlocks.PATTERN_REQUESTER_ITEM,
                 TABlocks.RESOURCE_REQUESTER_ITEM,
                 TABlocks.GOLEM_DISPATCHER_ITEM,
-                TABlocks.INFUSION_REQUESTER_ITEM
+                TABlocks.INFUSION_REQUESTER_ITEM,
+                TABlocks.ANOMALY_STONE_ITEM
 
         );
     }
