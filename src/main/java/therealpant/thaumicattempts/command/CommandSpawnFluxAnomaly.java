@@ -8,7 +8,9 @@ import net.minecraft.command.WrongUsageException;
 import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.math.BlockPos;
-import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
+import therealpant.thaumicattempts.api.FluxAnomalyApi;
+import therealpant.thaumicattempts.api.FluxAnomalySettings;
+import therealpant.thaumicattempts.api.FluxAnomalySpawnMethod;
 
 import javax.annotation.Nullable;
 import java.util.Collections;
@@ -63,8 +65,12 @@ public class CommandSpawnFluxAnomaly extends CommandBase {
         BlockPos center = player.getPosition();
 
         // Спавним с кастомными параметрами
-        EntityFluxAnomalyBurst e = new EntityFluxAnomalyBurst(player.world, center, radius, total, budget);
-        player.world.spawnEntity(e);
+        FluxAnomalySettings settings = new FluxAnomalySettings()
+                .radiusBlocks(radius)
+                .totalSpreads(total)
+                .budgetPerTick(budget)
+                .spawnMethod(FluxAnomalySpawnMethod.COMMAND);
+        FluxAnomalyApi.spawn(player.world, center, settings);
 
         sender.sendMessage(new net.minecraft.util.text.TextComponentString(
                 "Spawned flux anomaly at " + center +

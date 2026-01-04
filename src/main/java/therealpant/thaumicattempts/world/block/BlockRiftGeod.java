@@ -16,12 +16,15 @@ import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
+import thaumcraft.api.blocks.BlocksTC;
+import thaumcraft.common.blocks.world.taint.ITaintBlock;
+import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import javax.annotation.Nullable;
 
-public class BlockRiftGeod extends Block {
+public class BlockRiftGeod extends Block implements ITaintBlock {
 
     public static final PropertyEnum<EnumFacing> FACING = PropertyEnum.create("facing", EnumFacing.class);
     private static final AxisAlignedBB AABB = new AxisAlignedBB(0, 0, 0, 1, 1, 1);
@@ -132,5 +135,21 @@ public class BlockRiftGeod extends Block {
     @Override
     public float getAmbientOcclusionLightValue(IBlockState state) {
         return 1.0F;
+    }
+
+    @Override
+    public void randomTick(World world, BlockPos pos, IBlockState state, java.util.Random rand) {
+        if (world.isRemote) return;
+
+        if (!TaintHelper.isNearTaintSeed(world, pos)) {
+            die(world, pos, state);
+        }
+    }
+
+    @Override
+    public void die(World world, BlockPos pos, IBlockState state) {
+        if (world.isRemote) return;
+
+        world.setBlockState(pos, BlocksTC.stonePorous.getDefaultState(), 2);
     }
 }

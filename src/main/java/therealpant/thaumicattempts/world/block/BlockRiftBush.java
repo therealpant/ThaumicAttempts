@@ -18,6 +18,9 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
+import thaumcraft.common.blocks.world.taint.ITaintBlock;
+import thaumcraft.api.blocks.BlocksTC;
+import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
 
 import javax.annotation.Nullable;
@@ -27,7 +30,7 @@ import java.util.List;
 /**
  * Высокий куст (2 блока), аналог ванильной розы.
  */
-public class BlockRiftBush extends BlockBush {
+public class BlockRiftBush extends BlockBush implements ITaintBlock {
 
     public static final PropertyEnum<BlockHalf> HALF = PropertyEnum.create("half", BlockHalf.class);
 
@@ -46,6 +49,7 @@ public class BlockRiftBush extends BlockBush {
     protected boolean canSustainBush(IBlockState state) {
         return state.getBlock() == Blocks.GRASS
                 || state.getBlock() == Blocks.DIRT
+                || state.getBlock() == BlocksTC.taintSoil
                 || super.canSustainBush(state);
     }
 
@@ -155,5 +159,36 @@ public class BlockRiftBush extends BlockBush {
         public String getName() {
             return name().toLowerCase();
         }
+    }
+
+    @Override
+    public void randomTick(World world, BlockPos pos, IBlockState state, java.util.Random rand) {
+        if (world.isRemote) return;
+
+        // если рядом нет taint seed → увядаем
+        if (!TaintHelper.isNearTaintSeed(world, pos)) {
+            die(world, pos, state);
+        }
+    }
+
+    @Override
+    public void die(World world, BlockPos pos, IBlockState state) {
+        if (world.isRemote) return;
+
+        // если это верхняя часть — работаем от нижней
+        BlockPos basePos = state.getValue(HALF) == BlockHalf.UPPER ? pos.down() : pos;
+
+        IBlockState base = world.getBlockState(basePos);
+        if (base.getBlock() == this) {
+            world.setBlockToAir(basePos);
+        }
+
+        IBlockState upper = world.getBlockState(basePos.up());
+        if (upper.getBlock() == this) {
+            world.setBlockToAir(basePos.up());
+        }
+
+        // ставим сухой куст
+        world.setBlockState(basePos, net.minecraft.init.Blocks.DEADBUSH.getDefaultState(), 2);
     }
 }

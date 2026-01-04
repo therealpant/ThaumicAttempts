@@ -1,16 +1,27 @@
 // src/main/java/therealpant/thaumicattempts/world/anomaly/EntityFluxAnomalyBurst.java
 package therealpant.thaumicattempts.world;
 
+import net.minecraft.block.Block;
+import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLiving;
+import net.minecraft.init.Blocks;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.util.EnumFacing;
+import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
+import net.minecraftforge.fml.common.registry.ForgeRegistries;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import thaumcraft.common.blocks.world.taint.TaintHelper;
 import thaumcraft.common.entities.monster.tainted.EntityTaintSeed;
+import therealpant.thaumicattempts.api.FluxAnomalyResource;
+import therealpant.thaumicattempts.api.FluxAnomalySettings;
+import therealpant.thaumicattempts.api.FluxAnomalySpawnMethod;
+import therealpant.thaumicattempts.world.block.BlockRiftBush;
+import therealpant.thaumicattempts.world.block.BlockRiftGeod;
 
 import java.util.Random;
 import java.util.UUID;
@@ -19,16 +30,20 @@ public class EntityFluxAnomalyBurst extends Entity {
 
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts|FluxAnomaly");
 
-    private static final int MIN_CORRUPTION_RADIUS = 10;
-    private static final int MAX_CORRUPTION_RADIUS = 15;
+    private static final int MIN_CORRUPTION_RADIUS = 8;
+    private static final int MAX_CORRUPTION_RADIUS = 10;
 
     private UUID anomalyId = UUID.randomUUID();
 
     private BlockPos center = BlockPos.ORIGIN;
 
     private int radiusBlocks = MAX_CORRUPTION_RADIUS;      // 2–3 чанка ковром
-    private int totalSpreads = 16500;   // сколько spreadFibres всего
-    private int budgetPerTick = 220;   // сколько spreadFibres за тик
+    private int totalSpreads = 18500;   // сколько spreadFibres всего
+    private int budgetPerTick = 320;   // сколько spreadFibres за тик
+    private FluxAnomalySpawnMethod spawnMethod = FluxAnomalySpawnMethod.API;
+    private ResourceLocation resourceBlockId = null;
+    private int resourceCount = 0;
+    private boolean resourcesPlaced = false;
 
     private boolean awakened = false;
     private int remainingSpreads = 0;
@@ -53,6 +68,36 @@ public class EntityFluxAnomalyBurst extends Entity {
         this.setPosition(center.getX() + 0.5, center.getY() + 0.5, center.getZ() + 0.5);
     }
 
+    public EntityFluxAnomalyBurst(World worldIn, BlockPos center, FluxAnomalySettings settings) {
+        this(worldIn,
+                center,
+                settings != null ? settings.getRadiusBlocks() : MAX_CORRUPTION_RADIUS,
+                settings != null ? settings.getTotalSpreads() : 16500,
+                settings != null ? settings.getBudgetPerTick() : 220);
+
+        if (settings != null) {
+            spawnMethod = settings.getSpawnMethod();
+            FluxAnomalyResource resource = settings.getResource();
+            if (resource != null) {
+                applyResource(resource);
+            }
+        }
+    }
+
+    private void applyResource(FluxAnomalyResource resource) {
+        if (resource.isPresent()) {
+            ResourceLocation key = resource.getBlock().getRegistryName();
+            if (key != null) {
+                resourceBlockId = key;
+                resourceCount = resource.getBlockCount();
+                resourcesPlaced = false;
+            }
+        } else {
+            resourceBlockId = null;
+            resourceCount = 0;
+        }
+    }
+
     @Override
     protected void entityInit() {}
 
@@ -70,9 +115,6 @@ public class EntityFluxAnomalyBurst extends Entity {
             awakened = true;
             remainingSpreads = Math.max(0, totalSpreads);
 
-            LOG.info("[FluxAnomaly] AWAKEN id={} dim={} center={} radius={} totalSpreads={} budgetPerTick={}",
-                    anomalyId, world.provider.getDimension(), center, radiusBlocks, totalSpreads, budgetPerTick);
-
             // 1) Спавним настоящий EntityTaintSeed (обязательно!)
             spawnOrRefreshTaintSeed();
 
@@ -82,6 +124,9 @@ public class EntityFluxAnomalyBurst extends Entity {
             } catch (Throwable t) {
                 LOG.error("[FluxAnomaly] addTaintSeed failed at {}", center, t);
             }
+            placeResourcesIfConfigured();
+        } else if (!resourcesPlaced) {
+            placeResourcesIfConfigured();
         }
 
         if (remainingSpreads <= 0) {
@@ -122,6 +167,80 @@ public class EntityFluxAnomalyBurst extends Entity {
         if ((world.getTotalWorldTime() % 40L) == 0L) {
             LOG.info("[FluxAnomaly] TICK id={} remaining={}", anomalyId, remainingSpreads);
         }
+    }
+
+    private void placeResourcesIfConfigured() {
+        resourcesPlaced = true;
+
+        if (resourceBlockId == null || resourceCount <= 0) return;
+
+        Block block = ForgeRegistries.BLOCKS.getValue(resourceBlockId);
+        if (block == null || block == Blocks.AIR) {
+            LOG.warn("[FluxAnomaly] Resource block {} missing, skipping placement", resourceBlockId);
+            return;
+        }
+
+        int placed = 0;
+        final Random rnd = world.rand;
+        final int attempts = Math.max(resourceCount * 6, resourceCount);
+
+        for (int i = 0; i < attempts && placed < resourceCount; i++) {
+            BlockPos col = pickTargetColumn(rnd);
+            BlockPos top = world.getTopSolidOrLiquidBlock(col);
+            BlockPos target = top.getY() <= 1 ? center : top;
+
+            if (placeSingleResource(block, target)) {
+                placed++;
+            }
+        }
+
+        LOG.info("[FluxAnomaly] Placed {} of {} resource blocks ({})", placed, resourceCount, resourceBlockId);
+    }
+
+    private boolean placeSingleResource(Block block, BlockPos pos) {
+        if (!world.isBlockLoaded(pos)) return false;
+
+        if (block instanceof BlockRiftBush) {
+            return placeBush((BlockRiftBush) block, pos);
+        }
+        if (block instanceof BlockRiftGeod) {
+            return placeGeod((BlockRiftGeod) block, pos);
+        }
+
+        IBlockState state = block.getDefaultState();
+        if (!block.canPlaceBlockAt(world, pos)) return false;
+        if (!world.getBlockState(pos).getMaterial().isReplaceable() && !world.isAirBlock(pos)) return false;
+        return world.setBlockState(pos, state, 3);
+    }
+
+    private boolean placeBush(BlockRiftBush bush, BlockPos pos) {
+        if (pos.getY() >= world.getHeight() - 1) return false;
+        if (!bush.canPlaceBlockAt(world, pos)) return false;
+
+        IBlockState lower = bush.getDefaultState().withProperty(BlockRiftBush.HALF, BlockRiftBush.BlockHalf.LOWER);
+        IBlockState upper = bush.getDefaultState().withProperty(BlockRiftBush.HALF, BlockRiftBush.BlockHalf.UPPER);
+
+        world.setBlockState(pos, lower, 3);
+        world.setBlockState(pos.up(), upper, 3);
+        return true;
+    }
+
+    private boolean placeGeod(BlockRiftGeod geod, BlockPos pos) {
+        if (!geod.canPlaceBlockAt(world, pos)) return false;
+
+        EnumFacing facing = EnumFacing.UP;
+        for (EnumFacing face : EnumFacing.values()) {
+            BlockPos neighbor = pos.offset(face.getOpposite());
+            IBlockState neighborState = world.getBlockState(neighbor);
+            if (neighborState.isSideSolid(world, neighbor, face)) {
+                facing = face;
+                break;
+            }
+        }
+
+        IBlockState state = geod.getDefaultState().withProperty(BlockRiftGeod.FACING, facing);
+        if (!world.getBlockState(pos).getMaterial().isReplaceable() && !world.isAirBlock(pos)) return false;
+        return world.setBlockState(pos, state, 3);
     }
 
     private void spawnOrRefreshTaintSeed() {
@@ -204,6 +323,28 @@ public class EntityFluxAnomalyBurst extends Entity {
         budgetPerTick = Math.max(1, tag.getInteger("budget"));
         remainingSpreads = Math.max(0, tag.getInteger("remain"));
 
+        if (tag.hasKey("spawnMethod", 8)) {
+            try {
+                spawnMethod = FluxAnomalySpawnMethod.valueOf(tag.getString("spawnMethod"));
+            } catch (IllegalArgumentException ignored) {
+                spawnMethod = FluxAnomalySpawnMethod.API;
+            }
+        } else {
+            spawnMethod = FluxAnomalySpawnMethod.API;
+        }
+
+        resourceBlockId = null;
+        if (tag.hasKey("resBlock", 8)) {
+            try {
+                ResourceLocation resId = new ResourceLocation(tag.getString("resBlock"));
+                resourceBlockId = resId;
+            } catch (Exception ignored) {
+                resourceBlockId = null;
+            }
+        }
+        resourceCount = Math.max(0, tag.getInteger("resCount"));
+        resourcesPlaced = tag.getBoolean("resPlaced");
+
         if (tag.hasUniqueId("seedId")) seedEntityId = tag.getUniqueId("seedId");
         else seedEntityId = null;
     }
@@ -221,6 +362,13 @@ public class EntityFluxAnomalyBurst extends Entity {
         tag.setInteger("total", totalSpreads);
         tag.setInteger("budget", budgetPerTick);
         tag.setInteger("remain", remainingSpreads);
+
+        tag.setString("spawnMethod", spawnMethod.name());
+        if (resourceBlockId != null) {
+            tag.setString("resBlock", resourceBlockId.toString());
+        }
+        tag.setInteger("resCount", resourceCount);
+        tag.setBoolean("resPlaced", resourcesPlaced);
 
         if (seedEntityId != null) tag.setUniqueId("seedId", seedEntityId);
     }
