@@ -166,9 +166,27 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
         if (world.isRemote) return;
 
         // если рядом нет taint seed → увядаем
-        if (!TaintHelper.isNearTaintSeed(world, pos)) {
+        BlockPos basePos = state.getValue(HALF) == BlockHalf.UPPER ? pos.down() : pos;
+        if (!TaintHelper.isNearTaintSeed(world, basePos)) {
             die(world, pos, state);
+            return;
         }
+        if (state.getValue(HALF) == BlockHalf.UPPER) return;
+
+        int count = FluxResourceHelper.countBlocks(world, basePos, this, 4);
+        if (!FluxResourceHelper.shouldReproduce(rand, count, 18, 1.0 / 6.0)) return;
+
+        BlockPos target = FluxResourceHelper.randomOffset(basePos, rand, 4, 2);
+        if (target.getY() < 1 || target.getY() >= world.getHeight() - 1) return;
+        if (!world.isBlockLoaded(target)) return;
+        if (!canPlaceBlockAt(world, target)) return;
+
+        IBlockState lower = getDefaultState().withProperty(HALF, BlockHalf.LOWER);
+        IBlockState upper = getDefaultState().withProperty(HALF, BlockHalf.UPPER);
+
+        world.setBlockState(target, lower, 3);
+        world.setBlockState(target.up(), upper, 3);
+        FluxResourceHelper.damageNearestSeed(world, target, 0.25f);
     }
 
     @Override

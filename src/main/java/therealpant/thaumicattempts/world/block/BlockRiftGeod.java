@@ -143,7 +143,31 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
 
         if (!TaintHelper.isNearTaintSeed(world, pos)) {
             die(world, pos, state);
+            return;
         }
+        int count = FluxResourceHelper.countBlocks(world, pos, this, 4);
+        if (!FluxResourceHelper.shouldReproduce(rand, count, 14, 1.0 / 16.0)) return;
+
+        BlockPos target = FluxResourceHelper.randomOffset(pos, rand, 4, 2);
+        if (target.getY() < 1 || target.getY() >= world.getHeight()) return;
+        if (!world.isBlockLoaded(target)) return;
+
+        IBlockState targetState = world.getBlockState(target);
+        if (targetState.getMaterial().isLiquid()) return;
+        if (!targetState.getMaterial().isReplaceable() && !world.isAirBlock(target)) return;
+
+        EnumFacing facing = EnumFacing.UP;
+        for (EnumFacing face : EnumFacing.values()) {
+            BlockPos neighbor = target.offset(face.getOpposite());
+            IBlockState neighborState = world.getBlockState(neighbor);
+            if (neighborState.isSideSolid(world, neighbor, face)) {
+                facing = face;
+                break;
+            }
+        }
+
+        world.setBlockState(target, getDefaultState().withProperty(FACING, facing), 2);
+        FluxResourceHelper.damageNearestSeed(world, target, 1.5f);
     }
 
     @Override

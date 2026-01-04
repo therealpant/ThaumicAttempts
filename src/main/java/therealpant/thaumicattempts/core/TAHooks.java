@@ -11,6 +11,7 @@ import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
+import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
 import java.util.*;
 import java.util.concurrent.ConcurrentHashMap;
@@ -144,6 +145,13 @@ public final class TAHooks {
                 it.remove();
             }
         }
+    }
+    /**
+     * Хук из AuraHelper.polluteAura(...) — учитываем глобальный флакс.
+     */
+    public static void onAuraPolluted(World world, double amount) {
+        if (world == null || world.isRemote) return;
+        TAWorldFluxData.get(world).addFlux(world, amount);
     }
 
 }

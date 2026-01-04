@@ -4,7 +4,6 @@ package therealpant.thaumicattempts.world;
 import net.minecraft.block.Block;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.Entity;
-import net.minecraft.entity.EntityLiving;
 import net.minecraft.init.Blocks;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.EnumFacing;
@@ -116,17 +115,17 @@ public class EntityFluxAnomalyBurst extends Entity {
             remainingSpreads = Math.max(0, totalSpreads);
 
             // 1) Спавним настоящий EntityTaintSeed (обязательно!)
-            spawnOrRefreshTaintSeed();
+            spawnTaintSeed();
 
-            // 2) Записываем seed позицию (не строго обязательно, но норм)
-            try {
-                TaintHelper.addTaintSeed(world, center);
-            } catch (Throwable t) {
-                LOG.error("[FluxAnomaly] addTaintSeed failed at {}", center, t);
-            }
             placeResourcesIfConfigured();
         } else if (!resourcesPlaced) {
             placeResourcesIfConfigured();
+        }
+
+        if (!isSeedAlive()) {
+            remainingSpreads = 0;
+            setDead();
+            return;
         }
 
         if (remainingSpreads <= 0) {
@@ -138,9 +137,6 @@ public class EntityFluxAnomalyBurst extends Entity {
             setDead();
             return;
         }
-
-        // На всякий случай: если seed каким-то образом исчез, восстановим
-        ensureSeedAlive();
 
         final int runs = Math.min(budgetPerTick, remainingSpreads);
         final Random rnd = world.rand;
@@ -243,7 +239,7 @@ public class EntityFluxAnomalyBurst extends Entity {
         return world.setBlockState(pos, state, 3);
     }
 
-    private void spawnOrRefreshTaintSeed() {
+    private void spawnTaintSeed() {
         try {
             EntityTaintSeed seed = new EntityTaintSeed(world);
             seed.setPosition(center.getX() + 0.5, center.getY() + 0.5, center.getZ() + 0.5);
@@ -252,7 +248,6 @@ public class EntityFluxAnomalyBurst extends Entity {
             seed.enablePersistence();           // не деспавнится
             seed.setSilent(true);               // без звуков
             seed.setNoAI(true);                 // не двигается и не атакует (в 1.12 у EntityLiving есть setNoAI)
-            seed.setEntityInvulnerable(true);   // чтобы случайно не убили
             seed.boost = 999;                   // усиленный (по желанию)
 
             world.spawnEntity(seed);
@@ -264,32 +259,14 @@ public class EntityFluxAnomalyBurst extends Entity {
         }
     }
 
-    private void ensureSeedAlive() {
-        if (seedEntityId == null) return;
-        Entity e = world.getPlayerEntityByUUID(seedEntityId); // не найдёт, это игроки
-        // Поэтому ищем “ручками” через loadedEntityList
-        for (Entity ent : world.loadedEntityList) {
-            if (seedEntityId.equals(ent.getUniqueID())) return;
-        }
-        // Не нашли — восстановим
-        LOG.warn("[FluxAnomaly] Seed missing, respawning...");
-        spawnOrRefreshTaintSeed();
-    }
-
-    private void killSeedIfPresent() {
-        if (seedEntityId == null) return;
-        Entity target = null;
+    private boolean isSeedAlive() {
+        if (seedEntityId == null) return false;
         for (Entity ent : world.loadedEntityList) {
             if (seedEntityId.equals(ent.getUniqueID())) {
-                target = ent;
-                break;
+                return !ent.isDead;
             }
         }
-        if (target != null) {
-            target.setDead();
-            LOG.info("[FluxAnomaly] Seed killed uuid={}", seedEntityId);
-        }
-        seedEntityId = null;
+        return false;
     }
 
     private BlockPos pickTargetColumn(Random rnd) {

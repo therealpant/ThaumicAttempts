@@ -112,7 +112,22 @@ public class BlockAnomalyStone extends Block implements ITaintBlock {
 
         if (!TaintHelper.isNearTaintSeed(world, pos)) {
             die(world, pos, state);
+            return;
         }
+
+        int count = FluxResourceHelper.countBlocks(world, pos, this, 4);
+        if (!FluxResourceHelper.shouldReproduce(rand, count, 26, 0.1)) return;
+
+        BlockPos target = FluxResourceHelper.randomOffset(pos, rand, 4, 2);
+        if (target.getY() < 1 || target.getY() >= world.getHeight()) return;
+        if (!world.isBlockLoaded(target)) return;
+
+        IBlockState targetState = world.getBlockState(target);
+        if (targetState.getMaterial().isLiquid()) return;
+        if (!targetState.getMaterial().isReplaceable() && !world.isAirBlock(target)) return;
+
+        world.setBlockState(target, getDefaultState(), 2);
+        FluxResourceHelper.damageNearestSeed(world, target, 0.5f);
     }
 
     @Override
