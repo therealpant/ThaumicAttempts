@@ -29,10 +29,34 @@ public final class FluxAnomalySpawner {
 
     private static final int CHECK_PERIOD = 1200;
     private static final int MIN_WORLD_AGE = 1 * 24000;
-    private static final int MIN_INHABITED_TICKS = 20 * 60 * 20;
+    public static final int SAFE_PLAYER_RADIUS = 128;
+    public static final int MIN_RADIUS_FROM_PLAYER = 256;
+    public static final int MAX_RADIUS_FROM_PLAYER = 2048;
+    public static final int MIN_INHABITED_TICKS = 144000;
     private static final double SURFACE_CHANCE = 0.55;
 
     private FluxAnomalySpawner() {}
+
+    private static void recordAttempt(TAWorldFluxData data, World world, String reason, int candidates) {
+        if (data == null || world == null) return;
+        data.lastSpawnAttemptTime = world.getTotalWorldTime();
+        data.lastSpawnFailReason = reason;
+        data.lastSpawnCheckedCandidates = candidates;
+        data.markDirty();
+    }
+
+    private static final class SpawnColumnResult {
+        @Nullable
+        private final BlockPos column;
+        private final String failReason;
+        private final int candidatesChecked;
+
+        private SpawnColumnResult(@Nullable BlockPos column, String failReason, int candidatesChecked) {
+            this.column = column;
+            this.failReason = failReason;
+            this.candidatesChecked = candidatesChecked;
+        }
+    }
 
     @SubscribeEvent
     public static void onWorldTick(TickEvent.WorldTickEvent event) {
@@ -42,30 +66,80 @@ public final class FluxAnomalySpawner {
         if (world.provider.getDimension() != 0) return;
 
         long now = world.getTotalWorldTime();
-        if (now < MIN_WORLD_AGE || (now % CHECK_PERIOD) != 0) return;
-        if (world.playerEntities.isEmpty()) return;
-
         TAWorldFluxData data = TAWorldFluxData.get(world);
-        if (!data.canTrySpawn(world)) return;
+
+        if (data.stage > 0 && data.nextAnomalySpawnTime <= 0) {
+            data.nextAnomalySpawnTime = now + 20 * 30;
+            data.lastNextAnomalySpawnTimeSet = data.nextAnomalySpawnTime;
+            data.markDirty();
+        }
+
+        if (now < MIN_WORLD_AGE) {
+            recordAttempt(data, world, "WORLD_TOO_YOUNG", 0);
+            return;
+        }
+        if ((now % CHECK_PERIOD) != 0) {
+            recordAttempt(data, world, "CHECK_PERIOD_SKIP", 0);
+            return;
+        }
+        if (world.playerEntities.isEmpty()) {
+            recordAttempt(data, world, "NO_PLAYER", 0);
+            return;
+        }
+        if (data.stage <= 0) {
+            recordAttempt(data, world, "STAGE_TOO_LOW", 0);
+            return;
+        }
+
+        if (!data.canTrySpawn(world)) {
+            recordAttempt(data, world, "COOLDOWN", 0);
+            return;
+        }
 
         double chance = stageChance(data.stage);
-        if (chance <= 0 || world.rand.nextDouble() >= chance) return;
+        if (chance <= 0) {
+            recordAttempt(data, world, "STAGE_TOO_LOW", 0);
+            return;
+        }
+        if (world.rand.nextDouble() >= chance) {
+            recordAttempt(data, world, "CHANCE_FAIL", 0);
+            return;
+        }
 
         EntityPlayer player = pickPlayer(world.rand, world.playerEntities);
-        if (player == null) return;
+        if (player == null) {
+            recordAttempt(data, world, "NO_PLAYER", 0);
+            return;
+        }
 
-        BlockPos column = findSpawnColumn(world, player, world.rand);
-        if (column == null) return;
+        SpawnColumnResult columnResult = findSpawnColumn(world, player, world.rand);
+        data.lastSpawnCheckedCandidates = columnResult.candidatesChecked;
+        if (columnResult.column == null) {
+            recordAttempt(data, world, columnResult.failReason, columnResult.candidatesChecked);
+            return;
+        }
 
         FluxAnomalyTier tier = pickTier(data.stage, world.rand);
-        BlockPos spawnPos = findSpawnPosition(world, column, tier, world.rand);
-        if (spawnPos == null) return;
+        BlockPos spawnPos = findSpawnPosition(world, columnResult.column, tier, world.rand);
+        if (spawnPos == null) {
+            recordAttempt(data, world, "SPAWN_API_FAIL", columnResult.candidatesChecked);
+            return;
+        }
 
         FluxAnomalySettings settings = FluxAnomalyPresets.createSettings(tier);
-        FluxAnomalyApi.spawn(world, spawnPos, settings);
+        try {
+            FluxAnomalyApi.spawn(world, spawnPos, settings);
+        } catch (Exception ex) {
+            ThaumicAttempts.LOGGER.error("Failed to spawn flux anomaly at {}", spawnPos, ex);
+            recordAttempt(data, world, "SPAWN_API_FAIL", columnResult.candidatesChecked);
+            return;
+        }
 
         long cooldownTicks = pickCooldownTicks(data.stage, world.rand);
         data.nextAnomalySpawnTime = now + cooldownTicks;
+        data.lastNextAnomalySpawnTimeSet = data.nextAnomalySpawnTime;
+        data.lastSpawnAttemptTime = now;
+        data.lastSpawnFailReason = "SUCCESS";
         data.markDirty();
     }
 
@@ -88,14 +162,16 @@ public final class FluxAnomalySpawner {
         return players.get(rand.nextInt(players.size()));
     }
 
-    @Nullable
-    private static BlockPos findSpawnColumn(World world, EntityPlayer player, Random rand) {
-        if (player == null) return null;
+    private static SpawnColumnResult findSpawnColumn(World world, EntityPlayer player, Random rand) {
+        if (player == null) return new SpawnColumnResult(null, "NO_PLAYER", 0);
 
         BlockPos spawn = world.getSpawnPoint();
+        String lastFailReason = "NO_COLUMN_FOUND";
+        int checked = 0;
         for (int i = 0; i < 50; i++) {
+            checked++;
             double angle = rand.nextDouble() * Math.PI * 2;
-            double radius = 512 + rand.nextDouble() * (4096 - 512);
+            double radius = MIN_RADIUS_FROM_PLAYER + rand.nextDouble() * (MAX_RADIUS_FROM_PLAYER - MIN_RADIUS_FROM_PLAYER);
             int x = MathHelper.floor(player.posX + Math.cos(angle) * radius);
             int z = MathHelper.floor(player.posZ + Math.sin(angle) * radius);
 
@@ -107,19 +183,30 @@ public final class FluxAnomalySpawner {
 
             BlockPos column = new BlockPos(x, 0, z);
             Chunk chunk = world.getChunk(column);
-            if (chunk == null) continue;
-            if (chunk.getInhabitedTime() > MIN_INHABITED_TICKS) continue;
+            if (chunk == null) {
+                lastFailReason = "NO_COLUMN_FOUND";
+                continue;
+            }
+            if (chunk.getInhabitedTime() > MIN_INHABITED_TICKS) {
+                lastFailReason = "CHUNK_INHABITED";
+                continue;
+            }
 
-            if (world.getClosestPlayer(x + 0.5, 64, z + 0.5, 256, false) != null) continue;
-            if (hasBaseSignals(world, column, rand)) continue;
+            if (world.getClosestPlayer(x + 0.5, 64, z + 0.5, SAFE_PLAYER_RADIUS, false) != null) {
+                lastFailReason = "PLAYER_TOO_CLOSE";
+                continue;
+            }
+            if (hasBaseSignals(world, column, rand)) {
+                lastFailReason = "BASE_INVENTORY_NEAR";
+                continue;
+            }
 
-            return column;
+            return new SpawnColumnResult(column, "SUCCESS", checked);
         }
-        return null;
+        return new SpawnColumnResult(null, lastFailReason, checked);
     }
 
     private static boolean hasBaseSignals(World world, BlockPos center, Random rand) {
-        int hits = 0;
         for (int i = 0; i < 30; i++) {
             BlockPos sample = randomSample(center, rand, 64, world.getActualHeight());
             if (!world.isBlockLoaded(sample)) continue;
@@ -128,18 +215,6 @@ public final class FluxAnomalySpawner {
             if (te != null && (te instanceof net.minecraft.inventory.IInventory
                     || te.hasCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, null))) {
                 return true;
-            }
-        }
-
-        for (int i = 0; i < 30; i++) {
-            BlockPos sample = randomSample(center, rand, 64, world.getActualHeight());
-            if (!world.isBlockLoaded(sample)) continue;
-            Block block = world.getBlockState(sample).getBlock();
-            if (block == Blocks.TORCH || block == Blocks.PLANKS || block == Blocks.COBBLESTONE
-                    || block == Blocks.BRICK_BLOCK
-                    || block == Blocks.GLASS || block == Blocks.GLASS_PANE) {
-                hits++;
-                if (hits >= 6) return true;
             }
         }
         return false;

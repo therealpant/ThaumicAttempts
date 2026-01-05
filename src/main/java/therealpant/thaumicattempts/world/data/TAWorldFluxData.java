@@ -16,6 +16,10 @@ public class TAWorldFluxData extends WorldSavedData {
     public double fluxGeneratedTotal;
     public int stage;
     public long nextAnomalySpawnTime;
+    public long lastSpawnAttemptTime;
+    public String lastSpawnFailReason = "";
+    public int lastSpawnCheckedCandidates;
+    public long lastNextAnomalySpawnTimeSet;
 
     public TAWorldFluxData() {
         super(DATA_NAME);
@@ -70,6 +74,10 @@ public class TAWorldFluxData extends WorldSavedData {
         fluxGeneratedTotal = nbt.getDouble("fluxTotal");
         stage = nbt.getInteger("stage");
         nextAnomalySpawnTime = nbt.getLong("nextSpawn");
+        lastSpawnAttemptTime = nbt.getLong("lastSpawnAttempt");
+        lastSpawnFailReason = nbt.getString("lastSpawnFailReason");
+        lastSpawnCheckedCandidates = nbt.getInteger("lastSpawnCheckedCandidates");
+        lastNextAnomalySpawnTimeSet = nbt.getLong("lastNextSpawnTimeSet");
         recomputeStage(); // страховка
     }
 
@@ -77,6 +85,10 @@ public class TAWorldFluxData extends WorldSavedData {
     public NBTTagCompound writeToNBT(NBTTagCompound nbt) {
         nbt.setDouble("fluxTotal", fluxGeneratedTotal);
         nbt.setInteger("stage", stage);
+        nbt.setLong("lastSpawnAttempt", lastSpawnAttemptTime);
+        nbt.setString("lastSpawnFailReason", lastSpawnFailReason == null ? "" : lastSpawnFailReason);
+        nbt.setInteger("lastSpawnCheckedCandidates", lastSpawnCheckedCandidates);
+        nbt.setLong("lastNextSpawnTimeSet", lastNextAnomalySpawnTimeSet);
         nbt.setLong("nextSpawn", nextAnomalySpawnTime);
         return nbt;
     }

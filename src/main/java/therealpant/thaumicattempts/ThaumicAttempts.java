@@ -21,6 +21,7 @@ import thaumcraft.api.ThaumcraftApi;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_RECIPE;
 
+import therealpant.thaumicattempts.command.CommandAnomalyDebug;
 import therealpant.thaumicattempts.command.CommandFluxStatus;
 import therealpant.thaumicattempts.command.CommandLocateFluxAnomaly;
 import therealpant.thaumicattempts.command.CommandSpawnFluxAnomaly;
@@ -177,6 +178,7 @@ public class ThaumicAttempts {
         e.registerServerCommand(new CommandSpawnFluxAnomaly());
         e.registerServerCommand(new CommandLocateFluxAnomaly());
         e.registerServerCommand(new CommandFluxStatus());
+        e.registerServerCommand(new CommandAnomalyDebug());
     }
 
 }
