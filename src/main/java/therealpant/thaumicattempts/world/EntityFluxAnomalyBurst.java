@@ -83,6 +83,10 @@ public class EntityFluxAnomalyBurst extends Entity {
         }
     }
 
+    public FluxAnomalySpawnMethod getSpawnMethod() {
+        return spawnMethod;
+    }
+
     private void applyResource(FluxAnomalyResource resource) {
         if (resource.isPresent()) {
             ResourceLocation key = resource.getBlock().getRegistryName();

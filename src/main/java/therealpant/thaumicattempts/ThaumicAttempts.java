@@ -21,6 +21,7 @@ import thaumcraft.api.ThaumcraftApi;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_RECIPE;
 
+import therealpant.thaumicattempts.command.CommandLocateFluxAnomaly;
 import therealpant.thaumicattempts.command.CommandSpawnFluxAnomaly;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
@@ -173,6 +174,7 @@ public class ThaumicAttempts {
     @Mod.EventHandler
     public void serverStarting(FMLServerStartingEvent e) {
         e.registerServerCommand(new CommandSpawnFluxAnomaly());
+        e.registerServerCommand(new CommandLocateFluxAnomaly());
     }
 
 }
