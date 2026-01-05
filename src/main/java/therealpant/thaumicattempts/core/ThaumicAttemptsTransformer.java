@@ -4,7 +4,6 @@ import net.minecraft.launchwrapper.IClassTransformer;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.*;
-import org.objectweb.asm.Type;
 import therealpant.thaumicattempts.config.TAConfig;
 
 import java.util.ArrayList;
@@ -40,8 +39,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchGolemHelper(basicClass);
                 case "thaumcraft.common.golems.tasks.TaskHandler":
                     return patchTaskHandler(basicClass);
-                case "thaumcraft.api.aura.AuraHelper":
-                    return patchAuraHelper(basicClass);
                     default:
                     return basicClass;
             }
@@ -151,70 +148,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         return cw.toByteArray();
     }
 
-    private byte[] patchAuraHelper(byte[] basicClass) {
-        ClassReader cr = new ClassReader(basicClass);
-        ClassNode cn = new ClassNode(ASM5);
-        cr.accept(cn, 0);
-
-        boolean patched = false;
-
-        for (MethodNode m : cn.methods) {
-            if (!"polluteAura".equals(m.name)) continue;
-
-            Type[] args = Type.getArgumentTypes(m.desc);
-            int worldIndex = -1;
-            int amountIndex = -1;
-            boolean amountIsDouble = false;
-
-            int slot = 0;
-            for (Type t : args) {
-                if (worldIndex == -1 && "net.minecraft.world.World".equals(t.getClassName())) {
-                    worldIndex = slot;
-                }
-                if (amountIndex == -1 && (t.getSort() == Type.FLOAT || t.getSort() == Type.DOUBLE)) {
-                    amountIndex = slot;
-                    amountIsDouble = t.getSort() == Type.DOUBLE;
-                }
-                slot += t.getSize();
-            }
-
-            if (worldIndex < 0 || amountIndex < 0) continue;
-
-            List<AbstractInsnNode> returns = new ArrayList<>();
-
-            for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                if (insn.getOpcode() >= IRETURN && insn.getOpcode() <= RETURN) {
-                    returns.add(insn);
-                }
-            }
-
-            for (AbstractInsnNode ret : returns) {
-                InsnList inject = new InsnList();
-                inject.add(new VarInsnNode(ALOAD, worldIndex));
-                if (amountIsDouble) {
-                    inject.add(new VarInsnNode(DLOAD, amountIndex));
-                } else {
-                    inject.add(new VarInsnNode(FLOAD, amountIndex));
-                    inject.add(new InsnNode(F2D));
-                }
-                inject.add(new MethodInsnNode(INVOKESTATIC, HOOKS,
-                        "onAuraPolluted",
-                        "(Lnet/minecraft/world/World;D)V",
-                        false));
-                m.instructions.insertBefore(ret, inject);
-                patched = true;
-            }
-        }
-
-        if (patched) {
-            ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
-            cn.accept(cw);
-            System.out.println("[ThaumicAttempts] Patched AuraHelper.polluteAura");
-            return cw.toByteArray();
-        }
-
-        return basicClass;
-    }
 
     private byte[] patchIRecipe(byte[] basicClass) {
         ClassReader cr = new ClassReader(basicClass);

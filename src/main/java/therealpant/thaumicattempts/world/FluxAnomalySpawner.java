@@ -28,7 +28,7 @@ import java.util.Random;
 public final class FluxAnomalySpawner {
 
     private static final int CHECK_PERIOD = 1200;
-    private static final int MIN_WORLD_AGE = 10 * 24000;
+    private static final int MIN_WORLD_AGE = 1 * 24000;
     private static final int MIN_INHABITED_TICKS = 20 * 60 * 20;
     private static final double SURFACE_CHANCE = 0.55;
 
@@ -48,7 +48,7 @@ public final class FluxAnomalySpawner {
         TAWorldFluxData data = TAWorldFluxData.get(world);
         if (!data.canTrySpawn(world)) return;
 
-        double chance = stageChance(data.anomalyStage);
+        double chance = stageChance(data.stage);
         if (chance <= 0 || world.rand.nextDouble() >= chance) return;
 
         EntityPlayer player = pickPlayer(world.rand, world.playerEntities);
@@ -57,14 +57,14 @@ public final class FluxAnomalySpawner {
         BlockPos column = findSpawnColumn(world, player, world.rand);
         if (column == null) return;
 
-        FluxAnomalyTier tier = pickTier(data.anomalyStage, world.rand);
+        FluxAnomalyTier tier = pickTier(data.stage, world.rand);
         BlockPos spawnPos = findSpawnPosition(world, column, tier, world.rand);
         if (spawnPos == null) return;
 
         FluxAnomalySettings settings = FluxAnomalyPresets.createSettings(tier);
         FluxAnomalyApi.spawn(world, spawnPos, settings);
 
-        long cooldownTicks = pickCooldownTicks(data.anomalyStage, world.rand);
+        long cooldownTicks = pickCooldownTicks(data.stage, world.rand);
         data.nextAnomalySpawnTime = now + cooldownTicks;
         data.markDirty();
     }

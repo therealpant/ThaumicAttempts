@@ -1,3 +1,4 @@
+// src/main/java/therealpant/thaumicattempts/world/data/TAWorldFluxData.java
 package therealpant.thaumicattempts.world.data;
 
 import net.minecraft.nbt.NBTTagCompound;
@@ -13,7 +14,7 @@ public class TAWorldFluxData extends WorldSavedData {
     private static final String DATA_NAME = "thaumicattempts_flux";
 
     public double fluxGeneratedTotal;
-    public int anomalyStage;
+    public int stage;
     public long nextAnomalySpawnTime;
 
     public TAWorldFluxData() {
@@ -38,7 +39,8 @@ public class TAWorldFluxData extends WorldSavedData {
         return data;
     }
 
-    public void addFlux(World world, double amount) {
+    /** Добавить вклад в глобальную статистику. World-параметр не нужен. */
+    public void addFlux(double amount) {
         if (amount <= 0) return;
 
         fluxGeneratedTotal += amount;
@@ -48,33 +50,33 @@ public class TAWorldFluxData extends WorldSavedData {
 
     public void recomputeStage() {
         if (fluxGeneratedTotal < 10000) {
-            anomalyStage = 0;
+            stage = 0;
         } else if (fluxGeneratedTotal < 15000) {
-            anomalyStage = 1;
+            stage = 1;
         } else if (fluxGeneratedTotal < 30000) {
-            anomalyStage = 2;
+            stage = 2;
         } else {
-            anomalyStage = 3;
+            stage = 3;
         }
     }
 
     public boolean canTrySpawn(World world) {
-        if (world == null || anomalyStage <= 0) return false;
+        if (world == null || stage <= 0) return false;
         return world.getTotalWorldTime() >= nextAnomalySpawnTime;
     }
 
     @Override
     public void readFromNBT(NBTTagCompound nbt) {
         fluxGeneratedTotal = nbt.getDouble("fluxTotal");
-        anomalyStage = nbt.getInteger("stage");
+        stage = nbt.getInteger("stage");
         nextAnomalySpawnTime = nbt.getLong("nextSpawn");
-        recomputeStage();
+        recomputeStage(); // страховка
     }
 
     @Override
     public NBTTagCompound writeToNBT(NBTTagCompound nbt) {
         nbt.setDouble("fluxTotal", fluxGeneratedTotal);
-        nbt.setInteger("stage", anomalyStage);
+        nbt.setInteger("stage", stage);
         nbt.setLong("nextSpawn", nextAnomalySpawnTime);
         return nbt;
     }

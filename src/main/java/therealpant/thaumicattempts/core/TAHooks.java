@@ -33,7 +33,6 @@ public final class TAHooks {
     private static final Map<ProvisionRequest, UUID> PROVISION_GOLEM =
             Collections.synchronizedMap(new WeakHashMap<>());
 
-    private static boolean auraHookLogged = false;
 
     private TAHooks() {}
 
@@ -148,17 +147,4 @@ public final class TAHooks {
             }
         }
     }
-    /**
-     * Хук из AuraHelper.polluteAura(...) — учитываем глобальный флакс.
-     */
-    public static void onAuraPolluted(World world, double amount) {
-        if (world == null || world.isRemote) return;
-        if (!Double.isFinite(amount) || amount <= 0) return;
-        if (!auraHookLogged) {
-            auraHookLogged = true;
-            System.out.println("[ThaumicAttempts] Aura pollution hook active; stage counter engaged.");
-        }
-        TAWorldFluxData.get(world).addFlux(world, amount);
-    }
-
 }
