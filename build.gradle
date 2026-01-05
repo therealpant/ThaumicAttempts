@@ -114,6 +114,18 @@ minecraft {
     }
 }
 
+tasks.register('cleanRunMods', Delete) {
+    delete fileTree("${projectDir}/run/mods") {
+        include "ThaumicAttempts*.jar"
+    }
+}
+
+tasks.configureEach {
+    if (name == 'runClient' || name == 'runServer') {
+        dependsOn(cleanRunMods)
+    }
+}
+
 
 dependencies {
     minecraft "net.minecraftforge:forge:${mcversion}-${forgeversion}"

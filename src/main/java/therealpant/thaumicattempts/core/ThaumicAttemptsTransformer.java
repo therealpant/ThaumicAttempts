@@ -7,6 +7,7 @@ import org.objectweb.asm.tree.*;
 import org.objectweb.asm.Type;
 import therealpant.thaumicattempts.config.TAConfig;
 
+import java.util.ArrayList;
 import java.util.List;
 
 import static org.objectweb.asm.Opcodes.*;
@@ -179,23 +180,29 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
             if (worldIndex < 0 || amountIndex < 0) continue;
 
+            List<AbstractInsnNode> returns = new ArrayList<>();
+
             for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                 if (insn.getOpcode() >= IRETURN && insn.getOpcode() <= RETURN) {
-                    InsnList inject = new InsnList();
-                    inject.add(new VarInsnNode(ALOAD, worldIndex));
-                    if (amountIsDouble) {
-                        inject.add(new VarInsnNode(DLOAD, amountIndex));
-                    } else {
-                        inject.add(new VarInsnNode(FLOAD, amountIndex));
-                        inject.add(new InsnNode(F2D));
-                    }
-                    inject.add(new MethodInsnNode(INVOKESTATIC, HOOKS,
-                            "onAuraPolluted",
-                            "(Lnet/minecraft/world/World;D)V",
-                            false));
-                    m.instructions.insertBefore(insn, inject);
-                    patched = true;
+                    returns.add(insn);
                 }
+            }
+
+            for (AbstractInsnNode ret : returns) {
+                InsnList inject = new InsnList();
+                inject.add(new VarInsnNode(ALOAD, worldIndex));
+                if (amountIsDouble) {
+                    inject.add(new VarInsnNode(DLOAD, amountIndex));
+                } else {
+                    inject.add(new VarInsnNode(FLOAD, amountIndex));
+                    inject.add(new InsnNode(F2D));
+                }
+                inject.add(new MethodInsnNode(INVOKESTATIC, HOOKS,
+                        "onAuraPolluted",
+                        "(Lnet/minecraft/world/World;D)V",
+                        false));
+                m.instructions.insertBefore(ret, inject);
+                patched = true;
             }
         }
 
