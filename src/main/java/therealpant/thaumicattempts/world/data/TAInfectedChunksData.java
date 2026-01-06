@@ -4,6 +4,7 @@ import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.nbt.NBTTagLong;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraft.world.storage.MapStorage;
 import net.minecraft.world.storage.WorldSavedData;
@@ -14,6 +15,7 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.Set;
 import java.util.UUID;
+import therealpant.thaumicattempts.api.FluxAnomalyTier;
 
 public class TAInfectedChunksData extends WorldSavedData {
 
@@ -23,6 +25,9 @@ public class TAInfectedChunksData extends WorldSavedData {
     private final Set<Long> activeInfectedChunks = new LongOpenHashSet();
     private final Map<UUID, Long> seedToChunk = new HashMap<>();
     private final Map<UUID, Long> anomalyToChunk = new HashMap<>();
+    private final Map<UUID, BlockPos> seedPositions = new HashMap<>();
+    private final Map<Long, BlockPos> chunkSeedPositions = new HashMap<>();
+    private final Map<Long, FluxAnomalyTier> activeChunkTiers = new HashMap<>();
 
     public long lastManagerTickTime;
     public long lastActivationAttemptTime;
@@ -74,6 +79,8 @@ public class TAInfectedChunksData extends WorldSavedData {
     public boolean removeInfectedChunk(long chunkKey) {
         boolean changed = infectedChunks.remove(chunkKey);
         if (changed) {
+            activeChunkTiers.remove(chunkKey);
+            chunkSeedPositions.remove(chunkKey);
             markDirty();
         }
         return changed;
@@ -103,9 +110,42 @@ public class TAInfectedChunksData extends WorldSavedData {
         return activeInfectedChunks.contains(chunkKey);
     }
 
-    public void trackSeed(UUID seedId, long chunkKey) {
-        if (seedId == null) return;
+    public void clearChunkTracking(long chunkKey) {
+        activeChunkTiers.remove(chunkKey);
+        chunkSeedPositions.remove(chunkKey);
+        markDirty();
+    }
+
+    public void removeSeedsForChunk(long chunkKey) {
+        boolean changed = false;
+        for (java.util.Iterator<Map.Entry<UUID, Long>> it = seedToChunk.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<UUID, Long> entry = it.next();
+            if (entry.getValue() != null && entry.getValue() == chunkKey) {
+                seedPositions.remove(entry.getKey());
+                it.remove();
+                changed = true;
+            }
+        }
+        if (chunkSeedPositions.remove(chunkKey) != null) {
+            changed = true;
+        }
+        if (changed) {
+            markDirty();
+        }
+    }
+
+    public void trackSeed(UUID seedId, long chunkKey, @Nullable BlockPos seedPos) {        if (seedId == null) return;
         seedToChunk.put(seedId, chunkKey);
+        if (seedPos != null) {
+            seedPositions.put(seedId, seedPos.toImmutable());
+            chunkSeedPositions.put(chunkKey, seedPos.toImmutable());
+        }
+        markDirty();
+    }
+
+    public void setActiveChunkTier(long chunkKey, FluxAnomalyTier tier) {
+        if (tier == null) return;
+        activeChunkTiers.put(chunkKey, tier);
         markDirty();
     }
 
@@ -114,6 +154,10 @@ public class TAInfectedChunksData extends WorldSavedData {
         if (seedId == null) return null;
         Long key = seedToChunk.remove(seedId);
         if (key != null) {
+            seedPositions.remove(seedId);
+            if (key != null) {
+                chunkSeedPositions.remove(key);
+            }
             markDirty();
         }
         return key;
@@ -153,8 +197,31 @@ public class TAInfectedChunksData extends WorldSavedData {
         return Collections.unmodifiableSet(activeInfectedChunks);
     }
 
+    public Map<Long, FluxAnomalyTier> getActiveChunkTiers() {
+        return Collections.unmodifiableMap(activeChunkTiers);
+    }
+
+    @Nullable
+    public BlockPos getSeedPosition(UUID seedId) {
+        return seedId == null ? null : seedPositions.get(seedId);
+    }
+
+    @Nullable
+    public BlockPos getSeedPositionForChunk(long chunkKey) {
+        return chunkSeedPositions.get(chunkKey);
+    }
+
+    @Nullable
+    public FluxAnomalyTier getTierForChunk(long chunkKey) {
+        return activeChunkTiers.get(chunkKey);
+    }
+
     public int getTrackedSeeds() {
         return seedToChunk.size();
+    }
+
+    public int getTrackedAnomalies() {
+        return anomalyToChunk.size();
     }
 
     @Override
@@ -163,6 +230,9 @@ public class TAInfectedChunksData extends WorldSavedData {
         activeInfectedChunks.clear();
         seedToChunk.clear();
         anomalyToChunk.clear();
+        seedPositions.clear();
+        chunkSeedPositions.clear();
+        activeChunkTiers.clear();
 
         lastManagerTickTime = nbt.getLong("lastManagerTickTime");
         lastActivationAttemptTime = nbt.getLong("lastActivationAttemptTime");
@@ -179,6 +249,11 @@ public class TAInfectedChunksData extends WorldSavedData {
             UUID id = tag.getUniqueId("seed");
             long key = tag.getLong("chunk");
             seedToChunk.put(id, key);
+            if (tag.hasKey("sx", 3) && tag.hasKey("sy", 3) && tag.hasKey("sz", 3)) {
+                BlockPos pos = new BlockPos(tag.getInteger("sx"), tag.getInteger("sy"), tag.getInteger("sz"));
+                seedPositions.put(id, pos);
+                chunkSeedPositions.put(key, pos);
+            }
         }
 
         NBTTagList anomalies = nbt.getTagList("anomalyToChunk", 10);
@@ -188,6 +263,19 @@ public class TAInfectedChunksData extends WorldSavedData {
             UUID id = tag.getUniqueId("anomaly");
             long key = tag.getLong("chunk");
             anomalyToChunk.put(id, key);
+        }
+
+        NBTTagList tiers = nbt.getTagList("activeChunkTiers", 10);
+        for (int i = 0; i < tiers.tagCount(); i++) {
+            NBTTagCompound tag = tiers.getCompoundTagAt(i);
+            long key = tag.getLong("chunk");
+            if (!tag.hasKey("tier", 8)) continue;
+            try {
+                FluxAnomalyTier tier = FluxAnomalyTier.valueOf(tag.getString("tier"));
+                activeChunkTiers.put(key, tier);
+            } catch (IllegalArgumentException ignored) {
+                // ignore bad tiers
+            }
         }
     }
 
@@ -206,6 +294,12 @@ public class TAInfectedChunksData extends WorldSavedData {
             NBTTagCompound tag = new NBTTagCompound();
             tag.setUniqueId("seed", e.getKey());
             tag.setLong("chunk", e.getValue());
+            BlockPos pos = seedPositions.get(e.getKey());
+            if (pos != null) {
+                tag.setInteger("sx", pos.getX());
+                tag.setInteger("sy", pos.getY());
+                tag.setInteger("sz", pos.getZ());
+            }
             seeds.appendTag(tag);
         }
         nbt.setTag("seedToChunk", seeds);
@@ -218,6 +312,16 @@ public class TAInfectedChunksData extends WorldSavedData {
             anomalies.appendTag(tag);
         }
         nbt.setTag("anomalyToChunk", anomalies);
+
+        NBTTagList tiers = new NBTTagList();
+        for (Map.Entry<Long, FluxAnomalyTier> e : activeChunkTiers.entrySet()) {
+            if (e.getValue() == null) continue;
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setLong("chunk", e.getKey());
+            tag.setString("tier", e.getValue().name());
+            tiers.appendTag(tag);
+        }
+        nbt.setTag("activeChunkTiers", tiers);
 
         return nbt;
     }

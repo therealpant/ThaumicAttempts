@@ -13,7 +13,7 @@ import therealpant.thaumicattempts.api.FluxAnomalySpawnMethod;
 import therealpant.thaumicattempts.api.FluxAnomalyTier;
 import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
 import therealpant.thaumicattempts.world.data.TAInfectedChunksData;
-import therealpant.thaumicattempts.world.data.TAWorldFluxData;
+
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -46,42 +46,22 @@ public class CommandLocateFluxAnomaly extends CommandBase {
         if (player == null) throw new CommandException("Command must be executed by a player.");
 
         World world = player.world;
-        List<EntityFluxAnomalyBurst> anomalies = world.getEntities(EntityFluxAnomalyBurst.class, anomaly ->
-                anomaly != null
-                        && !anomaly.isDead
-                        && anomaly.getSpawnMethod() == FluxAnomalySpawnMethod.WORLD_GEN
-                        && (filter == null || anomaly.getTier() == filter));
+        EntityFluxAnomalyBurst nearest = findNearestLoaded(world, player, filter);
+        if (nearest != null) {
+            double targetX = nearest.posX;
+            double targetY = nearest.posY;
+            double targetZ = nearest.posZ;
+            double nearestDist = player.getDistance(nearest);
 
-        if (anomalies.isEmpty()) {
-            teleportFromSavedData(sender, player, filter);
+            player.connection.setPlayerLocation(targetX, targetY, targetZ, player.rotationYaw, player.rotationPitch);
+            BlockPos targetPos = new BlockPos(targetX, targetY, targetZ);
+            sender.sendMessage(new TextComponentString(
+                    "Teleported to generated flux anomaly at " + targetPos +
+                            " (distance=" + String.format("%.1f", nearestDist) + ")"
+            ));
             return;
         }
-
-        EntityFluxAnomalyBurst nearest = null;
-        double nearestDist = Double.MAX_VALUE;
-        for (EntityFluxAnomalyBurst anomaly : anomalies) {
-            double dist = player.getDistanceSq(anomaly);
-            if (dist < nearestDist) {
-                nearestDist = dist;
-                nearest = anomaly;
-            }
-        }
-
-        if (nearest == null) {
-            throw new CommandException("No generated flux anomalies are currently active.");
-        }
-
-        double targetX = nearest.posX;
-        double targetY = nearest.posY;
-        double targetZ = nearest.posZ;
-
-        player.connection.setPlayerLocation(targetX, targetY, targetZ, player.rotationYaw, player.rotationPitch);
-
-        BlockPos targetPos = new BlockPos(targetX, targetY, targetZ);
-        sender.sendMessage(new TextComponentString(
-                "Teleported to generated flux anomaly at " + targetPos +
-                        " (distance=" + String.format("%.1f", Math.sqrt(nearestDist)) + ")"
-        ));
+        teleportFromSavedData(sender, player, filter);
     }
 
     private FluxAnomalyTier parseFilter(String[] args, ICommandSender sender) throws CommandException {
@@ -102,33 +82,38 @@ public class CommandLocateFluxAnomaly extends CommandBase {
     }
 
     private void teleportFromSavedData(ICommandSender sender, EntityPlayerMP player, @Nullable FluxAnomalyTier filter) throws CommandException {
-        TAWorldFluxData data = TAWorldFluxData.get(player.world);
-        if (data.activeAnomalies.isEmpty()) {
+        TAInfectedChunksData data = TAInfectedChunksData.get(player.world);
+        if (data.getActiveInfectedChunks().isEmpty()) {
             throw new CommandException("No generated flux anomalies are currently active.");
         }
 
         BlockPos playerPos = player.getPosition();
-        UUID bestId = null;
-        double bestDist = Double.MAX_VALUE;
         BlockPos bestPos = null;
+        double bestDist = Double.MAX_VALUE;
 
-        for (Map.Entry<UUID, TAWorldFluxData.ActiveAnomalyEntry> entry : data.activeAnomalies.entrySet()) {
-            if (entry.getValue() == null) continue;
-            if (filter != null && entry.getValue().tier != filter) continue;
-            BlockPos pos = entry.getValue().seedPos;
-            double dist = pos.distanceSq(playerPos);
+        for (long chunkKey : data.getActiveInfectedChunks()) {
+            FluxAnomalyTier tier = data.getTierForChunk(chunkKey);
+            if (filter != null && tier != null && tier != filter) continue;
+
+            int cx = TAInfectedChunksData.unpackX(chunkKey);
+            int cz = TAInfectedChunksData.unpackZ(chunkKey);
+            BlockPos center = new BlockPos(cx * 16 + 8, 64, cz * 16 + 8);
+            BlockPos seedPos = data.getSeedPositionForChunk(chunkKey);
+
+            BlockPos target = seedPos != null ? seedPos : player.world.getTopSolidOrLiquidBlock(center);
+            player.world.getChunk(target);
+
+            double dist = target.distanceSq(playerPos);
             if (dist < bestDist) {
                 bestDist = dist;
-                bestId = entry.getKey();
-                bestPos = pos;
+                bestPos = target;
             }
         }
 
-        if (bestId == null || bestPos == null) {
+        if (bestPos == null) {
             throw new CommandException("No generated flux anomalies are currently active.");
         }
 
-        player.world.getChunk(bestPos);
         player.connection.setPlayerLocation(bestPos.getX() + 0.5, bestPos.getY() + 0.5, bestPos.getZ() + 0.5, player.rotationYaw, player.rotationPitch);
         sender.sendMessage(new TextComponentString(
                 "Teleported to saved active flux anomaly at " + bestPos +
@@ -148,4 +133,26 @@ public class CommandLocateFluxAnomaly extends CommandBase {
         }
         return Collections.emptyList();
     }
+
+    @Nullable
+    private EntityFluxAnomalyBurst findNearestLoaded(World world, EntityPlayerMP player, @Nullable FluxAnomalyTier filter) {
+        List<EntityFluxAnomalyBurst> anomalies = world.getEntities(EntityFluxAnomalyBurst.class, anomaly ->
+                anomaly != null
+                        && !anomaly.isDead
+                        && anomaly.getSpawnMethod() == FluxAnomalySpawnMethod.WORLD_GEN
+                        && (filter == null || anomaly.getTier() == filter));
+
+        EntityFluxAnomalyBurst nearest = null;
+        double nearestDistSq = Double.MAX_VALUE;
+
+        for (EntityFluxAnomalyBurst anomaly : anomalies) {
+            double dist = player.getDistanceSq(anomaly);
+            if (dist < nearestDistSq) {
+                nearestDistSq = dist;
+                nearest = anomaly;
+            }
+        }
+
+        return nearest;
     }
+}

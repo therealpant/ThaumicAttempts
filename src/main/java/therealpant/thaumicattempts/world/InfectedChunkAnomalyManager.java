@@ -6,9 +6,12 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
+import net.minecraft.world.biome.Biome;
 import net.minecraft.world.chunk.Chunk;
 import net.minecraft.world.gen.ChunkProviderServer;
 import net.minecraftforge.event.terraingen.PopulateChunkEvent;
+import net.minecraftforge.common.BiomeDictionary;
+import net.minecraftforge.common.BiomeDictionary.Type;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
@@ -37,6 +40,7 @@ public final class InfectedChunkAnomalyManager {
     public static final int MIN_INHABITED_TICKS = 144000;
     private static final int MAX_TRIES = 20;
 
+    private static final double ACTIVATION_CHANCE = 0.25;
     private static final double STAGE1_INFECTION_CHANCE = 0.003;
     private static final double STAGE2_INFECTION_CHANCE = 0.008;
     private static final double STAGE3_INFECTION_CHANCE = 0.015;
@@ -96,6 +100,11 @@ public final class InfectedChunkAnomalyManager {
             return;
         }
 
+        if (world.rand.nextDouble() >= ACTIVATION_CHANCE) {
+            recordAttempt(infectedData, "CHANCE_FAILED", 0);
+            return;
+        }
+
         Collection<Chunk> loadedChunks = getLoadedChunks(serverWorld);
         if (loadedChunks.isEmpty()) {
             recordAttempt(infectedData, "NO_LOADED_CHUNKS", 0);
@@ -129,23 +138,22 @@ public final class InfectedChunkAnomalyManager {
                 continue;
             }
 
-            if (spawnInChunk(serverWorld, chunk, fluxData, infectedData)) {
+            ActivationResult result = spawnInChunk(serverWorld, chunk, fluxData, infectedData);
+            if (result.success) {
                 recordAttempt(infectedData, "SUCCESS", checked);
                 return;
-            } else {
-                failReason = "SPAWN_FAIL";
-                break;
             }
+            failReason = result.reason;
         }
 
         recordAttempt(infectedData, failReason, checked);
     }
 
-    public static void onSeedSpawned(World world, UUID seedId, long chunkKey) {
+    public static void onSeedSpawned(World world, UUID seedId, long chunkKey, BlockPos seedPos) {
         if (world == null || world.isRemote) return;
         if (chunkKey == Long.MIN_VALUE) return;
         TAInfectedChunksData data = TAInfectedChunksData.get(world);
-        data.trackSeed(seedId, chunkKey);
+        data.trackSeed(seedId, chunkKey, seedPos);
     }
 
     public static void onAnomalyEnded(World world, @Nullable UUID seedId, @Nullable UUID anomalyId, long chunkKey) {
@@ -158,9 +166,11 @@ public final class InfectedChunkAnomalyManager {
 
         if (seedId != null) data.removeSeed(seedId);
         if (anomalyId != null) data.removeAnomaly(anomalyId);
+        data.removeSeedsForChunk(knownChunk);
 
         data.unmarkChunkActive(knownChunk);
         data.removeInfectedChunk(knownChunk);
+        data.clearChunkTracking(knownChunk);
 
         migrateInfection(serverWorld, data);
     }
@@ -188,27 +198,27 @@ public final class InfectedChunkAnomalyManager {
         data.addInfectedChunk(targetKey);
     }
 
-    private static boolean spawnInChunk(WorldServer world, Chunk chunk, TAWorldFluxData fluxData, TAInfectedChunksData data) {
+    private static ActivationResult spawnInChunk(WorldServer world, Chunk chunk, TAWorldFluxData fluxData, TAInfectedChunksData data) {
         long chunkKey = TAInfectedChunksData.pack(chunk.x, chunk.z);
         BlockPos column = randomColumnInChunk(chunk, world.rand);
 
         FluxAnomalyTier tier = pickTier(fluxData.stage, world.rand);
-        BlockPos spawnPos = findSpawnPosition(world, column, tier, world.rand);
-        if (spawnPos == null) {
-            return false;
+        SpawnLocation location = findSpawnPosition(world, column, tier, world.rand);
+        if (location.pos == null) {
+            return ActivationResult.fail(location.reason);
         }
 
         FluxAnomalySettings settings = FluxAnomalyPresets.createSettings(tier);
         try {
-            EntityFluxAnomalyBurst anomaly = FluxAnomalyApi.spawn(world, spawnPos, settings);
+            EntityFluxAnomalyBurst anomaly = FluxAnomalyApi.spawn(world, location.pos, settings);
             anomaly.setHostingChunkKey(chunkKey);
             data.addInfectedChunk(chunkKey);
             data.markChunkActive(chunkKey);
             data.trackAnomaly(anomaly.getUniqueID(), chunkKey);
-            return true;
+            return ActivationResult.success();
         } catch (Exception ex) {
             ThaumicAttempts.LOGGER.error("Failed to spawn flux anomaly in chunk ({}, {})", chunk.x, chunk.z, ex);
-            return false;
+            return ActivationResult.fail("SPAWN_FAIL");
         }
     }
 
@@ -255,7 +265,7 @@ public final class InfectedChunkAnomalyManager {
     }
 
     @Nullable
-    private static BlockPos findSpawnPosition(World world, BlockPos column, FluxAnomalyTier tier, Random rand) {
+    private static SpawnLocation findSpawnPosition(World world, BlockPos column, FluxAnomalyTier tier, Random rand) {
         switch (tier) {
             case SURFACE:
                 return findSurface(world, column);
@@ -269,53 +279,45 @@ public final class InfectedChunkAnomalyManager {
     }
 
     @Nullable
-    private static BlockPos findSurface(World world, BlockPos column) {
+    private static SpawnLocation findSurface(World world, BlockPos column) {
         BlockPos top = world.getTopSolidOrLiquidBlock(column);
-        if (top.getY() <= 1) return null;
+        if (top.getY() <= 1) return SpawnLocation.invalid("SPAWN_POS_INVALID");
 
-        if (world.getBlockState(top).getMaterial().isLiquid()) return null;
+        Biome biome = world.getBiome(top);
+        if (biome == null || !BiomeDictionary.hasType(biome, Type.FOREST)) {
+            return SpawnLocation.invalid("BIOME_NOT_FOREST");
+        }
+
+        if (world.getBlockState(top).getMaterial().isLiquid()) return SpawnLocation.invalid("SPAWN_POS_INVALID");
         BlockPos above = top.up();
-        if (!world.isAirBlock(above)) return null;
+        if (!world.isAirBlock(above)) return SpawnLocation.invalid("SPAWN_POS_INVALID");
 
-        return above;
+        return SpawnLocation.valid(above);
     }
 
     @Nullable
-    private static BlockPos findShallow(World world, BlockPos column, Random rand) {
+    private static SpawnLocation findShallow(World world, BlockPos column, Random rand) {
         for (int i = 0; i < 20; i++) {
             int y = 20 + rand.nextInt(36);
             BlockPos pos = new BlockPos(column.getX(), y, column.getZ());
             if (!world.isBlockLoaded(pos)) continue;
-            if (world.getBlockState(pos).getBlock() != net.minecraft.init.Blocks.STONE) continue;
-
-            for (net.minecraft.util.EnumFacing face : net.minecraft.util.EnumFacing.values()) {
-                BlockPos air = pos.offset(face);
-                if (world.isAirBlock(air)) {
-                    return air;
-                }
-            }
+            SpawnLocation location = tryFindCaveAir(world, pos);
+            if (location.pos != null) return location;
         }
-        return null;
+        return SpawnLocation.invalid("SPAWN_POS_INVALID");
     }
 
     @Nullable
-    private static BlockPos findDeep(World world, BlockPos column, Random rand) {
+    private static SpawnLocation findDeep(World world, BlockPos column, Random rand) {
         for (int i = 0; i < 30; i++) {
             int y = 1 + rand.nextInt(12);
             BlockPos pos = new BlockPos(column.getX(), y, column.getZ());
             if (!world.isBlockLoaded(pos)) continue;
 
-            net.minecraft.block.material.Material mat = world.getBlockState(pos).getMaterial();
-            if (mat.isLiquid() || mat.isReplaceable() || mat == net.minecraft.block.material.Material.AIR) continue;
-
-            for (net.minecraft.util.EnumFacing face : net.minecraft.util.EnumFacing.values()) {
-                BlockPos air = pos.offset(face);
-                if (world.isAirBlock(air)) {
-                    return air;
-                }
-            }
+            SpawnLocation location = tryFindCaveAir(world, pos);
+            if (location.pos != null) return location;
         }
-        return null;
+        return SpawnLocation.invalid("SPAWN_POS_INVALID");
     }
 
     private static Collection<Chunk> getLoadedChunks(WorldServer world) {
@@ -354,5 +356,59 @@ public final class InfectedChunkAnomalyManager {
             if (found != null) return found;
         }
         return null;
+    }
+
+    private static SpawnLocation tryFindCaveAir(World world, BlockPos stonePos) {
+        if (world.getBlockState(stonePos).getBlock() != net.minecraft.init.Blocks.STONE) {
+            return SpawnLocation.invalid("SPAWN_POS_INVALID");
+        }
+
+        for (net.minecraft.util.EnumFacing face : net.minecraft.util.EnumFacing.values()) {
+            BlockPos air = stonePos.offset(face);
+            if (!world.isAirBlock(air)) continue;
+            if (air.getY() < 1 || air.getY() >= world.getHeight()) continue;
+            net.minecraft.block.state.IBlockState airState = world.getBlockState(air);
+            if (airState.getMaterial().isLiquid()) continue;
+            net.minecraft.block.state.IBlockState neighbor = world.getBlockState(stonePos);
+            if (!neighbor.getMaterial().isSolid()) continue;
+            return SpawnLocation.valid(air);
+        }
+        return SpawnLocation.invalid("SPAWN_POS_INVALID");
+    }
+
+    private static final class ActivationResult {
+        final boolean success;
+        final String reason;
+
+        private ActivationResult(boolean success, String reason) {
+            this.success = success;
+            this.reason = reason == null ? "" : reason;
+        }
+
+        static ActivationResult success() {
+            return new ActivationResult(true, "SUCCESS");
+        }
+
+        static ActivationResult fail(String reason) {
+            return new ActivationResult(false, reason == null ? "SPAWN_FAIL" : reason);
+        }
+    }
+
+    private static final class SpawnLocation {
+        final BlockPos pos;
+        final String reason;
+
+        private SpawnLocation(@Nullable BlockPos pos, String reason) {
+            this.pos = pos;
+            this.reason = reason == null ? "SPAWN_POS_INVALID" : reason;
+        }
+
+        static SpawnLocation valid(BlockPos pos) {
+            return new SpawnLocation(pos, "SUCCESS");
+        }
+
+        static SpawnLocation invalid(String reason) {
+            return new SpawnLocation(null, reason);
+        }
     }
 }

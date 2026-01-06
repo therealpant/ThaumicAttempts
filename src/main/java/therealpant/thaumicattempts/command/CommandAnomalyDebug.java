@@ -9,7 +9,6 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextComponentString;
 import net.minecraft.world.World;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
-import therealpant.thaumicattempts.world.InfectedChunkAnomalyManager;
 import therealpant.thaumicattempts.world.data.TAInfectedChunksData;
 
 import javax.annotation.Nullable;
@@ -62,12 +61,17 @@ public class CommandAnomalyDebug extends CommandBase {
                         ", lastSpawnFailReason=" + (data.lastSpawnFailReason == null ? "" : data.lastSpawnFailReason) +
                         ", lastSpawnCheckedCandidates=" + data.lastSpawnCheckedCandidates
         ));
-        sender.sendMessage(new TextComponentString("infected=" + data.infectedChunks.size() +
-                ", active=" + data.activeInfectedChunks.size() +
-                ", tracked seeds=" + data.activeAnomalies.size()));
-        sender.sendMessage(new TextComponentString("lastActivationTime=" + data.lastActivationTime +
-                ", lastActivationReason=" + (data.lastActivationReason == null ? "" : data.lastActivationReason)));
-    }
+        sender.sendMessage(new TextComponentString("infected=" + infected.getInfectedChunks().size() +
+                ", active=" + infected.getActiveInfectedChunks().size() +
+                ", tracked seeds=" + infected.getTrackedSeeds() +
+                ", tracked anomalies=" + infected.getTrackedAnomalies()));
+        sender.sendMessage(new TextComponentString(
+                "lastActivationAttempt=" + infected.lastActivationAttemptTime +
+                        ", lastActivationReason=" + (infected.lastActivationFailReason == null ? "" : infected.lastActivationFailReason) +
+                        ", lastCandidatesChecked=" + infected.lastCandidatesChecked +
+                        (infected.lastManagerTickTime > 0 ? ", lastManagerTickTime=" + infected.lastManagerTickTime : "")
+        ));
+        }
 
     @Override
     public List<String> getAliases() {

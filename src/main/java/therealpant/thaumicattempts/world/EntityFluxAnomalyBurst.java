@@ -106,6 +106,11 @@ public class EntityFluxAnomalyBurst extends Entity {
         return sourceChunkKey;
     }
 
+    void setHostingChunkKey(long chunkKey) {
+        this.sourceChunkKey = chunkKey;
+    }
+
+
     private void applyResource(FluxAnomalyResource resource) {
         if (resource.isPresent()) {
             ResourceLocation key = resource.getBlock().getRegistryName();
@@ -324,7 +329,7 @@ public class EntityFluxAnomalyBurst extends Entity {
 
             world.spawnEntity(seed);
             seedEntityId = seed.getUniqueID();
-            InfectedChunkAnomalyManager.onSeedSpawned(world, seedEntityId, hostingChunkKey);
+            InfectedChunkAnomalyManager.onSeedSpawned(world, seedEntityId, sourceChunkKey, center);
 
             LOG.info("[FluxAnomaly] Seed spawned uuid={} at {}", seedEntityId, center);
         } catch (Throwable t) {
@@ -361,7 +366,7 @@ public class EntityFluxAnomalyBurst extends Entity {
         if (killSeed) {
             killSeedIfPresent();
         }
-        FluxAnomalySpawner.onAnomalyFinished(world, anomalyId, sourceChunkKey, center);
+        InfectedChunkAnomalyManager.onAnomalyEnded(world, seedEntityId, anomalyId, sourceChunkKey);
         setDead();
     }
 
