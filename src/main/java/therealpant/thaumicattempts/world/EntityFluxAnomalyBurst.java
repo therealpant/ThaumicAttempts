@@ -2,6 +2,7 @@
 package therealpant.thaumicattempts.world;
 
 import net.minecraft.block.Block;
+import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.init.Blocks;
@@ -20,6 +21,8 @@ import therealpant.thaumicattempts.api.FluxAnomalyResource;
 import therealpant.thaumicattempts.api.FluxAnomalySettings;
 import therealpant.thaumicattempts.api.FluxAnomalySpawnMethod;
 import therealpant.thaumicattempts.api.FluxAnomalyTier;
+import therealpant.thaumicattempts.config.TAConfig;
+import therealpant.thaumicattempts.util.WorldSpawnUtil;
 import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
 import therealpant.thaumicattempts.world.block.BlockRiftBush;
 import therealpant.thaumicattempts.world.block.BlockRiftGeod;
@@ -27,8 +30,11 @@ import therealpant.thaumicattempts.world.block.FluxResourceHelper;
 import therealpant.thaumicattempts.world.data.TAInfectedChunksData;
 
 import java.util.HashMap;
+import java.util.Arrays;
+import java.util.HashSet;
 import java.util.Map;
 import java.util.Random;
+import java.util.Set;
 import java.util.UUID;
 
 public class EntityFluxAnomalyBurst extends Entity {
@@ -38,6 +44,15 @@ public class EntityFluxAnomalyBurst extends Entity {
     private static final int MIN_CORRUPTION_RADIUS = 8;
     private static final int MAX_CORRUPTION_RADIUS = 10;
     private static final int RESOURCE_RETRY_TICKS = 20;
+    private static final int RESOURCE_SPREAD_ATTEMPTS = 3;
+    private static final float ANOMALOUS_STONE_CONVERSION_CHANCE = 0.2f;
+    private static final Set<Block> CONVERTIBLE_STONE = new HashSet<>(Arrays.asList(
+            Blocks.STONE,
+            Blocks.COBBLESTONE,
+            Blocks.STONEBRICK,
+            Blocks.NETHERRACK,
+            Blocks.END_STONE
+    ));
 
     private UUID anomalyId = UUID.randomUUID();
 
@@ -100,18 +115,6 @@ public class EntityFluxAnomalyBurst extends Entity {
                 applyResource(resource);
             }
         }
-    }
-
-    public FluxAnomalySpawnMethod getSpawnMethod() {
-        return spawnMethod;
-    }
-
-    public FluxAnomalyTier getTier() {
-        return tier;
-    }
-
-    public long getSourceChunkKey() {
-        return sourceChunkKey;
     }
 
     void setHostingChunkKey(long chunkKey) {
@@ -318,37 +321,7 @@ public class EntityFluxAnomalyBurst extends Entity {
 
     private PlacementAttempt placeAnomalyStone(BlockAnomalyStone stone, Random rnd) {
         if (tier != FluxAnomalyTier.SHALLOW) return PlacementAttempt.fail("NOT_SHALLOW_TIER");
-        final int minY = 20;
-        final int maxY = 56;
-        final int seaCap = Math.max(1, world.getSeaLevel() - 5);
-        String lastFail = "NO_POSITION";
-        for (int i = 0; i < 32; i++) {
-            BlockPos target = randomNearbyPos(rnd, minY, maxY);
-            if (target.getY() > seaCap) {
-                lastFail = "ABOVE_SEA";
-                continue;
-            }
-            if (!world.isBlockLoaded(target)) {
-                lastFail = "CHUNK_NOT_LOADED";
-                continue;
-            }
-            if (world.getBlockState(target).getBlock() != Blocks.STONE) {
-                lastFail = "NOT_STONE";
-                continue;
-            }
-            if (!hasAdjacentAir(target)) {
-                lastFail = "NO_ADJ_AIR";
-                continue;
-            }
-            BlockPos columnTop = world.getTopSolidOrLiquidBlock(new BlockPos(target.getX(), 0, target.getZ()));
-            if (columnTop.getY() <= target.getY()) {
-                lastFail = "NOT_UNDERGROUND";
-                continue;
-            }
-            world.setBlockState(target, stone.getDefaultState(), 3);
-            return PlacementAttempt.success();
-        }
-        return PlacementAttempt.fail(lastFail);
+        return trySpawnAnomalousResource(stone, rnd);
     }
 
     private PlacementAttempt placeGeod(BlockRiftGeod geod, Random rnd) {
@@ -403,10 +376,91 @@ public class EntityFluxAnomalyBurst extends Entity {
         return PlacementAttempt.fail(lastFail);
     }
 
+    private PlacementAttempt trySpawnAnomalousResource(BlockAnomalyStone stone, Random rnd) {
+        BlockPos anchor = enforceTierVertical(getAnchor());
+        if (!isInTaintZone(anchor)) {
+            return PlacementAttempt.fail("NO_TAINT_ZONE");
+        }
+
+        String lastFail = "NO_POSITION";
+        for (int i = 0; i < RESOURCE_SPREAD_ATTEMPTS; i++) {
+            BlockPos target = pickSpreadLikePosition(rnd);
+            if (!world.isBlockLoaded(target)) {
+                lastFail = "CHUNK_NOT_LOADED";
+                continue;
+            }
+            if (!isInTaintZone(target)) {
+                lastFail = "NOT_TAINTED";
+                continue;
+            }
+            PlacementAttempt attempt = attemptStoneConversion(stone, target, rnd);
+            if (attempt.success) {
+                return attempt;
+            }
+            lastFail = attempt.reason;
+        }
+        if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+            LOG.debug("[FluxAnomaly] Failed anomaly stone attempt near {} reason={}", anchor, lastFail);
+        }
+        return PlacementAttempt.fail(lastFail);
+    }
+
+    private PlacementAttempt attemptStoneConversion(BlockAnomalyStone stone, BlockPos target, Random rnd) {
+        IBlockState targetState = world.getBlockState(target);
+        if (targetState.getMaterial().isLiquid()) return PlacementAttempt.fail("LIQUID");
+        if (targetState.getBlock() instanceof BlockAnomalyStone) return PlacementAttempt.fail("ALREADY_ANOMALY");
+        if (targetState.getBlock().hasTileEntity(targetState) || world.getTileEntity(target) != null) {
+            return PlacementAttempt.fail("HAS_TILE");
+        }
+        if (!isConvertibleStone(targetState)) return PlacementAttempt.fail("NOT_CONVERTIBLE");
+        if (rnd.nextFloat() > ANOMALOUS_STONE_CONVERSION_CHANCE) return PlacementAttempt.fail("CHANCE");
+
+        world.setBlockState(target, stone.getDefaultState(), 3);
+        if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+            LOG.debug("[FluxAnomaly] Converted {} -> anomaly_stone at {} (tier={})", targetState, target, tier);
+        }
+        return PlacementAttempt.success();
+    }
+
+    private boolean isInTaintZone(BlockPos pos) {
+        if (pos == null) return false;
+        if (!world.isBlockLoaded(pos)) {
+            world.getChunk(pos);
+        }
+        return TaintHelper.isNearTaintSeed(world, pos);
+    }
+
+    private boolean isConvertibleStone(IBlockState state) {
+        if (state == null) return false;
+        Block block = state.getBlock();
+        if (CONVERTIBLE_STONE.contains(block)) return true;
+
+        Material material = state.getMaterial();
+        return material == Material.ROCK && !material.isLiquid() && !material.isReplaceable();
+    }
+
+    private BlockPos pickSpreadLikePosition(Random rnd) {
+        BlockPos anchor = enforceTierVertical(getAnchor());
+        // Адаптация логики выбора позиции из Thaumcraft TaintHelper.spreadFibres:
+        // небольшой радиус, случайные смещения по горизонтали и вертикали.
+        int horizontal = 2 + rnd.nextInt(5); // 2..6
+        int dx = rnd.nextInt(horizontal * 2 + 1) - horizontal;
+        int dz = rnd.nextInt(horizontal * 2 + 1) - horizontal;
+        int dy = rnd.nextInt(3) - 1; // -1..1
+
+        BlockPos candidate = new BlockPos(anchor.getX() + dx, anchor.getY() + dy, anchor.getZ() + dz);
+        candidate = enforceTierVertical(candidate);
+        int safeY = MathHelper.clamp(candidate.getY(), 1, world.getHeight() - 2);
+        return new BlockPos(candidate.getX(), safeY, candidate.getZ());
+    }
+
     private void spawnTaintSeed() {
         try {
             ensureSeedPosition();
             if (seedPos == null) {
+                if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                    LOG.debug("[FluxAnomaly] Seed spawn skipped: no safe position near {}", center);
+                }
                 finishAnomaly(FinishReason.SPAWN_POS_INVALID, false);
                 return;
             }
@@ -492,15 +546,6 @@ public class EntityFluxAnomalyBurst extends Entity {
         return new BlockPos(anchor.getX() + dx, dy, anchor.getZ() + dz);
     }
 
-    private boolean hasAdjacentAir(BlockPos pos) {
-        for (EnumFacing face : EnumFacing.values()) {
-            if (world.isAirBlock(pos.offset(face))) {
-                return true;
-            }
-        }
-        return false;
-    }
-
     private int determineCap(Block block) {
         if (block instanceof BlockRiftBush) return 8;
         if (block instanceof BlockAnomalyStone) return 7;
@@ -512,24 +557,28 @@ public class EntityFluxAnomalyBurst extends Entity {
         if (seedPos != null) return;
 
         BlockPos candidate = enforceTierVertical(center);
-
-        if (isValidSeedPos(candidate)) {
-            seedPos = candidate.toImmutable();
-            return;
+        BlockPos safePos = WorldSpawnUtil.findSafeSeedPos(world, candidate, world.rand);
+        if (safePos != null && tier != FluxAnomalyTier.SURFACE && world.canBlockSeeSky(safePos)) {
+            safePos = null;
         }
 
-        Random rnd = world.rand;
-        for (int i = 0; i < 24; i++) {
-            int dx = rnd.nextInt(5) - 2;
-            int dz = rnd.nextInt(5) - 2;
-            int dy = rnd.nextInt(5) - 2;
-            BlockPos attempt = candidate.add(dx, dy, dz);
-            attempt = enforceTierVertical(attempt);
-            if (isValidSeedPos(attempt)) {
-                seedPos = attempt.toImmutable();
-                center = seedPos;
-                return;
+        if (safePos == null && !candidate.equals(center)) {
+            safePos = WorldSpawnUtil.findSafeSeedPos(world, center, world.rand);
+            if (safePos != null && tier != FluxAnomalyTier.SURFACE && world.canBlockSeeSky(safePos)) {
+                safePos = null;
             }
+        }
+
+        if (safePos != null) {
+            seedPos = safePos.toImmutable();
+            center = seedPos;
+            if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                LOG.debug("[FluxAnomaly] Selected safe seed position center={} seedPos={}", candidate, seedPos);
+            }
+            return;
+        }
+        if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+            LOG.debug("[FluxAnomaly] Failed to find safe seed position near {}", center);
         }
     }
 
@@ -550,29 +599,6 @@ public class EntityFluxAnomalyBurst extends Entity {
     private BlockPos clampVertical(BlockPos pos, int minY, int maxY) {
         int y = MathHelper.clamp(pos.getY(), minY, maxY);
         return new BlockPos(pos.getX(), y, pos.getZ());
-    }
-
-    private boolean isValidSeedPos(BlockPos pos) {
-        if (pos == null) return false;
-        if (pos.getY() < 1 || pos.getY() >= world.getHeight()) return false;
-        if (!world.isBlockLoaded(pos)) {
-            world.getChunk(pos);
-        }
-        if (!world.isAirBlock(pos)) return false;
-        if (tier != FluxAnomalyTier.SURFACE && world.canBlockSeeSky(pos)) return false;
-        IBlockState below = world.getBlockState(pos.down());
-        boolean solidBelow = below.getMaterial().isSolid() && !below.getMaterial().isReplaceable() && !below.getMaterial().isLiquid();
-        if (solidBelow) return true;
-
-        for (EnumFacing face : EnumFacing.values()) {
-            if (face == EnumFacing.UP) continue;
-            BlockPos neighbor = pos.offset(face);
-            IBlockState neighborState = world.getBlockState(neighbor);
-            if (neighborState.getMaterial().isSolid() && !neighborState.getMaterial().isReplaceable() && !neighborState.getMaterial().isLiquid()) {
-                return true;
-            }
-        }
-        return false;
     }
 
     private BlockPos getAnchor() {

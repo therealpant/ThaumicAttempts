@@ -19,6 +19,10 @@ public class TAConfig {
     @Config.RequiresMcRestart
     public static boolean ENABLE_PILLAR_MODEL_REPLACEMENT = false;
 
+    @Config.Comment("Enable extra debug logging for flux anomaly seeds and resource placement.")
+    @Config.Name("Enable Flux Anomaly Debug Logs")
+    public static boolean ENABLE_FLUX_ANOMALY_DEBUG_LOGS = false;
+
     @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
     public static class ConfigChangeListener {
         @SubscribeEvent
