@@ -21,10 +21,7 @@ import thaumcraft.api.ThaumcraftApi;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
 import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_RECIPE;
 
-import therealpant.thaumicattempts.command.CommandAnomalyDebug;
-import therealpant.thaumicattempts.command.CommandFluxStatus;
-import therealpant.thaumicattempts.command.CommandLocateFluxAnomaly;
-import therealpant.thaumicattempts.command.CommandSpawnFluxAnomaly;
+import therealpant.thaumicattempts.command.*;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
 import therealpant.thaumicattempts.data.research.TAResearchAddenda;
@@ -179,6 +176,7 @@ public class ThaumicAttempts {
         e.registerServerCommand(new CommandLocateFluxAnomaly());
         e.registerServerCommand(new CommandFluxStatus());
         e.registerServerCommand(new CommandAnomalyDebug());
+        e.registerServerCommand(new CommandAnomalyResetCooldown());
     }
 
 }

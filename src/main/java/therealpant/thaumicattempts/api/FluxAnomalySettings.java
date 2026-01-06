@@ -12,6 +12,8 @@ public class FluxAnomalySettings {
     private int budgetPerTick = 220;
     private FluxAnomalySpawnMethod spawnMethod = FluxAnomalySpawnMethod.API;
     private FluxAnomalyResource resource = FluxAnomalyResource.empty();
+    private FluxAnomalyTier tier = FluxAnomalyTier.SURFACE;
+    private long sourceChunkKey = 0L;
 
     public int getRadiusBlocks() {
         return radiusBlocks;
@@ -55,6 +57,24 @@ public class FluxAnomalySettings {
 
     public FluxAnomalySettings resource(FluxAnomalyResource resource) {
         this.resource = Objects.requireNonNull(resource, "Resource");
+        return this;
+    }
+
+    public FluxAnomalyTier getTier() {
+        return tier;
+    }
+
+    public FluxAnomalySettings tier(FluxAnomalyTier tier) {
+        this.tier = Objects.requireNonNull(tier, "Tier");
+        return this;
+    }
+
+    public long getSourceChunkKey() {
+        return sourceChunkKey;
+    }
+
+    public FluxAnomalySettings sourceChunk(long chunkKey) {
+        this.sourceChunkKey = chunkKey;
         return this;
     }
 }

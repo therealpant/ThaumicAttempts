@@ -8,8 +8,9 @@ import net.minecraft.server.MinecraftServer;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextComponentString;
 import net.minecraft.world.World;
-import therealpant.thaumicattempts.world.FluxAnomalySpawner;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
+import therealpant.thaumicattempts.world.InfectedChunkAnomalyManager;
+import therealpant.thaumicattempts.world.data.TAInfectedChunksData;
 
 import javax.annotation.Nullable;
 import java.util.Collections;
@@ -42,11 +43,12 @@ public class CommandAnomalyDebug extends CommandBase {
         }
 
         World overworld = server.getWorld(0);
-        if (overworld == null) {
+        if (overworld == null|| overworld.isRemote) {
             throw new CommandException("Overworld is not loaded.");
         }
 
         TAWorldFluxData data = TAWorldFluxData.get(overworld);
+        TAInfectedChunksData infected = TAInfectedChunksData.get(overworld);
 
         sender.sendMessage(new TextComponentString("WorldTime: " + overworld.getTotalWorldTime()));
         sender.sendMessage(new TextComponentString(
@@ -60,11 +62,11 @@ public class CommandAnomalyDebug extends CommandBase {
                         ", lastSpawnFailReason=" + (data.lastSpawnFailReason == null ? "" : data.lastSpawnFailReason) +
                         ", lastSpawnCheckedCandidates=" + data.lastSpawnCheckedCandidates
         ));
-        sender.sendMessage(new TextComponentString(
-                "Spawner params: MIN_INHABITED_TICKS=" + FluxAnomalySpawner.MIN_INHABITED_TICKS +
-                        ", SAFE_PLAYER_RADIUS=" + FluxAnomalySpawner.SAFE_PLAYER_RADIUS +
-                        ", radius=" + FluxAnomalySpawner.MIN_RADIUS_FROM_PLAYER + ".." + FluxAnomalySpawner.MAX_RADIUS_FROM_PLAYER
-        ));
+        sender.sendMessage(new TextComponentString("infected=" + data.infectedChunks.size() +
+                ", active=" + data.activeInfectedChunks.size() +
+                ", tracked seeds=" + data.activeAnomalies.size()));
+        sender.sendMessage(new TextComponentString("lastActivationTime=" + data.lastActivationTime +
+                ", lastActivationReason=" + (data.lastActivationReason == null ? "" : data.lastActivationReason)));
     }
 
     @Override
