@@ -161,6 +161,7 @@ public class EntityFluxAnomalyBurst extends Entity {
         if (seedPos != null && !seedPos.equals(center)) {
             center = seedPos;
         }
+        ensureSeedPosition();
 
         if (!awakened) {
             awakened = true;
@@ -436,7 +437,10 @@ public class EntityFluxAnomalyBurst extends Entity {
         if (CONVERTIBLE_STONE.contains(block)) return true;
 
         Material material = state.getMaterial();
-        return material == Material.ROCK && !material.isLiquid() && !material.isReplaceable();
+        if (material == Material.ROCK && !material.isLiquid() && !material.isReplaceable()) {
+            return state.isFullCube();
+        }
+        return false;
     }
 
     private BlockPos pickSpreadLikePosition(Random rnd) {
@@ -473,9 +477,19 @@ public class EntityFluxAnomalyBurst extends Entity {
             seed.setNoAI(true);                 // не двигается и не атакует (в 1.12 у EntityLiving есть setNoAI)
             seed.boost = 999;                   // усиленный (по желанию)
 
-            world.spawnEntity(seed);
+            boolean spawned = world.spawnEntity(seed);
+            if (!spawned) {
+                LOG.error("[FluxAnomaly] Failed to spawn EntityTaintSeed at {}", seedPos);
+                return;
+            }
             seedEntityId = seed.getUniqueID();
             lastSeedSeenTick = world.getTotalWorldTime();
+            if (!world.isRemote) {
+                TaintHelper.addTaintSeed(world, seedPos);
+                if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                    LOG.debug("[FluxAnomaly] Registered taint seed at {}", seedPos);
+                }
+            }
             InfectedChunkAnomalyManager.onSeedSpawned(world, seedEntityId, sourceChunkKey, seedPos);
 
             TAInfectedChunksData data = TAInfectedChunksData.get(world);
@@ -506,6 +520,12 @@ public class EntityFluxAnomalyBurst extends Entity {
         finishReason = reason;
         if (killSeed) {
             killSeedIfPresent();
+        }
+        if (!world.isRemote && seedPos != null) {
+            TaintHelper.removeTaintSeed(world, seedPos);
+            if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                LOG.debug("[FluxAnomaly] Deregistered taint seed at {}", seedPos);
+            }
         }
         LOG.info("[FluxAnomaly] FINISH id={} dim={} seedPos={} center={} remaining={} reason={} killSeed={}",
                 anomalyId,
@@ -554,19 +574,19 @@ public class EntityFluxAnomalyBurst extends Entity {
     }
 
     private void ensureSeedPosition() {
-        if (seedPos != null) return;
-
-        BlockPos candidate = enforceTierVertical(center);
-        BlockPos safePos = WorldSpawnUtil.findSafeSeedPos(world, candidate, world.rand);
-        if (safePos != null && tier != FluxAnomalyTier.SURFACE && world.canBlockSeeSky(safePos)) {
-            safePos = null;
+        if (seedPos != null) {
+            if (isSeedPositionValid(seedPos)) return;
+            if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                LOG.debug("[FluxAnomaly] Cached seed position {} invalid, reselecting", seedPos);
+            }
+            seedPos = null;
         }
 
+        BlockPos candidate = enforceTierVertical(center);
+        BlockPos safePos = findValidatedSeedPos(candidate);
+
         if (safePos == null && !candidate.equals(center)) {
-            safePos = WorldSpawnUtil.findSafeSeedPos(world, center, world.rand);
-            if (safePos != null && tier != FluxAnomalyTier.SURFACE && world.canBlockSeeSky(safePos)) {
-                safePos = null;
-            }
+            safePos = findValidatedSeedPos(center);
         }
 
         if (safePos != null) {
@@ -580,6 +600,33 @@ public class EntityFluxAnomalyBurst extends Entity {
         if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
             LOG.debug("[FluxAnomaly] Failed to find safe seed position near {}", center);
         }
+    }
+
+    private BlockPos findValidatedSeedPos(BlockPos candidate) {
+        BlockPos safePos = WorldSpawnUtil.findSafeSeedPos(world, candidate, world.rand);
+        if (safePos != null && !isSeedPositionValid(safePos)) {
+            if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                LOG.debug("[FluxAnomaly] Seed position {} rejected after validation (tier={})", safePos, tier);
+            }
+            return null;
+        }
+        return safePos;
+    }
+
+    private boolean isSeedPositionValid(BlockPos pos) {
+        if (!WorldSpawnUtil.isSafeSeedPos(world, pos)) {
+            if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                LOG.debug("[FluxAnomaly] Seed position {} rejected: not safe", pos);
+            }
+            return false;
+        }
+        if (tier != FluxAnomalyTier.SURFACE && world.canBlockSeeSky(pos)) {
+            if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                LOG.debug("[FluxAnomaly] Seed position {} rejected: sky exposed for tier {}", pos, tier);
+            }
+            return false;
+        }
+        return true;
     }
 
     private BlockPos enforceTierVertical(BlockPos pos) {

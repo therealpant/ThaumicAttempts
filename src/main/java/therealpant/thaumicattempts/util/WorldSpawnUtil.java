@@ -3,7 +3,9 @@ package therealpant.thaumicattempts.util;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.world.World;
+import net.minecraft.block.Block;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -61,7 +63,7 @@ public final class WorldSpawnUtil {
         return null;
     }
 
-    private static boolean isSafeSeedPos(World world, BlockPos pos) {
+    public static boolean isSafeSeedPos(World world, BlockPos pos) {
         if (pos == null) return false;
         if (pos.getY() < 1 || pos.getY() >= world.getHeight() - 1) return false;
         if (!world.isBlockLoaded(pos)) {
@@ -79,8 +81,13 @@ public final class WorldSpawnUtil {
     }
 
     private static boolean isAirOrReplaceable(World world, BlockPos pos) {
+        if (world.isAirBlock(pos)) return true;
         IBlockState state = world.getBlockState(pos);
         if (state.getMaterial().isLiquid()) return false;
-        return world.isAirBlock(pos) || state.getMaterial().isReplaceable();
+        if (state.getMaterial().isReplaceable()) {
+            AxisAlignedBB bb = state.getCollisionBoundingBox(world, pos);
+            return bb == null || bb == Block.NULL_AABB || bb.equals(Block.NULL_AABB);
+        }
+        return false;
     }
 }
