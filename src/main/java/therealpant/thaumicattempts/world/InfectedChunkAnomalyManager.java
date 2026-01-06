@@ -214,6 +214,7 @@ public final class InfectedChunkAnomalyManager {
             anomaly.setHostingChunkKey(chunkKey);
             data.addInfectedChunk(chunkKey);
             data.markChunkActive(chunkKey);
+            data.setActiveChunkTier(chunkKey, tier);
             data.trackAnomaly(anomaly.getUniqueID(), chunkKey);
             return ActivationResult.success();
         } catch (Exception ex) {
@@ -301,6 +302,7 @@ public final class InfectedChunkAnomalyManager {
             int y = 20 + rand.nextInt(36);
             BlockPos pos = new BlockPos(column.getX(), y, column.getZ());
             if (!world.isBlockLoaded(pos)) continue;
+            if (y > Math.max(1, world.getSeaLevel() - 5)) continue;
             SpawnLocation location = tryFindCaveAir(world, pos);
             if (location.pos != null) return location;
         }
@@ -310,7 +312,7 @@ public final class InfectedChunkAnomalyManager {
     @Nullable
     private static SpawnLocation findDeep(World world, BlockPos column, Random rand) {
         for (int i = 0; i < 30; i++) {
-            int y = 1 + rand.nextInt(12);
+            int y = 1 + rand.nextInt(24);
             BlockPos pos = new BlockPos(column.getX(), y, column.getZ());
             if (!world.isBlockLoaded(pos)) continue;
 

@@ -28,6 +28,11 @@ public class TAInfectedChunksData extends WorldSavedData {
     private final Map<UUID, BlockPos> seedPositions = new HashMap<>();
     private final Map<Long, BlockPos> chunkSeedPositions = new HashMap<>();
     private final Map<Long, FluxAnomalyTier> activeChunkTiers = new HashMap<>();
+    private BlockPos lastActivatedSeedPos = null;
+    private FluxAnomalyTier lastActivatedTier = null;
+    private String lastResourcePlacement = "";
+    private int lastResourcePlacementAttempts = 0;
+    private int lastResourcePlacementSuccess = 0;
 
     public long lastManagerTickTime;
     public long lastActivationAttemptTime;
@@ -134,7 +139,8 @@ public class TAInfectedChunksData extends WorldSavedData {
         }
     }
 
-    public void trackSeed(UUID seedId, long chunkKey, @Nullable BlockPos seedPos) {        if (seedId == null) return;
+    public void trackSeed(UUID seedId, long chunkKey, @Nullable BlockPos seedPos) {
+        if (seedId == null) return;
         seedToChunk.put(seedId, chunkKey);
         if (seedPos != null) {
             seedPositions.put(seedId, seedPos.toImmutable());
@@ -146,6 +152,19 @@ public class TAInfectedChunksData extends WorldSavedData {
     public void setActiveChunkTier(long chunkKey, FluxAnomalyTier tier) {
         if (tier == null) return;
         activeChunkTiers.put(chunkKey, tier);
+        markDirty();
+    }
+
+    public void setLastActivatedInfo(@Nullable FluxAnomalyTier tier, @Nullable BlockPos seedPos) {
+        lastActivatedTier = tier;
+        lastActivatedSeedPos = seedPos == null ? null : seedPos.toImmutable();
+        markDirty();
+    }
+
+    public void setLastResourcePlacement(String reason, int attempts, int success) {
+        lastResourcePlacement = reason == null ? "" : reason;
+        lastResourcePlacementAttempts = Math.max(0, attempts);
+        lastResourcePlacementSuccess = Math.max(0, success);
         markDirty();
     }
 
@@ -224,6 +243,28 @@ public class TAInfectedChunksData extends WorldSavedData {
         return anomalyToChunk.size();
     }
 
+    @Nullable
+    public BlockPos getLastActivatedSeedPos() {
+        return lastActivatedSeedPos;
+    }
+
+    @Nullable
+    public FluxAnomalyTier getLastActivatedTier() {
+        return lastActivatedTier;
+    }
+
+    public String getLastResourcePlacement() {
+        return lastResourcePlacement;
+    }
+
+    public int getLastResourcePlacementAttempts() {
+        return lastResourcePlacementAttempts;
+    }
+
+    public int getLastResourcePlacementSuccess() {
+        return lastResourcePlacementSuccess;
+    }
+
     @Override
     public void readFromNBT(NBTTagCompound nbt) {
         infectedChunks.clear();
@@ -233,11 +274,29 @@ public class TAInfectedChunksData extends WorldSavedData {
         seedPositions.clear();
         chunkSeedPositions.clear();
         activeChunkTiers.clear();
+        lastActivatedSeedPos = null;
+        lastActivatedTier = null;
+        lastResourcePlacement = "";
+        lastResourcePlacementAttempts = 0;
+        lastResourcePlacementSuccess = 0;
 
         lastManagerTickTime = nbt.getLong("lastManagerTickTime");
         lastActivationAttemptTime = nbt.getLong("lastActivationAttemptTime");
         lastActivationFailReason = nbt.getString("lastActivationFailReason");
         lastCandidatesChecked = nbt.getInteger("lastCandidatesChecked");
+        lastResourcePlacement = nbt.getString("lastResourcePlacement");
+        lastResourcePlacementAttempts = nbt.getInteger("lastResourcePlacementAttempts");
+        lastResourcePlacementSuccess = nbt.getInteger("lastResourcePlacementSuccess");
+        if (nbt.hasKey("lastSeedX", 3) && nbt.hasKey("lastSeedY", 3) && nbt.hasKey("lastSeedZ", 3)) {
+            lastActivatedSeedPos = new BlockPos(nbt.getInteger("lastSeedX"), nbt.getInteger("lastSeedY"), nbt.getInteger("lastSeedZ"));
+        }
+        if (nbt.hasKey("lastTier", 8)) {
+            try {
+                lastActivatedTier = FluxAnomalyTier.valueOf(nbt.getString("lastTier"));
+            } catch (IllegalArgumentException ignored) {
+                lastActivatedTier = null;
+            }
+        }
 
         readChunkSet(nbt.getTagList("infectedChunks", 4), infectedChunks);
         readChunkSet(nbt.getTagList("activeInfectedChunks", 4), activeInfectedChunks);
@@ -285,6 +344,17 @@ public class TAInfectedChunksData extends WorldSavedData {
         nbt.setLong("lastActivationAttemptTime", lastActivationAttemptTime);
         nbt.setString("lastActivationFailReason", lastActivationFailReason == null ? "" : lastActivationFailReason);
         nbt.setInteger("lastCandidatesChecked", lastCandidatesChecked);
+        nbt.setString("lastResourcePlacement", lastResourcePlacement == null ? "" : lastResourcePlacement);
+        nbt.setInteger("lastResourcePlacementAttempts", lastResourcePlacementAttempts);
+        nbt.setInteger("lastResourcePlacementSuccess", lastResourcePlacementSuccess);
+        if (lastActivatedSeedPos != null) {
+            nbt.setInteger("lastSeedX", lastActivatedSeedPos.getX());
+            nbt.setInteger("lastSeedY", lastActivatedSeedPos.getY());
+            nbt.setInteger("lastSeedZ", lastActivatedSeedPos.getZ());
+        }
+        if (lastActivatedTier != null) {
+            nbt.setString("lastTier", lastActivatedTier.name());
+        }
 
         nbt.setTag("infectedChunks", writeChunkSet(infectedChunks));
         nbt.setTag("activeInfectedChunks", writeChunkSet(activeInfectedChunks));

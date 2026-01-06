@@ -42,7 +42,7 @@ public class CommandAnomalyDebug extends CommandBase {
         }
 
         World overworld = server.getWorld(0);
-        if (overworld == null|| overworld.isRemote) {
+        if (overworld == null || overworld.isRemote) {
             throw new CommandException("Overworld is not loaded.");
         }
 
@@ -70,6 +70,17 @@ public class CommandAnomalyDebug extends CommandBase {
                         ", lastActivationReason=" + (infected.lastActivationFailReason == null ? "" : infected.lastActivationFailReason) +
                         ", lastCandidatesChecked=" + infected.lastCandidatesChecked +
                         (infected.lastManagerTickTime > 0 ? ", lastManagerTickTime=" + infected.lastManagerTickTime : "")
+        ));
+        if (infected.getLastActivatedSeedPos() != null || infected.getLastActivatedTier() != null) {
+            sender.sendMessage(new TextComponentString(
+                    "lastActiveTier=" + (infected.getLastActivatedTier() == null ? "none" : infected.getLastActivatedTier()) +
+                            ", lastSeedPos=" + infected.getLastActivatedSeedPos()
+            ));
+        }
+        sender.sendMessage(new TextComponentString(
+                "lastResourcePlacement=" + infected.getLastResourcePlacement() +
+                        " (attempts=" + infected.getLastResourcePlacementAttempts() +
+                        ", placed=" + infected.getLastResourcePlacementSuccess() + ")"
         ));
         }
 

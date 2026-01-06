@@ -10,6 +10,7 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.common.registry.ForgeRegistries;
 import org.apache.logging.log4j.LogManager;
@@ -25,6 +26,7 @@ import therealpant.thaumicattempts.world.block.BlockRiftBush;
 import therealpant.thaumicattempts.world.block.BlockRiftGeod;
 import therealpant.thaumicattempts.world.block.FluxResourceHelper;
 import therealpant.thaumicattempts.world.InfectedChunkAnomalyManager;
+import therealpant.thaumicattempts.world.data.TAInfectedChunksData;
 
 import java.util.Random;
 import java.util.UUID;
@@ -58,6 +60,8 @@ public class EntityFluxAnomalyBurst extends Entity {
     private boolean finished = false;
 
     private UUID seedEntityId = null;
+    private BlockPos seedPos = null;
+    private long lastSeedSeenTick = 0L;
 
     public EntityFluxAnomalyBurst(World worldIn) {
         super(worldIn);
@@ -204,22 +208,36 @@ public class EntityFluxAnomalyBurst extends Entity {
     private void ensureInitialResources() {
         initialResourcesPlaced = true;
 
-        if (resourceBlockId == null || resourceBlock == null || resourceCount <= 0) return;
+        if (resourceBlockId == null || resourceBlock == null || resourceCount <= 0) {
+            TAInfectedChunksData.get(world).setLastResourcePlacement("RESOURCE_SKIPPED", 0, 0);
+            return;
+        }
 
         Block block = ForgeRegistries.BLOCKS.getValue(resourceBlockId);
         if (block == null || block == Blocks.AIR) {
             LOG.warn("[FluxAnomaly] Resource block {} missing, skipping placement", resourceBlockId);
+            TAInfectedChunksData.get(world).setLastResourcePlacement("RESOURCE_BLOCK_MISSING", 0, 0);
             return;
         }
 
         int placed = FluxResourceHelper.countBlocks(world, center, block, 8);
         final Random rnd = world.rand;
         final int attempts = Math.max(resourceCount * 8, resourceCount);
+        int successes = 0;
 
         for (int i = 0; i < attempts && placed < resourceCount; i++) {
-            if (placeSingleResource(block, rnd)) {                placed++;
+            if (placeResource(block, rnd)) {
+                placed++;
+                successes++;
             }
         }
+
+        TAInfectedChunksData data = TAInfectedChunksData.get(world);
+        data.setLastResourcePlacement(
+                placed >= resourceCount ? "PLACEMENT_OK" : "PLACEMENT_INSUFFICIENT",
+                attempts,
+                successes
+        );
     }
 
     private void runGrowthTick() {
@@ -230,13 +248,13 @@ public class EntityFluxAnomalyBurst extends Entity {
 
         int current = FluxResourceHelper.countBlocks(world, center, resourceBlock, 8);
         if (current < resourceCap) {
-            placeSingleResource(resourceBlock, world.rand);
+            placeResource(resourceBlock, world.rand);
         } else if (world.rand.nextFloat() < 0.33f) {
             finishAnomaly("GROWTH_CAP_REACHED", true);
         }
     }
 
-    private boolean placeSingleResource(Block block, Random rnd) {
+    private boolean placeResource(Block block, Random rnd) {
 
         if (block instanceof BlockRiftBush) {
             return placeBush((BlockRiftBush) block, rnd);
@@ -248,15 +266,12 @@ public class EntityFluxAnomalyBurst extends Entity {
             return placeAnomalyStone((BlockAnomalyStone) block, rnd);
         }
 
-        IBlockState state = block.getDefaultState();
-        BlockPos pos = pickTargetColumn(rnd).up();
-        if (!world.isBlockLoaded(pos)) return false;
-        if (!block.canPlaceBlockAt(world, pos)) return false;
-        if (!world.getBlockState(pos).getMaterial().isReplaceable() && !world.isAirBlock(pos)) return false;
-        return world.setBlockState(pos, state, 3);
+        LOG.warn("[FluxAnomaly] Unsupported resource placement for block {}", block);
+        return false;
     }
 
     private boolean placeBush(BlockRiftBush bush, Random rnd) {
+        if (tier != FluxAnomalyTier.SURFACE) return false;
         BlockPos column = pickTargetColumn(rnd);
         BlockPos base = world.getTopSolidOrLiquidBlock(column);
         BlockPos lower = base.up();
@@ -276,13 +291,18 @@ public class EntityFluxAnomalyBurst extends Entity {
     }
 
     private boolean placeAnomalyStone(BlockAnomalyStone stone, Random rnd) {
-        int minY = tier == FluxAnomalyTier.SHALLOW ? 16 : 4;
-        int maxY = tier == FluxAnomalyTier.SHALLOW ? 64 : 32;
-        for (int i = 0; i < 24; i++) {
+        if (tier != FluxAnomalyTier.SHALLOW) return false;
+        final int minY = 20;
+        final int maxY = 56;
+        final int seaCap = Math.max(1, world.getSeaLevel() - 5);
+        for (int i = 0; i < 32; i++) {
             BlockPos target = randomNearbyPos(rnd, minY, maxY);
+            if (target.getY() > seaCap) continue;
             if (!world.isBlockLoaded(target)) continue;
             if (world.getBlockState(target).getBlock() != Blocks.STONE) continue;
             if (!hasAdjacentAir(target)) continue;
+            BlockPos columnTop = world.getTopSolidOrLiquidBlock(new BlockPos(target.getX(), 0, target.getZ()));
+            if (columnTop.getY() <= target.getY()) continue;
             world.setBlockState(target, stone.getDefaultState(), 3);
             return true;
         }
@@ -290,12 +310,14 @@ public class EntityFluxAnomalyBurst extends Entity {
     }
 
     private boolean placeGeod(BlockRiftGeod geod, Random rnd) {
-        int minY = tier == FluxAnomalyTier.SHALLOW ? 16 : 4;
-        int maxY = tier == FluxAnomalyTier.SHALLOW ? 64 : 32;
-        for (int i = 0; i < 24; i++) {
+        if (tier != FluxAnomalyTier.DEEP) return false;
+        final int minY = 1;
+        final int maxY = 24;
+        for (int i = 0; i < 32; i++) {
             BlockPos target = randomNearbyPos(rnd, minY, maxY);
             if (!world.isBlockLoaded(target)) continue;
             if (!world.isAirBlock(target)) continue;
+            if (target.getY() > maxY) continue;
 
             EnumFacing facing = null;
             for (EnumFacing face : EnumFacing.values()) {
@@ -310,6 +332,7 @@ public class EntityFluxAnomalyBurst extends Entity {
             IBlockState state = geod.getDefaultState().withProperty(BlockRiftGeod.FACING, facing);
             if (!geod.canPlaceBlockAt(world, target)) continue;
             if (!world.getBlockState(target).getMaterial().isReplaceable() && !world.isAirBlock(target)) continue;
+            if (world.canBlockSeeSky(target)) continue;
             world.setBlockState(target, state, 3);
             return true;
         }
@@ -318,8 +341,13 @@ public class EntityFluxAnomalyBurst extends Entity {
 
     private void spawnTaintSeed() {
         try {
+            ensureSeedPosition();
+            if (seedPos == null) {
+                finishAnomaly("SEED_POS_INVALID", false);
+                return;
+            }
             EntityTaintSeed seed = new EntityTaintSeed(world);
-            seed.setPosition(center.getX() + 0.5, center.getY() + 0.5, center.getZ() + 0.5);
+            seed.setPosition(seedPos.getX() + 0.5, seedPos.getY() + 0.5, seedPos.getZ() + 0.5);
 
             // Сделаем его “как объект”, а не как моб
             seed.enablePersistence();           // не деспавнится
@@ -329,22 +357,43 @@ public class EntityFluxAnomalyBurst extends Entity {
 
             world.spawnEntity(seed);
             seedEntityId = seed.getUniqueID();
-            InfectedChunkAnomalyManager.onSeedSpawned(world, seedEntityId, sourceChunkKey, center);
+            lastSeedSeenTick = world.getTotalWorldTime();
+            InfectedChunkAnomalyManager.onSeedSpawned(world, seedEntityId, sourceChunkKey, seedPos);
 
-            LOG.info("[FluxAnomaly] Seed spawned uuid={} at {}", seedEntityId, center);
+            TAInfectedChunksData data = TAInfectedChunksData.get(world);
+            data.setLastActivatedInfo(tier, seedPos);
+
+            LOG.info("[FluxAnomaly] Seed spawned uuid={} at {}", seedEntityId, seedPos);
         } catch (Throwable t) {
-            LOG.error("[FluxAnomaly] Failed to spawn EntityTaintSeed at {}", center, t);
+            LOG.error("[FluxAnomaly] Failed to spawn EntityTaintSeed at {}", seedPos, t);
         }
     }
 
     private boolean isSeedAlive() {
-        if (seedEntityId == null) return false;
+        if (seedEntityId == null || seedPos == null) return false;
+        final long now = world.getTotalWorldTime();
         for (Entity ent : world.loadedEntityList) {
             if (seedEntityId.equals(ent.getUniqueID())) {
-                return !ent.isDead;
+                if (!ent.isDead) {
+                    lastSeedSeenTick = now;
+                    return true;
+                }
+                return false;
             }
         }
-        return false;
+        world.getChunk(seedPos);
+        AxisAlignedBB box = new AxisAlignedBB(seedPos);
+        for (EntityTaintSeed seed : world.getEntitiesWithinAABB(EntityTaintSeed.class, box)) {
+            if (seedEntityId.equals(seed.getUniqueID()) && !seed.isDead) {
+                lastSeedSeenTick = now;
+                return true;
+            }
+        }
+
+        if (lastSeedSeenTick == 0L) {
+            lastSeedSeenTick = now;
+        }
+        return now - lastSeedSeenTick < 200;
     }
 
     private void killSeedIfPresent() {
@@ -392,7 +441,7 @@ public class EntityFluxAnomalyBurst extends Entity {
     private BlockPos randomNearbyPos(Random rnd, int minY, int maxY) {
         int dx = rnd.nextInt(9) - 4;
         int dz = rnd.nextInt(9) - 4;
-        int dy = minY + rnd.nextInt(Math.max(1, maxY - minY));
+        int dy = minY + rnd.nextInt(Math.max(1, maxY - minY + 1));
         return new BlockPos(center.getX() + dx, dy, center.getZ() + dz);
     }
 
@@ -410,6 +459,88 @@ public class EntityFluxAnomalyBurst extends Entity {
         if (block instanceof BlockAnomalyStone) return 7;
         if (block instanceof BlockRiftGeod) return 5;
         return 0;
+    }
+
+    private void ensureSeedPosition() {
+        if (seedPos != null) return;
+
+        BlockPos candidate = center;
+        switch (tier) {
+            case SURFACE: {
+                BlockPos top = world.getTopSolidOrLiquidBlock(center);
+                candidate = top.up();
+                break;
+            }
+            case SHALLOW: {
+                int maxY = Math.min(56, Math.max(1, world.getSeaLevel() - 5));
+                candidate = clampVertical(center, 20, maxY);
+                break;
+            }
+            case DEEP: {
+                candidate = clampVertical(center, 1, 24);
+                break;
+            }
+            default:
+                break;
+        }
+
+        if (isValidSeedPos(candidate)) {
+            seedPos = candidate.toImmutable();
+            return;
+        }
+
+        Random rnd = world.rand;
+        for (int i = 0; i < 24; i++) {
+            int dx = rnd.nextInt(5) - 2;
+            int dz = rnd.nextInt(5) - 2;
+            int dy = rnd.nextInt(5) - 2;
+            BlockPos attempt = candidate.add(dx, dy, dz);
+            switch (tier) {
+                case SHALLOW: {
+                    int maxY = Math.min(56, Math.max(1, world.getSeaLevel() - 5));
+                    attempt = clampVertical(attempt, 20, maxY);
+                    break;
+                }
+                case DEEP:
+                    attempt = clampVertical(attempt, 1, 24);
+                    break;
+                case SURFACE:
+                default:
+                    break;
+            }
+            if (isValidSeedPos(attempt)) {
+                seedPos = attempt.toImmutable();
+                return;
+            }
+        }
+    }
+
+    private BlockPos clampVertical(BlockPos pos, int minY, int maxY) {
+        int y = MathHelper.clamp(pos.getY(), minY, maxY);
+        return new BlockPos(pos.getX(), y, pos.getZ());
+    }
+
+    private boolean isValidSeedPos(BlockPos pos) {
+        if (pos == null) return false;
+        if (pos.getY() < 1 || pos.getY() >= world.getHeight()) return false;
+        if (!world.isBlockLoaded(pos)) {
+            world.getChunk(pos);
+        }
+        if (!world.isAirBlock(pos)) return false;
+        if (tier != FluxAnomalyTier.SURFACE && world.canBlockSeeSky(pos)) return false;
+        IBlockState below = world.getBlockState(pos.down());
+        boolean solidBelow = below.getMaterial().isSolid() && !below.getMaterial().isReplaceable() && !below.getMaterial().isLiquid();
+        if (solidBelow) return true;
+
+        for (EnumFacing face : EnumFacing.values()) {
+            if (face == EnumFacing.UP) continue;
+            BlockPos neighbor = pos.offset(face);
+            IBlockState neighborState = world.getBlockState(neighbor);
+            if (neighborState.getMaterial().isSolid() && !neighborState.getMaterial().isReplaceable() && !neighborState.getMaterial().isLiquid()) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Override
@@ -450,6 +581,10 @@ public class EntityFluxAnomalyBurst extends Entity {
 
         if (tag.hasUniqueId("seedId")) seedEntityId = tag.getUniqueId("seedId");
         else seedEntityId = null;
+        if (tag.hasKey("seedX", 3) && tag.hasKey("seedY", 3) && tag.hasKey("seedZ", 3)) {
+            seedPos = new BlockPos(tag.getInteger("seedX"), tag.getInteger("seedY"), tag.getInteger("seedZ"));
+        }
+        lastSeedSeenTick = tag.getLong("seedLastSeen");
 
         tier = FluxAnomalyTier.SURFACE;
         if (tag.hasKey("tier", 8)) {
@@ -485,6 +620,12 @@ public class EntityFluxAnomalyBurst extends Entity {
         tag.setBoolean("resPlaced", initialResourcesPlaced);
 
         if (seedEntityId != null) tag.setUniqueId("seedId", seedEntityId);
+        if (seedPos != null) {
+            tag.setInteger("seedX", seedPos.getX());
+            tag.setInteger("seedY", seedPos.getY());
+            tag.setInteger("seedZ", seedPos.getZ());
+        }
+        tag.setLong("seedLastSeen", lastSeedSeenTick);
         tag.setString("tier", tier.name());
         tag.setLong("srcChunk", sourceChunkKey);
     }
