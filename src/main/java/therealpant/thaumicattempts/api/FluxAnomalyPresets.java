@@ -13,7 +13,8 @@ public final class FluxAnomalyPresets {
     public static FluxAnomalySettings createSettings(FluxAnomalyTier tier) {
         ThreadLocalRandom rnd = ThreadLocalRandom.current();
         FluxAnomalySettings settings = new FluxAnomalySettings()
-                .spawnMethod(FluxAnomalySpawnMethod.WORLD_GEN);
+                .spawnMethod(FluxAnomalySpawnMethod.WORLD_GEN)
+                .tier(tier);
 
         switch (tier) {
             case SURFACE:

@@ -80,7 +80,10 @@ public class CommandAnomalyDebug extends CommandBase {
         sender.sendMessage(new TextComponentString(
                 "lastResourcePlacement=" + infected.getLastResourcePlacement() +
                         " (attempts=" + infected.getLastResourcePlacementAttempts() +
-                        ", placed=" + infected.getLastResourcePlacementSuccess() + ")"
+                        ", placed=" + infected.getLastResourcePlacementSuccess() +
+                        ", lastFailure=" + infected.getLastResourcePlacementFailure() +
+                        (infected.getLastResourcePlacementFailureCount() > 0 ? " x" + infected.getLastResourcePlacementFailureCount() : "") +
+                        ")"
         ));
         }
 

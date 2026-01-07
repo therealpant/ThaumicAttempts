@@ -33,6 +33,8 @@ public class TAInfectedChunksData extends WorldSavedData {
     private String lastResourcePlacement = "";
     private int lastResourcePlacementAttempts = 0;
     private int lastResourcePlacementSuccess = 0;
+    private String lastResourcePlacementFailure = "";
+    private int lastResourcePlacementFailureCount = 0;
 
     public long lastManagerTickTime;
     public long lastActivationAttemptTime;
@@ -168,6 +170,12 @@ public class TAInfectedChunksData extends WorldSavedData {
         markDirty();
     }
 
+    public void setLastResourcePlacementFailure(String reason, int count) {
+        lastResourcePlacementFailure = reason == null ? "" : reason;
+        lastResourcePlacementFailureCount = Math.max(0, count);
+        markDirty();
+    }
+
     @Nullable
     public Long removeSeed(UUID seedId) {
         if (seedId == null) return null;
@@ -265,6 +273,14 @@ public class TAInfectedChunksData extends WorldSavedData {
         return lastResourcePlacementSuccess;
     }
 
+    public String getLastResourcePlacementFailure() {
+        return lastResourcePlacementFailure;
+    }
+
+    public int getLastResourcePlacementFailureCount() {
+        return lastResourcePlacementFailureCount;
+    }
+
     @Override
     public void readFromNBT(NBTTagCompound nbt) {
         infectedChunks.clear();
@@ -279,6 +295,8 @@ public class TAInfectedChunksData extends WorldSavedData {
         lastResourcePlacement = "";
         lastResourcePlacementAttempts = 0;
         lastResourcePlacementSuccess = 0;
+        lastResourcePlacementFailure = "";
+        lastResourcePlacementFailureCount = 0;
 
         lastManagerTickTime = nbt.getLong("lastManagerTickTime");
         lastActivationAttemptTime = nbt.getLong("lastActivationAttemptTime");
@@ -287,6 +305,8 @@ public class TAInfectedChunksData extends WorldSavedData {
         lastResourcePlacement = nbt.getString("lastResourcePlacement");
         lastResourcePlacementAttempts = nbt.getInteger("lastResourcePlacementAttempts");
         lastResourcePlacementSuccess = nbt.getInteger("lastResourcePlacementSuccess");
+        lastResourcePlacementFailure = nbt.getString("lastResourcePlacementFailure");
+        lastResourcePlacementFailureCount = nbt.getInteger("lastResourcePlacementFailureCount");
         if (nbt.hasKey("lastSeedX", 3) && nbt.hasKey("lastSeedY", 3) && nbt.hasKey("lastSeedZ", 3)) {
             lastActivatedSeedPos = new BlockPos(nbt.getInteger("lastSeedX"), nbt.getInteger("lastSeedY"), nbt.getInteger("lastSeedZ"));
         }
@@ -347,6 +367,8 @@ public class TAInfectedChunksData extends WorldSavedData {
         nbt.setString("lastResourcePlacement", lastResourcePlacement == null ? "" : lastResourcePlacement);
         nbt.setInteger("lastResourcePlacementAttempts", lastResourcePlacementAttempts);
         nbt.setInteger("lastResourcePlacementSuccess", lastResourcePlacementSuccess);
+        nbt.setString("lastResourcePlacementFailure", lastResourcePlacementFailure == null ? "" : lastResourcePlacementFailure);
+        nbt.setInteger("lastResourcePlacementFailureCount", lastResourcePlacementFailureCount);
         if (lastActivatedSeedPos != null) {
             nbt.setInteger("lastSeedX", lastActivatedSeedPos.getX());
             nbt.setInteger("lastSeedY", lastActivatedSeedPos.getY());

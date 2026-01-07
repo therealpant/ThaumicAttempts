@@ -28,6 +28,7 @@ import therealpant.thaumicattempts.golemnet.block.BlockResourceRequester;
 import therealpant.thaumicattempts.golemnet.block.BlockGolemDispatcher;
 import therealpant.thaumicattempts.golemnet.block.BlockInfusionRequester;
 import therealpant.thaumicattempts.golemnet.tile.*;
+import therealpant.thaumicattempts.world.tile.TileRiftBush;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import therealpant.thaumicattempts.init.TABlocks;
@@ -112,6 +113,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "infusion_requester"));
         GameRegistry.registerTileEntity(TileAnomalyStone.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "anomaly_stone"));
+        GameRegistry.registerTileEntity(TileRiftBush.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_bush"));
         GameRegistry.registerTileEntity(TileRiftGeod.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_geod"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).

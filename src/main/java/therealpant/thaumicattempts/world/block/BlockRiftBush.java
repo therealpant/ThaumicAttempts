@@ -18,10 +18,11 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
-import thaumcraft.common.blocks.world.taint.ITaintBlock;
 import thaumcraft.api.blocks.BlocksTC;
-import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
+import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;
+import therealpant.thaumicattempts.world.tile.TileRiftBush;
 
 import javax.annotation.Nullable;
 import java.util.Collections;
@@ -30,7 +31,7 @@ import java.util.List;
 /**
  * Высокий куст (2 блока), аналог ванильной розы.
  */
-public class BlockRiftBush extends BlockBush implements ITaintBlock {
+public class BlockRiftBush extends BlockBush {
 
     public static final PropertyEnum<BlockHalf> HALF = PropertyEnum.create("half", BlockHalf.class);
 
@@ -162,19 +163,36 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
     }
 
     @Override
+    public boolean hasTileEntity(IBlockState state) {
+        return true;
+    }
+
+    @Nullable
+    @Override
+    public net.minecraft.tileentity.TileEntity createTileEntity(World world, IBlockState state) {
+        return new TileRiftBush();
+    }
+
+    @Override
     public void randomTick(World world, BlockPos pos, IBlockState state, java.util.Random rand) {
         if (world.isRemote) return;
 
-        // если рядом нет taint seed → увядаем
+        // Ресурс управляется флюкс-аномалией и не зависит от таинта.
         BlockPos basePos = state.getValue(HALF) == BlockHalf.UPPER ? pos.down() : pos;
-        if (!TaintHelper.isNearTaintSeed(world, basePos)) {
-            die(world, pos, state);
+        EntityFluxAnomalyBurst anomaly = resolveAnomaly(world, basePos);
+        if (anomaly == null || !anomaly.isResourceBlock(this)) {
+            removeSelf(world, pos, state);
             return;
         }
         if (state.getValue(HALF) == BlockHalf.UPPER) return;
 
+        int cap = anomaly.getResourceOvergrowthCap();
         int count = FluxResourceHelper.countBlocks(world, basePos, this, 4);
-        if (!FluxResourceHelper.shouldReproduce(rand, count, 18, 1.0 / 6.0)) return;
+        if (cap > 0 && count >= cap && rand.nextFloat() < 0.33f) {
+            anomaly.requestOvergrowthKill();
+        }
+        if (cap <= 0 || !FluxResourceHelper.shouldReproduce(rand, count, cap, 1.0 / 6.0)) return;
+        if (!anomaly.canSpawnResource(this)) return;
 
         BlockPos target = FluxResourceHelper.randomOffset(basePos, rand, 4, 2);
         if (target.getY() < 1 || target.getY() >= world.getHeight() - 1) return;
@@ -186,11 +204,11 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
 
         world.setBlockState(target, lower, 3);
         world.setBlockState(target.up(), upper, 3);
-        FluxResourceHelper.damageNearestSeed(world, target, 0.25f);
+        FluxResourceHelper.linkBlockToAnomaly(world, target, anomaly.getAnomalyId(), anomaly.getSeedPos());
+        FluxResourceHelper.linkBlockToAnomaly(world, target.up(), anomaly.getAnomalyId(), anomaly.getSeedPos());
     }
 
-    @Override
-    public void die(World world, BlockPos pos, IBlockState state) {
+    private void removeSelf(World world, BlockPos pos, IBlockState state) {
         if (world.isRemote) return;
 
         // если это верхняя часть — работаем от нижней
@@ -208,5 +226,14 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
 
         // ставим сухой куст
         world.setBlockState(basePos, net.minecraft.init.Blocks.DEADBUSH.getDefaultState(), 2);
+    }
+
+    private EntityFluxAnomalyBurst resolveAnomaly(World world, BlockPos pos) {
+        net.minecraft.tileentity.TileEntity tile = world.getTileEntity(pos);
+        if (!(tile instanceof AnomalyLinkedTile)) {
+            return null;
+        }
+        AnomalyLinkedTile linked = (AnomalyLinkedTile) tile;
+        return FluxResourceHelper.findAnomaly(world, linked.getAnomalyId(), linked.getSeedPos());
     }
 }

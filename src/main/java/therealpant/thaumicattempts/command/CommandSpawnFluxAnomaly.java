@@ -11,6 +11,7 @@ import net.minecraft.util.math.BlockPos;
 import therealpant.thaumicattempts.api.FluxAnomalyApi;
 import therealpant.thaumicattempts.api.FluxAnomalySettings;
 import therealpant.thaumicattempts.api.FluxAnomalySpawnMethod;
+import therealpant.thaumicattempts.api.FluxAnomalyTier;
 
 import javax.annotation.Nullable;
 import java.util.Collections;
@@ -69,6 +70,7 @@ public class CommandSpawnFluxAnomaly extends CommandBase {
                 .radiusBlocks(radius)
                 .totalSpreads(total)
                 .budgetPerTick(budget)
+                .tier(FluxAnomalyTier.SURFACE)
                 .spawnMethod(FluxAnomalySpawnMethod.COMMAND);
         FluxAnomalyApi.spawn(player.world, center, settings);
 

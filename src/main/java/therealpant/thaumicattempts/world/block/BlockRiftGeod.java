@@ -17,14 +17,14 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import thaumcraft.api.blocks.BlocksTC;
-import thaumcraft.common.blocks.world.taint.ITaintBlock;
-import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
+import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import javax.annotation.Nullable;
 
-public class BlockRiftGeod extends Block implements ITaintBlock {
+public class BlockRiftGeod extends Block {
 
     public static final PropertyEnum<EnumFacing> FACING = PropertyEnum.create("facing", EnumFacing.class);
     private static final AxisAlignedBB AABB = new AxisAlignedBB(0, 0, 0, 1, 1, 1);
@@ -141,12 +141,19 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
     public void randomTick(World world, BlockPos pos, IBlockState state, java.util.Random rand) {
         if (world.isRemote) return;
 
-        if (!TaintHelper.isNearTaintSeed(world, pos)) {
-            die(world, pos, state);
+        // Ресурс управляется флюкс-аномалией и не зависит от таинта.
+        EntityFluxAnomalyBurst anomaly = resolveAnomaly(world, pos);
+        if (anomaly == null || !anomaly.isResourceBlock(this)) {
+            removeSelf(world, pos);
             return;
         }
+        int cap = anomaly.getResourceOvergrowthCap();
         int count = FluxResourceHelper.countBlocks(world, pos, this, 4);
-        if (!FluxResourceHelper.shouldReproduce(rand, count, 14, 1.0 / 16.0)) return;
+        if (cap > 0 && count >= cap && rand.nextFloat() < 0.33f) {
+            anomaly.requestOvergrowthKill();
+        }
+        if (cap <= 0 || !FluxResourceHelper.shouldReproduce(rand, count, cap, 1.0 / 16.0)) return;
+        if (!anomaly.canSpawnResource(this)) return;
 
         BlockPos target = FluxResourceHelper.randomOffset(pos, rand, 4, 2);
         if (target.getY() < 1 || target.getY() >= world.getHeight()) return;
@@ -167,13 +174,20 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
         }
 
         world.setBlockState(target, getDefaultState().withProperty(FACING, facing), 2);
-        FluxResourceHelper.damageNearestSeed(world, target, 1.5f);
+        FluxResourceHelper.linkBlockToAnomaly(world, target, anomaly.getAnomalyId(), anomaly.getSeedPos());
     }
 
-    @Override
-    public void die(World world, BlockPos pos, IBlockState state) {
+    private void removeSelf(World world, BlockPos pos) {
         if (world.isRemote) return;
-
         world.setBlockState(pos, BlocksTC.stonePorous.getDefaultState(), 2);
+    }
+
+    private EntityFluxAnomalyBurst resolveAnomaly(World world, BlockPos pos) {
+        TileEntity tile = world.getTileEntity(pos);
+        if (!(tile instanceof AnomalyLinkedTile)) {
+            return null;
+        }
+        AnomalyLinkedTile linked = (AnomalyLinkedTile) tile;
+        return FluxResourceHelper.findAnomaly(world, linked.getAnomalyId(), linked.getSeedPos());
     }
 }

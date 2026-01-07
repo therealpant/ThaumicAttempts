@@ -3,6 +3,7 @@ package therealpant.thaumicattempts.world.block;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
+import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumBlockRenderType;
 import net.minecraft.util.EnumFacing;
@@ -13,14 +14,14 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import thaumcraft.api.blocks.BlocksTC;
-import thaumcraft.common.blocks.world.taint.ITaintBlock;
-import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
+import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 
 import javax.annotation.Nullable;
 
-public class BlockAnomalyStone extends Block implements ITaintBlock {
+public class BlockAnomalyStone extends Block {
     private static final AxisAlignedBB AABB = new AxisAlignedBB(0, 0, 0, 1, 1, 1);
 
     public BlockAnomalyStone() {
@@ -110,13 +111,22 @@ public class BlockAnomalyStone extends Block implements ITaintBlock {
     public void randomTick(World world, BlockPos pos, IBlockState state, java.util.Random rand) {
         if (world.isRemote) return;
 
-        if (!TaintHelper.isNearTaintSeed(world, pos)) {
-            die(world, pos, state);
+        // Ресурс привязан к флюкс-аномалии, а не к логике таинта.
+        EntityFluxAnomalyBurst anomaly = resolveAnomaly(world, pos);
+        if (anomaly == null || !anomaly.isResourceBlock(this)) {
+            removeSelf(world, pos);
             return;
         }
 
+        int cap = anomaly.getResourceOvergrowthCap();
+
         int count = FluxResourceHelper.countBlocks(world, pos, this, 4);
-        if (!FluxResourceHelper.shouldReproduce(rand, count, 26, 0.1)) return;
+
+        if (cap > 0 && count >= cap && rand.nextFloat() < 0.33f) {
+            anomaly.requestOvergrowthKill();
+        }
+        if (cap <= 0 || !FluxResourceHelper.shouldReproduce(rand, count, cap, 0.1)) return;
+        if (!anomaly.canSpawnResource(this)) return;
 
         BlockPos target = FluxResourceHelper.randomOffset(pos, rand, 4, 2);
         if (target.getY() < 1 || target.getY() >= world.getHeight()) return;
@@ -127,13 +137,20 @@ public class BlockAnomalyStone extends Block implements ITaintBlock {
         if (!targetState.getMaterial().isReplaceable() && !world.isAirBlock(target)) return;
 
         world.setBlockState(target, getDefaultState(), 2);
-        FluxResourceHelper.damageNearestSeed(world, target, 0.5f);
+        FluxResourceHelper.linkBlockToAnomaly(world, target, anomaly.getAnomalyId(), anomaly.getSeedPos());
     }
 
-    @Override
-    public void die(World world, BlockPos pos, IBlockState state) {
+    private void removeSelf(World world, BlockPos pos) {
         if (world.isRemote) return;
-
         world.setBlockState(pos, BlocksTC.stonePorous.getDefaultState(), 2);
+    }
+
+    private EntityFluxAnomalyBurst resolveAnomaly(World world, BlockPos pos) {
+        TileEntity tile = world.getTileEntity(pos);
+        if (!(tile instanceof AnomalyLinkedTile)) {
+            return null;
+        }
+        AnomalyLinkedTile linked = (AnomalyLinkedTile) tile;
+        return FluxResourceHelper.findAnomaly(world, linked.getAnomalyId(), linked.getSeedPos());
     }
 }

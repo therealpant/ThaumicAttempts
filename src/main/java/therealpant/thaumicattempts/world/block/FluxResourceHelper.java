@@ -7,8 +7,12 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import thaumcraft.common.entities.monster.tainted.EntityTaintSeed;
 import thaumcraft.common.entities.monster.tainted.EntityTaintSeedPrime;
+import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
+import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;
 
+import javax.annotation.Nullable;
 import java.util.Random;
+import java.util.UUID;
 
 /**
  * Общая логика для ресурсных блоков флюкс-аномалий.
@@ -92,5 +96,35 @@ public final class FluxResourceHelper {
         } else if (nearestSeed != null) {
             nearestSeed.attackEntityFrom(DamageSource.MAGIC, amount);
         }
+    }
+
+    public static void linkBlockToAnomaly(World world, BlockPos pos, @Nullable UUID anomalyId, @Nullable BlockPos seedPos) {
+        if (world == null || pos == null) return;
+        if (!world.isBlockLoaded(pos)) return;
+        if (!(world.getTileEntity(pos) instanceof AnomalyLinkedTile)) return;
+
+        AnomalyLinkedTile linked = (AnomalyLinkedTile) world.getTileEntity(pos);
+        if (linked == null) return;
+        linked.setAnomalyLink(anomalyId, seedPos);
+    }
+
+    @Nullable
+    public static EntityFluxAnomalyBurst findAnomaly(World world, @Nullable UUID anomalyId, @Nullable BlockPos seedPos) {
+        if (world == null || (anomalyId == null && seedPos == null)) return null;
+        for (net.minecraft.entity.Entity entity : world.loadedEntityList) {
+            if (!(entity instanceof EntityFluxAnomalyBurst)) continue;
+            EntityFluxAnomalyBurst anomaly = (EntityFluxAnomalyBurst) entity;
+            if (anomalyId != null && anomalyId.equals(anomaly.getAnomalyId())) return anomaly;
+            BlockPos anomalySeed = anomaly.getSeedPos();
+            if (seedPos != null && anomalySeed != null && seedPos.equals(anomalySeed)) return anomaly;
+        }
+        return null;
+    }
+
+    public static int getOvergrowthCap(Block block) {
+        if (block instanceof BlockRiftBush) return 8;
+        if (block instanceof BlockAnomalyStone) return 7;
+        if (block instanceof BlockRiftGeod) return 5;
+        return 0;
     }
 }
