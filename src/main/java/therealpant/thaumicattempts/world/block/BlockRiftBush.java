@@ -181,7 +181,7 @@ public class BlockRiftBush extends BlockBush {
         BlockPos basePos = state.getValue(HALF) == BlockHalf.UPPER ? pos.down() : pos;
         EntityFluxAnomalyBurst anomaly = resolveAnomaly(world, basePos);
         if (anomaly == null || !anomaly.isResourceBlock(this)) {
-            removeSelf(world, pos, state);
+            //removeSelf(world, pos, state);
             return;
         }
         if (state.getValue(HALF) == BlockHalf.UPPER) return;
