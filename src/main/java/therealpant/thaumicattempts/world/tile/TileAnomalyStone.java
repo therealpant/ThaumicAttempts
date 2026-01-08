@@ -19,6 +19,7 @@ public class TileAnomalyStone extends TileEntity implements IAnimatable, Anomaly
     private final AnimationFactory factory = new AnimationFactory(this);
     private UUID anomalyId;
     private BlockPos seedPos;
+    private int reproduceCooldown;
 
     @Override
     public void registerControllers(AnimationData data) {
@@ -61,6 +62,15 @@ public class TileAnomalyStone extends TileEntity implements IAnimatable, Anomaly
         return seedPos;
     }
 
+    public int getReproduceCooldown() {
+        return reproduceCooldown;
+    }
+
+    public void setReproduceCooldown(int reproduceCooldown) {
+        this.reproduceCooldown = reproduceCooldown;
+        markDirty();
+    }
+
     @Override
     public void readFromNBT(NBTTagCompound compound) {
         super.readFromNBT(compound);
@@ -74,6 +84,7 @@ public class TileAnomalyStone extends TileEntity implements IAnimatable, Anomaly
         } else {
             seedPos = null;
         }
+        reproduceCooldown = compound.getInteger("ReproduceCooldown");
     }
 
     @Override
@@ -87,6 +98,7 @@ public class TileAnomalyStone extends TileEntity implements IAnimatable, Anomaly
             compound.setInteger("SeedY", seedPos.getY());
             compound.setInteger("SeedZ", seedPos.getZ());
         }
+        compound.setInteger("ReproduceCooldown", reproduceCooldown);
         return compound;
     }
 }

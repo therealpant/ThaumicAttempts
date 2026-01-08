@@ -190,26 +190,20 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
         }
         if (state.getValue(HALF) == BlockHalf.UPPER) return;
 
-        int cap = anomaly.getResourceOvergrowthCap();
-        int count = FluxResourceHelper.countBlocks(world, basePos, this, 4);
-        if (cap > 0 && count >= cap && rand.nextFloat() < 0.33f) {
-            anomaly.requestOvergrowthKill();
+        if (!anomaly.isResourcesBootstrapped()) return;
+
+        TileRiftBush tile = world.getTileEntity(basePos) instanceof TileRiftBush
+                ? (TileRiftBush) world.getTileEntity(basePos)
+                : null;
+        if (tile == null) return;
+        int cooldown = tile.getReproduceCooldown();
+        if (cooldown > 0) {
+            tile.setReproduceCooldown(cooldown - 1);
+            return;
         }
-        if (cap <= 0 || !FluxResourceHelper.shouldReproduce(rand, count, cap, 1.0 / 6.0)) return;
-        if (!anomaly.canSpawnResource(this)) return;
-
-        BlockPos target = FluxResourceHelper.randomOffset(basePos, rand, 4, 2);
-        if (target.getY() < 1 || target.getY() >= world.getHeight() - 1) return;
-        if (!world.isBlockLoaded(target)) return;
-        if (!canPlaceBlockAt(world, target)) return;
-
-        IBlockState lower = getDefaultState().withProperty(HALF, BlockHalf.LOWER);
-        IBlockState upper = getDefaultState().withProperty(HALF, BlockHalf.UPPER);
-
-        world.setBlockState(target, lower, 3);
-        world.setBlockState(target.up(), upper, 3);
-        FluxResourceHelper.linkBlockToAnomaly(world, target, anomaly.getAnomalyId(), anomaly.getSeedPos());
-        FluxResourceHelper.linkBlockToAnomaly(world, target.up(), anomaly.getAnomalyId(), anomaly.getSeedPos());
+        if (rand.nextInt(6) != 0) return;
+        anomaly.requestExtraResource(this);
+        tile.setReproduceCooldown(40 + rand.nextInt(80));
     }
 
     @Override

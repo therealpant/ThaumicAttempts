@@ -151,34 +151,21 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
         if (anomaly == null || !anomaly.isResourceBlock(this)) {
             return;
         }
-        int cap = anomaly.getResourceOvergrowthCap();
-        int count = FluxResourceHelper.countBlocks(world, pos, this, 4);
-        if (cap > 0 && count >= cap && rand.nextFloat() < 0.33f) {
-            anomaly.requestOvergrowthKill();
-        }
-        if (cap <= 0 || !FluxResourceHelper.shouldReproduce(rand, count, cap, 1.0 / 16.0)) return;
-        if (!anomaly.canSpawnResource(this)) return;
+        if (!anomaly.isResourcesBootstrapped()) return;
 
-        BlockPos target = FluxResourceHelper.randomOffset(pos, rand, 4, 2);
-        if (target.getY() < 1 || target.getY() >= world.getHeight()) return;
-        if (!world.isBlockLoaded(target)) return;
-
-        IBlockState targetState = world.getBlockState(target);
-        if (targetState.getMaterial().isLiquid()) return;
-        if (!targetState.getMaterial().isReplaceable() && !world.isAirBlock(target)) return;
-
-        EnumFacing facing = EnumFacing.UP;
-        for (EnumFacing face : EnumFacing.values()) {
-            BlockPos neighbor = target.offset(face.getOpposite());
-            IBlockState neighborState = world.getBlockState(neighbor);
-            if (neighborState.isSideSolid(world, neighbor, face)) {
-                facing = face;
-                break;
-            }
+        TileRiftGeod tile = world.getTileEntity(pos) instanceof TileRiftGeod
+                ? (TileRiftGeod) world.getTileEntity(pos)
+                : null;
+        if (tile == null) return;
+        int cooldown = tile.getReproduceCooldown();
+        if (cooldown > 0) {
+            tile.setReproduceCooldown(cooldown - 1);
+            return;
         }
 
-        world.setBlockState(target, getDefaultState().withProperty(FACING, facing), 2);
-        FluxResourceHelper.linkBlockToAnomaly(world, target, anomaly.getAnomalyId(), anomaly.getSeedPos());
+        if (rand.nextInt(12) != 0) return;
+        anomaly.requestExtraResource(this);
+        tile.setReproduceCooldown(40 + rand.nextInt(80));
     }
 
     @Override

@@ -11,6 +11,7 @@ public class TileRiftBush extends TileEntity implements AnomalyLinkedTile {
 
     private UUID anomalyId;
     private BlockPos seedPos;
+    private int reproduceCooldown;
 
     @Override
     public void setAnomalyLink(@Nullable UUID anomalyId, @Nullable BlockPos seedPos) {
@@ -31,6 +32,15 @@ public class TileRiftBush extends TileEntity implements AnomalyLinkedTile {
         return seedPos;
     }
 
+    public int getReproduceCooldown() {
+        return reproduceCooldown;
+    }
+
+    public void setReproduceCooldown(int reproduceCooldown) {
+        this.reproduceCooldown = reproduceCooldown;
+        markDirty();
+    }
+
     @Override
     public void readFromNBT(NBTTagCompound compound) {
         super.readFromNBT(compound);
@@ -44,6 +54,7 @@ public class TileRiftBush extends TileEntity implements AnomalyLinkedTile {
         } else {
             seedPos = null;
         }
+        reproduceCooldown = compound.getInteger("ReproduceCooldown");
     }
 
     @Override
@@ -56,6 +67,7 @@ public class TileRiftBush extends TileEntity implements AnomalyLinkedTile {
             compound.setInteger("SeedX", seedPos.getX());
             compound.setInteger("SeedY", seedPos.getY());
             compound.setInteger("SeedZ", seedPos.getZ());
+            compound.setInteger("ReproduceCooldown", reproduceCooldown);
         }
         return compound;
     }

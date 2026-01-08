@@ -47,7 +47,6 @@ public class EntityFluxAnomalyBurst extends Entity {
     private static final int MAX_CORRUPTION_RADIUS = 12;
     private static final int RESOURCE_RETRY_TICKS = 20;
     private static final int RESOURCE_SPREAD_ATTEMPTS = 3;
-    private static final int RESOURCE_SPAWN_INTERVAL = 40;
     private static final int TAINT_KICKSTART_ATTEMPTS = 8;
     private static final int TAINT_KICKSTART_RADIUS = 2;
     private static final int BUSH_PLACEMENT_ATTEMPTS = 400;
@@ -78,13 +77,17 @@ public class EntityFluxAnomalyBurst extends Entity {
     private int resourceRadius = 0;
     private int activeResourceCount = 0;
     private boolean initialResourcesPlaced = false;
+    private boolean resourcesBootstrapped = false;
     private long lastResourceAttemptTick = 0L;
+    private long lastPendingProcessTick = 0L;
+    private int pendingBush = 0;
+    private int pendingStone = 0;
+    private int pendingGeod = 0;
 
     private boolean awakened = false;
     private int remainingSpreads = 0;
     private long sourceChunkKey = 0L;
     private FluxAnomalyTier tier = FluxAnomalyTier.SURFACE;
-    private long lastGrowthTick = 0;
     private boolean finished = false;
     private boolean infectionFinished = false;
     private AnomalyPhase phase = AnomalyPhase.SEED;
@@ -146,12 +149,14 @@ public class EntityFluxAnomalyBurst extends Entity {
                 resourceCap = FluxResourceHelper.getOvergrowthCap(resourceBlock);
                 resourceRadius = Math.max(4, radiusBlocks / 2);
                 initialResourcesPlaced = false;
+                resourcesBootstrapped = false;
             } else {
                 resourceBlockId = null;
                 resourceBlock = null;
                 maxResources = 0;
                 resourceCap = 0;
                 resourceRadius = Math.max(4, radiusBlocks / 2);
+                resourcesBootstrapped = false;
             }
         } else {
             resourceBlockId = null;
@@ -159,6 +164,7 @@ public class EntityFluxAnomalyBurst extends Entity {
             resourceCap = 0;
             resourceBlock = null;
             resourceRadius = Math.max(4, radiusBlocks / 2);
+            resourcesBootstrapped = false;
         }
     }
 
@@ -228,9 +234,11 @@ public class EntityFluxAnomalyBurst extends Entity {
                         && world.getTotalWorldTime() - lastResourceAttemptTick >= RESOURCE_RETRY_TICKS) {
                     if (placeInitialResources()) {
                         initialResourcesPlaced = true;
+                        resourcesBootstrapped = true;
                         transitionToPhase(AnomalyPhase.ACTIVE);
                     }
                 } else if (initialResourcesPlaced) {
+                    resourcesBootstrapped = true;
                     transitionToPhase(AnomalyPhase.ACTIVE);
                 }
                 break;
@@ -245,7 +253,7 @@ public class EntityFluxAnomalyBurst extends Entity {
                     finishAnomaly(FinishReason.SEED_KILLED_BY_OVERGROWTH, false);
                     return;
                 }
-                tickResourceSpawner();
+                tickPendingRequests();
                 break;
             }
             case FINISH: {
@@ -315,6 +323,8 @@ public class EntityFluxAnomalyBurst extends Entity {
         boolean completed = placed >= targetCount;
         if (completed) {
             initialResourcesPlaced = true;
+            resourcesBootstrapped = true;
+            LOG.info("[FluxAnomaly] bootstrapped: placed {}/{}", placed, targetCount);
         }
 
         LOG.info("[FluxAnomaly] Resource placement tier={} seedPos={} placed={}/{} attempts={} success={} failures={}",
@@ -328,29 +338,15 @@ public class EntityFluxAnomalyBurst extends Entity {
         return completed;
     }
 
-    private void tickResourceSpawner() {
-        if (resourceBlock == null || maxResources <= 0 || finished) return;
-        long now = world.getTotalWorldTime();
-        if (now - lastGrowthTick < RESOURCE_SPAWN_INTERVAL) return;
-        lastGrowthTick = now;
-
-        activeResourceCount = FluxResourceHelper.countBlocks(world, getAnchor(), resourceBlock, resourceRadius);
-        if (activeResourceCount < maxResources) {
-            tryPlaceResource(resourceBlock, world.rand);
-        }
-    }
-
     private int getInitialResourceTargetCount(Block block) {
         if (block instanceof BlockRiftBush) {
             return 3;
         }
         if (block instanceof BlockRiftGeod) {
-            int desired = maxResources > 0 ? maxResources : 1;
-            return MathHelper.clamp(desired, 1, 2);
+            return 3;
         }
         if (block instanceof BlockAnomalyStone) {
-            int desired = maxResources > 0 ? maxResources : 4;
-            return Math.max(2, desired);
+            return 3;
         }
         return maxResources;
     }
@@ -379,6 +375,79 @@ public class EntityFluxAnomalyBurst extends Entity {
         return FluxResourceHelper.countBlocks(world, anchor, block, resourceRadius);
     }
 
+    private void tickPendingRequests() {
+        if (resourceBlock == null || finished || !resourcesBootstrapped) return;
+        long now = world.getTotalWorldTime();
+        if (now - lastPendingProcessTick < RESOURCE_RETRY_TICKS) return;
+        lastPendingProcessTick = now;
+
+        PendingResource pending = nextPending();
+        if (pending == null) return;
+
+        pending.decrement();
+        PlacementAttempt attempt = pending.place();
+        LOG.info("[FluxAnomaly] request type={} pending={} result={} reason={}",
+                pending.label,
+                pending.getCount(),
+                attempt.success ? "SUCCESS" : "FAIL",
+                attempt.reason);
+
+        if (attempt.success) {
+            handleOvergrowthCheck(pending.block);
+        }
+    }
+
+    private PendingResource nextPending() {
+        if (pendingBush > 0 && resourceBlock instanceof BlockRiftBush) {
+            return new PendingResource("bush", () -> pendingBush, value -> pendingBush = value,
+                    () -> spawnOneBush(world.rand), resourceBlock);
+        }
+        if (pendingStone > 0 && resourceBlock instanceof BlockAnomalyStone) {
+            return new PendingResource("stone", () -> pendingStone, value -> pendingStone = value,
+                    () -> spawnOneStone(world.rand), resourceBlock);
+        }
+        if (pendingGeod > 0 && resourceBlock instanceof BlockRiftGeod) {
+            return new PendingResource("geod", () -> pendingGeod, value -> pendingGeod = value,
+                    () -> spawnOneGeod(world.rand), resourceBlock);
+        }
+        return null;
+    }
+
+    private void handleOvergrowthCheck(Block block) {
+        int cap = FluxResourceHelper.getOvergrowthCap(block);
+        if (cap <= 0 || seedPos == null) return;
+        int count = countResourcesInInfectionRadius(block);
+        if (count <= cap) return;
+        boolean killRoll = world.rand.nextFloat() < 0.33f;
+        LOG.info("[FluxAnomaly] overgrowth type={} count={} cap={} killRoll={}",
+                block.getRegistryName(),
+                count,
+                cap,
+                killRoll ? "success" : "fail");
+        if (killRoll) {
+            requestOvergrowthKill();
+        }
+    }
+
+    private int countResourcesInInfectionRadius(Block block) {
+        if (seedPos == null) return 0;
+        int radius = radiusBlocks;
+        if (block instanceof BlockRiftBush) {
+            int count = 0;
+            for (BlockPos pos : BlockPos.getAllInBoxMutable(
+                    seedPos.add(-radius, -radius, -radius),
+                    seedPos.add(radius, radius, radius))) {
+                IBlockState state = world.getBlockState(pos);
+                if (state.getBlock() instanceof BlockRiftBush
+                        && state.getValue(BlockRiftBush.HALF) == BlockRiftBush.BlockHalf.LOWER) {
+                    count++;
+                }
+            }
+            return count;
+        }
+        return FluxResourceHelper.countBlocks(world, seedPos, block, radius);
+    }
+
     private PlacementAttempt tryPlaceInitialResource(Block block, Random rnd) {
         if (block instanceof BlockRiftBush) {
             return placeInitialBush((BlockRiftBush) block, rnd);
@@ -390,6 +459,21 @@ public class EntityFluxAnomalyBurst extends Entity {
             return placeInitialGeod((BlockRiftGeod) block, rnd);
         }
         return PlacementAttempt.fail("UNSUPPORTED_BLOCK");
+    }
+
+    private PlacementAttempt spawnOneBush(Random rnd) {
+        if (!(resourceBlock instanceof BlockRiftBush)) return PlacementAttempt.fail("INVALID_RESOURCE");
+        return placeInitialBush((BlockRiftBush) resourceBlock, rnd);
+    }
+
+    private PlacementAttempt spawnOneStone(Random rnd) {
+        if (!(resourceBlock instanceof BlockAnomalyStone)) return PlacementAttempt.fail("INVALID_RESOURCE");
+        return placeInitialAnomalyStone((BlockAnomalyStone) resourceBlock, rnd);
+    }
+
+    private PlacementAttempt spawnOneGeod(Random rnd) {
+        if (!(resourceBlock instanceof BlockRiftGeod)) return PlacementAttempt.fail("INVALID_RESOURCE");
+        return placeInitialGeod((BlockRiftGeod) resourceBlock, rnd);
     }
 
     private PlacementAttempt placeInitialBush(BlockRiftBush bush, Random rnd) {
@@ -949,6 +1033,26 @@ public class EntityFluxAnomalyBurst extends Entity {
         return block != null && block == resourceBlock;
     }
 
+    public boolean isResourcesBootstrapped() {
+        return resourcesBootstrapped;
+    }
+
+    public void requestExtraResource(Block block) {
+        if (world.isRemote) return;
+        if (phase != AnomalyPhase.ACTIVE) return;
+        if (!resourcesBootstrapped) return;
+        if (seedPos == null || !isSeedAlive()) return;
+        if (!isResourceBlock(block)) return;
+
+        if (block instanceof BlockRiftBush) {
+            pendingBush = Math.min(pendingBush + 1, 10);
+        } else if (block instanceof BlockAnomalyStone) {
+            pendingStone = Math.min(pendingStone + 1, 10);
+        } else if (block instanceof BlockRiftGeod) {
+            pendingGeod = Math.min(pendingGeod + 1, 10);
+        }
+    }
+
     public int getResourceOvergrowthCap() {
         return resourceCap;
     }
@@ -997,12 +1101,20 @@ public class EntityFluxAnomalyBurst extends Entity {
         maxResources = Math.max(0, tag.getInteger("resCount"));
         resourceCap = tag.getInteger("resCap");
         initialResourcesPlaced = tag.getBoolean("resPlaced");
+        resourcesBootstrapped = tag.getBoolean("resBootstrapped");
         lastResourceAttemptTick = tag.getLong("resAttempt");
+        lastPendingProcessTick = tag.getLong("pendingTick");
         resourceBlock = resourceBlockId == null ? null : ForgeRegistries.BLOCKS.getValue(resourceBlockId);
         resourceRadius = Math.max(4, radiusBlocks / 2);
         if (resourceCap <= 0 && resourceBlock != null) {
             resourceCap = FluxResourceHelper.getOvergrowthCap(resourceBlock);
         }
+        if (!resourcesBootstrapped) {
+            resourcesBootstrapped = initialResourcesPlaced;
+        }
+        pendingBush = tag.getInteger("pendingBush");
+        pendingStone = tag.getInteger("pendingStone");
+        pendingGeod = tag.getInteger("pendingGeod");
 
         if (tag.hasUniqueId("seedId")) seedEntityId = tag.getUniqueId("seedId");
         else seedEntityId = null;
@@ -1078,7 +1190,13 @@ public class EntityFluxAnomalyBurst extends Entity {
         tag.setInteger("resCount", maxResources);
         tag.setInteger("resCap", resourceCap);
         tag.setBoolean("resPlaced", initialResourcesPlaced);
+        tag.setBoolean("resBootstrapped", resourcesBootstrapped);
         tag.setLong("resAttempt", lastResourceAttemptTick);
+        tag.setLong("pendingTick", lastPendingProcessTick);
+        tag.setInteger("pendingBush", pendingBush);
+        tag.setInteger("pendingStone", pendingStone);
+        tag.setInteger("pendingGeod", pendingGeod);
+
 
         if (seedEntityId != null) tag.setUniqueId("seedId", seedEntityId);
         if (seedPos != null) {
@@ -1129,6 +1247,38 @@ public class EntityFluxAnomalyBurst extends Entity {
         PLACE_RESOURCES,
         ACTIVE,
         FINISH
+    }
+
+    private static final class PendingResource {
+        private final String label;
+        private final java.util.function.IntSupplier getter;
+        private final java.util.function.IntConsumer setter;
+        private final java.util.function.Supplier<PlacementAttempt> placer;
+        private final Block block;
+
+        private PendingResource(String label,
+                                java.util.function.IntSupplier getter,
+                                java.util.function.IntConsumer setter,
+                                java.util.function.Supplier<PlacementAttempt> placer,
+                                Block block) {
+            this.label = label;
+            this.getter = getter;
+            this.setter = setter;
+            this.placer = placer;
+            this.block = block;
+        }
+
+        private void decrement() {
+            setter.accept(Math.max(0, getter.getAsInt() - 1));
+        }
+
+        private int getCount() {
+            return getter.getAsInt();
+        }
+
+        private PlacementAttempt place() {
+            return placer.get();
+        }
     }
 
 }

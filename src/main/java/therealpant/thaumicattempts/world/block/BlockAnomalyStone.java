@@ -122,26 +122,20 @@ public class BlockAnomalyStone extends Block implements ITaintBlock {
             return;
         }
 
-        int cap = anomaly.getResourceOvergrowthCap();
+        if (!anomaly.isResourcesBootstrapped()) return;
 
-        int count = FluxResourceHelper.countBlocks(world, pos, this, 4);
-
-        if (cap > 0 && count >= cap && rand.nextFloat() < 0.33f) {
-            anomaly.requestOvergrowthKill();
+        TileAnomalyStone tile = world.getTileEntity(pos) instanceof TileAnomalyStone
+                ? (TileAnomalyStone) world.getTileEntity(pos)
+                : null;
+        if (tile == null) return;
+        int cooldown = tile.getReproduceCooldown();
+        if (cooldown > 0) {
+            tile.setReproduceCooldown(cooldown - 1);
+            return;
         }
-        if (cap <= 0 || !FluxResourceHelper.shouldReproduce(rand, count, cap, 0.1)) return;
-        if (!anomaly.canSpawnResource(this)) return;
-
-        BlockPos target = FluxResourceHelper.randomOffset(pos, rand, 4, 2);
-        if (target.getY() < 1 || target.getY() >= world.getHeight()) return;
-        if (!world.isBlockLoaded(target)) return;
-
-        IBlockState targetState = world.getBlockState(target);
-        if (targetState.getMaterial().isLiquid()) return;
-        if (!targetState.getMaterial().isReplaceable() && !world.isAirBlock(target)) return;
-
-        world.setBlockState(target, getDefaultState(), 2);
-        FluxResourceHelper.linkBlockToAnomaly(world, target, anomaly.getAnomalyId(), anomaly.getSeedPos());
+        if (rand.nextInt(10) != 0) return;
+        anomaly.requestExtraResource(this);
+        tile.setReproduceCooldown(40 + rand.nextInt(80));
     }
 
     @Override
