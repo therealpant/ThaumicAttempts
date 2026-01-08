@@ -19,6 +19,8 @@ import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 import thaumcraft.api.blocks.BlocksTC;
+import thaumcraft.common.blocks.world.taint.ITaintBlock;
+import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
 import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;
@@ -31,7 +33,7 @@ import java.util.List;
 /**
  * Высокий куст (2 блока), аналог ванильной розы.
  */
-public class BlockRiftBush extends BlockBush {
+public class BlockRiftBush extends BlockBush implements ITaintBlock {
 
     public static final PropertyEnum<BlockHalf> HALF = PropertyEnum.create("half", BlockHalf.class);
 
@@ -43,6 +45,7 @@ public class BlockRiftBush extends BlockBush {
         setSoundType(SoundType.PLANT);
         setHardness(0.0F);
         setResistance(0.0F);
+        setTickRandomly(true);
         setDefaultState(this.blockState.getBaseState().withProperty(HALF, BlockHalf.LOWER));
     }
 
@@ -175,13 +178,14 @@ public class BlockRiftBush extends BlockBush {
 
     @Override
     public void randomTick(World world, BlockPos pos, IBlockState state, java.util.Random rand) {
+        updateTick(world, pos, state, rand);
         if (world.isRemote) return;
+        if (world.getBlockState(pos).getBlock() != this) return;
 
         // Ресурс управляется флюкс-аномалией и не зависит от таинта.
         BlockPos basePos = state.getValue(HALF) == BlockHalf.UPPER ? pos.down() : pos;
         EntityFluxAnomalyBurst anomaly = resolveAnomaly(world, basePos);
         if (anomaly == null || !anomaly.isResourceBlock(this)) {
-            //removeSelf(world, pos, state);
             return;
         }
         if (state.getValue(HALF) == BlockHalf.UPPER) return;
@@ -208,24 +212,31 @@ public class BlockRiftBush extends BlockBush {
         FluxResourceHelper.linkBlockToAnomaly(world, target.up(), anomaly.getAnomalyId(), anomaly.getSeedPos());
     }
 
-    private void removeSelf(World world, BlockPos pos, IBlockState state) {
+    @Override
+    public void updateTick(World world, BlockPos pos, IBlockState state, java.util.Random rand) {
+        if (world.isRemote) return;
+        if (rand.nextInt(10) != 0) return;
+
+        BlockPos basePos = state.getValue(HALF) == BlockHalf.UPPER ? pos.down() : pos;
+        if (!TaintHelper.isNearTaintSeed(world, basePos)) {
+            die(world, basePos, world.getBlockState(basePos));
+        }
+    }
+
+    @Override
+    public void die(World world, BlockPos pos, IBlockState state) {
         if (world.isRemote) return;
 
-        // если это верхняя часть — работаем от нижней
         BlockPos basePos = state.getValue(HALF) == BlockHalf.UPPER ? pos.down() : pos;
-
         IBlockState base = world.getBlockState(basePos);
         if (base.getBlock() == this) {
-            world.setBlockToAir(basePos);
+            world.setBlockState(basePos, net.minecraft.init.Blocks.DEADBUSH.getDefaultState(), 2);
         }
 
         IBlockState upper = world.getBlockState(basePos.up());
         if (upper.getBlock() == this) {
             world.setBlockToAir(basePos.up());
         }
-
-        // ставим сухой куст
-        world.setBlockState(basePos, net.minecraft.init.Blocks.DEADBUSH.getDefaultState(), 2);
     }
 
     private EntityFluxAnomalyBurst resolveAnomaly(World world, BlockPos pos) {
