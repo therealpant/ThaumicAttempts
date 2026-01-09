@@ -36,16 +36,18 @@ import java.util.UUID;
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public final class InfectedChunkAnomalyManager {
 
-    public static final int CHECK_PERIOD = 800;
-    public static final int SAFE_PLAYER_RADIUS = 164;
+    public static final int CHECK_PERIOD = 200;
+    public static final int SAFE_PLAYER_RADIUS = 126;
     public static final int MIN_INHABITED_TICKS = 144000;
-    public static final int MIN_SPACING_CHUNKS = 10;
-    public static final int SCHEDULE_MIN_VIEW_OFFSET = 2;
-    public static final int SCHEDULE_MAX_EXTRA = 24;
-    public static final int SCHEDULE_ATTEMPTS = 24;
+    public static final int MIN_SPACING_CHUNKS = 8;
+    public static final int SCHEDULE_MIN_VIEW_OFFSET = -4;
+    public static final int SCHEDULE_MAX_EXTRA = 8;
+    public static final int SCHEDULE_ATTEMPTS = 256;
     public static final int SCHEDULE_CLEANUP_PERIOD = 1200;
     public static final int SCHEDULE_TTL_TICKS = 36000;
     public static final int SCHEDULE_HARD_CAP = 256;
+    public static final int CLEANED_RADIUS_CHUNKS = 6;
+    public static final int CLEANED_COOLDOWN_TICKS = 40000;
 
     private static final double ACTIVATION_CHANCE = 0.25;
     private static final double STAGE1_INFECTION_CHANCE = 0.003;
@@ -91,7 +93,8 @@ public final class InfectedChunkAnomalyManager {
         TAInfectedChunksData data = TAInfectedChunksData.get(world);
         if (!data.isScheduled(chunkKey)) return;
 
-        if (hasAnyWithinRadiusChunks(data.getInfectedChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) return;
+        data.purgeExpired(world.getTotalWorldTime());
+        if (isInCleanedCooldown(world, data, cx, cz)) return;
         if (hasAnyWithinRadiusChunks(data.getActiveChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) return;
         if (isPlayerWithinSafeRadius(world, cx, cz)) return;
         if (!passesActivationFilters(world, chunk, data)) return;
@@ -147,6 +150,7 @@ public final class InfectedChunkAnomalyManager {
         int viewDistance = serverWorld.getMinecraftServer().getPlayerList().getViewDistance();
         int minDist = viewDistance + SCHEDULE_MIN_VIEW_OFFSET;
         int maxDist = minDist + SCHEDULE_MAX_EXTRA;
+        infectedData.purgeExpired(now);
 
         int checked = 0;
         String failReason = "NO_CANDIDATE_PASSED_FILTERS";
@@ -167,10 +171,11 @@ public final class InfectedChunkAnomalyManager {
                 continue;
             }
 
-            if (hasAnyWithinRadiusChunks(infectedData.getInfectedChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) {
+            if (hasAnyWithinRadiusChunks(infectedData.getActiveChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) {
                 continue;
             }
-            if (hasAnyWithinRadiusChunks(infectedData.getActiveChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) {
+            if (isInCleanedCooldown(world, infectedData, cx, cz)) {
+                failReason = "blocked_by_cleaned_cooldown";
                 continue;
             }
             if (isPlayerWithinSafeRadius(world, cx, cz)) {
@@ -207,6 +212,7 @@ public final class InfectedChunkAnomalyManager {
         data.unmarkChunkActive(knownChunk);
         data.removeInfectedChunk(knownChunk);
         data.clearChunkTracking(knownChunk);
+        data.markCleaned(knownChunk, world.getTotalWorldTime() + CLEANED_COOLDOWN_TICKS);
 
         migrateInfection(serverWorld, data);
     }
@@ -332,6 +338,19 @@ public final class InfectedChunkAnomalyManager {
         return nearest != null;
     }
 
+    private static boolean isInCleanedCooldown(World world, TAInfectedChunksData data, int cx, int cz) {
+        long now = world.getTotalWorldTime();
+        for (int dx = -CLEANED_RADIUS_CHUNKS; dx <= CLEANED_RADIUS_CHUNKS; dx++) {
+            for (int dz = -CLEANED_RADIUS_CHUNKS; dz <= CLEANED_RADIUS_CHUNKS; dz++) {
+                long key = chunkKey(cx + dx, cz + dz);
+                long expiry = data.getCleanedExpiry(key);
+                if (expiry > now) {
+                    return true;
+                }
+            }
+        }
+        return false;
+    }
 
     @Nullable
     private static SpawnLocation findSpawnPosition(World world, BlockPos column, FluxAnomalyTier tier, Random rand) {

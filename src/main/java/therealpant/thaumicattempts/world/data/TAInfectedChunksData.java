@@ -1,6 +1,9 @@
 package therealpant.thaumicattempts.world.data;
 
+import it.unimi.dsi.fastutil.longs.Long2LongMap;
+import it.unimi.dsi.fastutil.longs.Long2LongOpenHashMap;
 import it.unimi.dsi.fastutil.longs.LongOpenHashSet;
+import it.unimi.dsi.fastutil.objects.ObjectIterator;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.nbt.NBTTagLong;
@@ -27,6 +30,7 @@ public class TAInfectedChunksData extends WorldSavedData {
     private final Map<UUID, Long> seedToChunk = new HashMap<>();
     private final Map<UUID, Long> anomalyToChunk = new HashMap<>();
     private final Map<UUID, BlockPos> seedPositions = new HashMap<>();
+    private final Long2LongOpenHashMap cleanedCooldown = new Long2LongOpenHashMap();
     private final Map<Long, BlockPos> chunkSeedPositions = new HashMap<>();
     private final Map<Long, FluxAnomalyTier> activeChunkTiers = new HashMap<>();
     private BlockPos lastActivatedSeedPos = null;
@@ -116,6 +120,29 @@ public class TAInfectedChunksData extends WorldSavedData {
 
     public boolean isActive(long chunkKey) {
         return activeInfectedChunks.contains(chunkKey);
+    }
+
+    public void markCleaned(long chunkKey, long expiresAtTick) {
+        cleanedCooldown.put(chunkKey, expiresAtTick);
+        markDirty();
+    }
+
+    public long getCleanedExpiry(long chunkKey) {
+        return cleanedCooldown.containsKey(chunkKey) ? cleanedCooldown.get(chunkKey) : 0L;
+    }
+
+    public void purgeExpired(long nowTick) {
+        if (cleanedCooldown.isEmpty()) return;
+        boolean removed = false;
+        ObjectIterator<Long2LongMap.Entry> it = cleanedCooldown.long2LongEntrySet().iterator();
+        while (it.hasNext()) {
+            Long2LongMap.Entry entry = it.next();
+            if (entry.getLongValue() <= nowTick) {
+                it.remove();
+                removed = true;
+            }
+        }
+        if (removed) markDirty();
     }
 
     public void clearChunkTracking(long chunkKey) {
@@ -343,6 +370,7 @@ public class TAInfectedChunksData extends WorldSavedData {
         infectedChunks.clear();
         activeInfectedChunks.clear();
         seedToChunk.clear();
+        cleanedCooldown.clear();
         anomalyToChunk.clear();
         seedPositions.clear();
         chunkSeedPositions.clear();
@@ -424,6 +452,14 @@ public class TAInfectedChunksData extends WorldSavedData {
                 scheduledChunks.put(k, time);
             }
         }
+
+        if (nbt.hasKey("cleanedCooldown", 9)) {
+            NBTTagList list = nbt.getTagList("cleanedCooldown", 10);
+            for (int i = 0; i < list.tagCount(); i++) {
+                NBTTagCompound t = list.getCompoundTagAt(i);
+                cleanedCooldown.put(t.getLong("k"), t.getLong("e"));
+            }
+        }
     }
 
     @Override
@@ -491,6 +527,15 @@ public class TAInfectedChunksData extends WorldSavedData {
             list.appendTag(t);
         }
         nbt.setTag("scheduled", list);
+
+        NBTTagList cleaned = new NBTTagList();
+        for (Long2LongMap.Entry entry : cleanedCooldown.long2LongEntrySet()) {
+            NBTTagCompound t = new NBTTagCompound();
+            t.setLong("k", entry.getLongKey());
+            t.setLong("e", entry.getLongValue());
+            cleaned.appendTag(t);
+        }
+        nbt.setTag("cleanedCooldown", cleaned);
 
         return nbt;
     }
