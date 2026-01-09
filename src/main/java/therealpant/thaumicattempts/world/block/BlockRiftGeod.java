@@ -34,8 +34,8 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
     public BlockRiftGeod() {
         super(Material.ROCK);
         setLightOpacity(0);
-        setHardness(2.0F);
-        setResistance(10.0F);
+        setHardness(45.0F);
+        setResistance(200.0F);
         setTranslationKey(ThaumicAttempts.MODID + ".rift_geod");
         setRegistryName(ThaumicAttempts.MODID, "rift_geod");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);

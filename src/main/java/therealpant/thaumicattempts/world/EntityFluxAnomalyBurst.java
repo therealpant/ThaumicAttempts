@@ -24,6 +24,7 @@ import therealpant.thaumicattempts.api.FluxAnomalySettings;
 import therealpant.thaumicattempts.api.FluxAnomalySpawnMethod;
 import therealpant.thaumicattempts.api.FluxAnomalyTier;
 import therealpant.thaumicattempts.config.TAConfig;
+import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.util.WorldSpawnUtil;
 import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
 import therealpant.thaumicattempts.world.block.BlockRiftBush;
@@ -45,15 +46,22 @@ public class EntityFluxAnomalyBurst extends Entity {
 
     private static final int MIN_CORRUPTION_RADIUS = 10;
     private static final int MAX_CORRUPTION_RADIUS = 12;
-    private static final int RESOURCE_RETRY_TICKS = 20;
-    private static final int RESOURCE_SPREAD_ATTEMPTS = 3;
+    private static final int RESOURCE_RETRY_TICKS = 10;
+    private static final int RESOURCE_SPREAD_ATTEMPTS = 10;
     private static final int TAINT_KICKSTART_ATTEMPTS = 8;
     private static final int TAINT_KICKSTART_RADIUS = 2;
-    private static final int BUSH_PLACEMENT_ATTEMPTS = 400;
-    private static final int STONE_PLACEMENT_ATTEMPTS = 600;
-    private static final int GEOD_PLACEMENT_ATTEMPTS = 400;
+    private static final int BUSH_PLACEMENT_ATTEMPTS = 120;
+    private static final int STONE_PLACEMENT_ATTEMPTS = 120;
+    private static final int GEOD_PLACEMENT_ATTEMPTS = 120;
     private static final int SEED_MISSING_GRACE_TICKS = 40;
     private static final float ANOMALOUS_STONE_CONVERSION_CHANCE = 0.2f;
+    private static final int MAX_CHAMBER_ATTEMPTS = 3;
+    private static final float MIN_VOID_AIR_RATIO = 0.18f;
+    private static final int MIN_VOID_AIR_BLOCKS = 300;
+    private static final int SHALLOW_MAX_EDITS = 4000;
+    private static final int DEEP_MAX_EDITS = 6000;
+    private static final int LIQUID_HIT_THRESHOLD = 80;
+    private static final int SURFACE_BUFFER = 3;
     private static final Set<Block> CONVERTIBLE_STONE = new HashSet<>(Arrays.asList(
             Blocks.STONE,
             Blocks.COBBLESTONE,
@@ -68,7 +76,7 @@ public class EntityFluxAnomalyBurst extends Entity {
 
     private int radiusBlocks = MAX_CORRUPTION_RADIUS;      // 2–3 чанка ковром
     private int totalSpreads = 25500;   // сколько spreadFibres всего
-    private int budgetPerTick = 900;   // сколько spreadFibres за тик
+    private int budgetPerTick = 300;   // сколько spreadFibres за тик
     private FluxAnomalySpawnMethod spawnMethod = FluxAnomalySpawnMethod.API;
     private ResourceLocation resourceBlockId = null;
     private Block resourceBlock = null;
@@ -97,6 +105,9 @@ public class EntityFluxAnomalyBurst extends Entity {
     private long lastSeedSeenTick = 0L;
     private boolean seedKilledByOvergrowth = false;
     private FinishReason finishReason = null;
+    private boolean chamberPrepared = false;
+    private BlockPos chamberCenter = null;
+    private int chamberAttempts = 0;
 
     public EntityFluxAnomalyBurst(World worldIn) {
         super(worldIn);
@@ -197,6 +208,9 @@ public class EntityFluxAnomalyBurst extends Entity {
                 if (seedPos == null) {
                     LOG.warn("[FluxAnomaly] Seed spawn failed: no valid position near {}", center);
                     finishAnomaly(FinishReason.SPAWN_POS_INVALID, false);
+                    return;
+                }
+                if (!ensureUndergroundChamber()) {
                     return;
                 }
                 if (seedEntityId == null) {
@@ -401,6 +415,7 @@ public class EntityFluxAnomalyBurst extends Entity {
         if (pendingBush > 0 && resourceBlock instanceof BlockRiftBush) {
             return new PendingResource("bush", () -> pendingBush, value -> pendingBush = value,
                     () -> spawnOneBush(world.rand), resourceBlock);
+
         }
         if (pendingStone > 0 && resourceBlock instanceof BlockAnomalyStone) {
             return new PendingResource("stone", () -> pendingStone, value -> pendingStone = value,
@@ -450,30 +465,32 @@ public class EntityFluxAnomalyBurst extends Entity {
 
     private PlacementAttempt tryPlaceInitialResource(Block block, Random rnd) {
         if (block instanceof BlockRiftBush) {
-            return placeInitialBush((BlockRiftBush) block, rnd);
+            // опорная постановка куста тоже умная
+            return spawnOneBushSmart(rnd);
         }
         if (block instanceof BlockAnomalyStone) {
-            return placeInitialAnomalyStone((BlockAnomalyStone) block, rnd);
+            return spawnOneStoneSmart((BlockAnomalyStone) block, rnd);
         }
         if (block instanceof BlockRiftGeod) {
-            return placeInitialGeod((BlockRiftGeod) block, rnd);
+            return spawnOneGeodSmart((BlockRiftGeod) block, rnd);
         }
         return PlacementAttempt.fail("UNSUPPORTED_BLOCK");
     }
 
+
     private PlacementAttempt spawnOneBush(Random rnd) {
         if (!(resourceBlock instanceof BlockRiftBush)) return PlacementAttempt.fail("INVALID_RESOURCE");
-        return placeInitialBush((BlockRiftBush) resourceBlock, rnd);
+        return spawnOneBushSmart(rnd);
     }
 
     private PlacementAttempt spawnOneStone(Random rnd) {
         if (!(resourceBlock instanceof BlockAnomalyStone)) return PlacementAttempt.fail("INVALID_RESOURCE");
-        return placeInitialAnomalyStone((BlockAnomalyStone) resourceBlock, rnd);
+        return spawnOneStoneSmart((BlockAnomalyStone) resourceBlock, rnd);
     }
 
     private PlacementAttempt spawnOneGeod(Random rnd) {
         if (!(resourceBlock instanceof BlockRiftGeod)) return PlacementAttempt.fail("INVALID_RESOURCE");
-        return placeInitialGeod((BlockRiftGeod) resourceBlock, rnd);
+        return spawnOneGeodSmart((BlockRiftGeod) resourceBlock, rnd);
     }
 
     private PlacementAttempt placeInitialBush(BlockRiftBush bush, Random rnd) {
@@ -510,6 +527,215 @@ public class EntityFluxAnomalyBurst extends Entity {
         FluxResourceHelper.linkBlockToAnomaly(world, lower, anomalyId, seedPos);
         FluxResourceHelper.linkBlockToAnomaly(world, upper, anomalyId, seedPos);
         return PlacementAttempt.success();
+    }
+
+    private PlacementAttempt spawnOneBushSmart(Random rand) {
+        if (seedPos == null) return PlacementAttempt.fail("NO_SEED_POS");
+        if (!world.isAreaLoaded(seedPos, resourceRadius + 2)) return PlacementAttempt.fail("AREA_NOT_LOADED");
+
+        // 80 попыток — чтобы не зависеть от точной Y и случайного попадания в taintSoil
+        for (int attempt = 0; attempt < 80; attempt++) {
+
+            // 1) берём базовую точку вокруг seedPos (не обязана быть на земле)
+            BlockPos base = seedPos.add(
+                    rand.nextInt(resourceRadius * 2 + 1) - resourceRadius,
+                    rand.nextInt(6) - 3, // небольшой разброс по Y
+                    rand.nextInt(resourceRadius * 2 + 1) - resourceRadius
+            );
+
+            if (!world.isBlockLoaded(base)) continue;
+
+            // 2) ищем taintSoil вниз, чтобы не зависеть от высоты
+            BlockPos soil = base;
+            boolean foundSoil = false;
+
+            for (int dy = 0; dy < 12 && soil.getY() > 1; dy++) {
+                IBlockState st = world.getBlockState(soil);
+                if (st.getBlock() == BlocksTC.taintSoil) {
+                    foundSoil = true;
+                    break;
+                }
+                soil = soil.down();
+            }
+
+            if (!foundSoil) continue;
+
+            BlockPos lower = soil.up();
+            BlockPos upper = soil.up(2);
+
+            if (upper.getY() >= world.getHeight() - 1) continue;
+            if (!world.isBlockLoaded(upper)) continue;
+
+            IBlockState lowerState = world.getBlockState(lower);
+            IBlockState upperState = world.getBlockState(upper);
+
+            // 3) разрешаем только воздух/replaceable/taint-декор
+            if (!isClearableForBush(lowerState)) continue;
+            if (!isClearableForBush(upperState)) continue;
+
+            // 4) чистим taintFibre/taintFeature
+            clearIfTaintDecoration(lower, lowerState);
+            clearIfTaintDecoration(upper, upperState);
+
+            // 5) ставим двухблочный куст
+            IBlockState lowerBush = TABlocks.RIFT_BUSH.getDefaultState()
+                    .withProperty(BlockRiftBush.HALF, BlockRiftBush.BlockHalf.LOWER);
+            IBlockState upperBush = TABlocks.RIFT_BUSH.getDefaultState()
+                    .withProperty(BlockRiftBush.HALF, BlockRiftBush.BlockHalf.UPPER);
+
+            world.setBlockState(lower, lowerBush, 3);
+            world.setBlockState(upper, upperBush, 3);
+
+            // 6) привязка к аномалии
+            FluxResourceHelper.linkBlockToAnomaly(world, lower, anomalyId, seedPos);
+            FluxResourceHelper.linkBlockToAnomaly(world, upper, anomalyId, seedPos);
+
+            return PlacementAttempt.success();
+        }
+
+        return PlacementAttempt.fail("NO_TAINT_SOIL_SPOT");
+    }
+
+    private PlacementAttempt spawnOneStoneSmart(BlockAnomalyStone stone, Random rnd) {
+        if (seedPos == null) return PlacementAttempt.fail("NO_SEED_POS");
+        if (!world.isAreaLoaded(seedPos, resourceRadius + 2)) return PlacementAttempt.fail("AREA_NOT_LOADED");
+
+        String lastFail = "NO_TAINT_ROCK_SPOT";
+
+        for (int attempt = 0; attempt < 120; attempt++) {
+            BlockPos base = seedPos.add(
+                    rnd.nextInt(resourceRadius * 2 + 1) - resourceRadius,
+                    rnd.nextInt(8) - 4,
+                    rnd.nextInt(resourceRadius * 2 + 1) - resourceRadius
+            );
+            if (!world.isBlockLoaded(base)) { lastFail = "CHUNK_NOT_LOADED"; continue; }
+
+            // ищем taintRock вверх/вниз вокруг base (чтобы не зависеть от Y)
+            BlockPos rockPos = null;
+            BlockPos cursor = base;
+
+            // сначала вниз
+            for (int i = 0; i < 8 && cursor.getY() > 1; i++) {
+                if (world.getBlockState(cursor).getBlock() == BlocksTC.taintRock) { rockPos = cursor; break; }
+                cursor = cursor.down();
+            }
+            // если не нашли — чуть вверх
+            if (rockPos == null) {
+                cursor = base;
+                for (int i = 0; i < 6 && cursor.getY() < world.getHeight() - 2; i++) {
+                    if (world.getBlockState(cursor).getBlock() == BlocksTC.taintRock) { rockPos = cursor; break; }
+                    cursor = cursor.up();
+                }
+            }
+            if (rockPos == null) { lastFail = "NO_TAINT_ROCK"; continue; }
+
+            IBlockState rockState = world.getBlockState(rockPos);
+            if (isProtectedBlock(world, rockPos, rockState)) { lastFail = "PROTECTED"; continue; }
+
+            // должна быть открытая грань (воздух или декор)
+            EnumFacing openFace = findOpenFace(rockPos, false);
+            if (openFace == null) { lastFail = "NO_OPEN_FACE"; continue; }
+
+            // чистим декор рядом с открытой гранью (чтобы “торчало” в пустоту)
+            BlockPos neighbor = rockPos.offset(openFace);
+            IBlockState neighborState = world.getBlockState(neighbor);
+            if (isTaintDecoration(neighborState)) {
+                clearTaintDecoration(neighbor, neighborState);
+            } else if (!world.isAirBlock(neighbor) && !neighborState.getMaterial().isReplaceable()) {
+                lastFail = "NEIGHBOR_BLOCKED";
+                continue;
+            }
+
+            world.setBlockState(rockPos, stone.getDefaultState(), 3);
+            FluxResourceHelper.linkBlockToAnomaly(world, rockPos, anomalyId, seedPos);
+            return PlacementAttempt.success();
+        }
+
+        return PlacementAttempt.fail(lastFail);
+    }
+
+    private PlacementAttempt spawnOneGeodSmart(BlockRiftGeod geod, Random rnd) {
+        if (seedPos == null) return PlacementAttempt.fail("NO_SEED_POS");
+        if (!world.isAreaLoaded(seedPos, resourceRadius + 2)) return PlacementAttempt.fail("AREA_NOT_LOADED");
+
+        String lastFail = "NO_TAINT_ROCK_SPOT";
+
+        for (int attempt = 0; attempt < 140; attempt++) {
+            BlockPos base = seedPos.add(
+                    rnd.nextInt(resourceRadius * 2 + 1) - resourceRadius,
+                    rnd.nextInt(10) - 5,
+                    rnd.nextInt(resourceRadius * 2 + 1) - resourceRadius
+            );
+            if (!world.isBlockLoaded(base)) { lastFail = "CHUNK_NOT_LOADED"; continue; }
+
+            // ищем taintRock рядом по вертикали
+            BlockPos rockPos = null;
+            BlockPos cursor = base;
+
+            for (int i = 0; i < 10 && cursor.getY() > 1; i++) {
+                if (world.getBlockState(cursor).getBlock() == BlocksTC.taintRock) { rockPos = cursor; break; }
+                cursor = cursor.down();
+            }
+            if (rockPos == null) {
+                cursor = base;
+                for (int i = 0; i < 8 && cursor.getY() < world.getHeight() - 2; i++) {
+                    if (world.getBlockState(cursor).getBlock() == BlocksTC.taintRock) { rockPos = cursor; break; }
+                    cursor = cursor.up();
+                }
+            }
+            if (rockPos == null) { lastFail = "NO_TAINT_ROCK"; continue; }
+
+            IBlockState rockState = world.getBlockState(rockPos);
+            if (isProtectedBlock(world, rockPos, rockState)) { lastFail = "PROTECTED"; continue; }
+
+            // открытая грань: предпочитаем вверх
+            EnumFacing openFace = findOpenFace(rockPos, true);
+            if (openFace == null) { lastFail = "NO_OPEN_FACE"; continue; }
+
+            BlockPos placePos = rockPos.offset(openFace);
+            if (!world.isBlockLoaded(placePos)) { lastFail = "PLACE_NOT_LOADED"; continue; }
+
+            IBlockState placeState = world.getBlockState(placePos);
+            if (isTaintDecoration(placeState)) {
+                clearTaintDecoration(placePos, placeState);
+                placeState = Blocks.AIR.getDefaultState();
+            }
+
+            if (!world.isAirBlock(placePos) && !placeState.getMaterial().isReplaceable()) {
+                lastFail = "PLACE_BLOCKED";
+                continue;
+            }
+
+            // безопасность: не ставим в жидкость
+            if (placeState.getMaterial().isLiquid()) { lastFail = "LIQUID"; continue; }
+
+            // выставляем facing “куда открыто”
+            IBlockState geodState = geod.getDefaultState().withProperty(BlockRiftGeod.FACING, openFace);
+
+            // если у блока есть дополнительные ограничения на установку — проверим
+            if (!geod.canPlaceBlockAt(world, placePos)) { lastFail = "CANNOT_PLACE"; continue; }
+
+            world.setBlockState(placePos, geodState, 3);
+            FluxResourceHelper.linkBlockToAnomaly(world, placePos, anomalyId, seedPos);
+            return PlacementAttempt.success();
+        }
+
+        return PlacementAttempt.fail(lastFail);
+    }
+
+    private boolean isClearableForBush(IBlockState state) {
+        Block b = state.getBlock();
+        return state.getMaterial().isReplaceable()
+                || b == Blocks.AIR
+                || b == BlocksTC.taintFibre
+                || b == BlocksTC.taintFeature;
+    }
+
+    private void clearIfTaintDecoration(BlockPos pos, IBlockState state) {
+        Block b = state.getBlock();
+        if (b == BlocksTC.taintFibre || b == BlocksTC.taintFeature) {
+            world.setBlockToAir(pos);
+        }
     }
 
     private PlacementAttempt placeInitialAnomalyStone(BlockAnomalyStone stone, Random rnd) {
@@ -940,6 +1166,64 @@ public class EntityFluxAnomalyBurst extends Entity {
         return new BlockPos(anchor.getX() + dx, dy, anchor.getZ() + dz);
     }
 
+    private boolean ensureUndergroundChamber() {
+        if (tier == FluxAnomalyTier.SURFACE) {
+            chamberPrepared = true;
+            return true;
+        }
+        if (seedPos == null) {
+            return false;
+        }
+        if (chamberCenter == null || !chamberCenter.equals(seedPos)) {
+            chamberCenter = seedPos.toImmutable();
+            chamberPrepared = false;
+            chamberAttempts = 0;
+        }
+        if (chamberPrepared) {
+            return true;
+        }
+        if (chamberAttempts >= MAX_CHAMBER_ATTEMPTS) {
+            chamberPrepared = true;
+            return true;
+        }
+
+        Random rnd = world.rand;
+        int scanR = tier == FluxAnomalyTier.SHALLOW ? 8 + rnd.nextInt(3) : 10 + rnd.nextInt(3);
+        int scanH = tier == FluxAnomalyTier.SHALLOW ? 6 + rnd.nextInt(3) : 8 + rnd.nextInt(3);
+        if (hasEnoughUndergroundVoid(world, seedPos, scanR, scanH, MIN_VOID_AIR_RATIO, MIN_VOID_AIR_BLOCKS)) {
+            chamberPrepared = true;
+            return true;
+        }
+
+        ChamberSettings settings = ChamberSettings.forTier(tier, rnd);
+        BlockPos carveCenter = seedPos.down();
+        if (carveCenter.getY() < 1) {
+            carveCenter = seedPos;
+        }
+        CarveResult result = carveChamberVariant3(world, carveCenter, settings, settings.maxEdits);
+        if (result.center != null) {
+            BlockPos adjustedSeed = result.center.up();
+            seedPos = adjustedSeed.toImmutable();
+            center = seedPos;
+        }
+        LOG.info("[FluxAnomaly] Chamber: tier={} center={} R={} Hwall={} domeK={} edits={} result={}",
+                tier,
+                seedPos,
+                settings.radius,
+                settings.wallHeight,
+                settings.domeK,
+                result.edits,
+                result.status);
+
+        if (result.status == CarveStatus.FAIL_LIQUID) {
+            chamberAttempts++;
+            seedPos = null;
+            return false;
+        }
+        chamberPrepared = true;
+        return true;
+    }
+
     private void ensureSeedPosition() {
         if (seedPos != null) {
             if (isSeedPositionValid(seedPos)) return;
@@ -1013,6 +1297,258 @@ public class EntityFluxAnomalyBurst extends Entity {
     private BlockPos clampVertical(BlockPos pos, int minY, int maxY) {
         int y = MathHelper.clamp(pos.getY(), minY, maxY);
         return new BlockPos(pos.getX(), y, pos.getZ());
+    }
+
+    private static boolean hasEnoughUndergroundVoid(World world, BlockPos center, int scanR, int scanH,
+                                                    float minAirRatio, int minAirBlocks) {
+        BlockPos min = center.add(-scanR, -scanH, -scanR);
+        BlockPos max = center.add(scanR, scanH, scanR);
+        if (!world.isAreaLoaded(min, max, false)) {
+            return true;
+        }
+        int airCount = 0;
+        int totalCount = 0;
+        int radiusSq = scanR * scanR;
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        for (int dx = -scanR; dx <= scanR; dx++) {
+            for (int dz = -scanR; dz <= scanR; dz++) {
+                if (dx * dx + dz * dz > radiusSq) continue;
+                for (int dy = -scanH; dy <= scanH; dy++) {
+                    cursor.setPos(center.getX() + dx, center.getY() + dy, center.getZ() + dz);
+                    totalCount++;
+                    if (world.isAirBlock(cursor)) {
+                        airCount++;
+                    }
+                }
+            }
+        }
+        return airCount >= minAirBlocks && totalCount > 0 && (float) airCount / (float) totalCount >= minAirRatio;
+    }
+
+    private static CarveResult carveChamberVariant3(World world, BlockPos center, ChamberSettings settings, int maxEdits) {
+        int radius = settings.radius;
+        int wallHeight = settings.wallHeight;
+        int floorDepth = settings.floorDepth;
+        float domeK = settings.domeK;
+        int centerY = center.getY();
+        int baseY = centerY + wallHeight;
+        int domeHeight = MathHelper.ceil(radius * domeK);
+        int maxY = baseY + domeHeight;
+        int surfaceY = world.getHeight(new BlockPos(center.getX(), 0, center.getZ())).getY();
+        int worldMaxY = world.getHeight() - 2;
+
+        if (maxY > surfaceY - SURFACE_BUFFER) {
+            int shift = Math.min(8, maxY - (surfaceY - SURFACE_BUFFER));
+            int shiftedY = centerY - shift;
+            if (shiftedY >= 1) {
+                center = new BlockPos(center.getX(), shiftedY, center.getZ());
+                centerY = shiftedY;
+                baseY = centerY + wallHeight;
+                maxY = baseY + domeHeight;
+            }
+        }
+        if (maxY > surfaceY - SURFACE_BUFFER) {
+            domeHeight = Math.max(1, (surfaceY - SURFACE_BUFFER) - baseY);
+            maxY = baseY + domeHeight;
+        }
+        if (maxY > worldMaxY) {
+            maxY = worldMaxY;
+            domeHeight = Math.max(1, maxY - baseY);
+        }
+        if (domeHeight <= 0 || baseY >= surfaceY - SURFACE_BUFFER) {
+            return CarveResult.fail(CarveStatus.FAIL_SURFACE, 0, center);
+        }
+        float effectiveDomeK = Math.min(domeK, (float) domeHeight / (float) radius);
+
+        BlockPos min = center.add(-radius, -floorDepth, -radius);
+        BlockPos max = new BlockPos(center.getX() + radius, Math.min(maxY, world.getHeight() - 2), center.getZ() + radius);
+        if (!world.isAreaLoaded(min, max, false)) {
+            return CarveResult.fail(CarveStatus.FAIL_NOT_LOADED, 0, center);
+        }
+
+        int edits = 0;
+        int liquidHits = 0;
+        int radiusSq = radius * radius;
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (dx * dx + dz * dz > radiusSq) continue;
+                for (int dy = -floorDepth; dy <= (maxY - centerY); dy++) {
+                    int y = centerY + dy;
+                    if (y < 1 || y >= world.getHeight() - 1) continue;
+                    cursor.setPos(center.getX() + dx, y, center.getZ() + dz);
+                    if (!shouldCarve(cursor, center, baseY, radiusSq, effectiveDomeK)) continue;
+                    IBlockState state = world.getBlockState(cursor);
+                    if (isProtectedBlock(world, cursor, state)) continue;
+                    Material material = state.getMaterial();
+                    if (material.isLiquid()) {
+                        liquidHits++;
+                        if (edits < maxEdits && canReplaceWithTaintRock(world, cursor, state)) {
+                            world.setBlockState(cursor, BlocksTC.taintRock.getDefaultState(), 3);
+                            edits++;
+                        }
+                        if (liquidHits > LIQUID_HIT_THRESHOLD) {
+                            return CarveResult.fail(CarveStatus.FAIL_LIQUID, edits, center);
+                        }
+                        continue;
+                    }
+                    boolean inFloorLayer = cursor.getY() <= centerY && cursor.getY() >= centerY - floorDepth;
+                    if (inFloorLayer) {
+                        if (state.getBlock() == BlocksTC.taintRock) continue;
+                        if (edits >= maxEdits) {
+                            return CarveResult.fail(CarveStatus.LIMIT_REACHED, edits, center);
+                        }
+                        world.setBlockState(cursor, BlocksTC.taintRock.getDefaultState(), 3);
+                        edits++;
+                        continue;
+                    }
+                    if (world.isAirBlock(cursor)) continue;
+                    if (edits >= maxEdits) {
+                        return CarveResult.fail(CarveStatus.LIMIT_REACHED, edits, center);
+                    }
+                    world.setBlockState(cursor, Blocks.AIR.getDefaultState(), 3);
+                    edits++;
+                }
+            }
+        }
+
+        edits = applyChamberNoise(world, center, radius, maxY, edits, maxEdits);
+        return new CarveResult(CarveStatus.SUCCESS, edits, center);
+    }
+
+    private static boolean shouldCarve(BlockPos pos, BlockPos center, int baseY, int radiusSq, float domeK) {
+        int relX = pos.getX() - center.getX();
+        int relZ = pos.getZ() - center.getZ();
+        int distSq = relX * relX + relZ * relZ;
+        if (distSq > radiusSq) return false;
+        int relY = pos.getY() - center.getY();
+        if (relY <= 0) return true;
+        if (pos.getY() <= baseY) return true;
+        int domeY = pos.getY() - baseY;
+        float domeTerm = (domeY * domeY) / (domeK * domeK);
+        return distSq + domeTerm <= radiusSq;
+    }
+
+    private static int applyChamberNoise(World world, BlockPos center, int radius, int maxY, int edits, int maxEdits) {
+        int radiusSq = radius * radius;
+        BlockPos.MutableBlockPos cursor = new BlockPos.MutableBlockPos();
+        Random rnd = world.rand;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                if (dx * dx + dz * dz > radiusSq) continue;
+                for (int y = center.getY(); y <= maxY; y++) {
+                    if (edits >= maxEdits) {
+                        return edits;
+                    }
+                    cursor.setPos(center.getX() + dx, y, center.getZ() + dz);
+                    if (!world.isAirBlock(cursor)) continue;
+                    if (rnd.nextFloat() > 0.12f) continue;
+                    EnumFacing facing = pickSolidNeighbor(world, cursor);
+                    if (facing == null) continue;
+                    BlockPos target = cursor.offset(facing);
+                    IBlockState state = world.getBlockState(target);
+                    if (isProtectedBlock(world, target, state)) continue;
+                    if (state.getMaterial().isLiquid()) continue;
+                    world.setBlockState(target, Blocks.AIR.getDefaultState(), 3);
+                    edits++;
+                }
+            }
+        }
+        return edits;
+    }
+
+    private static EnumFacing pickSolidNeighbor(World world, BlockPos pos) {
+        for (EnumFacing facing : EnumFacing.values()) {
+            if (facing == EnumFacing.UP || facing == EnumFacing.DOWN) continue;
+            BlockPos neighbor = pos.offset(facing);
+            if (!world.isBlockLoaded(neighbor)) continue;
+            IBlockState neighborState = world.getBlockState(neighbor);
+            if (!neighborState.getMaterial().isSolid()) continue;
+            if (neighborState.getBlock() == Blocks.BEDROCK) continue;
+            return facing;
+        }
+        return null;
+    }
+
+    private static boolean isProtectedBlock(World world, BlockPos pos, IBlockState state) {
+        Block block = state.getBlock();
+        if (block == Blocks.BEDROCK) return true;
+        if (block.hasTileEntity(state) || world.getTileEntity(pos) != null) return true;
+        return state.getBlockHardness(world, pos) < 0.0f;
+    }
+
+    private static boolean canReplaceWithTaintRock(World world, BlockPos pos, IBlockState state) {
+        if (isProtectedBlock(world, pos, state)) return false;
+        if (!world.isBlockLoaded(pos)) return false;
+        return true;
+    }
+
+    private static final class ChamberSettings {
+        private final int radius;
+        private final int wallHeight;
+        private final float domeK;
+        private final int floorDepth;
+        private final int maxEdits;
+
+        private ChamberSettings(int radius, int wallHeight, float domeK, int floorDepth, int maxEdits) {
+            this.radius = radius;
+            this.wallHeight = wallHeight;
+            this.domeK = domeK;
+            this.floorDepth = floorDepth;
+            this.maxEdits = maxEdits;
+        }
+
+        private static ChamberSettings forTier(FluxAnomalyTier tier, Random rnd) {
+            // Делает котёл заметно меньше: диаметр и свод примерно в ~2 раза “компактнее”
+            if (tier == FluxAnomalyTier.DEEP) {
+                // было: R=8..12, wall=3, domeK=1.5, floor=1..2
+                // стало: R=5..7,  wall=2, domeK=1.15, floor=1
+                return new ChamberSettings(
+                        5 + rnd.nextInt(3), // 5..7
+                        2,                  // стенка 2 блока
+                        1.15f,              // ниже и “приплюснутее” купол
+                        1,                  // пол 1 блок
+                        DEEP_MAX_EDITS
+                );
+            }
+
+            // SHALLOW
+            // было: R=6..8, wall=2, domeK=1.3, floor=1
+            // стало: R=4..5, wall=1, domeK=1.05, floor=1
+            return new ChamberSettings(
+                    4 + rnd.nextInt(2), // 4..5
+                    1,                  // стенка 1 блок
+                    1.05f,              // низкий купол
+                    1,                  // пол 1 блок
+                    SHALLOW_MAX_EDITS
+            );
+        }
+
+    }
+
+    private enum CarveStatus {
+        SUCCESS,
+        FAIL_LIQUID,
+        FAIL_SURFACE,
+        FAIL_NOT_LOADED,
+        LIMIT_REACHED
+    }
+
+    private static final class CarveResult {
+        private final CarveStatus status;
+        private final int edits;
+        private final BlockPos center;
+
+        private CarveResult(CarveStatus status, int edits, BlockPos center) {
+            this.status = status;
+            this.edits = edits;
+            this.center = center;
+        }
+
+        private static CarveResult fail(CarveStatus status, int edits, BlockPos center) {
+            return new CarveResult(status, edits, center);
+        }
     }
 
     private BlockPos getAnchor() {

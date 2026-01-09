@@ -29,8 +29,8 @@ public class BlockAnomalyStone extends Block implements ITaintBlock {
     public BlockAnomalyStone() {
         super(Material.ROCK);
         setLightOpacity(0);
-        setHardness(2.0F);
-        setResistance(10.0F);
+        setHardness(40.5F);
+        setResistance(200.0F);
         setTranslationKey(ThaumicAttempts.MODID + ".anomaly_stone");
         setRegistryName(ThaumicAttempts.MODID, "anomaly_stone");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
