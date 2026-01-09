@@ -35,8 +35,8 @@ import java.util.UUID;
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public final class InfectedChunkAnomalyManager {
 
-    public static final int CHECK_PERIOD = 200;
-    public static final int SAFE_PLAYER_RADIUS = 64;
+    public static final int CHECK_PERIOD = 800;
+    public static final int SAFE_PLAYER_RADIUS = 164;
     public static final int MIN_INHABITED_TICKS = 144000;
     private static final int MAX_TRIES = 20;
 
@@ -263,6 +263,18 @@ public final class InfectedChunkAnomalyManager {
         if (r < 0.55) return FluxAnomalyTier.SURFACE;
         if (r < 0.90) return FluxAnomalyTier.SHALLOW;
         return FluxAnomalyTier.DEEP;
+    }
+
+    private static boolean hasAnyWithinRadiusChunks(Iterable<Long> keys, int cx, int cz, int rChunks) {
+        int r2 = rChunks * rChunks;
+        for (Long k : keys) {
+            int ox = (int)(k >> 32);
+            int oz = (int)(long)k;
+            int dx = ox - cx;
+            int dz = oz - cz;
+            if (dx*dx + dz*dz <= r2) return true;
+        }
+        return false;
     }
 
     @Nullable

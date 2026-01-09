@@ -10,16 +10,17 @@ import net.minecraft.world.storage.MapStorage;
 import net.minecraft.world.storage.WorldSavedData;
 
 import javax.annotation.Nullable;
-import java.util.Collections;
-import java.util.HashMap;
-import java.util.Map;
-import java.util.Set;
-import java.util.UUID;
+import java.util.*;
+
 import therealpant.thaumicattempts.api.FluxAnomalyTier;
 
 public class TAInfectedChunksData extends WorldSavedData {
 
     private static final String DATA_NAME = "thaumicattempts_infected_chunks";
+
+    // planned anomaly spawns: chunkKey -> scheduledWorldTime
+    private final Map<Long, Long> scheduledChunks = new HashMap<>();
+
 
     private final Set<Long> infectedChunks = new LongOpenHashSet();
     private final Set<Long> activeInfectedChunks = new LongOpenHashSet();
@@ -174,6 +175,53 @@ public class TAInfectedChunksData extends WorldSavedData {
         lastResourcePlacementFailure = reason == null ? "" : reason;
         lastResourcePlacementFailureCount = Math.max(0, count);
         markDirty();
+    }
+
+    public boolean isScheduled(long chunkKey) {
+        return scheduledChunks.containsKey(chunkKey);
+    }
+
+    public boolean scheduleChunk(long chunkKey, long worldTime) {
+        if (scheduledChunks.containsKey(chunkKey)) return false;
+        scheduledChunks.put(chunkKey, worldTime);
+        markDirty();
+        return true;
+    }
+
+    /** Возвращает true если этот чанк был scheduled и мы его "забрали" на спавн */
+    public boolean consumeSchedule(long chunkKey) {
+        if (scheduledChunks.remove(chunkKey) != null) {
+            markDirty();
+            return true;
+        }
+        return false;
+    }
+
+    /** Лимитируем рост scheduled (TTL, например 30 минут) */
+    public void cleanupSchedules(long now, long ttlTicks, int hardCap) {
+        if (scheduledChunks.isEmpty()) return;
+
+        // жёсткий кап на всякий случай
+        if (scheduledChunks.size() > hardCap) {
+            // просто выкидываем самые старые
+            scheduledChunks.entrySet().stream()
+                    .sorted(Map.Entry.comparingByValue())
+                    .limit(scheduledChunks.size() - hardCap)
+                    .forEach(e -> scheduledChunks.remove(e.getKey()));
+            markDirty();
+            return;
+        }
+
+        boolean removed = false;
+        Iterator<Map.Entry<Long, Long>> it = scheduledChunks.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<Long, Long> e = it.next();
+            if (now - e.getValue() > ttlTicks) {
+                it.remove();
+                removed = true;
+            }
+        }
+        if (removed) markDirty();
     }
 
     @Nullable
@@ -356,6 +404,17 @@ public class TAInfectedChunksData extends WorldSavedData {
                 // ignore bad tiers
             }
         }
+
+        scheduledChunks.clear();
+        if (tag.hasKey("scheduled", 9)) { // 9 = TAG_LIST
+            NBTTagList list = tag.getTagList("scheduled", 10); // 10 = TAG_COMPOUND
+            for (int i = 0; i < list.tagCount(); i++) {
+                NBTTagCompound t = list.getCompoundTagAt(i);
+                long k = t.getLong("k");
+                long time = t.getLong("t");
+                scheduledChunks.put(k, time);
+            }
+        }
     }
 
     @Override
@@ -414,6 +473,15 @@ public class TAInfectedChunksData extends WorldSavedData {
             tiers.appendTag(tag);
         }
         nbt.setTag("activeChunkTiers", tiers);
+
+        NBTTagList list = new NBTTagList();
+        for (Map.Entry<Long, Long> e : scheduledChunks.entrySet()) {
+            NBTTagCompound t = new NBTTagCompound();
+            t.setLong("k", e.getKey());
+            t.setLong("t", e.getValue());
+            list.appendTag(t);
+        }
+        tag.setTag("scheduled", list);
 
         return nbt;
     }
