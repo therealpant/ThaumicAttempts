@@ -12,6 +12,7 @@ import net.minecraft.world.gen.ChunkProviderServer;
 import net.minecraftforge.event.terraingen.PopulateChunkEvent;
 import net.minecraftforge.common.BiomeDictionary;
 import net.minecraftforge.common.BiomeDictionary.Type;
+import net.minecraftforge.event.world.ChunkEvent;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
@@ -38,7 +39,13 @@ public final class InfectedChunkAnomalyManager {
     public static final int CHECK_PERIOD = 800;
     public static final int SAFE_PLAYER_RADIUS = 164;
     public static final int MIN_INHABITED_TICKS = 144000;
-    private static final int MAX_TRIES = 20;
+    public static final int MIN_SPACING_CHUNKS = 10;
+    public static final int SCHEDULE_MIN_VIEW_OFFSET = 2;
+    public static final int SCHEDULE_MAX_EXTRA = 24;
+    public static final int SCHEDULE_ATTEMPTS = 24;
+    public static final int SCHEDULE_CLEANUP_PERIOD = 1200;
+    public static final int SCHEDULE_TTL_TICKS = 36000;
+    public static final int SCHEDULE_HARD_CAP = 256;
 
     private static final double ACTIVATION_CHANCE = 0.25;
     private static final double STAGE1_INFECTION_CHANCE = 0.003;
@@ -69,6 +76,33 @@ public final class InfectedChunkAnomalyManager {
     }
 
     @SubscribeEvent
+    public static void onChunkLoad(ChunkEvent.Load event) {
+        World world = event.getWorld();
+        if (!(world instanceof WorldServer)) return;
+        if (world.isRemote) return;
+        if (world.provider == null || world.provider.getDimension() != 0) return;
+
+        WorldServer serverWorld = (WorldServer) world;
+        Chunk chunk = event.getChunk();
+        int cx = chunk.x;
+        int cz = chunk.z;
+        long chunkKey = chunkKey(cx, cz);
+
+        TAInfectedChunksData data = TAInfectedChunksData.get(world);
+        if (!data.isScheduled(chunkKey)) return;
+
+        if (hasAnyWithinRadiusChunks(data.getInfectedChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) return;
+        if (hasAnyWithinRadiusChunks(data.getActiveChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) return;
+        if (isPlayerWithinSafeRadius(world, cx, cz)) return;
+        if (!passesActivationFilters(world, chunk, data)) return;
+
+        if (!data.consumeSchedule(chunkKey)) return;
+
+        TAWorldFluxData fluxData = TAWorldFluxData.get(world);
+        spawnInChunk(serverWorld, chunk, fluxData, data);
+    }
+
+    @SubscribeEvent
     public static void onWorldTick(TickEvent.WorldTickEvent event) {
         World world = event.world;
         if (!(world instanceof WorldServer)) return;
@@ -82,6 +116,9 @@ public final class InfectedChunkAnomalyManager {
         infectedData.lastManagerTickTime = now;
 
         TAWorldFluxData fluxData = TAWorldFluxData.get(world);
+        if ((now % SCHEDULE_CLEANUP_PERIOD) == 0) {
+            infectedData.cleanupSchedules(now, SCHEDULE_TTL_TICKS, SCHEDULE_HARD_CAP);
+        }
         if ((now % CHECK_PERIOD) != 0) {
             return;
         }
@@ -105,45 +142,44 @@ public final class InfectedChunkAnomalyManager {
             return;
         }
 
-        Collection<Chunk> loadedChunks = getLoadedChunks(serverWorld);
-        if (loadedChunks.isEmpty()) {
-            recordAttempt(infectedData, "NO_LOADED_CHUNKS", 0);
-            return;
-        }
-
-        List<Chunk> infectedLoaded = new ArrayList<>();
-        for (Chunk chunk : loadedChunks) {
-            if (chunk == null) continue;
-            long key = TAInfectedChunksData.pack(chunk.x, chunk.z);
-            if (infectedData.isInfected(key)) {
-                infectedLoaded.add(chunk);
-            }
-        }
-
-        if (infectedLoaded.isEmpty()) {
-            recordAttempt(infectedData, "NO_INFECTED_LOADED", 0);
-            return;
-        }
+        Random rand = world.rand;
+        EntityPlayer player = world.playerEntities.get(rand.nextInt(world.playerEntities.size()));
+        int viewDistance = serverWorld.getMinecraftServer().getPlayerList().getViewDistance();
+        int minDist = viewDistance + SCHEDULE_MIN_VIEW_OFFSET;
+        int maxDist = minDist + SCHEDULE_MAX_EXTRA;
 
         int checked = 0;
         String failReason = "NO_CANDIDATE_PASSED_FILTERS";
-        Random rand = world.rand;
 
-        while (!infectedLoaded.isEmpty() && checked < MAX_TRIES) {
-            int idx = rand.nextInt(infectedLoaded.size());
-            Chunk chunk = infectedLoaded.remove(idx);
+
+        while (checked < SCHEDULE_ATTEMPTS) {
             checked++;
 
-            if (!passesActivationFilters(world, chunk, infectedData)) {
+            double angle = rand.nextDouble() * Math.PI * 2.0;
+            int distance = minDist + rand.nextInt(maxDist - minDist + 1);
+            int dx = MathHelper.floor(Math.cos(angle) * distance);
+            int dz = MathHelper.floor(Math.sin(angle) * distance);
+            int cx = player.chunkCoordX + dx;
+            int cz = player.chunkCoordZ + dz;
+            long key = chunkKey(cx, cz);
+
+            if (infectedData.isInfected(key) || infectedData.isActive(key) || infectedData.isScheduled(key)) {
                 continue;
             }
 
-            ActivationResult result = spawnInChunk(serverWorld, chunk, fluxData, infectedData);
-            if (result.success) {
-                recordAttempt(infectedData, "SUCCESS", checked);
-                return;
+            if (hasAnyWithinRadiusChunks(infectedData.getInfectedChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) {
+                continue;
             }
-            failReason = result.reason;
+            if (hasAnyWithinRadiusChunks(infectedData.getActiveChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) {
+                continue;
+            }
+            if (isPlayerWithinSafeRadius(world, cx, cz)) {
+                continue;
+            }
+
+            infectedData.scheduleChunk(key, now);
+            recordAttempt(infectedData, "SCHEDULED", checked);
+            return;
         }
 
         recordAttempt(infectedData, failReason, checked);
@@ -265,17 +301,37 @@ public final class InfectedChunkAnomalyManager {
         return FluxAnomalyTier.DEEP;
     }
 
+    private static long chunkKey(int cx, int cz) {
+        return TAInfectedChunksData.pack(cx, cz);
+    }
+
+    private static int chunkX(long key) {
+        return (int) (key >> 32);
+    }
+
+    private static int chunkZ(long key) {
+        return (int) key;
+    }
+
     private static boolean hasAnyWithinRadiusChunks(Iterable<Long> keys, int cx, int cz, int rChunks) {
         int r2 = rChunks * rChunks;
         for (Long k : keys) {
-            int ox = (int)(k >> 32);
-            int oz = (int)(long)k;
+            int ox = chunkX(k);
+            int oz = chunkZ(k);
             int dx = ox - cx;
             int dz = oz - cz;
             if (dx*dx + dz*dz <= r2) return true;
         }
         return false;
     }
+
+    private static boolean isPlayerWithinSafeRadius(World world, int cx, int cz) {
+        double x = cx * 16 + 8;
+        double z = cz * 16 + 8;
+        EntityPlayer nearest = world.getClosestPlayer(x, 64, z, SAFE_PLAYER_RADIUS, false);
+        return nearest != null;
+    }
+
 
     @Nullable
     private static SpawnLocation findSpawnPosition(World world, BlockPos column, FluxAnomalyTier tier, Random rand) {

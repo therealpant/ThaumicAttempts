@@ -203,11 +203,12 @@ public class TAInfectedChunksData extends WorldSavedData {
 
         // жёсткий кап на всякий случай
         if (scheduledChunks.size() > hardCap) {
-            // просто выкидываем самые старые
-            scheduledChunks.entrySet().stream()
-                    .sorted(Map.Entry.comparingByValue())
-                    .limit(scheduledChunks.size() - hardCap)
-                    .forEach(e -> scheduledChunks.remove(e.getKey()));
+            List<Map.Entry<Long, Long>> entries = new ArrayList<>(scheduledChunks.entrySet());
+            entries.sort(Map.Entry.comparingByValue());
+            int toRemove = scheduledChunks.size() - hardCap;
+            for (int i = 0; i < toRemove; i++) {
+                scheduledChunks.remove(entries.get(i).getKey());
+            }
             markDirty();
             return;
         }
@@ -270,6 +271,14 @@ public class TAInfectedChunksData extends WorldSavedData {
 
     public Set<Long> getActiveInfectedChunks() {
         return Collections.unmodifiableSet(activeInfectedChunks);
+    }
+
+    public Set<Long> getInfectedChunkKeys() {
+        return infectedChunks;
+    }
+
+    public Set<Long> getActiveChunkKeys() {
+        return activeInfectedChunks;
     }
 
     public Map<Long, FluxAnomalyTier> getActiveChunkTiers() {
@@ -406,8 +415,8 @@ public class TAInfectedChunksData extends WorldSavedData {
         }
 
         scheduledChunks.clear();
-        if (tag.hasKey("scheduled", 9)) { // 9 = TAG_LIST
-            NBTTagList list = tag.getTagList("scheduled", 10); // 10 = TAG_COMPOUND
+        if (nbt.hasKey("scheduled", 9)) { // 9 = TAG_LIST
+            NBTTagList list = nbt.getTagList("scheduled", 10); // 10 = TAG_COMPOUND
             for (int i = 0; i < list.tagCount(); i++) {
                 NBTTagCompound t = list.getCompoundTagAt(i);
                 long k = t.getLong("k");
@@ -481,7 +490,7 @@ public class TAInfectedChunksData extends WorldSavedData {
             t.setLong("t", e.getValue());
             list.appendTag(t);
         }
-        tag.setTag("scheduled", list);
+        nbt.setTag("scheduled", list);
 
         return nbt;
     }
