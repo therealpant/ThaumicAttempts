@@ -21,10 +21,6 @@ public class TAInfectedChunksData extends WorldSavedData {
 
     private static final String DATA_NAME = "thaumicattempts_infected_chunks";
 
-    // planned anomaly spawns: chunkKey -> scheduledWorldTime
-    private final Map<Long, Long> scheduledChunks = new HashMap<>();
-
-
     private final Set<Long> infectedChunks = new LongOpenHashSet();
     private final Set<Long> activeInfectedChunks = new LongOpenHashSet();
     private final Map<UUID, Long> seedToChunk = new HashMap<>();
@@ -204,53 +200,6 @@ public class TAInfectedChunksData extends WorldSavedData {
         markDirty();
     }
 
-    public boolean isScheduled(long chunkKey) {
-        return scheduledChunks.containsKey(chunkKey);
-    }
-
-    public boolean scheduleChunk(long chunkKey, long worldTime) {
-        if (scheduledChunks.containsKey(chunkKey)) return false;
-        scheduledChunks.put(chunkKey, worldTime);
-        markDirty();
-        return true;
-    }
-
-    /** Возвращает true если этот чанк был scheduled и мы его "забрали" на спавн */
-    public boolean consumeSchedule(long chunkKey) {
-        if (scheduledChunks.remove(chunkKey) != null) {
-            markDirty();
-            return true;
-        }
-        return false;
-    }
-
-    /** Лимитируем рост scheduled (TTL, например 30 минут) */
-    public void cleanupSchedules(long now, long ttlTicks, int hardCap) {
-        if (scheduledChunks.isEmpty()) return;
-
-        // жёсткий кап на всякий случай
-        if (scheduledChunks.size() > hardCap) {
-            List<Map.Entry<Long, Long>> entries = new ArrayList<>(scheduledChunks.entrySet());
-            entries.sort(Map.Entry.comparingByValue());
-            int toRemove = scheduledChunks.size() - hardCap;
-            for (int i = 0; i < toRemove; i++) {
-                scheduledChunks.remove(entries.get(i).getKey());
-            }
-            markDirty();
-            return;
-        }
-
-        boolean removed = false;
-        Iterator<Map.Entry<Long, Long>> it = scheduledChunks.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<Long, Long> e = it.next();
-            if (now - e.getValue() > ttlTicks) {
-                it.remove();
-                removed = true;
-            }
-        }
-        if (removed) markDirty();
-    }
 
     @Nullable
     public Long removeSeed(UUID seedId) {
@@ -442,17 +391,6 @@ public class TAInfectedChunksData extends WorldSavedData {
             }
         }
 
-        scheduledChunks.clear();
-        if (nbt.hasKey("scheduled", 9)) { // 9 = TAG_LIST
-            NBTTagList list = nbt.getTagList("scheduled", 10); // 10 = TAG_COMPOUND
-            for (int i = 0; i < list.tagCount(); i++) {
-                NBTTagCompound t = list.getCompoundTagAt(i);
-                long k = t.getLong("k");
-                long time = t.getLong("t");
-                scheduledChunks.put(k, time);
-            }
-        }
-
         if (nbt.hasKey("cleanedCooldown", 9)) {
             NBTTagList list = nbt.getTagList("cleanedCooldown", 10);
             for (int i = 0; i < list.tagCount(); i++) {
@@ -519,15 +457,6 @@ public class TAInfectedChunksData extends WorldSavedData {
         }
         nbt.setTag("activeChunkTiers", tiers);
 
-        NBTTagList list = new NBTTagList();
-        for (Map.Entry<Long, Long> e : scheduledChunks.entrySet()) {
-            NBTTagCompound t = new NBTTagCompound();
-            t.setLong("k", e.getKey());
-            t.setLong("t", e.getValue());
-            list.appendTag(t);
-        }
-        nbt.setTag("scheduled", list);
-
         NBTTagList cleaned = new NBTTagList();
         for (Long2LongMap.Entry entry : cleanedCooldown.long2LongEntrySet()) {
             NBTTagCompound t = new NBTTagCompound();
@@ -553,4 +482,5 @@ public class TAInfectedChunksData extends WorldSavedData {
         }
         return list;
     }
+
 }

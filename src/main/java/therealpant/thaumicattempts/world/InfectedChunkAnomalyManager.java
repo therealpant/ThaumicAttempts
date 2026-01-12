@@ -3,7 +3,6 @@ package therealpant.thaumicattempts.world;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
-import net.minecraft.util.math.MathHelper;
 import net.minecraft.world.World;
 import net.minecraft.world.WorldServer;
 import net.minecraft.world.biome.Biome;
@@ -27,8 +26,6 @@ import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
-import java.util.Collection;
-import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
@@ -36,23 +33,20 @@ import java.util.UUID;
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public final class InfectedChunkAnomalyManager {
 
-    public static final int CHECK_PERIOD = 200;
-    public static final int SAFE_PLAYER_RADIUS = 126;
+    public static final int CHECK_PERIOD = 150;
+    public static final int SAFE_PLAYER_RADIUS = 96;
     public static final int MIN_INHABITED_TICKS = 144000;
     public static final int MIN_SPACING_CHUNKS = 8;
-    public static final int SCHEDULE_MIN_VIEW_OFFSET = -4;
-    public static final int SCHEDULE_MAX_EXTRA = 8;
-    public static final int SCHEDULE_ATTEMPTS = 256;
-    public static final int SCHEDULE_CLEANUP_PERIOD = 1200;
-    public static final int SCHEDULE_TTL_TICKS = 36000;
-    public static final int SCHEDULE_HARD_CAP = 256;
-    public static final int CLEANED_RADIUS_CHUNKS = 6;
+    public static final int SEARCH_RADIUS_BLOCKS = 256;
+    public static final int CLEANED_RADIUS_CHUNKS = 8;
     public static final int CLEANED_COOLDOWN_TICKS = 40000;
+    public static final int CLEANSE_AFTER_SPAWN_RADIUS_CHUNKS = 0;
+    public static final double MIGRATION_EXTRA_INFECT_CHANCE = 0.10;
 
-    private static final double ACTIVATION_CHANCE = 0.25;
-    private static final double STAGE1_INFECTION_CHANCE = 0.003;
-    private static final double STAGE2_INFECTION_CHANCE = 0.008;
-    private static final double STAGE3_INFECTION_CHANCE = 0.015;
+    private static final double ACTIVATION_CHANCE = 0.75;
+    private static final double STAGE1_INFECTION_CHANCE = 0.03;
+    private static final double STAGE2_INFECTION_CHANCE = 0.06;
+    private static final double STAGE3_INFECTION_CHANCE = 0.09;
 
     private InfectedChunkAnomalyManager() {}
 
@@ -73,6 +67,10 @@ public final class InfectedChunkAnomalyManager {
         if (chance <= 0) return;
 
         if (event.getRand().nextDouble() < chance) {
+            ThaumicAttempts.LOGGER.info(
+                    "[AnomSpawn] chunk infected cx={} cz={} stage={}",
+                    event.getChunkX(), event.getChunkZ(), fluxData.stage
+            );
             data.addInfectedChunk(chunkKey);
         }
     }
@@ -84,25 +82,6 @@ public final class InfectedChunkAnomalyManager {
         if (world.isRemote) return;
         if (world.provider == null || world.provider.getDimension() != 0) return;
 
-        WorldServer serverWorld = (WorldServer) world;
-        Chunk chunk = event.getChunk();
-        int cx = chunk.x;
-        int cz = chunk.z;
-        long chunkKey = chunkKey(cx, cz);
-
-        TAInfectedChunksData data = TAInfectedChunksData.get(world);
-        if (!data.isScheduled(chunkKey)) return;
-
-        data.purgeExpired(world.getTotalWorldTime());
-        if (isInCleanedCooldown(world, data, cx, cz)) return;
-        if (hasAnyWithinRadiusChunks(data.getActiveChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) return;
-        if (isPlayerWithinSafeRadius(world, cx, cz)) return;
-        if (!passesActivationFilters(world, chunk, data)) return;
-
-        if (!data.consumeSchedule(chunkKey)) return;
-
-        TAWorldFluxData fluxData = TAWorldFluxData.get(world);
-        spawnInChunk(serverWorld, chunk, fluxData, data);
     }
 
     @SubscribeEvent
@@ -118,17 +97,23 @@ public final class InfectedChunkAnomalyManager {
         long now = world.getTotalWorldTime();
         infectedData.lastManagerTickTime = now;
 
-        TAWorldFluxData fluxData = TAWorldFluxData.get(world);
-        if ((now % SCHEDULE_CLEANUP_PERIOD) == 0) {
-            infectedData.cleanupSchedules(now, SCHEDULE_TTL_TICKS, SCHEDULE_HARD_CAP);
-        }
         if ((now % CHECK_PERIOD) != 0) {
             return;
         }
 
-        infectedData.markDirty();
-
+        infectedData.purgeExpired(now);
         infectedData.lastActivationAttemptTime = now;
+        TAWorldFluxData fluxData = null;
+
+        fluxData = TAWorldFluxData.get(world);
+        ThaumicAttempts.LOGGER.info(
+                "[AnomSpawn] attempt tick={} stage={} players={} infectedTotal={} active={}",
+                now,
+                fluxData.stage,
+                world.playerEntities.size(),
+                infectedData.getInfectedChunkKeys().size(),
+                infectedData.getActiveChunkKeys().size()
+        );
 
         if (fluxData.stage < 1) {
             recordAttempt(infectedData, "STAGE_TOO_LOW", 0);
@@ -147,47 +132,96 @@ public final class InfectedChunkAnomalyManager {
 
         Random rand = world.rand;
         EntityPlayer player = world.playerEntities.get(rand.nextInt(world.playerEntities.size()));
-        int viewDistance = serverWorld.getMinecraftServer().getPlayerList().getViewDistance();
-        int minDist = viewDistance + SCHEDULE_MIN_VIEW_OFFSET;
-        int maxDist = minDist + SCHEDULE_MAX_EXTRA;
-        infectedData.purgeExpired(now);
+        int searchRadiusChunks = (int) Math.ceil(SEARCH_RADIUS_BLOCKS / 16.0);
+        double searchRadiusSq = (double) SEARCH_RADIUS_BLOCKS * SEARCH_RADIUS_BLOCKS;
+        double minDistanceSq = (double) SAFE_PLAYER_RADIUS * SAFE_PLAYER_RADIUS;
 
-        int checked = 0;
-        String failReason = "NO_CANDIDATE_PASSED_FILTERS";
+        List<Chunk> candidates = new ArrayList<>();
+        int infectedNearPlayer = 0;
+        int blockedByCleaned = 0;
+        int tooClose = 0;
 
+        ChunkProviderServer chunkProvider = serverWorld.getChunkProvider();
+        for (int cx = player.chunkCoordX - searchRadiusChunks; cx <= player.chunkCoordX + searchRadiusChunks; cx++) {
+            for (int cz = player.chunkCoordZ - searchRadiusChunks; cz <= player.chunkCoordZ + searchRadiusChunks; cz++) {
+                double centerX = cx * 16 + 8;
+                double centerZ = cz * 16 + 8;
+                double dx = centerX - player.posX;
+                double dz = centerZ - player.posZ;
+                double distSq = dx * dx + dz * dz;
+                if (distSq > searchRadiusSq) continue;
 
-        while (checked < SCHEDULE_ATTEMPTS) {
-            checked++;
+                long key = chunkKey(cx, cz);
+                if (!infectedData.isInfected(key)) continue;
 
-            double angle = rand.nextDouble() * Math.PI * 2.0;
-            int distance = minDist + rand.nextInt(maxDist - minDist + 1);
-            int dx = MathHelper.floor(Math.cos(angle) * distance);
-            int dz = MathHelper.floor(Math.sin(angle) * distance);
-            int cx = player.chunkCoordX + dx;
-            int cz = player.chunkCoordZ + dz;
-            long key = chunkKey(cx, cz);
+                infectedNearPlayer++;
+                if (infectedData.isActive(key)) {
+                    continue;
+                }
+                if (distSq < minDistanceSq) {
+                    tooClose++;
+                    continue;
+                }
+                if (isInCleanedCooldown(world, infectedData, cx, cz)) {
+                    blockedByCleaned++;
+                    continue;
+                }
+                if (hasAnyWithinRadiusChunks(infectedData.getActiveChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) {
+                    continue;
+                }
 
-            if (infectedData.isInfected(key) || infectedData.isActive(key) || infectedData.isScheduled(key)) {
-                continue;
+                Chunk chunk = chunkProvider.getLoadedChunk(cx, cz);
+                if (chunk == null) {
+                    continue;
+                }
+                if (!passesActivationFilters(world, chunk, infectedData)) {
+                    continue;
+                }
+                candidates.add(chunk);
             }
+        }
 
-            if (hasAnyWithinRadiusChunks(infectedData.getActiveChunkKeys(), cx, cz, MIN_SPACING_CHUNKS)) {
-                continue;
+        ThaumicAttempts.LOGGER.info(
+                "[AnomSpawn] scan result: infectedNearPlayer={} candidates={} blockedByCleaned={} tooClose={} activeNearby={}",
+                infectedNearPlayer,
+                candidates.size(),
+                blockedByCleaned,
+                tooClose,
+                infectedData.getActiveChunkKeys().size()
+        );
+        if (candidates.isEmpty()) {
+            String reason;
+            if (infectedNearPlayer == 0) {
+                reason = "NO_INFECTED_NEAR_PLAYER";
+            } else if (blockedByCleaned == infectedNearPlayer) {
+                reason = "ALL_INFECTED_BLOCKED_BY_CLEANED";
+            } else if (tooClose == infectedNearPlayer) {
+                reason = "TOO_CLOSE_TO_PLAYER";
+            } else {
+                reason = "NO_CANDIDATE_PASSED_FILTERS";
             }
-            if (isInCleanedCooldown(world, infectedData, cx, cz)) {
-                failReason = "blocked_by_cleaned_cooldown";
-                continue;
-            }
-            if (isPlayerWithinSafeRadius(world, cx, cz)) {
-                continue;
-            }
-
-            infectedData.scheduleChunk(key, now);
-            recordAttempt(infectedData, "SCHEDULED", checked);
+            recordAttempt(infectedData, reason, infectedNearPlayer);
             return;
         }
 
-        recordAttempt(infectedData, failReason, checked);
+        Chunk target = candidates.get(rand.nextInt(candidates.size()));
+        ThaumicAttempts.LOGGER.info(
+                "[AnomSpawn] selected chunk cx={} cz={} dist={} blocks",
+                target.x,
+                target.z,
+                (int)Math.sqrt(
+                        Math.pow(target.x * 16 + 8 - player.posX, 2) +
+                                Math.pow(target.z * 16 + 8 - player.posZ, 2)
+                )
+        );
+        ActivationResult result = spawnInChunk(serverWorld, target, fluxData, infectedData);
+        if (!result.success) {
+            recordAttempt(infectedData, result.reason, infectedNearPlayer);
+            return;
+        }
+        cleanseAfterSpawn(infectedData, target.x, target.z);
+        recordAttempt(infectedData, "SUCCESS", infectedNearPlayer);
+
     }
 
     public static void onSeedSpawned(World world, UUID seedId, long chunkKey, BlockPos seedPos) {
@@ -202,6 +236,11 @@ public final class InfectedChunkAnomalyManager {
         WorldServer serverWorld = (WorldServer) world;
         TAInfectedChunksData data = TAInfectedChunksData.get(world);
 
+        ThaumicAttempts.LOGGER.info(
+                "[AnomSpawn] anomaly ended seed={} anomaly={} chunkKey={}",
+                seedId, anomalyId, chunkKey
+        );
+
         Long knownChunk = resolveChunkKey(data, seedId, anomalyId, chunkKey);
         if (knownChunk == null) return;
 
@@ -212,32 +251,56 @@ public final class InfectedChunkAnomalyManager {
         data.unmarkChunkActive(knownChunk);
         data.removeInfectedChunk(knownChunk);
         data.clearChunkTracking(knownChunk);
-        data.markCleaned(knownChunk, world.getTotalWorldTime() + CLEANED_COOLDOWN_TICKS);
+        long now = world.getTotalWorldTime();
+        data.markCleaned(knownChunk, now + CLEANED_COOLDOWN_TICKS);
 
-        migrateInfection(serverWorld, data);
+        migrateInfection(serverWorld, data, knownChunk);
     }
 
-    private static void migrateInfection(WorldServer world, TAInfectedChunksData data) {
+    private static void migrateInfection(WorldServer world, TAInfectedChunksData data, long originChunkKey) {
         TAWorldFluxData fluxData = TAWorldFluxData.get(world);
         if (fluxData.stage < 1) return;
 
-        Collection<Chunk> loadedChunks = getLoadedChunks(world);
-        if (loadedChunks.isEmpty()) return;
+        ThaumicAttempts.LOGGER.info(
+                "[AnomSpawn] migration from chunkKey={} cleanedRadius={}",
+                originChunkKey, CLEANED_RADIUS_CHUNKS
+        );
 
-        List<Chunk> candidates = new ArrayList<>();
-        for (Chunk chunk : loadedChunks) {
-            long key = TAInfectedChunksData.pack(chunk.x, chunk.z);
-            if (data.isInfected(key)) continue;
-            if (passesActivationFilters(world, chunk, data)) {
-                candidates.add(chunk);
+
+        int originX = chunkX(originChunkKey);
+        int originZ = chunkZ(originChunkKey);
+        List<MigrateCandidate> candidates = new ArrayList<>();
+        ChunkProviderServer provider = world.getChunkProvider();
+        for (int dx = -CLEANED_RADIUS_CHUNKS; dx <= CLEANED_RADIUS_CHUNKS; dx++) {
+            for (int dz = -CLEANED_RADIUS_CHUNKS; dz <= CLEANED_RADIUS_CHUNKS; dz++) {
+                int cx = originX + dx;
+                int cz = originZ + dz;
+                long key = chunkKey(cx, cz);
+                if (data.isInfected(key)) continue;
+                if (data.isActive(key)) continue;
+                if (isInCleanedCooldown(world, data, cx, cz)) continue;
+
+                Chunk chunk = provider.getLoadedChunk(cx, cz);
+                if (chunk == null) continue;
+                if (!passesActivationFilters(world, chunk, data)) continue;
+
+                int dist2 = dx * dx + dz * dz;
+                candidates.add(new MigrateCandidate(key, dist2));
             }
         }
 
         if (candidates.isEmpty()) return;
 
-        Chunk target = candidates.get(world.rand.nextInt(candidates.size()));
-        long targetKey = TAInfectedChunksData.pack(target.x, target.z);
-        data.addInfectedChunk(targetKey);
+        MigrateCandidate primary = pickFarthestCandidate(world.rand, candidates, null);
+        if (primary != null) {
+            data.addInfectedChunk(primary.chunkKey);
+        }
+        if (primary != null && world.rand.nextDouble() < MIGRATION_EXTRA_INFECT_CHANCE) {
+            MigrateCandidate secondary = pickFarthestCandidate(world.rand, candidates, primary.chunkKey);
+            if (secondary != null) {
+                data.addInfectedChunk(secondary.chunkKey);
+            }
+        }
     }
 
     private static ActivationResult spawnInChunk(WorldServer world, Chunk chunk, TAWorldFluxData fluxData, TAInfectedChunksData data) {
@@ -253,6 +316,10 @@ public final class InfectedChunkAnomalyManager {
         FluxAnomalySettings settings = FluxAnomalyPresets.createSettings(tier);
         try {
             EntityFluxAnomalyBurst anomaly = FluxAnomalyApi.spawn(world, location.pos, settings);
+            ThaumicAttempts.LOGGER.info(
+                    "[AnomSpawn] spawning anomaly in chunk {} {} tier={}",
+                    chunk.x, chunk.z, tier
+            );
             anomaly.setHostingChunkKey(chunkKey);
             data.addInfectedChunk(chunkKey);
             data.markChunkActive(chunkKey);
@@ -272,7 +339,7 @@ public final class InfectedChunkAnomalyManager {
 
         double cx = chunk.x * 16 + 8;
         double cz = chunk.z * 16 + 8;
-        EntityPlayer nearest = world.getClosestPlayer(cx, 64, cz, SAFE_PLAYER_RADIUS, false);
+        EntityPlayer nearest = world.getClosestPlayer(cx, world.getSeaLevel(), cz, SAFE_PLAYER_RADIUS, false);
         if (nearest != null) return false;
 
         return !hasInventories(chunk);
@@ -331,13 +398,6 @@ public final class InfectedChunkAnomalyManager {
         return false;
     }
 
-    private static boolean isPlayerWithinSafeRadius(World world, int cx, int cz) {
-        double x = cx * 16 + 8;
-        double z = cz * 16 + 8;
-        EntityPlayer nearest = world.getClosestPlayer(x, 64, z, SAFE_PLAYER_RADIUS, false);
-        return nearest != null;
-    }
-
     private static boolean isInCleanedCooldown(World world, TAInfectedChunksData data, int cx, int cz) {
         long now = world.getTotalWorldTime();
         for (int dx = -CLEANED_RADIUS_CHUNKS; dx <= CLEANED_RADIUS_CHUNKS; dx++) {
@@ -350,6 +410,20 @@ public final class InfectedChunkAnomalyManager {
             }
         }
         return false;
+    }
+
+    private static void cleanseAfterSpawn(TAInfectedChunksData data, int hostCx, int hostCz) {
+        long hostingKey = chunkKey(hostCx, hostCz);
+        for (int dx = -CLEANSE_AFTER_SPAWN_RADIUS_CHUNKS; dx <= CLEANSE_AFTER_SPAWN_RADIUS_CHUNKS; dx++) {
+            for (int dz = -CLEANSE_AFTER_SPAWN_RADIUS_CHUNKS; dz <= CLEANSE_AFTER_SPAWN_RADIUS_CHUNKS; dz++) {
+                long key = chunkKey(hostCx + dx, hostCz + dz);
+                if (key == hostingKey) continue;
+                if (data.isActive(key)) continue;
+                if (data.isInfected(key)) {
+                    data.removeInfectedChunk(key);
+                }
+            }
+        }
     }
 
     @Nullable
@@ -409,12 +483,6 @@ public final class InfectedChunkAnomalyManager {
         return SpawnLocation.invalid("SPAWN_POS_INVALID");
     }
 
-    private static Collection<Chunk> getLoadedChunks(WorldServer world) {
-        ChunkProviderServer provider = world.getChunkProvider();
-        Collection<Chunk> loaded = provider.getLoadedChunks();
-        return loaded == null ? Collections.emptyList() : loaded;
-    }
-
     private static double infectionChance(int stage) {
         switch (stage) {
             case 1:
@@ -431,6 +499,8 @@ public final class InfectedChunkAnomalyManager {
         data.lastActivationFailReason = reason;
         data.lastCandidatesChecked = candidates;
         data.markDirty();
+        ThaumicAttempts.LOGGER.info("[AnomSpawn] reason={} infectedNear={} time={}",
+                reason, candidates, data.lastActivationAttemptTime);
     }
 
     @Nullable
@@ -481,6 +551,34 @@ public final class InfectedChunkAnomalyManager {
         static ActivationResult fail(String reason) {
             return new ActivationResult(false, reason == null ? "SPAWN_FAIL" : reason);
         }
+    }
+
+    private static final class MigrateCandidate {
+        final long chunkKey;
+        final int dist2;
+
+        private MigrateCandidate(long chunkKey, int dist2) {
+            this.chunkKey = chunkKey;
+            this.dist2 = dist2;
+        }
+    }
+
+    @Nullable
+    private static MigrateCandidate pickFarthestCandidate(Random rand, List<MigrateCandidate> candidates, @Nullable Long excludeKey) {
+        int maxDist = -1;
+        List<MigrateCandidate> farthest = new ArrayList<>();
+        for (MigrateCandidate candidate : candidates) {
+            if (excludeKey != null && candidate.chunkKey == excludeKey) continue;
+            if (candidate.dist2 > maxDist) {
+                maxDist = candidate.dist2;
+                farthest.clear();
+                farthest.add(candidate);
+            } else if (candidate.dist2 == maxDist) {
+                farthest.add(candidate);
+            }
+        }
+        if (farthest.isEmpty()) return null;
+        return farthest.get(rand.nextInt(farthest.size()));
     }
 
     private static final class SpawnLocation {

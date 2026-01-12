@@ -1033,7 +1033,7 @@ public class EntityFluxAnomalyBurst extends Entity {
                 return false;
             }
             EntityTaintSeed seed = new EntityTaintSeed(world);
-            seed.setPosition(seedPos.getX() + 0.5, seedPos.getY() + 0.5, seedPos.getZ() + 0.5);
+            seed.setPosition(seedPos.getX() + 0.5, seedPos.getY(), seedPos.getZ() + 0.5);
 
             // Сделаем его “как объект”, а не как моб
             seed.enablePersistence();           // не деспавнится
@@ -1226,7 +1226,7 @@ public class EntityFluxAnomalyBurst extends Entity {
 
     private void ensureSeedPosition() {
         if (seedPos != null) {
-            if (isSeedPositionValid(seedPos)) return;
+            if (isSeedPositionValid(seedPos) && WorldSpawnUtil.isSafeSeedAabb(world, seedPos)) return;
             if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
                 LOG.debug("[FluxAnomaly] Cached seed position {} invalid, reselecting", seedPos);
             }
@@ -1248,21 +1248,52 @@ public class EntityFluxAnomalyBurst extends Entity {
             }
             return;
         }
+
+        // ===== Fallback: не нашли позицию — делаем карман и ставим =====
+        BlockPos carveCandidate = enforceTierVertical(center);
+
+        // на всякий: Y в границах
+        int y = MathHelper.clamp(carveCandidate.getY(), 1, world.getHeight() - 2);
+        carveCandidate = new BlockPos(carveCandidate.getX(), y, carveCandidate.getZ());
+
+        if (world.isAreaLoaded(carveCandidate, 3)) {
+            boolean ok = WorldSpawnUtil.ensureSeedPocket(world, carveCandidate);
+            if (ok) {
+                seedPos = carveCandidate.toImmutable();
+                center = seedPos;
+                LOG.info("[FluxAnomaly] Seed pocket carved at {}, using as fallback", seedPos);
+                return;
+            } else {
+                LOG.warn("[FluxAnomaly] Failed to carve seed pocket at {}", carveCandidate);
+            }
+        }
+
         if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
             LOG.debug("[FluxAnomaly] Failed to find safe seed position near {}", center);
         }
     }
 
+
     private BlockPos findValidatedSeedPos(BlockPos candidate) {
         BlockPos safePos = WorldSpawnUtil.findSafeSeedPos(world, candidate, world.rand);
-        if (safePos != null && !isSeedPositionValid(safePos)) {
-            if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
-                LOG.debug("[FluxAnomaly] Seed position {} rejected after validation (tier={})", safePos, tier);
+        if (safePos != null) {
+            // важно: безопасно ли для хитбокса семени
+            if (!WorldSpawnUtil.isSafeSeedAabb(world, safePos)) {
+                if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                    LOG.debug("[FluxAnomaly] Seed position {} rejected: AABB collides", safePos);
+                }
+                return null;
             }
-            return null;
+            if (!isSeedPositionValid(safePos)) {
+                if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+                    LOG.debug("[FluxAnomaly] Seed position {} rejected after validation (tier={})", safePos, tier);
+                }
+                return null;
+            }
         }
         return safePos;
     }
+
 
     private boolean isSeedPositionValid(BlockPos pos) {
         if (!WorldSpawnUtil.isSafeSeedPos(world, pos)) {
@@ -1500,22 +1531,6 @@ public class EntityFluxAnomalyBurst extends Entity {
         }
 
         private static ChamberSettings forTier(FluxAnomalyTier tier, Random rnd) {
-            // Делает котёл заметно меньше: диаметр и свод примерно в ~2 раза “компактнее”
-            if (tier == FluxAnomalyTier.DEEP) {
-                // было: R=8..12, wall=3, domeK=1.5, floor=1..2
-                // стало: R=5..7,  wall=2, domeK=1.15, floor=1
-                return new ChamberSettings(
-                        5 + rnd.nextInt(3), // 5..7
-                        2,                  // стенка 2 блока
-                        1.15f,              // ниже и “приплюснутее” купол
-                        1,                  // пол 1 блок
-                        DEEP_MAX_EDITS
-                );
-            }
-
-            // SHALLOW
-            // было: R=6..8, wall=2, domeK=1.3, floor=1
-            // стало: R=4..5, wall=1, domeK=1.05, floor=1
             return new ChamberSettings(
                     4 + rnd.nextInt(2), // 4..5
                     1,                  // стенка 1 блок
