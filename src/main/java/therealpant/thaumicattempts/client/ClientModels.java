@@ -21,7 +21,6 @@ import therealpant.thaumicattempts.golemnet.tile.*;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
-import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import java.util.function.Supplier;
@@ -67,7 +66,6 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(ModBlocksItems.ARCANE_CRAFTER, ThaumicAttempts.MODID + ":arcane_crafter");
         registerItemBlockModel(ModBlocksItems.MATH_CORE, ThaumicAttempts.MODID + ":math_core");
         registerItemBlockModel(ModBlocksItems.MIRROR_STABILIZER, ThaumicAttempts.MODID + ":mirror_stabilizer");
-        registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
         registerItemBlockModel(TABlocks.RIFT_BUSH, ThaumicAttempts.MODID + ":rift_bush");
 
         // ухо — используем таумовскую иконку предмета
@@ -87,6 +85,10 @@ public final class ClientModels extends CommonProxy {
         // предметы-«тайлы»
         registerItemModel(TABlocks.MIRROR_MANAGER_ITEM);
         attachTileRenderer(TABlocks.MIRROR_MANAGER_ITEM, TileMirrorManager::new);
+        registerItemModel(TABlocks.MIRROR_MANAGER_CORE_ITEM);
+        attachTileRenderer(TABlocks.MIRROR_MANAGER_CORE_ITEM, TileMirrorManagerCore::new);
+        registerItemModel(TABlocks.RIFT_STONE_BASE_ITEM);
+        attachTileRenderer(TABlocks.RIFT_STONE_BASE_ITEM, TileRiftStoneBase::new);
         registerItemModel(TABlocks.ORDER_TERMINAL_ITEM);
         registerItemModel(TABlocks.PATTERN_REQUESTER_ITEM);
         registerItemModel(TABlocks.RESOURCE_REQUESTER_ITEM);
@@ -144,6 +146,13 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileMirrorManager.class,
                 new RenderMirrorManagerGeo());
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileMirrorManagerCore.class,
+                new RenderMirrorManagerCoreGeo());
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftStoneBase.class,
+                new RenderRiftStoneBaseGeo()
+        );
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TilePatternRequester.class,
                 new RenderPatternRequesterGeo()

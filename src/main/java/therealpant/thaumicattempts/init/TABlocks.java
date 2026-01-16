@@ -15,6 +15,7 @@ public class TABlocks {
     public static Block ANOMALY_STONE;
     public static Block RIFT_BUSH;
     public static Block RIFT_GEOD;
+    public static Block RIFT_STONE_BASE;
 
     public static Item MIRROR_MANAGER_ITEM;
     public static Item MIRROR_MANAGER_CORE_ITEM;
@@ -26,5 +27,6 @@ public class TABlocks {
     public static Item ANOMALY_STONE_ITEM;
     public static Item RIFT_BUSH_ITEM;
     public static Item RIFT_GEOD_ITEM;
+    public static Item RIFT_STONE_BASE_ITEM;
 }
 

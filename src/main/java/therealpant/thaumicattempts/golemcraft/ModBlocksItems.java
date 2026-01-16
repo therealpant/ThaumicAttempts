@@ -16,20 +16,16 @@ import therealpant.thaumicattempts.golemcraft.item.ItemCraftPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
+import therealpant.thaumicattempts.golemnet.block.*;
 import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
 import therealpant.thaumicattempts.world.block.BlockRiftBush;
 import therealpant.thaumicattempts.world.block.BlockRiftGeod;
 
-import therealpant.thaumicattempts.golemnet.block.BlockMirrorManager;
-import therealpant.thaumicattempts.golemnet.block.BlockMirrorManagerCore;
-import therealpant.thaumicattempts.golemnet.block.BlockOrderTerminal;
-import therealpant.thaumicattempts.golemnet.block.BlockPatternRequester;
-import therealpant.thaumicattempts.golemnet.block.BlockResourceRequester;
-import therealpant.thaumicattempts.golemnet.block.BlockGolemDispatcher;
-import therealpant.thaumicattempts.golemnet.block.BlockInfusionRequester;
+
 import therealpant.thaumicattempts.golemnet.tile.*;
 import therealpant.thaumicattempts.world.tile.TileRiftBush;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
+
 
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
@@ -82,6 +78,8 @@ public final class ModBlocksItems {
         TABlocks.ANOMALY_STONE = new BlockAnomalyStone();
         TABlocks.RIFT_BUSH = new BlockRiftBush();
         TABlocks.RIFT_GEOD = new BlockRiftGeod();
+        TABlocks.RIFT_STONE_BASE = new BlockRiftStoneBase();
+
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -93,13 +91,17 @@ public final class ModBlocksItems {
                 TABlocks.INFUSION_REQUESTER,
                 TABlocks.ANOMALY_STONE,
                 TABlocks.RIFT_BUSH,
-                TABlocks.RIFT_GEOD
-
+                TABlocks.RIFT_GEOD,
+                TABlocks.RIFT_STONE_BASE
         );
 
         // TileEntities сети
         GameRegistry.registerTileEntity(TileMirrorManager.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "mirror_manager"));
+        GameRegistry.registerTileEntity(TileMirrorManagerCore.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "mirror_manager_core"));
+        GameRegistry.registerTileEntity(TileRiftStoneBase.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_base"));
         GameRegistry.registerTileEntity(TileOrderTerminal.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "order_terminal"));
         GameRegistry.registerTileEntity(TilePatternRequester.class,
@@ -187,6 +189,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_BUSH.getRegistryName());
         TABlocks.RIFT_GEOD_ITEM = new ItemBlock(TABlocks.RIFT_GEOD)
                 .setRegistryName(TABlocks.RIFT_GEOD.getRegistryName());
+        TABlocks.RIFT_STONE_BASE_ITEM = new ItemBlock(TABlocks.RIFT_STONE_BASE)
+                .setRegistryName(TABlocks.RIFT_STONE_BASE.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -198,8 +202,8 @@ public final class ModBlocksItems {
                 TABlocks.INFUSION_REQUESTER_ITEM,
                 TABlocks.ANOMALY_STONE_ITEM,
                 TABlocks.RIFT_BUSH_ITEM,
-                TABlocks.RIFT_GEOD_ITEM
-
+                TABlocks.RIFT_GEOD_ITEM,
+                TABlocks.RIFT_STONE_BASE_ITEM
         );
     }
 }
