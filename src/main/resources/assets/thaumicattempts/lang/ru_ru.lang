@@ -28,6 +28,7 @@ item.thaumicattempts.anomaly_stone.name=Аномальный камень
 item.thaumicattempts.rift_bush.name=Аномальный Куст
 item.thaumicattempts.rift_geod.name=Аномальная Жиода
 
+enchantment.infusion.VISBATTERY=Заряд Виса
 
 container.golem_crafter=Верстак Голема
 container.arcane_crafter=Мистический Верстак Голема

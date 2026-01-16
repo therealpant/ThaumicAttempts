@@ -21,6 +21,7 @@ import therealpant.thaumicattempts.api.FluxAnomalyApi;
 import therealpant.thaumicattempts.api.FluxAnomalyPresets;
 import therealpant.thaumicattempts.api.FluxAnomalySettings;
 import therealpant.thaumicattempts.api.FluxAnomalyTier;
+import therealpant.thaumicattempts.config.TAConfig;
 import therealpant.thaumicattempts.world.data.TAInfectedChunksData;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
@@ -42,6 +43,11 @@ public final class InfectedChunkAnomalyManager {
     public static final int CLEANED_COOLDOWN_TICKS = 40000;
     public static final int CLEANSE_AFTER_SPAWN_RADIUS_CHUNKS = 0;
     public static final double MIGRATION_EXTRA_INFECT_CHANCE = 0.10;
+    private static final int MOUNTAIN_ELEVATION = 18;
+    private static final int SHALLOW_MIN_DEPTH_BELOW_SURFACE = 10;
+    private static final int SHALLOW_MAX_DEPTH_BELOW_SURFACE = 40;
+    private static final int SHALLOW_MIN_Y_FLOOR = 18;
+    private static final int SHALLOW_MAX_Y_CEIL = 90;
 
     private static final double ACTIVATION_CHANCE = 0.75;
     private static final double STAGE1_INFECTION_CHANCE = 0.03;
@@ -457,15 +463,55 @@ public final class InfectedChunkAnomalyManager {
         return SpawnLocation.valid(above);
     }
 
+    private static int surfaceY(World world, int x, int z) {
+        int y = world.getHeight(new BlockPos(x, 0, z)).getY();
+        int max = world.getHeight() - 2;
+        if (y < 1) y = 1;
+        if (y > max) y = max;
+        return y;
+    }
+
+    private static boolean isMountainous(World world, int x, int z) {
+        int sea = world.getSeaLevel();
+        int sy = surfaceY(world, x, z);
+        return (sy - sea) >= MOUNTAIN_ELEVATION;
+    }
+
+    private static int clampY(World world, int y) {
+        int max = world.getHeight() - 2;
+        if (y < 1) return 1;
+        if (y > max) return max;
+        return y;
+    }
+
     @Nullable
     private static SpawnLocation findShallow(World world, BlockPos column, Random rand) {
-        for (int i = 0; i < 20; i++) {
-            int y = 20 + rand.nextInt(36);
-            BlockPos pos = new BlockPos(column.getX(), y, column.getZ());
+        int x = column.getX();
+        int z = column.getZ();
+        int sy = surfaceY(world, x, z);
+        int maxY = Math.min(SHALLOW_MAX_Y_CEIL, sy - SHALLOW_MIN_DEPTH_BELOW_SURFACE);
+        int minY = Math.max(SHALLOW_MIN_Y_FLOOR, sy - SHALLOW_MAX_DEPTH_BELOW_SURFACE);
+
+        if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
+            ThaumicAttempts.LOGGER.debug(
+                    "[AnomSpawn] shallow terrain x={} z={} surfaceY={} range=[{}..{}] mountainous={}",
+                    x, z, sy, minY, maxY, isMountainous(world, x, z)
+            );
+        }
+
+        if (maxY <= minY) return SpawnLocation.invalid("SPAWN_POS_INVALID");
+
+        for (int i = 0; i < 24; i++) {
+            int y = minY + rand.nextInt(maxY - minY + 1);
+            y = clampY(world, y);
+            BlockPos pos = new BlockPos(x, y, z);
             if (!world.isBlockLoaded(pos)) continue;
-            if (y > Math.max(1, world.getSeaLevel() - 5)) continue;
+
             SpawnLocation location = tryFindCaveAir(world, pos);
-            if (location.pos != null) return location;
+            if (location.pos != null) {
+                if (world.canBlockSeeSky(location.pos)) continue;
+                return location;
+            }
         }
         return SpawnLocation.invalid("SPAWN_POS_INVALID");
     }

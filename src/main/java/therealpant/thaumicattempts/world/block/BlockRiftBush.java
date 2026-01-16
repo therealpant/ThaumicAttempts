@@ -22,6 +22,8 @@ import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.common.blocks.world.taint.ITaintBlock;
 import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.util.TADrops;
 import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
 import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;
 import therealpant.thaumicattempts.world.tile.TileRiftBush;
@@ -118,11 +120,26 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
 
     @Override
     public List<ItemStack> getDrops(IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
+
+        // Верхняя половина никогда не дропает
         if (state.getValue(HALF) == BlockHalf.UPPER) {
             return Collections.emptyList();
         }
-        return Collections.singletonList(new ItemStack(Item.getItemFromBlock(this)));
+
+        if (!(world instanceof World)) {
+            return Collections.emptyList();
+        }
+
+        World w = (World) world;
+
+        List<ItemStack> drops = new java.util.ArrayList<>();
+
+        // Используем твою систему шансов
+        TADrops.addRiftDropFixed(drops, w, ModBlocksItems.RIFT_FLOWER);
+
+        return drops;
     }
+
 
     @Override
     public ItemStack getItem(World worldIn, BlockPos pos, IBlockState state) {

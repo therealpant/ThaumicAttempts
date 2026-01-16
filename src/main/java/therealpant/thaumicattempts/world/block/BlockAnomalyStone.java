@@ -17,6 +17,8 @@ import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.common.blocks.world.taint.ITaintBlock;
 import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.util.TADrops;
 import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
 import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
@@ -62,6 +64,19 @@ public class BlockAnomalyStone extends Block implements ITaintBlock {
     public EnumBlockRenderType getRenderType(IBlockState state) {
         return EnumBlockRenderType.INVISIBLE;
     }
+
+    @Override
+    public void getDrops(net.minecraft.util.NonNullList<net.minecraft.item.ItemStack> drops,
+                         net.minecraft.world.IBlockAccess world,
+                         net.minecraft.util.math.BlockPos pos,
+                         net.minecraft.block.state.IBlockState state,
+                         int fortune) {
+        drops.clear();
+
+        net.minecraft.world.World w = (net.minecraft.world.World) world;
+        TADrops.addRiftDropFixed(drops, w, ModBlocksItems.RIFT_STONE);
+    }
+
 
     @Override
     public boolean isOpaqueCube(IBlockState state) {

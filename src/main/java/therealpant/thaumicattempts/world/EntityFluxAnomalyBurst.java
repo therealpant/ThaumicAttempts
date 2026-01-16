@@ -62,6 +62,10 @@ public class EntityFluxAnomalyBurst extends Entity {
     private static final int DEEP_MAX_EDITS = 6000;
     private static final int LIQUID_HIT_THRESHOLD = 80;
     private static final int SURFACE_BUFFER = 3;
+    private static final int SHALLOW_MIN_DEPTH_BELOW_SURFACE = 10;
+    private static final int SHALLOW_MAX_DEPTH_BELOW_SURFACE = 40;
+    private static final int SHALLOW_MIN_Y_FLOOR = 18;
+    private static final int SHALLOW_MAX_Y_CEIL = 90;
     private static final Set<Block> CONVERTIBLE_STONE = new HashSet<>(Arrays.asList(
             Blocks.STONE,
             Blocks.COBBLESTONE,
@@ -1311,11 +1315,27 @@ public class EntityFluxAnomalyBurst extends Entity {
         return true;
     }
 
+    private int surfaceYAt(BlockPos pos) {
+        int y = world.getHeight(new BlockPos(pos.getX(), 0, pos.getZ())).getY();
+        int max = world.getHeight() - 2;
+        if (y < 1) y = 1;
+        if (y > max) y = max;
+        return y;
+    }
+
+
     private BlockPos enforceTierVertical(BlockPos pos) {
         switch (tier) {
             case SHALLOW: {
-                int maxY = Math.min(56, Math.max(1, world.getSeaLevel() - 5));
-                return clampVertical(pos, 20, maxY);
+                int sy = surfaceYAt(pos);
+                int minY = Math.max(SHALLOW_MIN_Y_FLOOR, sy - SHALLOW_MAX_DEPTH_BELOW_SURFACE);
+                int maxY = Math.min(Math.min(SHALLOW_MAX_Y_CEIL, sy - SHALLOW_MIN_DEPTH_BELOW_SURFACE),
+                        world.getHeight() - 2);
+                if (maxY <= minY) {
+                    int oldMax = Math.min(56, Math.max(1, world.getSeaLevel() - 5));
+                    return clampVertical(pos, 20, oldMax);
+                }
+                return clampVertical(pos, minY, maxY);
             }
             case DEEP:
                 return clampVertical(pos, 1, 24);

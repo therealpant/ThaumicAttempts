@@ -28,6 +28,7 @@ item.thaumicattempts.anomaly_stone.name=Anomaly Stone
 item.thaumicattempts.rift_bush.name=Rift Bush
 item.thaumicattempts.rift_geod.name=Rift Geode
 
+enchantment.infusion.VISBATTERY=Vis Charge
 
 container.golem_crafter=Crafter
 container.arcane_crafter=Arcane Crafter

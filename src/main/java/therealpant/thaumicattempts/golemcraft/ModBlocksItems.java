@@ -63,8 +63,7 @@ public final class ModBlocksItems {
                 .setRegistryName(ThaumicAttempts.MODID, "arcane_crafter");
         e.getRegistry().register(ARCANE_CRAFTER);
 
-        EAR_BAND = new BlockArcaneEarBand("arcane_ear_band")
-                .setTranslationKey(ThaumicAttempts.MODID + ".arcane_ear_band");
+        EAR_BAND = new BlockArcaneEarBand();
         e.getRegistry().register(EAR_BAND);
 
         MIRROR_STABILIZER = new therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer();

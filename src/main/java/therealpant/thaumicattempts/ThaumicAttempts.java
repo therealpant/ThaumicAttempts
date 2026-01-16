@@ -23,6 +23,7 @@ import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_
 
 import therealpant.thaumicattempts.command.*;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
+import therealpant.thaumicattempts.data.TAInfusionEnchantments;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
 import therealpant.thaumicattempts.data.research.TAResearchAddenda;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
@@ -136,6 +137,7 @@ public class ThaumicAttempts {
         TAInfusionRecipes.register();
         TAAlchemyRecipes.register();
         TAMultiblockTriggers.register();
+        TAInfusionEnchantments.register();
 
         //Addenda
         if (ENABLE_ELDRITCH_STONE_RECIPE)

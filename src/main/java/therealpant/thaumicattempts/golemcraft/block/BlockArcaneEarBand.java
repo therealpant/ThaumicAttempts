@@ -4,7 +4,10 @@ import com.google.common.collect.Lists;
 import net.minecraft.block.Block;
 import net.minecraft.block.SoundType;
 import net.minecraft.block.material.Material;
+import net.minecraft.block.properties.PropertyBool;
+import net.minecraft.block.properties.PropertyDirection;
 import net.minecraft.block.state.BlockFaceShape;
+import net.minecraft.block.state.BlockStateContainer;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
@@ -15,19 +18,23 @@ import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
-
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
-import thaumcraft.common.blocks.BlockTCDevice;
 import thaumcraft.common.blocks.IBlockEnabled;
 import thaumcraft.common.blocks.IBlockFacing;
 import thaumcraft.common.lib.utils.BlockStateUtils;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemcraft.tile.TileArcaneEarBand;
 
+import javax.annotation.Nullable;
 import java.util.List;
 
-public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, IBlockEnabled {
+public class BlockArcaneEarBand extends Block implements IBlockFacing, IBlockEnabled {
+
+    // На всякий: если интерфейсы вдруг не содержат полей (в некоторых форках/версиях)
+    // можно раскомментить и использовать эти, но у тебя уже компилилось с IBlockFacing.FACING / IBlockEnabled.ENABLED.
+    // public static final PropertyDirection FACING = PropertyDirection.create("facing");
+    // public static final PropertyBool ENABLED = PropertyBool.create("enabled");
 
     private static final List<SoundEvent> INSTRUMENTS =
             Lists.newArrayList(
@@ -43,16 +50,50 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
                     SoundEvents.BLOCK_NOTE_XYLOPHONE
             );
 
-    public BlockArcaneEarBand(String name) {
-        super(Material.WOOD, TileArcaneEarBand.class, name);
+    public BlockArcaneEarBand() {
+        super(Material.WOOD);
+
+        setRegistryName(ThaumicAttempts.MODID, "arcane_ear_band");
+        setTranslationKey(ThaumicAttempts.MODID + ".arcane_ear_band");
+
+        setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
         setSoundType(SoundType.WOOD);
         setHardness(1.0F);
+        setResistance(1.0F);
 
-        IBlockState bs = this.blockState.getBaseState();
-        bs = bs.withProperty(IBlockFacing.FACING, EnumFacing.UP);
-        bs = bs.withProperty(IBlockEnabled.ENABLED, false);
+        IBlockState bs = this.blockState.getBaseState()
+                .withProperty(IBlockFacing.FACING, EnumFacing.UP)
+                .withProperty(IBlockEnabled.ENABLED, false);
         setDefaultState(bs);
-        setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
+    }
+
+    @Override
+    protected BlockStateContainer createBlockState() {
+        return new BlockStateContainer(this, IBlockFacing.FACING, IBlockEnabled.ENABLED);
+    }
+
+    @Override
+    public IBlockState getStateFromMeta(int meta) {
+        EnumFacing facing = EnumFacing.byIndex(meta & 7);
+        boolean enabled = (meta & 8) != 0;
+        return getDefaultState()
+                .withProperty(IBlockFacing.FACING, facing)
+                .withProperty(IBlockEnabled.ENABLED, enabled);
+    }
+
+    @Override
+    public int getMetaFromState(IBlockState state) {
+        int meta = state.getValue(IBlockFacing.FACING).getIndex();
+        if (state.getValue(IBlockEnabled.ENABLED)) meta |= 8;
+        return meta;
+    }
+
+    @Override
+    public IBlockState getStateForPlacement(World worldIn, BlockPos pos, EnumFacing facing,
+                                            float hitX, float hitY, float hitZ, int meta, EntityLivingBase placer) {
+        return getDefaultState()
+                .withProperty(IBlockFacing.FACING, facing)
+                .withProperty(IBlockEnabled.ENABLED, false);
     }
 
     @Override
@@ -64,12 +105,16 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
     @Override public boolean isFullCube(IBlockState state) { return false; }
     @Override public int damageDropped(IBlockState state) { return 0; }
 
+    // --- TileEntity ---
     @Override
-    public IBlockState getStateForPlacement(World worldIn, BlockPos pos, EnumFacing facing, float hitX, float hitY, float hitZ, int meta, EntityLivingBase placer) {
-        IBlockState bs = this.getDefaultState();
-        bs = bs.withProperty(IBlockFacing.FACING, facing);
-        bs = bs.withProperty(IBlockEnabled.ENABLED, false);
-        return bs;
+    public boolean hasTileEntity(IBlockState state) {
+        return true;
+    }
+
+    @Nullable
+    @Override
+    public TileEntity createTileEntity(World world, IBlockState state) {
+        return new TileArcaneEarBand();
     }
 
     @Override
@@ -86,9 +131,11 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
         if (te instanceof TileArcaneEarBand) {
             ((TileArcaneEarBand) te).updateTone();
         }
-        EnumFacing f = thaumcraft.common.lib.utils.BlockStateUtils.getFacing(state);
-        if (!world.getBlockState(pos.offset(f.getOpposite())).isSideSolid(world, pos.offset(f.getOpposite()), f)) {
-            dropBlockAsItem(world, pos, this.getDefaultState(), 0);
+
+        EnumFacing f = BlockStateUtils.getFacing(state);
+        BlockPos support = pos.offset(f.getOpposite());
+        if (!world.getBlockState(support).isSideSolid(world, support, f)) {
+            dropBlockAsItem(world, pos, state, 0);
             world.setBlockToAir(pos);
         }
     }
@@ -99,16 +146,14 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
                                     float hitX, float hitY, float hitZ) {
         if (world.isRemote) return true;
 
-        TileArcaneEarBand tile = (TileArcaneEarBand) world.getTileEntity(pos);
-        if (tile != null) {
-            tile.changePitch(); // листаем базовую ноту (0..24)
-            // проиграем звук ноты для фидбэка, как у оригинала
+        TileEntity te = world.getTileEntity(pos);
+        if (te instanceof TileArcaneEarBand) {
+            TileArcaneEarBand tile = (TileArcaneEarBand) te;
+            tile.changePitch();
             triggerNote(world, pos, true, state);
         }
         return true;
     }
-
-    // === Редстоун: мощность берём из Tile ===
 
     @Override public boolean canProvidePower(IBlockState state) { return true; }
 
@@ -125,14 +170,13 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
 
     @Override
     public boolean canPlaceBlockOnSide(World worldIn, BlockPos pos, EnumFacing side) {
-        return worldIn.getBlockState(pos.offset(side.getOpposite()))
-                .isSideSolid(worldIn, pos.offset(side.getOpposite()), side);
+        BlockPos support = pos.offset(side.getOpposite());
+        return worldIn.getBlockState(support).isSideSolid(worldIn, support, side);
     }
 
-    // хитбокс идентичен уху
     @Override
     public AxisAlignedBB getBoundingBox(IBlockState state, IBlockAccess source, BlockPos pos) {
-        EnumFacing facing = BlockStateUtils.getFacing(this.getMetaFromState(state));
+        EnumFacing facing = BlockStateUtils.getFacing(getMetaFromState(state));
         switch (facing.ordinal()) {
             case 0:  return new AxisAlignedBB(0.125F, 0.625F, 0.125F, 0.875F, 1.000F, 0.875F); // DOWN
             case 1:  return new AxisAlignedBB(0.125F, 0.000F, 0.125F, 0.875F, 0.375F, 0.875F); // UP
@@ -143,7 +187,6 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
         }
     }
 
-    // Вспомогательное: отыграть звук ноты/частицы как в оригинале (для клика)
     private void triggerNote(World world, BlockPos pos, boolean sound, IBlockState state) {
         byte instrumentType = -1;
         if (sound) {
@@ -156,15 +199,15 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
             if (material == Material.GLASS) instrumentType = 3;
             if (material == Material.WOOD)  instrumentType = 4;
             Block block = iblockstate.getBlock();
-            if (block == net.minecraft.init.Blocks.CLAY)        instrumentType = 5;
-            if (block == net.minecraft.init.Blocks.GOLD_BLOCK)  instrumentType = 6;
-            if (block == net.minecraft.init.Blocks.WOOL)        instrumentType = 7;
-            if (block == net.minecraft.init.Blocks.PACKED_ICE)  instrumentType = 8;
-            if (block == net.minecraft.init.Blocks.BONE_BLOCK)  instrumentType = 9;
+            if (block == net.minecraft.init.Blocks.CLAY)       instrumentType = 5;
+            if (block == net.minecraft.init.Blocks.GOLD_BLOCK) instrumentType = 6;
+            if (block == net.minecraft.init.Blocks.WOOL)       instrumentType = 7;
+            if (block == net.minecraft.init.Blocks.PACKED_ICE) instrumentType = 8;
+            if (block == net.minecraft.init.Blocks.BONE_BLOCK) instrumentType = 9;
         }
-        // нота = текущая базовая, чтобы игрок слышал, на что настроено
-        TileArcaneEarBand t = (TileArcaneEarBand) world.getTileEntity(pos);
-        int note = (t != null) ? (t.baseNote & 0xFF) : 0;
+
+        TileEntity te = world.getTileEntity(pos);
+        int note = (te instanceof TileArcaneEarBand) ? (((TileArcaneEarBand) te).baseNote & 0xFF) : 0;
         world.addBlockEvent(pos, this, instrumentType, note);
     }
 
@@ -172,18 +215,17 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
     public boolean eventReceived(IBlockState state, World worldIn, BlockPos pos, int par5, int par6) {
         super.eventReceived(state, worldIn, pos, par5, par6);
 
-        // par6 — номер ноты из triggerNote(...)
         if (worldIn.isRemote) {
             TileEntity te = worldIn.getTileEntity(pos);
             if (te instanceof TileArcaneEarBand) {
-                // лёгкий клиентский сеттер, без синка на сервер
                 ((TileArcaneEarBand) te).clientSetBaseNote(par6);
             }
         }
 
         float pitch = (float) Math.pow(2.0F, (par6 - 12) / 12.0F);
         worldIn.playSound(null, pos, getInstrument(par5), SoundCategory.BLOCKS, 3.0F, pitch);
-        worldIn.spawnParticle(EnumParticleTypes.NOTE, pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,
+        worldIn.spawnParticle(EnumParticleTypes.NOTE,
+                pos.getX() + 0.5, pos.getY() + 0.5, pos.getZ() + 0.5,
                 par6 / 24.0, 0.0, 0.0);
         return true;
     }
@@ -194,8 +236,7 @@ public class BlockArcaneEarBand extends BlockTCDevice implements IBlockFacing, I
     }
 
     @SideOnly(Side.CLIENT)
-
-    public net.minecraft.util.BlockRenderLayer getBlockLayer() {
-        return net.minecraft.util.BlockRenderLayer.CUTOUT;
+    public BlockRenderLayer getBlockLayer() {
+        return BlockRenderLayer.CUTOUT;
     }
 }

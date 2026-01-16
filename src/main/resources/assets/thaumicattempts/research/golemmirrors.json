@@ -34,7 +34,8 @@
           "recipes": [
             "thaumicattempts:order_terminal",
             "thaumicattempts:mirror_manager_infusion",
-            "thaumicattempts:mirror_manager_multiblock"
+            "thaumicattempts:mirror_manager_multiblock",
+            "thaumicattempts:vischarge"
           ]
         }
       ]
