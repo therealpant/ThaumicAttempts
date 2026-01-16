@@ -68,7 +68,7 @@ public class RenderMirrorManagerCoreGeo extends GeoBlockRenderer<TileMirrorManag
                        int destroyStage,
                        float alpha) {
 
-        if (te == null || te.getWorld() == null) return;
+        if (te == null) return;
 
         boolean pushedAttrib = false;
         float prevX = OpenGlHelper.lastBrightnessX;
