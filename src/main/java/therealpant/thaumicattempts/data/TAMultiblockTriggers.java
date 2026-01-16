@@ -92,7 +92,7 @@ public final class TAMultiblockTriggers {
      */
     private static Part[][][] buildBlueprintStructure() {
         Part top    = new Part(BlocksTC.stoneEldritchTile, BlocksTC.stoneEldritchTile);
-        Part middle = new Part(TABlocks.MIRROR_MANAGER_CORE, TABlocks.MIRROR_MANAGER_CORE);
+        Part middle = new Part(TABlocks.GOLEM_DISPATCHER, TABlocks.GOLEM_DISPATCHER);
         Part bottom = new Part(BlocksTC.stoneEldritchTile, BlocksTC.stoneEldritchTile);
 
         return new Part[][][] {
