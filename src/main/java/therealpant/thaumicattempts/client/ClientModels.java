@@ -21,6 +21,7 @@ import therealpant.thaumicattempts.golemnet.tile.*;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
+import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import java.util.function.Supplier;
@@ -68,6 +69,8 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(ModBlocksItems.MIRROR_STABILIZER, ThaumicAttempts.MODID + ":mirror_stabilizer");
         registerItemBlockModel(TABlocks.RIFT_BUSH, ThaumicAttempts.MODID + ":rift_bush");
         registerItemBlockModel(TABlocks.ELDRITCH_CONSTARCTION, ThaumicAttempts.MODID + ":eldritch_constarction");
+        registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
+        registerItemBlockModel(TABlocks.RIFT_STONE_BASE, ThaumicAttempts.MODID + ":rift_stone_base");
 
         // ухо — используем таумовскую иконку предмета
         ModelLoader.setCustomModelResourceLocation(
@@ -87,9 +90,7 @@ public final class ClientModels extends CommonProxy {
         registerItemModel(TABlocks.MIRROR_MANAGER_ITEM);
         attachTileRenderer(TABlocks.MIRROR_MANAGER_ITEM, TileMirrorManager::new);
         registerItemModel(TABlocks.MIRROR_MANAGER_CORE_ITEM);
-        attachTileRenderer(TABlocks.MIRROR_MANAGER_CORE_ITEM, TileMirrorManagerCore::new);
         registerItemModel(TABlocks.RIFT_STONE_BASE_ITEM);
-        attachTileRenderer(TABlocks.RIFT_STONE_BASE_ITEM, TileRiftStoneBase::new);
         registerItemModel(TABlocks.ORDER_TERMINAL_ITEM);
         registerItemModel(TABlocks.PATTERN_REQUESTER_ITEM);
         registerItemModel(TABlocks.RESOURCE_REQUESTER_ITEM);
@@ -131,6 +132,7 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.MATH_CORE,
                 (new StateMap.Builder()).ignore(BlockMathCore.SIG).build()
         );
+
         // Таумовское «ухо»: у блока нет ENABLED, мапим все состояния на готовый ресурс.
         ModelLoader.setCustomStateMapper(
                 ModBlocksItems.EAR_BAND,
@@ -147,13 +149,6 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileMirrorManager.class,
                 new RenderMirrorManagerGeo());
-        ClientRegistry.bindTileEntitySpecialRenderer(
-                TileMirrorManagerCore.class,
-                new RenderMirrorManagerCoreGeo());
-        ClientRegistry.bindTileEntitySpecialRenderer(
-                TileRiftStoneBase.class,
-                new RenderRiftStoneBaseGeo()
-        );
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TilePatternRequester.class,
                 new RenderPatternRequesterGeo()
@@ -175,7 +170,7 @@ public final class ClientModels extends CommonProxy {
                 new RenderPillar()
         );
         ClientRegistry.bindTileEntitySpecialRenderer(
-                therealpant.thaumicattempts.world.tile.TileAnomalyStone.class,
+                TileAnomalyStone.class,
                 new RenderAnomalyStone()
         );
         ClientRegistry.bindTileEntitySpecialRenderer(
