@@ -12,15 +12,16 @@ import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraft.item.EnumDyeColor;
 
+import net.minecraftforge.oredict.OreDictionary;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.api.crafting.ShapedArcaneRecipe;
 import thaumcraft.api.items.ItemsTC;
 
-import thaumcraft.common.blocks.BlockTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.TABlocks;
 
 import static thaumcraft.api.blocks.BlocksTC.*;
 
@@ -37,7 +38,7 @@ public final class TAArcaneRecipes {
                     "MINDCLOCKWORK",
                     25,
                     new AspectList().add(Aspect.AIR, 1).add(Aspect.ORDER, 1),
-                    new ItemStack(Item.getByNameOrId("thaumcraft:arcane_ear_band")),
+                    new ItemStack(Item.getByNameOrId(ThaumicAttempts.MODID +":arcane_ear_band")),
                     " C ",
                     " E ",
                     " M ",
@@ -186,6 +187,50 @@ public final class TAArcaneRecipes {
         } catch (Throwable t) {
             System.out.println("[TA] Skip mirror_stabilizer_arcane: " + t);
         }
+        // --------- ELDRITCH_construction  (Arcane Workbench, 500 vis)
+        try {
+            ShapedArcaneRecipe eld_con = new ShapedArcaneRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "eldritch_construction_arcane"),
+                    "MINDCLOCKWORK",
+                    500,
+                    new AspectList().add(Aspect.AIR, 1).add(Aspect.ORDER, 1).add(Aspect.ENTROPY, 3),
+                    new ItemStack(Item.getItemFromBlock(TABlocks.ELDRITCH_CONSTRUCTION)),
+                    " E ",
+                    "ROR",
+                    " E ",
+                    'E', new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
+                    'O', Blocks.OBSIDIAN,
+                    'R', new ItemStack(ModBlocksItems.RIFT_STONE)
+            );
+            eld_con.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "eldritch_construction"));
+            e.getRegistry().register(eld_con);
+        } catch (Throwable t) {
+            System.out.println("[TA] Skip eldritch_construction: " + t);
+        }
+
+        // --------- Rift stone base  (Arcane Workbench, 500 vis)
+        try {
+            ShapedArcaneRecipe rif_base = new ShapedArcaneRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_base_arcane"),
+                    "MINDCLOCKWORK",
+                    500,
+                    new AspectList().add(Aspect.AIR, 1).add(Aspect.ORDER, 1).add(Aspect.ENTROPY, 3),
+                    new ItemStack(Item.getItemFromBlock(TABlocks.RIFT_STONE_BASE)),
+                    "PMP",
+                    "EOE",
+                    "CEC",
+                    'P', new ItemStack(ItemsTC.plate, 1, 3),
+                    'M', new ItemStack(ItemsTC.mirroredGlass),
+                    'E', new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
+                    'O', new ItemStack(ItemsTC.primordialPearl, 1, OreDictionary.WILDCARD_VALUE),
+                    'C', new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION)
+            );
+            rif_base.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_base"));
+            e.getRegistry().register(rif_base);
+        } catch (Throwable t) {
+            System.out.println("[TA] Skip eldritch_construction: " + t);
+        }
+
         // --------- Великодревесная коробка (Arcane Workbench, 200 vis)
         try {
             ShapedArcaneRecipe greatwood_box = new ShapedArcaneRecipe(

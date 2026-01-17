@@ -35,6 +35,8 @@
             "thaumicattempts:order_terminal",
             "thaumicattempts:mirror_manager_infusion",
             "thaumicattempts:mirror_manager_multiblock",
+            "thaumicattempts:eldritch_construction_arcane",
+            "thaumicattempts:rift_stone_base_arcane",
             "thaumicattempts:vischarge"
           ]
         }

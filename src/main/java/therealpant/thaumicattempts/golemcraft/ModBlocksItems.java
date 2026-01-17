@@ -79,7 +79,7 @@ public final class ModBlocksItems {
         TABlocks.RIFT_BUSH = new BlockRiftBush();
         TABlocks.RIFT_GEOD = new BlockRiftGeod();
         TABlocks.RIFT_STONE_BASE = new BlockRiftStoneBase();
-        TABlocks.ELDRITCH_CONSTARCTION = new BlockEldritchConstarction();
+        TABlocks.ELDRITCH_CONSTRUCTION = new BlockEldritchConstarction();
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -93,7 +93,7 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_BUSH,
                 TABlocks.RIFT_GEOD,
                 TABlocks.RIFT_STONE_BASE,
-                TABlocks.ELDRITCH_CONSTARCTION
+                TABlocks.ELDRITCH_CONSTRUCTION
         );
 
         // TileEntities сети
@@ -192,8 +192,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_GEOD.getRegistryName());
         TABlocks.RIFT_STONE_BASE_ITEM = new ItemBlock(TABlocks.RIFT_STONE_BASE)
                 .setRegistryName(TABlocks.RIFT_STONE_BASE.getRegistryName());
-        TABlocks.ELDRITCH_CONSTARCTION_ITEM = new ItemBlock(TABlocks.ELDRITCH_CONSTARCTION)
-                .setRegistryName(TABlocks.ELDRITCH_CONSTARCTION.getRegistryName());
+        TABlocks.ELDRITCH_CONSTRUCTION_ITEM = new ItemBlock(TABlocks.ELDRITCH_CONSTRUCTION)
+                .setRegistryName(TABlocks.ELDRITCH_CONSTRUCTION.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -207,7 +207,7 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_BUSH_ITEM,
                 TABlocks.RIFT_GEOD_ITEM,
                 TABlocks.RIFT_STONE_BASE_ITEM,
-                TABlocks.ELDRITCH_CONSTARCTION_ITEM
+                TABlocks.ELDRITCH_CONSTRUCTION_ITEM
         );
     }
 }

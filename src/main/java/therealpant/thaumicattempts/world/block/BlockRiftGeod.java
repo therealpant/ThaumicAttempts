@@ -3,9 +3,11 @@ package therealpant.thaumicattempts.world.block;
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.properties.PropertyEnum;
+import net.minecraft.block.properties.PropertyInteger;
 import net.minecraft.block.state.BlockStateContainer;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumBlockRenderType;
@@ -20,6 +22,8 @@ import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.common.blocks.world.taint.ITaintBlock;
 import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.util.TADrops;
 import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
 import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
@@ -30,7 +34,7 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
 
     public static final PropertyEnum<EnumFacing> FACING = PropertyEnum.create("facing", EnumFacing.class);
     private static final AxisAlignedBB AABB = new AxisAlignedBB(0, 0, 0, 1, 1, 1);
-
+    public static final PropertyInteger SPIN = PropertyInteger.create("spin", 0, 1);
     public BlockRiftGeod() {
         super(Material.ROCK);
         setLightOpacity(0);
@@ -39,7 +43,9 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
         setTranslationKey(ThaumicAttempts.MODID + ".rift_geod");
         setRegistryName(ThaumicAttempts.MODID, "rift_geod");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
-        setDefaultState(this.blockState.getBaseState().withProperty(FACING, EnumFacing.UP));
+        setDefaultState(this.blockState.getBaseState()
+                .withProperty(FACING, EnumFacing.UP)
+                .withProperty(SPIN, 0));
         setTickRandomly(true);
     }
 
@@ -56,25 +62,31 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
 
     @Override
     protected BlockStateContainer createBlockState() {
-        return new BlockStateContainer(this, FACING);
+        return new BlockStateContainer(this, FACING, SPIN);
     }
 
     @Override
     public IBlockState getStateFromMeta(int meta) {
-        // meta может прилететь мусорный, поэтому нормализуем в 0..5
-        EnumFacing facing = EnumFacing.VALUES[meta % EnumFacing.VALUES.length];
-        return getDefaultState().withProperty(FACING, facing);
+        meta = meta & 15;                  // 0..15 гарантированно
+        int f = meta / 2;                  // 0..7
+        int s = meta & 1;                  // 0..1
+        if (f >= EnumFacing.VALUES.length) f = EnumFacing.UP.getIndex(); // страховка
+        EnumFacing facing = EnumFacing.VALUES[f];
+        return getDefaultState().withProperty(FACING, facing).withProperty(SPIN, s);
     }
 
     @Override
     public int getMetaFromState(IBlockState state) {
-        return state.getValue(FACING).getIndex();
+        int f = state.getValue(FACING).getIndex(); // 0..5
+        int s = state.getValue(SPIN);              // 0..1
+        return f * 2 + s;                          // 0..11
     }
 
     @Override
     public IBlockState getStateForPlacement(World world, BlockPos pos, EnumFacing facing,
                                             float hitX, float hitY, float hitZ, int meta, EntityLivingBase placer) {
-        return getDefaultState().withProperty(FACING, facing); // или facing.getOpposite()
+        int spin = world.rand.nextInt(2); // 0..1
+        return getDefaultState().withProperty(FACING, facing).withProperty(SPIN, spin);
     }
 
     @Override
@@ -93,6 +105,20 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
         return AABB;
     }
 
+    @Override
+    public void getDrops(net.minecraft.util.NonNullList<ItemStack> drops,
+                         IBlockAccess world,
+                         BlockPos pos,
+                         IBlockState state,
+                         int fortune) {
+        drops.clear();
+
+        if (world instanceof World) {
+            World w = (World) world;
+
+            TADrops.addRiftDropFixed(drops, w, ModBlocksItems.RIFT_CRISTAL);
+        }
+    }
     @Override
     public boolean isOpaqueCube(IBlockState state) {
         return false;

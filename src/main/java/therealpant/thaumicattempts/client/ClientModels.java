@@ -68,7 +68,7 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(ModBlocksItems.MATH_CORE, ThaumicAttempts.MODID + ":math_core");
         registerItemBlockModel(ModBlocksItems.MIRROR_STABILIZER, ThaumicAttempts.MODID + ":mirror_stabilizer");
         registerItemBlockModel(TABlocks.RIFT_BUSH, ThaumicAttempts.MODID + ":rift_bush");
-        registerItemBlockModel(TABlocks.ELDRITCH_CONSTARCTION, ThaumicAttempts.MODID + ":eldritch_constarction");
+        registerItemBlockModel(TABlocks.ELDRITCH_CONSTRUCTION, ThaumicAttempts.MODID + ":eldritch_constarction");
         registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
         registerItemBlockModel(TABlocks.RIFT_STONE_BASE, ThaumicAttempts.MODID + ":rift_stone_base");
 

@@ -102,13 +102,13 @@ public final class TAInfusionRecipes {
 
                 Object[] COMPS = new Object[]{
                         new ItemStack(ItemsTC.mind, 1, 1),
-                        new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
+                        new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION),
                         new ItemStack(ItemsTC.mirroredGlass),
-                        new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
+                        new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION),
                         new ItemStack(ItemsTC.mind, 1, 1),
-                        new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
+                        new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION),
                         new ItemStack(ItemsTC.mirroredGlass),
-                        new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
+                        new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION)
                 };
 
                 AspectList AS = new AspectList()

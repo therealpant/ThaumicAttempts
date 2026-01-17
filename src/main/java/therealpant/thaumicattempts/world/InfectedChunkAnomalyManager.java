@@ -37,22 +37,22 @@ public final class InfectedChunkAnomalyManager {
     public static final int CHECK_PERIOD = 150;
     public static final int SAFE_PLAYER_RADIUS = 96;
     public static final int MIN_INHABITED_TICKS = 144000;
-    public static final int MIN_SPACING_CHUNKS = 8;
+    public static final int MIN_SPACING_CHUNKS = 10;
     public static final int SEARCH_RADIUS_BLOCKS = 256;
-    public static final int CLEANED_RADIUS_CHUNKS = 8;
+    public static final int CLEANED_RADIUS_CHUNKS = 10;
     public static final int CLEANED_COOLDOWN_TICKS = 40000;
     public static final int CLEANSE_AFTER_SPAWN_RADIUS_CHUNKS = 0;
     public static final double MIGRATION_EXTRA_INFECT_CHANCE = 0.10;
     private static final int MOUNTAIN_ELEVATION = 18;
-    private static final int SHALLOW_MIN_DEPTH_BELOW_SURFACE = 10;
+    private static final int SHALLOW_MIN_DEPTH_BELOW_SURFACE = 15;
     private static final int SHALLOW_MAX_DEPTH_BELOW_SURFACE = 40;
     private static final int SHALLOW_MIN_Y_FLOOR = 18;
     private static final int SHALLOW_MAX_Y_CEIL = 90;
 
     private static final double ACTIVATION_CHANCE = 0.75;
-    private static final double STAGE1_INFECTION_CHANCE = 0.03;
-    private static final double STAGE2_INFECTION_CHANCE = 0.06;
-    private static final double STAGE3_INFECTION_CHANCE = 0.09;
+    private static final double STAGE1_INFECTION_CHANCE = 0.01;
+    private static final double STAGE2_INFECTION_CHANCE = 0.02;
+    private static final double STAGE3_INFECTION_CHANCE = 0.03;
 
     private InfectedChunkAnomalyManager() {}
 

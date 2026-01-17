@@ -6,7 +6,7 @@
 		"1": "thaumicattempts:blocks/requester_ring",
 		"4": "thaumicattempts:blocks/eldritch_stone_3",
 		"5": "thaumicattempts:blocks/eldritch_stone_1",
-		"particle": "thaumicattempts:blocks/requester_orb"
+		"particle": "thaumicattempts:blocks/rift_stone_block"
 	},
 	"elements": [
 		{

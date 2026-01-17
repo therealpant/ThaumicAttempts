@@ -97,49 +97,66 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
     }
 
     @Override
-    public void onBlockHarvested(World worldIn, BlockPos pos, IBlockState state, EntityPlayer player) {
-        if (state.getValue(HALF) == BlockHalf.UPPER) {
-            BlockPos downPos = pos.down();
-            IBlockState downState = worldIn.getBlockState(downPos);
-            if (downState.getBlock() == this && downState.getValue(HALF) == BlockHalf.LOWER) {
-                if (player.isCreative()) {
-                    worldIn.setBlockToAir(downPos);
-                } else {
-                    worldIn.destroyBlock(downPos, true);
-                }
-            }
-        } else {
+    public void breakBlock(World worldIn, BlockPos pos, IBlockState state) {
+        if (state.getValue(HALF) == BlockHalf.LOWER) {
             BlockPos upPos = pos.up();
             IBlockState upState = worldIn.getBlockState(upPos);
             if (upState.getBlock() == this && upState.getValue(HALF) == BlockHalf.UPPER) {
                 worldIn.setBlockToAir(upPos);
             }
         }
-        super.onBlockHarvested(worldIn, pos, state, player);
+        super.breakBlock(worldIn, pos, state);
     }
 
     @Override
-    public List<ItemStack> getDrops(IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
-
-        // Верхняя половина никогда не дропает
-        if (state.getValue(HALF) == BlockHalf.UPPER) {
-            return Collections.emptyList();
-        }
-
-        if (!(world instanceof World)) {
-            return Collections.emptyList();
-        }
-
-        World w = (World) world;
-
-        List<ItemStack> drops = new java.util.ArrayList<>();
-
-        // Используем твою систему шансов
-        TADrops.addRiftDropFixed(drops, w, ModBlocksItems.RIFT_FLOWER);
-
-        return drops;
+    public boolean canSilkHarvest(World world, BlockPos pos, IBlockState state, EntityPlayer player) {
+        return false;
     }
 
+    @Override
+    public boolean removedByPlayer(IBlockState state, World world, BlockPos pos, EntityPlayer player, boolean willHarvest) {
+        if (state.getValue(HALF) == BlockHalf.UPPER) {
+            BlockPos downPos = pos.down();
+            IBlockState downState = world.getBlockState(downPos);
+
+            if (downState.getBlock() == this && downState.getValue(HALF) == BlockHalf.LOWER) {
+                if (player.isCreative()) {
+                    world.setBlockToAir(pos);
+                    world.setBlockToAir(downPos);
+                } else {
+                    // ломаем НИЗ, он и даст дроп
+                    world.destroyBlock(downPos, true);
+                    // верх уже сломан игроком, но чтобы не осталось клиента/серва рассинхрона:
+                    world.setBlockToAir(pos);
+                }
+                return false;
+            }
+        }
+        return super.removedByPlayer(state, world, pos, player, willHarvest);
+    }
+
+    @Override
+    public Item getItemDropped(IBlockState state, java.util.Random rand, int fortune) {
+        return net.minecraft.init.Items.AIR;
+    }
+
+    @Override
+    public void getDrops(net.minecraft.util.NonNullList<ItemStack> drops,
+                         IBlockAccess world,
+                         BlockPos pos,
+                         IBlockState state,
+                         int fortune) {
+
+        drops.clear();
+
+        // верхняя половина не дропает
+        if (state.getValue(HALF) == BlockHalf.UPPER) return;
+
+        if (world instanceof World) {
+            World w = (World) world;
+            TADrops.addRiftDropFixed(drops, w, ModBlocksItems.RIFT_FLOWER);
+        }
+    }
 
     @Override
     public ItemStack getItem(World worldIn, BlockPos pos, IBlockState state) {

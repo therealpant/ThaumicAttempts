@@ -35,37 +35,34 @@ public final class TAMultiblockTriggers {
         }
     }
 
-    /**
-     * Структура ДЛЯ ТРИГГЕРА (то, что будет заменяться/удаляться при активации).
-     *
-     * В stable_39 "pos" (куда нанесена пыль) соответствует НИЖНЕМУ слою структуры,
-     * то есть последнему индексу по Y. Поэтому базу кладём в последний Y.
-     *
-     * После срабатывания:
-     * - база -> менеджер
-     * - остальное -> AIR
-     */
+
     private static Part[][][] buildTriggerStructure() {
-        Part eldToAir  = new Part(BlocksTC.stoneEldritchTile, "AIR");
-        Part coreToAir = new Part(TABlocks.MIRROR_MANAGER_CORE, "AIR");
-        Part baseToMgr = new Part(BlocksTC.stoneEldritchTile, TABlocks.MIRROR_MANAGER);
+        // верх -> AIR
+        Part coreToAir  = new Part(TABlocks.MIRROR_MANAGER_CORE, "AIR");
+        // низ (куда кликаем пылью) -> MIRROR_MANAGER
+        Part baseToMgr  = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.MIRROR_MANAGER);
 
         return new Part[][][] {
                 // Y = 0 (ВЕРХ)
-                { { eldToAir } },
-                // Y = 1 (СЕРЕДИНА)
                 { { coreToAir } },
-                // Y = 2 (НИЗ, СЮДА КЛИКАЕМ ПЫЛЬЮ)
+                // Y = 1 (НИЗ, СЮДА КЛИКАЕМ ПЫЛЬЮ)
                 { { baseToMgr } }
         };
     }
 
-    /**
-     * Blueprint ДЛЯ КНИГИ (показывает “как построить ДО активации”).
-     *
-     * ВНИМАНИЕ: blueprint не должен содержать AIR и “base->manager”.
-     * Он должен содержать исходные блоки, которые игрок ставит руками.
-     */
+    private static Part[][][] buildBlueprintStructure() {
+        // Blueprint показывает исходную постройку (ничего не заменяем)
+        Part top    = new Part(TABlocks.MIRROR_MANAGER_CORE, TABlocks.MIRROR_MANAGER_CORE);
+        Part bottom = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.RIFT_STONE_BASE);
+
+        return new Part[][][] {
+                // Y = 0 (ВЕРХ)
+                { { top } },
+                // Y = 1 (НИЗ)
+                { { bottom } }
+        };
+    }
+
     private static void registerBlueprint() {
         Part[][][] parts = buildBlueprintStructure();
 
@@ -80,28 +77,5 @@ public final class TAMultiblockTriggers {
         ThaumcraftApi.addMultiblockRecipeToCatalog(MIRROR_MANAGER_MB_ID, bp);
     }
 
-    /**
-     * Структура для КНИГИ:
-     * верх: Eldritch Tile
-     * середина: CORE
-     * низ: BASE (по ней потом активируем)
-     *
-     * Почему new Part(block, block)?
-     * Потому что Part в stable_39 НЕ имеет конструктора с одним аргументом.
-     * Для blueprint мы хотим “ничего не заменять”, поэтому source=target.
-     */
-    private static Part[][][] buildBlueprintStructure() {
-        Part top    = new Part(BlocksTC.stoneEldritchTile, BlocksTC.stoneEldritchTile);
-        Part middle = new Part(TABlocks.GOLEM_DISPATCHER, TABlocks.GOLEM_DISPATCHER);
-        Part bottom = new Part(BlocksTC.stoneEldritchTile, BlocksTC.stoneEldritchTile);
 
-        return new Part[][][] {
-                // Y = 0 (ВЕРХ)
-                { { top } },
-                // Y = 1 (СЕРЕДИНА)
-                { { middle } },
-                // Y = 2 (НИЗ)
-                { { bottom } }
-        };
-    }
 }
