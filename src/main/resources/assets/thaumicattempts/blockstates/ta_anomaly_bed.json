@@ -1,0 +1,7 @@
+{
+  "variants": {
+    "bed_state=normal": { "model": "thaumicattempts:ta_anomaly_bed_normal" },
+    "bed_state=light": { "model": "thaumicattempts:ta_anomaly_bed_light" },
+    "bed_state=dark": { "model": "thaumicattempts:ta_anomaly_bed_dark" }
+  }
+}

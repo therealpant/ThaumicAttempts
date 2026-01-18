@@ -62,6 +62,22 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.RIFT_CRISTAL, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":rift_cristal", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.ANOMALY_SEEDS, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":ta_anomaly_seeds", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.MIND_FRUIT, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":ta_mind_fruit", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.MATURE_MIND_FRUIT, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":ta_mature_mind_fruit", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TAINTED_MIND_FRUIT, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":ta_tainted_mind_fruit", "inventory")
+        );
         // ItemBlock'и наших блоков (иконки!)
         registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER, ThaumicAttempts.MODID + ":golem_crafter");
         registerItemBlockModel(ModBlocksItems.ARCANE_CRAFTER, ThaumicAttempts.MODID + ":arcane_crafter");
@@ -71,6 +87,7 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(TABlocks.ELDRITCH_CONSTRUCTION, ThaumicAttempts.MODID + ":eldritch_constarction");
         registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
         registerItemBlockModel(TABlocks.RIFT_STONE_BASE, ThaumicAttempts.MODID + ":rift_stone_base");
+        registerItemBlockModel(TABlocks.ANOMALY_BED, ThaumicAttempts.MODID + ":ta_anomaly_bed");
 
         // ухо — используем таумовскую иконку предмета
         ModelLoader.setCustomModelResourceLocation(

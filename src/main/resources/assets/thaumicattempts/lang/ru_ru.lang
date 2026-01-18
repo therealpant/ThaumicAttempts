@@ -28,6 +28,12 @@ item.thaumicattempts.rift_cristal.name=Кристалл Разлома
 item.thaumicattempts.anomaly_stone.name=Аномальный камень
 item.thaumicattempts.rift_bush.name=Аномальный Куст
 item.thaumicattempts.rift_geod.name=Аномальная Жиода
+item.thaumicattempts.ta_anomaly_seeds.name=Семена аномального растения
+item.thaumicattempts.ta_mind_fruit.name=Плод чистого разума
+item.thaumicattempts.ta_mature_mind_fruit.name=Созревший плод чистого разума
+item.thaumicattempts.ta_tainted_mind_fruit.name=Пропитанный порчей плод
+tile.thaumicattempts.ta_anomaly_bed.name=Аномальная грядка
+tile.thaumicattempts.ta_anomaly_crop.name=Аномальное растение
 
 enchantment.infusion.VISBATTERY=Заряд Виса
 

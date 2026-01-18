@@ -17,6 +17,8 @@ import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemnet.block.*;
+import therealpant.thaumicattempts.world.block.BlockAnomalyBed;
+import therealpant.thaumicattempts.world.block.BlockAnomalyCrop;
 import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
 import therealpant.thaumicattempts.world.block.BlockRiftBush;
 import therealpant.thaumicattempts.world.block.BlockRiftGeod;
@@ -29,6 +31,8 @@ import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
+import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
+import therealpant.thaumicattempts.world.item.ItemAnomalySeeds;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public final class ModBlocksItems {
@@ -47,6 +51,10 @@ public final class ModBlocksItems {
     public static Item RIFT_FLOWER;
     public static Item RIFT_STONE;
     public static Item RIFT_CRISTAL;
+    public static Item ANOMALY_SEEDS;
+    public static Item MIND_FRUIT;
+    public static Item MATURE_MIND_FRUIT;
+    public static Item TAINTED_MIND_FRUIT;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -80,6 +88,8 @@ public final class ModBlocksItems {
         TABlocks.RIFT_GEOD = new BlockRiftGeod();
         TABlocks.RIFT_STONE_BASE = new BlockRiftStoneBase();
         TABlocks.ELDRITCH_CONSTRUCTION = new BlockEldritchConstarction();
+        TABlocks.ANOMALY_BED = new BlockAnomalyBed();
+        TABlocks.ANOMALY_CROP = new BlockAnomalyCrop();
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -93,7 +103,9 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_BUSH,
                 TABlocks.RIFT_GEOD,
                 TABlocks.RIFT_STONE_BASE,
-                TABlocks.ELDRITCH_CONSTRUCTION
+                TABlocks.ELDRITCH_CONSTRUCTION,
+                TABlocks.ANOMALY_BED,
+                TABlocks.ANOMALY_CROP
         );
 
         // TileEntities сети
@@ -119,6 +131,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_bush"));
         GameRegistry.registerTileEntity(TileRiftGeod.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_geod"));
+        GameRegistry.registerTileEntity(TileAnomalyCrop.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "ta_anomaly_crop"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -146,6 +160,19 @@ public final class ModBlocksItems {
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".rift_cristal")
                 .setRegistryName(ThaumicAttempts.MODID, "rift_cristal");
+        ANOMALY_SEEDS = new ItemAnomalySeeds(TABlocks.ANOMALY_CROP, TABlocks.ANOMALY_BED);
+        MIND_FRUIT = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".mind_fruit")
+                .setRegistryName(ThaumicAttempts.MODID, "ta_mind_fruit");
+        MATURE_MIND_FRUIT = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".mature_mind_fruit")
+                .setRegistryName(ThaumicAttempts.MODID, "ta_mature_mind_fruit");
+        TAINTED_MIND_FRUIT = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".tainted_mind_fruit")
+                .setRegistryName(ThaumicAttempts.MODID, "ta_tainted_mind_fruit");
 
         e.getRegistry().registerAll(
                 CRAFT_PATTERN,
@@ -154,7 +181,11 @@ public final class ModBlocksItems {
                 RESOURCE_LIST,
                 RIFT_FLOWER,
                 RIFT_STONE,
-                RIFT_CRISTAL
+                RIFT_CRISTAL,
+                ANOMALY_SEEDS,
+                MIND_FRUIT,
+                MATURE_MIND_FRUIT,
+                TAINTED_MIND_FRUIT
         );
 
         // ItemBlock'и
@@ -194,6 +225,9 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_STONE_BASE.getRegistryName());
         TABlocks.ELDRITCH_CONSTRUCTION_ITEM = new ItemBlock(TABlocks.ELDRITCH_CONSTRUCTION)
                 .setRegistryName(TABlocks.ELDRITCH_CONSTRUCTION.getRegistryName());
+        TABlocks.ANOMALY_BED_ITEM = new ItemBlock(TABlocks.ANOMALY_BED)
+                .setRegistryName(TABlocks.ANOMALY_BED.getRegistryName());
+
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -207,7 +241,8 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_BUSH_ITEM,
                 TABlocks.RIFT_GEOD_ITEM,
                 TABlocks.RIFT_STONE_BASE_ITEM,
-                TABlocks.ELDRITCH_CONSTRUCTION_ITEM
+                TABlocks.ELDRITCH_CONSTRUCTION_ITEM,
+                TABlocks.ANOMALY_BED_ITEM
         );
     }
 }

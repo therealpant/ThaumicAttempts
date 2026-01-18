@@ -28,6 +28,12 @@ item.thaumicattempts.rift_cristal.name=Rift Crystal
 item.thaumicattempts.anomaly_stone.name=Anomaly Stone
 item.thaumicattempts.rift_bush.name=Rift Bush
 item.thaumicattempts.rift_geod.name=Rift Geode
+item.thaumicattempts.ta_anomaly_seeds.name=Anomaly Seeds
+item.thaumicattempts.ta_mind_fruit.name=Pure Mind Fruit
+item.thaumicattempts.ta_mature_mind_fruit.name=Mature Pure Mind Fruit
+item.thaumicattempts.ta_tainted_mind_fruit.name=Tainted Mind Fruit
+tile.thaumicattempts.ta_anomaly_bed.name=Anomaly Bed
+tile.thaumicattempts.ta_anomaly_crop.name=Anomaly Crop
 
 enchantment.infusion.VISBATTERY=Vis Charge
 
