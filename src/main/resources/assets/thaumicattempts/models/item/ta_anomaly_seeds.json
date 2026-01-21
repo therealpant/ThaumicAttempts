@@ -1,6 +1,6 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "thaumicattempts:items/rift_flover_1"
+    "layer0": "thaumicattempts:items/rift_seed"
   }
 }

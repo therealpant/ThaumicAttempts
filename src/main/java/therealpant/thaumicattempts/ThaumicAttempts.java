@@ -25,6 +25,7 @@ import therealpant.thaumicattempts.command.*;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionEnchantments;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
+import therealpant.thaumicattempts.data.research.TAAspects;
 import therealpant.thaumicattempts.data.research.TAResearchAddenda;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemcraft.tile.TileArcaneEarBand;
@@ -138,6 +139,7 @@ public class ThaumicAttempts {
         TAAlchemyRecipes.register();
         TAMultiblockTriggers.register();
         TAInfusionEnchantments.register();
+        TAAspects.register();
 
         //Addenda
         if (ENABLE_ELDRITCH_STONE_RECIPE)

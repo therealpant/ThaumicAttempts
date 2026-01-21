@@ -1,0 +1,6 @@
+{
+  "parent": "block/cross",
+  "textures": {
+    "cross": "thaumicattempts:blocks/ta_anomaly_crop_stage4_light"
+  }
+}

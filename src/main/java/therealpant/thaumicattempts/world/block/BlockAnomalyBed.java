@@ -6,15 +6,19 @@ import net.minecraft.block.material.Material;
 import net.minecraft.block.properties.PropertyEnum;
 import net.minecraft.block.state.BlockStateContainer;
 import net.minecraft.block.state.IBlockState;
+import net.minecraft.util.EnumFacing;
 import net.minecraft.util.IStringSerializable;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
+import net.minecraftforge.common.EnumPlantType;
+import net.minecraftforge.common.IPlantable;
 import thaumcraft.api.blocks.BlocksTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
 
 public class BlockAnomalyBed extends Block {
     public static final PropertyEnum<BedState> BED_STATE = PropertyEnum.create("bed_state", BedState.class);
-    private static final int SCAN_RADIUS = 2;
+    private static final int SCAN_RADIUS = 3;
     private static final int SCAN_RADIUS_SQ = SCAN_RADIUS * SCAN_RADIUS;
     private static final int SCAN_MIN_Y = -1;
     private static final int SCAN_MAX_Y = 1;
@@ -37,15 +41,36 @@ public class BlockAnomalyBed extends Block {
     }
 
     @Override
+    public void onBlockAdded(World worldIn, BlockPos pos, IBlockState state) {
+        super.onBlockAdded(worldIn, pos, state);
+        if (!worldIn.isRemote) {
+            worldIn.scheduleUpdate(pos, this, tickRate(worldIn));
+        }
+    }
+
+    @Override
+    public int tickRate(World worldIn) {
+        return 20;
+    }
+
+    @Override
     public void neighborChanged(IBlockState state, World worldIn, BlockPos pos, Block blockIn, BlockPos fromPos) {
         updateBedState(worldIn, pos, state);
+    }
+
+    @Override
+    public void updateTick(World worldIn, BlockPos pos, IBlockState state, java.util.Random rand) {
+        updateBedState(worldIn, pos, state);
+        if (!worldIn.isRemote) {
+            worldIn.scheduleUpdate(pos, this, tickRate(worldIn));
+        }
     }
 
     private void updateBedState(World world, BlockPos pos, IBlockState state) {
         if (world.isRemote) return;
         BedState next = scanForFluid(world, pos);
         if (state.getValue(BED_STATE) != next) {
-            world.setBlockState(pos, state.withProperty(BED_STATE, next), 2);
+            world.setBlockState(pos, state.withProperty(BED_STATE, next), 3);
         }
     }
 
@@ -85,6 +110,13 @@ public class BlockAnomalyBed extends Block {
     @Override
     protected BlockStateContainer createBlockState() {
         return new BlockStateContainer(this, BED_STATE);
+    }
+
+    @Override
+    public boolean canSustainPlant(IBlockState state, IBlockAccess world, BlockPos pos, EnumFacing direction,
+                                   IPlantable plantable) {
+        EnumPlantType type = plantable.getPlantType(world, pos.offset(direction));
+        return type == EnumPlantType.Crop;
     }
 
     public enum BedState implements IStringSerializable {

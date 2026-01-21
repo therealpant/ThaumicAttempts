@@ -1,6 +1,6 @@
 {
   "parent": "item/generated",
   "textures": {
-    "layer0": "thaumicattempts:items/rift_stone"
+    "layer0": "thaumicattempts:items/taint_frut"
   }
 }

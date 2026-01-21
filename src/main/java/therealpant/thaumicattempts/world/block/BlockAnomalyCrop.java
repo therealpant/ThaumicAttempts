@@ -2,6 +2,7 @@ package therealpant.thaumicattempts.world.block;
 
 import net.minecraft.block.BlockBush;
 import net.minecraft.block.SoundType;
+import net.minecraft.block.properties.PropertyEnum;
 import net.minecraft.block.properties.PropertyInteger;
 import net.minecraft.block.state.BlockStateContainer;
 import net.minecraft.block.state.IBlockState;
@@ -24,6 +25,8 @@ import javax.annotation.Nullable;
 
 public class BlockAnomalyCrop extends BlockBush {
     public static final PropertyInteger AGE = PropertyInteger.create("age", 0, 4);
+    public static final PropertyEnum<BlockAnomalyBed.BedState> BED_STATE =
+            PropertyEnum.create("bed_state", BlockAnomalyBed.BedState.class);
     private static final int MAX_AGE = 4;
     private static final int GROWTH_CHANCE = 5;
     private static final float VIS_REQUIRED = 10.0F;
@@ -44,7 +47,9 @@ public class BlockAnomalyCrop extends BlockBush {
         setRegistryName(ThaumicAttempts.MODID, "ta_anomaly_crop");
         setSoundType(SoundType.PLANT);
         setTickRandomly(true);
-        setDefaultState(blockState.getBaseState().withProperty(AGE, 0));
+        setDefaultState(blockState.getBaseState()
+                .withProperty(AGE, 0)
+                .withProperty(BED_STATE, BlockAnomalyBed.BedState.NORMAL));
     }
 
     @Override
@@ -153,7 +158,12 @@ public class BlockAnomalyCrop extends BlockBush {
 
     @Override
     protected BlockStateContainer createBlockState() {
-        return new BlockStateContainer(this, AGE);
+        return new BlockStateContainer(this, AGE, BED_STATE);
+    }
+
+    @Override
+    public IBlockState getActualState(IBlockState state, IBlockAccess worldIn, BlockPos pos) {
+        return state.withProperty(BED_STATE, resolveBedState(worldIn, pos));
     }
 
     @Override

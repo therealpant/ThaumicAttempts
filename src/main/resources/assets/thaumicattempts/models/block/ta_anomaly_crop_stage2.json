@@ -1,6 +1,6 @@
 {
   "parent": "block/cross",
   "textures": {
-    "cross": "thaumicattempts:blocks/growth_2"
+    "cross": "thaumicattempts:blocks/ta_anomaly_crop_stage2"
   }
 }

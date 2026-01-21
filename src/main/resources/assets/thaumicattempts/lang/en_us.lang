@@ -14,6 +14,8 @@ tile.thaumicattempts.resource_requester.name=Greatwood Box
 tile.thaumicattempts.golem_dispatcher.name=Task Distributor
 tile.thaumicattempts.infusion_requester.name=Infusion Supplier
 tile.thaumicattempts.anomaly_stone.name=Anomaly Stone
+tile.thaumicattempts.anomaly_bed.name=Experimental Soil
+tile.thaumicattempts.anomaly_crop.name=Sprout of Another World
 tile.thaumicattempts.rift_bush.name=Rift Bush
 tile.thaumicattempts.rift_geod.name=Rift Geode
 
@@ -28,12 +30,11 @@ item.thaumicattempts.rift_cristal.name=Rift Crystal
 item.thaumicattempts.anomaly_stone.name=Anomaly Stone
 item.thaumicattempts.rift_bush.name=Rift Bush
 item.thaumicattempts.rift_geod.name=Rift Geode
+item.thaumicattempts.anomaly_seeds.name=Twisted Seed
 item.thaumicattempts.ta_anomaly_seeds.name=Anomaly Seeds
-item.thaumicattempts.ta_mind_fruit.name=Pure Mind Fruit
-item.thaumicattempts.ta_mature_mind_fruit.name=Mature Pure Mind Fruit
-item.thaumicattempts.ta_tainted_mind_fruit.name=Tainted Mind Fruit
-tile.thaumicattempts.ta_anomaly_bed.name=Anomaly Bed
-tile.thaumicattempts.ta_anomaly_crop.name=Anomaly Crop
+item.thaumicattempts.mind_fruit.name=Pure Mind Fruit
+item.thaumicattempts.tainted_mind_fruit.name=Tainted Fruit
+item.thaumicattempts.mature_mind_fruit.name=Mature Pure Mind Fruit
 
 enchantment.infusion.VISBATTERY=Vis Charge
 
