@@ -4,7 +4,6 @@ import net.minecraft.block.Block;
 import net.minecraft.block.SoundType;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.properties.PropertyEnum;
-import net.minecraft.block.properties.PropertyInteger;
 import net.minecraft.block.state.BlockStateContainer;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.util.EnumFacing;
@@ -19,11 +18,11 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 
 public class BlockAnomalyBed extends Block {
     public static final PropertyEnum<BedState> BED_STATE = PropertyEnum.create("bed_state", BedState.class);
-    public static final PropertyInteger MOISTURE = PropertyInteger.create("moisture", 0, 7);
     private static final int SCAN_RADIUS = 3;
     private static final int SCAN_RADIUS_SQ = SCAN_RADIUS * SCAN_RADIUS;
     private static final int SCAN_MIN_Y = -1;
     private static final int SCAN_MAX_Y = 1;
+    private static final int STATE_CHANGE_CHANCE = 5;
 
     public BlockAnomalyBed() {
         super(Material.GROUND);
@@ -35,93 +34,60 @@ public class BlockAnomalyBed extends Block {
         setResistance(2.0F);
         setTickRandomly(true);
         setDefaultState(blockState.getBaseState()
-                .withProperty(MOISTURE, 0)
-                .withProperty(BED_STATE, getDerivedBedState(0)));
+                .withProperty(BED_STATE, BedState.NORMAL));
     }
 
     @Override
     public void randomTick(World worldIn, BlockPos pos, IBlockState state, java.util.Random rand) {
-        updateBedState(worldIn, pos, state);
+        if (worldIn.isRemote) {
+            return;
     }
-
-    @Override
-    public void onBlockAdded(World worldIn, BlockPos pos, IBlockState state) {
-        super.onBlockAdded(worldIn, pos, state);
-        if (!worldIn.isRemote) {
-            worldIn.scheduleUpdate(pos, this, tickRate(worldIn));
+        BedState targetState = scanForTargetState(worldIn, pos);
+        if (state.getValue(BED_STATE) != targetState && rand.nextInt(STATE_CHANGE_CHANCE) == 0) {
+            worldIn.setBlockState(pos, state.withProperty(BED_STATE, targetState), 3);
         }
     }
 
-    @Override
-    public int tickRate(World worldIn) {
-        return 20;
-    }
-
-    @Override
-    public void neighborChanged(IBlockState state, World worldIn, BlockPos pos, Block blockIn, BlockPos fromPos) {
-        updateBedState(worldIn, pos, state);
-    }
-
-    @Override
-    public void updateTick(World worldIn, BlockPos pos, IBlockState state, java.util.Random rand) {
-        updateBedState(worldIn, pos, state);
-        if (!worldIn.isRemote) {
-            worldIn.scheduleUpdate(pos, this, tickRate(worldIn));
-        }
-    }
-
-    private void updateBedState(World world, BlockPos pos, IBlockState state) {
-        if (world.isRemote) return;
-        int moisture = state.getValue(MOISTURE);
-        boolean hasFluid = scanForFluid(world, pos);
-        int nextMoisture = hasFluid ? Math.min(7, moisture + 1) : Math.max(0, moisture - 1);
-        BedState nextState = getDerivedBedState(nextMoisture);
-        if (moisture != nextMoisture || state.getValue(BED_STATE) != nextState) {
-            world.setBlockState(pos, state.withProperty(MOISTURE, nextMoisture).withProperty(BED_STATE, nextState), 3);
-        }
-    }
-
-    private boolean scanForFluid(World world, BlockPos pos) {
+    private BedState scanForTargetState(World world, BlockPos pos) {
+        boolean foundPurifying = false;
         for (int dx = -SCAN_RADIUS; dx <= SCAN_RADIUS; dx++) {
             for (int dz = -SCAN_RADIUS; dz <= SCAN_RADIUS; dz++) {
                 if ((dx * dx + dz * dz) > SCAN_RADIUS_SQ) continue;
                 for (int dy = SCAN_MIN_Y; dy <= SCAN_MAX_Y; dy++) {
                     BlockPos checkPos = pos.add(dx, dy, dz);
                     Block block = world.getBlockState(checkPos).getBlock();
-                    if (block == BlocksTC.liquidDeath || block == BlocksTC.purifyingFluid) {
-                        return true;
+                    if (block == BlocksTC.liquidDeath) {
+                        return BedState.DARK;
+                    }
+                    if (block == BlocksTC.purifyingFluid) {
+                        foundPurifying = true;
                     }
                 }
             }
         }
-        return false;
-    }
-
-    private BedState getDerivedBedState(int moisture) {
-        return moisture >= 4 ? BedState.LIGHT : BedState.DARK;
+        if (foundPurifying) {
+            return BedState.LIGHT;
+        }
+        return BedState.NORMAL;
     }
 
     @Override
     public IBlockState getStateFromMeta(int meta) {
-        int moisture = Math.max(0, Math.min(7, meta));
-        return getDefaultState()
-                .withProperty(MOISTURE, moisture)
-                .withProperty(BED_STATE, getDerivedBedState(moisture));
+        BedState[] values = BedState.values();
+        if (meta < 0 || meta >= values.length) {
+            return getDefaultState();
+        }
+        return getDefaultState().withProperty(BED_STATE, values[meta]);
     }
 
     @Override
     public int getMetaFromState(IBlockState state) {
-        return state.getValue(MOISTURE);
+        return state.getValue(BED_STATE).ordinal();
     }
 
     @Override
     protected BlockStateContainer createBlockState() {
-        return new BlockStateContainer(this, BED_STATE, MOISTURE);
-    }
-
-    @Override
-    public IBlockState getActualState(IBlockState state, IBlockAccess worldIn, BlockPos pos) {
-        return state.withProperty(BED_STATE, getDerivedBedState(state.getValue(MOISTURE)));
+        return new BlockStateContainer(this, BED_STATE);
     }
 
     @Override
