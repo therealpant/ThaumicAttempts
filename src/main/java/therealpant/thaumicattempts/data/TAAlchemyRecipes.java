@@ -9,6 +9,8 @@ import thaumcraft.api.aspects.AspectList;
 import static thaumcraft.api.blocks.BlocksTC.stoneEldritchTile;
 import thaumcraft.api.crafting.CrucibleRecipe;
 import thaumcraft.api.items.ItemsTC;
+import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+
 import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_RECIPE;
 
 public final class TAAlchemyRecipes {
@@ -41,6 +43,19 @@ public final class TAAlchemyRecipes {
             );
 
 
+        ItemStack fru = new ItemStack(ModBlocksItems.MIND_FRUIT);
+        if (catalyst.isEmpty()) return;
+
+        ItemStack mun = new ItemStack(ItemsTC.salisMundus, 2);
+        AspectList frumun = new AspectList()
+        .add(Aspect.ENTROPY,5)
+                .add(Aspect.CRYSTAL,5);
+
+        CrucibleRecipe munfru = new CrucibleRecipe("BASEELDRITCH", mun, fru, frumun);
+        ThaumcraftApi.addCrucibleRecipe(
+                new ResourceLocation("thaumicattempts","mundus_from_fruit"),
+                munfru
+                );
     }
 
 
