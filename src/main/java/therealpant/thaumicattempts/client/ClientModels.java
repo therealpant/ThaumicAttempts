@@ -2,11 +2,13 @@
 package therealpant.thaumicattempts.client;
 
 import net.minecraft.block.state.IBlockState;
+
 import net.minecraft.client.renderer.block.model.ModelResourceLocation;
 import net.minecraft.client.renderer.block.statemap.StateMap;
 import net.minecraft.client.renderer.block.statemap.StateMapperBase;
 import net.minecraft.item.Item;
 import net.minecraftforge.client.event.ModelRegistryEvent;
+
 import net.minecraftforge.client.model.ModelLoader;
 import net.minecraftforge.fml.client.registry.ClientRegistry;
 import net.minecraftforge.fml.common.Mod;
@@ -18,6 +20,7 @@ import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemnet.block.BlockMathCore;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer;
 import therealpant.thaumicattempts.golemnet.tile.*;
+
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
@@ -78,6 +81,7 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.TAINTED_MIND_FRUIT, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":ta_tainted_mind_fruit", "inventory")
         );
+
         // ItemBlock'и наших блоков (иконки!)
         registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER, ThaumicAttempts.MODID + ":golem_crafter");
         registerItemBlockModel(ModBlocksItems.ARCANE_CRAFTER, ThaumicAttempts.MODID + ":arcane_crafter");

@@ -229,8 +229,12 @@ public class BlockAnomalyCrop extends BlockBush {
         if (!(soil.getBlock() instanceof BlockAnomalyBed)) {
             return false;
         }
+        BlockAnomalyBed.BedState soilState = soil.getValue(BlockAnomalyBed.BED_STATE);
+        if (soilState == BlockAnomalyBed.BedState.NORMAL) {
+            return false;
+        }
         BlockAnomalyBed.BedState cropState = getCropBedState(world, pos, state);
-        return soil.getValue(BlockAnomalyBed.BED_STATE) == cropState;
+        return soilState == cropState;
     }
 
     @Nullable
@@ -242,10 +246,10 @@ public class BlockAnomalyCrop extends BlockBush {
     private BlockAnomalyBed.BedState getCropBedState(World world, BlockPos pos, IBlockState state) {
         TileAnomalyCrop tile = getTile(world, pos);
         BlockAnomalyBed.BedState bedState = tile != null ? tile.getBedState() : null;
-        if (bedState == null) {
-            bedState = resolveBedState(world, pos);
+        BlockAnomalyBed.BedState resolvedState = resolveBedState(world, pos);
+        if (bedState == null || bedState != resolvedState) {
+            bedState = resolvedState;
             if (tile != null) {
-                // TA FIX: lock crop form on placement/first access.
                 tile.setBedState(bedState);
             }
         }
