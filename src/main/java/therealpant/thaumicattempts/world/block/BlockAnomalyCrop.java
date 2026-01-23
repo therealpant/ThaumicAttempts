@@ -31,7 +31,8 @@ public class BlockAnomalyCrop extends BlockBush {
     private static final int GROWTH_CHANCE = 5;
     private static final float VIS_REQUIRED = 10.0F;
     private static final float MATURE_VIS_THRESHOLD = 300.0F;
-    private static final float SEED_DROP_CHANCE = 0.2F;
+    private static final float SEED_DROP_CHANCE_NONE = 0.10F;
+    private static final float SEED_DROP_CHANCE_DOUBLE = 0.05F;
 
     private static final AxisAlignedBB[] AABB_BY_AGE = new AxisAlignedBB[] {
             new AxisAlignedBB(0.0D, 0.0D, 0.0D, 1.0D, 0.25D, 1.0D),
@@ -64,20 +65,21 @@ public class BlockAnomalyCrop extends BlockBush {
 
     @Override
     public boolean canBlockStay(World worldIn, BlockPos pos, IBlockState state) {
-        IBlockState soil = worldIn.getBlockState(pos.down());
-        return soil.getBlock() == TABlocks.ANOMALY_BED;
+        return isValidBedState(worldIn, pos, state);
     }
 
     @Override
     public void onBlockAdded(World worldIn, BlockPos pos, IBlockState state) {
         super.onBlockAdded(worldIn, pos, state);
         resetMinVis(worldIn, pos);
+        initializeBedState(worldIn, pos);
     }
 
     @Override
     public void onBlockPlacedBy(World worldIn, BlockPos pos, IBlockState state, EntityLivingBase placer, ItemStack stack) {
         super.onBlockPlacedBy(worldIn, pos, state, placer, stack);
         resetMinVis(worldIn, pos);
+        initializeBedState(worldIn, pos);
     }
 
     @Override
@@ -90,14 +92,14 @@ public class BlockAnomalyCrop extends BlockBush {
     public void randomTick(World worldIn, BlockPos pos, IBlockState state, java.util.Random rand) {
         if (worldIn.isRemote) return;
         if (!canBlockStay(worldIn, pos, state)) {
-            worldIn.destroyBlock(pos, true);
+            worldIn.setBlockToAir(pos);
             return;
         }
         int age = state.getValue(AGE);
         if (age >= MAX_AGE) return;
         if (rand.nextInt(GROWTH_CHANCE) != 0) return;
 
-        BlockAnomalyBed.BedState bedState = resolveBedState(worldIn, pos);
+        BlockAnomalyBed.BedState bedState = getCropBedState(worldIn, pos, state);
         if (bedState == BlockAnomalyBed.BedState.LIGHT) {
             float vis = AuraHelper.getVis(worldIn, pos);
             if (vis < VIS_REQUIRED) return;
@@ -117,22 +119,48 @@ public class BlockAnomalyCrop extends BlockBush {
     }
 
     @Override
+    public void neighborChanged(IBlockState state, World worldIn, BlockPos pos, net.minecraft.block.Block blockIn,
+                                BlockPos fromPos) {
+        super.neighborChanged(state, worldIn, pos, blockIn, fromPos);
+        if (worldIn.isRemote) return;
+        if (!isValidBedState(worldIn, pos, state)) {
+            // TA FIX: break without drops when bed form becomes incompatible.
+            worldIn.setBlockToAir(pos);
+        }
+    }
+
+    @Override
+    public void updateTick(World worldIn, BlockPos pos, IBlockState state, java.util.Random rand) {
+        if (worldIn.isRemote) return;
+        if (!isValidBedState(worldIn, pos, state)) {
+            // TA FIX: break without drops when bed form becomes incompatible.
+            worldIn.setBlockToAir(pos);
+        }
+    }
+
+    @Override
     public void getDrops(net.minecraft.util.NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos,
                          IBlockState state, int fortune) {
         drops.clear();
         int age = state.getValue(AGE);
         if (age < MAX_AGE) {
-            drops.add(new ItemStack(ModBlocksItems.ANOMALY_SEEDS));
+            if (world instanceof World) {
+                addSeedDrops(drops, ((World) world).rand);
+            } else {
+                drops.add(new ItemStack(ModBlocksItems.ANOMALY_SEEDS));
+            }
             return;
         }
 
-        BlockAnomalyBed.BedState bedState = resolveBedState(world, pos);
+        BlockAnomalyBed.BedState bedState = world instanceof World
+                ? getCropBedState((World) world, pos, state)
+                : state.getValue(BED_STATE);
         if (bedState == BlockAnomalyBed.BedState.DARK) {
             drops.add(new ItemStack(ModBlocksItems.TAINTED_MIND_FRUIT));
         } else if (bedState == BlockAnomalyBed.BedState.LIGHT) {
-            TileAnomalyCrop tile = world instanceof World ? getTile((World) world, pos) : null;
-            float minVis = tile != null ? tile.getMinVisDuringGrowth() : Float.MAX_VALUE;
-            if (minVis >= MATURE_VIS_THRESHOLD) {
+            float vis = world instanceof World ? AuraHelper.getVis((World) world, pos) : 0.0F;
+            // TA FIX: decide fruit type by current aura vis at drop time.
+            if (vis >= MATURE_VIS_THRESHOLD) {
                 drops.add(new ItemStack(ModBlocksItems.MATURE_MIND_FRUIT));
             } else {
                 drops.add(new ItemStack(ModBlocksItems.MIND_FRUIT));
@@ -140,9 +168,7 @@ public class BlockAnomalyCrop extends BlockBush {
         }
 
         if (world instanceof World) {
-            if (((World) world).rand.nextFloat() < SEED_DROP_CHANCE) {
-                drops.add(new ItemStack(ModBlocksItems.ANOMALY_SEEDS));
-            }
+            addSeedDrops(drops, ((World) world).rand);
         }
     }
 
@@ -163,7 +189,10 @@ public class BlockAnomalyCrop extends BlockBush {
 
     @Override
     public IBlockState getActualState(IBlockState state, IBlockAccess worldIn, BlockPos pos) {
-        return state.withProperty(BED_STATE, resolveBedState(worldIn, pos));
+        if (worldIn instanceof World) {
+            return state.withProperty(BED_STATE, getCropBedState((World) worldIn, pos, state));
+        }
+        return state;
     }
 
     @Override
@@ -195,10 +224,32 @@ public class BlockAnomalyCrop extends BlockBush {
         return BlockAnomalyBed.BedState.NORMAL;
     }
 
+    private boolean isValidBedState(World world, BlockPos pos, IBlockState state) {
+        IBlockState soil = world.getBlockState(pos.down());
+        if (!(soil.getBlock() instanceof BlockAnomalyBed)) {
+            return false;
+        }
+        BlockAnomalyBed.BedState cropState = getCropBedState(world, pos, state);
+        return soil.getValue(BlockAnomalyBed.BED_STATE) == cropState;
+    }
+
     @Nullable
     private TileAnomalyCrop getTile(World world, BlockPos pos) {
         TileEntity tile = world.getTileEntity(pos);
         return tile instanceof TileAnomalyCrop ? (TileAnomalyCrop) tile : null;
+    }
+
+    private BlockAnomalyBed.BedState getCropBedState(World world, BlockPos pos, IBlockState state) {
+        TileAnomalyCrop tile = getTile(world, pos);
+        BlockAnomalyBed.BedState bedState = tile != null ? tile.getBedState() : null;
+        if (bedState == null) {
+            bedState = resolveBedState(world, pos);
+            if (tile != null) {
+                // TA FIX: lock crop form on placement/first access.
+                tile.setBedState(bedState);
+            }
+        }
+        return bedState;
     }
 
     private void resetMinVis(World world, BlockPos pos) {
@@ -209,5 +260,31 @@ public class BlockAnomalyCrop extends BlockBush {
             world.setTileEntity(pos, tile);
         }
         tile.resetMinVis();
+    }
+    private void initializeBedState(World world, BlockPos pos) {
+        if (world.isRemote) return;
+        TileAnomalyCrop tile = getTile(world, pos);
+        if (tile == null) {
+            tile = new TileAnomalyCrop();
+            world.setTileEntity(pos, tile);
+        }
+        // TA FIX: lock crop form to bed state at placement time.
+        tile.setBedState(resolveBedState(world, pos));
+    }
+
+    private void addSeedDrops(net.minecraft.util.NonNullList<ItemStack> drops, java.util.Random rand) {
+        float roll = rand.nextFloat();
+        int count;
+        if (roll < SEED_DROP_CHANCE_NONE) {
+            count = 0;
+        } else if (roll >= 1.0F - SEED_DROP_CHANCE_DOUBLE) {
+            count = 2;
+        } else {
+            count = 1;
+        }
+        if (count > 0) {
+            // TA FIX: seed distribution 85% (1), 10% (0), 5% (2).
+            drops.add(new ItemStack(ModBlocksItems.ANOMALY_SEEDS, count));
+        }
     }
 }

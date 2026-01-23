@@ -3,6 +3,7 @@ package therealpant.thaumicattempts.golemcraft;
 import net.minecraft.block.Block;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
+import net.minecraft.item.ItemFood;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.event.RegistryEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -161,15 +162,15 @@ public final class ModBlocksItems {
                 .setTranslationKey(ThaumicAttempts.MODID + ".rift_cristal")
                 .setRegistryName(ThaumicAttempts.MODID, "rift_cristal");
         ANOMALY_SEEDS = new ItemAnomalySeeds(TABlocks.ANOMALY_CROP, TABlocks.ANOMALY_BED);
-        MIND_FRUIT = new Item()
+        MIND_FRUIT = new ItemFood(5, 12.0F, false)
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".mind_fruit")
                 .setRegistryName(ThaumicAttempts.MODID, "ta_mind_fruit");
-        MATURE_MIND_FRUIT = new Item()
+        MATURE_MIND_FRUIT = new ItemFood(7, 16.0F, false)
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".mature_mind_fruit")
                 .setRegistryName(ThaumicAttempts.MODID, "ta_mature_mind_fruit");
-        TAINTED_MIND_FRUIT = new Item()
+        TAINTED_MIND_FRUIT = new ItemFood(7, 16.0F, false)
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".tainted_mind_fruit")
                 .setRegistryName(ThaumicAttempts.MODID, "ta_tainted_mind_fruit");
