@@ -25,8 +25,8 @@ import javax.annotation.Nullable;
 
 public class BlockAnomalyCrop extends BlockBush {
     public static final PropertyInteger AGE = PropertyInteger.create("age", 0, 4);
-    public static final PropertyEnum<BlockAnomalyBed.BedState> BED_STATE =
-            PropertyEnum.create("bed_state", BlockAnomalyBed.BedState.class);
+    public static final PropertyEnum<CropVariant> VARIANT =
+            PropertyEnum.create("variant", CropVariant.class);
     private static final int MAX_AGE = 4;
     private static final int GROWTH_CHANCE = 5;
     private static final float VIS_REQUIRED = 10.0F;
@@ -50,7 +50,7 @@ public class BlockAnomalyCrop extends BlockBush {
         setTickRandomly(true);
         setDefaultState(blockState.getBaseState()
                 .withProperty(AGE, 0)
-                .withProperty(BED_STATE, BlockAnomalyBed.BedState.NORMAL));
+                .withProperty(VARIANT, CropVariant.DARK));
     }
 
     @Override
@@ -72,14 +72,14 @@ public class BlockAnomalyCrop extends BlockBush {
     public void onBlockAdded(World worldIn, BlockPos pos, IBlockState state) {
         super.onBlockAdded(worldIn, pos, state);
         resetMinVis(worldIn, pos);
-        initializeBedState(worldIn, pos);
+        initializeVariant(worldIn, pos, state);
     }
 
     @Override
     public void onBlockPlacedBy(World worldIn, BlockPos pos, IBlockState state, EntityLivingBase placer, ItemStack stack) {
         super.onBlockPlacedBy(worldIn, pos, state, placer, stack);
         resetMinVis(worldIn, pos);
-        initializeBedState(worldIn, pos);
+        initializeVariant(worldIn, pos, state);
     }
 
     @Override
@@ -99,8 +99,8 @@ public class BlockAnomalyCrop extends BlockBush {
         if (age >= MAX_AGE) return;
         if (rand.nextInt(GROWTH_CHANCE) != 0) return;
 
-        BlockAnomalyBed.BedState bedState = getCropBedState(worldIn, pos, state);
-        if (bedState == BlockAnomalyBed.BedState.LIGHT) {
+        CropVariant variant = state.getValue(VARIANT);
+        if (variant == CropVariant.LIGHT) {
             float vis = AuraHelper.getVis(worldIn, pos);
             if (vis < VIS_REQUIRED) return;
             TileAnomalyCrop tile = getTile(worldIn, pos);
@@ -113,7 +113,7 @@ public class BlockAnomalyCrop extends BlockBush {
             return;
         }
 
-        if (bedState == BlockAnomalyBed.BedState.DARK || bedState == BlockAnomalyBed.BedState.NORMAL) {
+        if (variant == CropVariant.DARK) {
             worldIn.setBlockState(pos, state.withProperty(AGE, age + 1), Constants.BlockFlags.DEFAULT);
         }
     }
@@ -152,12 +152,10 @@ public class BlockAnomalyCrop extends BlockBush {
             return;
         }
 
-        BlockAnomalyBed.BedState bedState = world instanceof World
-                ? getCropBedState((World) world, pos, state)
-                : state.getValue(BED_STATE);
-        if (bedState == BlockAnomalyBed.BedState.DARK) {
+        CropVariant variant = state.getValue(VARIANT);
+        if (variant == CropVariant.DARK) {
             drops.add(new ItemStack(ModBlocksItems.TAINTED_MIND_FRUIT));
-        } else if (bedState == BlockAnomalyBed.BedState.LIGHT) {
+        } else if (variant == CropVariant.LIGHT) {
             float vis = world instanceof World ? AuraHelper.getVis((World) world, pos) : 0.0F;
             // TA FIX: decide fruit type by current aura vis at drop time.
             if (vis >= MATURE_VIS_THRESHOLD) {
@@ -174,25 +172,25 @@ public class BlockAnomalyCrop extends BlockBush {
 
     @Override
     public IBlockState getStateFromMeta(int meta) {
-        return getDefaultState().withProperty(AGE, Math.max(0, Math.min(MAX_AGE, meta)));
+        int age = Math.max(0, Math.min(MAX_AGE, meta & 7));
+        CropVariant variant = (meta & 8) != 0 ? CropVariant.LIGHT : CropVariant.DARK;
+        return getDefaultState()
+                .withProperty(AGE, age)
+                .withProperty(VARIANT, variant);
     }
 
     @Override
     public int getMetaFromState(IBlockState state) {
-        return state.getValue(AGE);
+        int meta = state.getValue(AGE);
+        if (state.getValue(VARIANT) == CropVariant.LIGHT) {
+            meta |= 8;
+        }
+        return meta;
     }
 
     @Override
     protected BlockStateContainer createBlockState() {
-        return new BlockStateContainer(this, AGE, BED_STATE);
-    }
-
-    @Override
-    public IBlockState getActualState(IBlockState state, IBlockAccess worldIn, BlockPos pos) {
-        if (worldIn instanceof World) {
-            return state.withProperty(BED_STATE, getCropBedState((World) worldIn, pos, state));
-        }
-        return state;
+        return new BlockStateContainer(this, AGE, VARIANT);
     }
 
     @Override
@@ -216,44 +214,20 @@ public class BlockAnomalyCrop extends BlockBush {
         return getDefaultState();
     }
 
-    private BlockAnomalyBed.BedState resolveBedState(IBlockAccess world, BlockPos pos) {
-        IBlockState soil = world.getBlockState(pos.down());
-        if (soil.getBlock() instanceof BlockAnomalyBed) {
-            return soil.getValue(BlockAnomalyBed.BED_STATE);
-        }
-        return BlockAnomalyBed.BedState.NORMAL;
-    }
-
     private boolean isValidBedState(World world, BlockPos pos, IBlockState state) {
         IBlockState soil = world.getBlockState(pos.down());
         if (!(soil.getBlock() instanceof BlockAnomalyBed)) {
             return false;
         }
         BlockAnomalyBed.BedState soilState = soil.getValue(BlockAnomalyBed.BED_STATE);
-        if (soilState == BlockAnomalyBed.BedState.NORMAL) {
-            return false;
-        }
-        BlockAnomalyBed.BedState cropState = getCropBedState(world, pos, state);
-        return soilState == cropState;
+        CropVariant soilVariant = soilState == BlockAnomalyBed.BedState.LIGHT ? CropVariant.LIGHT : CropVariant.DARK;
+        return soilVariant == state.getValue(VARIANT);
     }
 
     @Nullable
     private TileAnomalyCrop getTile(World world, BlockPos pos) {
         TileEntity tile = world.getTileEntity(pos);
         return tile instanceof TileAnomalyCrop ? (TileAnomalyCrop) tile : null;
-    }
-
-    private BlockAnomalyBed.BedState getCropBedState(World world, BlockPos pos, IBlockState state) {
-        TileAnomalyCrop tile = getTile(world, pos);
-        BlockAnomalyBed.BedState bedState = tile != null ? tile.getBedState() : null;
-        BlockAnomalyBed.BedState resolvedState = resolveBedState(world, pos);
-        if (bedState == null || bedState != resolvedState) {
-            bedState = resolvedState;
-            if (tile != null) {
-                tile.setBedState(bedState);
-            }
-        }
-        return bedState;
     }
 
     private void resetMinVis(World world, BlockPos pos) {
@@ -265,15 +239,21 @@ public class BlockAnomalyCrop extends BlockBush {
         }
         tile.resetMinVis();
     }
-    private void initializeBedState(World world, BlockPos pos) {
+    private void initializeVariant(World world, BlockPos pos, IBlockState state) {
         if (world.isRemote) return;
-        TileAnomalyCrop tile = getTile(world, pos);
-        if (tile == null) {
-            tile = new TileAnomalyCrop();
-            world.setTileEntity(pos, tile);
+        CropVariant variant = resolveVariantFromBed(world, pos);
+        if (state.getValue(VARIANT) != variant) {
+            world.setBlockState(pos, state.withProperty(VARIANT, variant), Constants.BlockFlags.DEFAULT);
         }
-        // TA FIX: lock crop form to bed state at placement time.
-        tile.setBedState(resolveBedState(world, pos));
+    }
+
+    private CropVariant resolveVariantFromBed(World world, BlockPos pos) {
+        IBlockState soil = world.getBlockState(pos.down());
+        if (soil.getBlock() instanceof BlockAnomalyBed) {
+            BlockAnomalyBed.BedState soilState = soil.getValue(BlockAnomalyBed.BED_STATE);
+            return soilState == BlockAnomalyBed.BedState.LIGHT ? CropVariant.LIGHT : CropVariant.DARK;
+        }
+        return CropVariant.DARK;
     }
 
     private void addSeedDrops(net.minecraft.util.NonNullList<ItemStack> drops, java.util.Random rand) {
@@ -289,6 +269,16 @@ public class BlockAnomalyCrop extends BlockBush {
         if (count > 0) {
             // TA FIX: seed distribution 85% (1), 10% (0), 5% (2).
             drops.add(new ItemStack(ModBlocksItems.ANOMALY_SEEDS, count));
+        }
+    }
+
+    public enum CropVariant implements net.minecraft.util.IStringSerializable {
+        LIGHT,
+        DARK;
+
+        @Override
+        public String getName() {
+            return name().toLowerCase();
         }
     }
 }

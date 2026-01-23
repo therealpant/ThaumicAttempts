@@ -1,19 +1,14 @@
 {
   "variants": {
-    "age=0,bed_state=normal": { "model": "thaumicattempts:ta_anomaly_crop_stage0" },
-    "age=0,bed_state=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage0" },
-    "age=0,bed_state=light": { "model": "thaumicattempts:ta_anomaly_crop_stage0_light" },
-    "age=1,bed_state=normal": { "model": "thaumicattempts:ta_anomaly_crop_stage1" },
-    "age=1,bed_state=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage1" },
-    "age=1,bed_state=light": { "model": "thaumicattempts:ta_anomaly_crop_stage1_light" },
-    "age=2,bed_state=normal": { "model": "thaumicattempts:ta_anomaly_crop_stage2" },
-    "age=2,bed_state=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage2" },
-    "age=2,bed_state=light": { "model": "thaumicattempts:ta_anomaly_crop_stage2_light" },
-    "age=3,bed_state=normal": { "model": "thaumicattempts:ta_anomaly_crop_stage3" },
-    "age=3,bed_state=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage3" },
-    "age=3,bed_state=light": { "model": "thaumicattempts:ta_anomaly_crop_stage3_light" },
-    "age=4,bed_state=normal": { "model": "thaumicattempts:ta_anomaly_crop_stage4" },
-    "age=4,bed_state=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage4" },
-    "age=4,bed_state=light": { "model": "thaumicattempts:ta_anomaly_crop_stage4_light" }
+    "age=0,variant=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage0" },
+    "age=0,variant=light": { "model": "thaumicattempts:ta_anomaly_crop_stage0_light" },
+    "age=1,variant=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage1" },
+    "age=1,variant=light": { "model": "thaumicattempts:ta_anomaly_crop_stage1_light" },
+    "age=2,variant=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage2" },
+    "age=2,variant=light": { "model": "thaumicattempts:ta_anomaly_crop_stage2_light" },
+    "age=3,variant=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage3" },
+    "age=3,variant=light": { "model": "thaumicattempts:ta_anomaly_crop_stage3_light" },
+    "age=4,variant=dark": { "model": "thaumicattempts:ta_anomaly_crop_stage4" },
+    "age=4,variant=light": { "model": "thaumicattempts:ta_anomaly_crop_stage4_light" }
   }
-}
+  }

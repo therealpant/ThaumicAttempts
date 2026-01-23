@@ -34,6 +34,7 @@ import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
 import therealpant.thaumicattempts.world.item.ItemAnomalySeeds;
+import therealpant.thaumicattempts.world.item.ItemMindPotion;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public final class ModBlocksItems {
@@ -56,6 +57,7 @@ public final class ModBlocksItems {
     public static Item MIND_FRUIT;
     public static Item MATURE_MIND_FRUIT;
     public static Item TAINTED_MIND_FRUIT;
+    public static Item MIND_POTION;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -174,6 +176,7 @@ public final class ModBlocksItems {
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".tainted_mind_fruit")
                 .setRegistryName(ThaumicAttempts.MODID, "ta_tainted_mind_fruit");
+        MIND_POTION = new ItemMindPotion();
 
         e.getRegistry().registerAll(
                 CRAFT_PATTERN,
@@ -186,7 +189,8 @@ public final class ModBlocksItems {
                 ANOMALY_SEEDS,
                 MIND_FRUIT,
                 MATURE_MIND_FRUIT,
-                TAINTED_MIND_FRUIT
+                TAINTED_MIND_FRUIT,
+                MIND_POTION
         );
 
         // ItemBlock'и
