@@ -3,7 +3,6 @@ package therealpant.thaumicattempts.golemcraft;
 import net.minecraft.block.Block;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemBlock;
-import net.minecraft.item.ItemFood;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.event.RegistryEvent;
 import net.minecraftforge.fml.common.Mod;
@@ -34,7 +33,9 @@ import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
 import therealpant.thaumicattempts.world.item.ItemAnomalySeeds;
+import therealpant.thaumicattempts.world.item.ItemMindFruitFood;
 import therealpant.thaumicattempts.world.item.ItemMindPotion;
+import therealpant.thaumicattempts.world.item.ItemTaintedMindFruitFood;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public final class ModBlocksItems {
@@ -164,15 +165,15 @@ public final class ModBlocksItems {
                 .setTranslationKey(ThaumicAttempts.MODID + ".rift_cristal")
                 .setRegistryName(ThaumicAttempts.MODID, "rift_cristal");
         ANOMALY_SEEDS = new ItemAnomalySeeds(TABlocks.ANOMALY_CROP, TABlocks.ANOMALY_BED);
-        MIND_FRUIT = new ItemFood(5, 12.0F, false)
+        MIND_FRUIT = new ItemMindFruitFood(5, 12.0F, 30 * 20)
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".mind_fruit")
                 .setRegistryName(ThaumicAttempts.MODID, "ta_mind_fruit");
-        MATURE_MIND_FRUIT = new ItemFood(7, 16.0F, false)
+        MATURE_MIND_FRUIT = new ItemMindFruitFood(7, 16.0F, 60 * 20)
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".mature_mind_fruit")
                 .setRegistryName(ThaumicAttempts.MODID, "ta_mature_mind_fruit");
-        TAINTED_MIND_FRUIT = new ItemFood(7, 16.0F, false)
+        TAINTED_MIND_FRUIT = new ItemTaintedMindFruitFood(7, 16.0F)
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".tainted_mind_fruit")
                 .setRegistryName(ThaumicAttempts.MODID, "ta_tainted_mind_fruit");

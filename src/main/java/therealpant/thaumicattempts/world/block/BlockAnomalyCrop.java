@@ -29,7 +29,7 @@ public class BlockAnomalyCrop extends BlockBush {
             PropertyEnum.create("variant", CropVariant.class);
     private static final int MAX_AGE = 4;
     private static final int GROWTH_CHANCE = 5;
-    private static final float VIS_REQUIRED = 10.0F;
+    private static final float VIS_REQUIRED = 8.0F;
     private static final float MATURE_VIS_THRESHOLD = 300.0F;
     private static final float SEED_DROP_CHANCE_NONE = 0.10F;
     private static final float SEED_DROP_CHANCE_DOUBLE = 0.05F;
