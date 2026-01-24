@@ -20,6 +20,7 @@ import therealpant.thaumicattempts.golemnet.block.*;
 import therealpant.thaumicattempts.world.block.BlockAnomalyBed;
 import therealpant.thaumicattempts.world.block.BlockAnomalyCrop;
 import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
+import therealpant.thaumicattempts.world.block.BlockAuraBooster;
 import therealpant.thaumicattempts.world.block.BlockRiftBush;
 import therealpant.thaumicattempts.world.block.BlockRiftGeod;
 
@@ -32,6 +33,7 @@ import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
+import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 import therealpant.thaumicattempts.world.item.ItemAnomalySeeds;
 import therealpant.thaumicattempts.world.item.ItemMindFruitFood;
 import therealpant.thaumicattempts.world.item.ItemMindPotion;
@@ -94,6 +96,7 @@ public final class ModBlocksItems {
         TABlocks.ELDRITCH_CONSTRUCTION = new BlockEldritchConstarction();
         TABlocks.ANOMALY_BED = new BlockAnomalyBed();
         TABlocks.ANOMALY_CROP = new BlockAnomalyCrop();
+        TABlocks.AURA_BOOSTER = new BlockAuraBooster();
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -109,7 +112,8 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_STONE_BASE,
                 TABlocks.ELDRITCH_CONSTRUCTION,
                 TABlocks.ANOMALY_BED,
-                TABlocks.ANOMALY_CROP
+                TABlocks.ANOMALY_CROP,
+                TABlocks.AURA_BOOSTER
         );
 
         // TileEntities сети
@@ -137,6 +141,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_geod"));
         GameRegistry.registerTileEntity(TileAnomalyCrop.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "ta_anomaly_crop"));
+        GameRegistry.registerTileEntity(TileAuraBooster.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "ta_aura_booster"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -233,7 +239,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.ELDRITCH_CONSTRUCTION.getRegistryName());
         TABlocks.ANOMALY_BED_ITEM = new ItemBlock(TABlocks.ANOMALY_BED)
                 .setRegistryName(TABlocks.ANOMALY_BED.getRegistryName());
-
+        TABlocks.AURA_BOOSTER_ITEM = new ItemBlock(TABlocks.AURA_BOOSTER)
+                .setRegistryName(TABlocks.AURA_BOOSTER.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -248,7 +255,8 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_GEOD_ITEM,
                 TABlocks.RIFT_STONE_BASE_ITEM,
                 TABlocks.ELDRITCH_CONSTRUCTION_ITEM,
-                TABlocks.ANOMALY_BED_ITEM
+                TABlocks.ANOMALY_BED_ITEM,
+                TABlocks.AURA_BOOSTER_ITEM
         );
     }
 }

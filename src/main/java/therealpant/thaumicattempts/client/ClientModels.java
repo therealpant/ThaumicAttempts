@@ -25,6 +25,7 @@ import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
+import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import java.util.function.Supplier;
@@ -96,6 +97,7 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
         registerItemBlockModel(TABlocks.RIFT_STONE_BASE, ThaumicAttempts.MODID + ":rift_stone_base");
         registerItemBlockModel(TABlocks.ANOMALY_BED, ThaumicAttempts.MODID + ":ta_anomaly_bed");
+        registerItemBlockModel(TABlocks.AURA_BOOSTER, ThaumicAttempts.MODID + ":ta_aura_booster");
 
         // ухо — используем таумовскую иконку предмета
         ModelLoader.setCustomModelResourceLocation(
@@ -202,10 +204,11 @@ public final class ClientModels extends CommonProxy {
                 TileRiftGeod.class,
                 new RenderRiftGeod()
         );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileAuraBooster.class,
+                new RenderTileAuraBooster()
+        );
     }
-
-
-
 
     private static void registerItemBlockModel(net.minecraft.block.Block block, String path) {
         ModelLoader.setCustomModelResourceLocation(
