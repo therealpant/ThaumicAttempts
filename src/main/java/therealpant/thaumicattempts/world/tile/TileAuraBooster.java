@@ -6,25 +6,30 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.play.server.SPacketUpdateTileEntity;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.EnumHand;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.common.capabilities.Capability;
+import net.minecraftforge.common.util.INBTSerializable;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
+import net.minecraftforge.fml.common.Loader;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.IEssentiaTransport;
 import thaumcraft.api.aura.AuraHelper;
-import thaumcraft.common.world.aura.AuraChunk;
-import thaumcraft.common.world.aura.AuraHandler;
-import therealpant.thaumicattempts.integration.thaumicaugmentation.ImpetusCompat;
+import thecodex6824.thaumicaugmentation.api.impetus.node.CapabilityImpetusNode;
+import thecodex6824.thaumicaugmentation.api.impetus.node.ConsumeResult;
+import thecodex6824.thaumicaugmentation.api.impetus.node.IImpetusConsumer;
+import thecodex6824.thaumicaugmentation.api.impetus.node.NodeHelper;
 
+import thecodex6824.thaumicaugmentation.api.impetus.node.prefab.SimpleImpetusConsumer;
+import thecodex6824.thaumicaugmentation.api.util.DimensionalBlockPos;
 import javax.annotation.Nullable;
-import java.lang.reflect.Field;
-import java.lang.reflect.Method;
 
 public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaTransport {
 
+    private static final String TAUG_MODID = "thaumicaugmentation";
     private static final int TICK_INTERVAL = 60;
     private static final int ESSENTIA_CAP = 8;
     private static final int ESSENTIA_SUCTION = 128;
@@ -35,6 +40,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private static final float VIS_MAX_MULTIPLIER = 0.75F;
     private static final Aspect REQUIRED_ASPECT = Aspect.AURA;
     private static final String PEARL_ID = "thaumcraft:primordial_pearl";
+    private static final String NBT_IMPETUS_NODE = "TAugImpetusNode";
 
     private final ItemStackHandler inventory = new ItemStackHandler(1) {
         @Override
@@ -56,16 +62,74 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private int tickCounter;
     private int essentiaAmount;
     private int pearlUseCounter;
+    @Nullable
+    private IImpetusConsumer impetusConsumer;
+    @Nullable
+    private NBTTagCompound pendingImpetusTag;
 
     @Override
     public void update() {
         if (world == null || world.isRemote) return;
+        ensureImpetusNode();
         if (++tickCounter % TICK_INTERVAL != 0) return;
         attemptBoost();
     }
 
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        ensureImpetusNode();
+    }
+
+    @Override
+    public void validate() {
+        super.validate();
+        ensureImpetusNode();
+    }
+
+    @Override
+    public void invalidate() {
+        unloadImpetusNode();
+        super.invalidate();
+    }
+
+    @Override
+    public void onChunkUnload() {
+        unloadImpetusNode();
+        super.onChunkUnload();
+    }
+
     public ItemStack getPearlStack() {
         return inventory.getStackInSlot(0);
+    }
+
+    public boolean tryInsertPearl(net.minecraft.entity.player.EntityPlayer player, EnumHand hand) {
+        if (player == null || hand == null) return false;
+        ItemStack held = player.getHeldItem(hand);
+        if (!isPearl(held)) return false;
+        if (!inventory.getStackInSlot(0).isEmpty()) return false;
+        ItemStack toInsert = held.copy();
+        toInsert.setCount(1);
+        ItemStack remainder = inventory.insertItem(0, toInsert, false);
+        if (!remainder.isEmpty()) return false;
+        if (!player.capabilities.isCreativeMode) {
+            held.shrink(1);
+        }
+        markDirtyAndSync();
+        return true;
+    }
+
+    public boolean tryExtractPearl(net.minecraft.entity.player.EntityPlayer player) {
+        if (player == null) return false;
+        if (inventory.getStackInSlot(0).isEmpty()) return false;
+        ItemStack extracted = inventory.extractItem(0, 1, false);
+        if (extracted.isEmpty()) return false;
+        boolean added = player.inventory.addItemStackToInventory(extracted);
+        if (!added && world != null) {
+            net.minecraft.inventory.InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), extracted);
+        }
+        markDirtyAndSync();
+        return true;
     }
 
     private boolean hasPearl() {
@@ -74,22 +138,19 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
 
     private void attemptBoost() {
         int pearlBonus = hasPearl() ? 1 : 0;
-        if (ImpetusCompat.isAvailable() && ImpetusCompat.canConsumeImpetus(this, IMPETUS_COST)) {
-            int efficiency = Math.min(3, 2 + pearlBonus);
-            if (!canBoostAny(efficiency)) return;
-            if (ImpetusCompat.consumeImpetus(this, IMPETUS_COST)) {
-                if (boostChunks(efficiency)) {
-                    handlePearlWear();
-                }
-                return;
+        int impetusEfficiency = Math.min(3, 2 + pearlBonus);
+        if (canBoostAny(impetusEfficiency) && consumeImpetus(IMPETUS_COST)) {
+            if (boostChunks(impetusEfficiency)) {
+                handlePearlWear();
             }
+            return;
         }
 
         if (essentiaAmount >= ESSENTIA_COST) {
             int efficiency = Math.min(3, 1 + pearlBonus);
             if (!canBoostAny(efficiency)) return;
-            consumeEssentia(ESSENTIA_COST);
             if (boostChunks(efficiency)) {
+                consumeEssentia(ESSENTIA_COST);
                 handlePearlWear();
             }
         }
@@ -173,27 +234,9 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     }
 
     private float getChunkBase(int chunkX, int chunkZ) {
-        AuraChunk chunk = AuraHandler.getAuraChunk(world.provider.getDimension(), chunkX, chunkZ);
-        if (chunk == null) return 0.0F;
-        try {
-            Field field = AuraChunk.class.getDeclaredField("base");
-            field.setAccessible(true);
-            Object value = field.get(chunk);
-            if (value instanceof Number) {
-                return ((Number) value).floatValue();
-            }
-        } catch (ReflectiveOperationException ignored) {
-        }
-        try {
-            Method method = AuraChunk.class.getDeclaredMethod("getBase");
-            method.setAccessible(true);
-            Object value = method.invoke(chunk);
-            if (value instanceof Number) {
-                return ((Number) value).floatValue();
-            }
-        } catch (ReflectiveOperationException ignored) {
-        }
-        return 0.0F;
+        BlockPos chunkCenter = getChunkCenter(chunkX, chunkZ);
+        float base = AuraHelper.getAuraBase(world, chunkCenter);
+        return base > 0.0F ? base : 0.0F;
     }
 
     private BlockPos getChunkCenter(int chunkX, int chunkZ) {
@@ -234,6 +277,13 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         }
         essentiaAmount = compound.getInteger("Essentia");
         pearlUseCounter = compound.getInteger("PearlUse");
+        if (compound.hasKey(NBT_IMPETUS_NODE)) {
+            pendingImpetusTag = compound.getCompoundTag(NBT_IMPETUS_NODE);
+            if (impetusConsumer instanceof INBTSerializable) {
+                ((INBTSerializable<NBTTagCompound>) impetusConsumer).deserializeNBT(pendingImpetusTag);
+                pendingImpetusTag = null;
+            }
+        }
     }
 
     @Override
@@ -242,6 +292,9 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         compound.setTag("Inventory", inventory.serializeNBT());
         compound.setInteger("Essentia", essentiaAmount);
         compound.setInteger("PearlUse", pearlUseCounter);
+        if (impetusConsumer instanceof INBTSerializable) {
+            compound.setTag(NBT_IMPETUS_NODE, ((INBTSerializable<NBTTagCompound>) impetusConsumer).serializeNBT());
+        }
         return compound;
     }
 
@@ -263,7 +316,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Override
     public boolean hasCapability(Capability<?> capability, @Nullable EnumFacing facing) {
         if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) return true;
-        if (ImpetusCompat.isImpetusCapability(capability)) return true;
+        if (capability == CapabilityImpetusNode.IMPETUS_NODE && Loader.isModLoaded(TAUG_MODID)) return true;
         return super.hasCapability(capability, facing);
     }
 
@@ -273,8 +326,11 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) {
             return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(inventory);
         }
-        if (ImpetusCompat.isImpetusCapability(capability)) {
-            return ImpetusCompat.getImpetusCapabilityInstance(capability, this);
+        if (capability == CapabilityImpetusNode.IMPETUS_NODE && Loader.isModLoaded(TAUG_MODID)) {
+            ensureImpetusNode();
+            if (impetusConsumer != null) {
+                return capability.cast((T) impetusConsumer);
+            }
         }
         return super.getCapability(capability, facing);
     }
@@ -338,5 +394,35 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Override
     public int getMinimumSuction() {
         return 8;
+    }
+
+    private void ensureImpetusNode() {
+        if (world == null || world.isRemote) return;
+        if (!Loader.isModLoaded(TAUG_MODID)) return;
+        if (impetusConsumer == null) {
+            DimensionalBlockPos loc = new DimensionalBlockPos(pos, world.provider.getDimension());
+            impetusConsumer = new SimpleImpetusConsumer(1, 0, loc);
+            impetusConsumer.init(world);
+            NodeHelper.validate(impetusConsumer, world);
+            NodeHelper.tryConnectNewlyLoadedPeers(impetusConsumer, world);
+            if (pendingImpetusTag != null && impetusConsumer instanceof INBTSerializable) {
+                ((INBTSerializable<NBTTagCompound>) impetusConsumer).deserializeNBT(pendingImpetusTag);
+                pendingImpetusTag = null;
+            }
+        }
+    }
+
+    private void unloadImpetusNode() {
+        if (impetusConsumer != null) {
+            impetusConsumer.unload();
+        }
+    }
+
+    private boolean consumeImpetus(int amount) {
+        if (amount <= 0) return false;
+        ensureImpetusNode();
+        if (impetusConsumer == null) return false;
+        ConsumeResult result = NodeHelper.consumeImpetusFromConnectedProviders(amount, impetusConsumer, false);
+        return result != null && result.energyConsumed >= amount;
     }
 }
