@@ -15,9 +15,12 @@ import net.minecraftforge.common.util.INBTSerializable;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.fml.common.Loader;
+import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.IEssentiaTransport;
 import thaumcraft.api.aura.AuraHelper;
+import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.config.TAConfig;
 import thecodex6824.thaumicaugmentation.api.impetus.node.CapabilityImpetusNode;
 import thecodex6824.thaumicaugmentation.api.impetus.node.ConsumeResult;
 import thecodex6824.thaumicaugmentation.api.impetus.node.IImpetusConsumer;
@@ -31,10 +34,11 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
 
     private static final String TAUG_MODID = "thaumicaugmentation";
     private static final int TICK_INTERVAL = 60;
-    private static final int ESSENTIA_CAP = 8;
-    private static final int ESSENTIA_SUCTION = 128;
-    private static final int ESSENTIA_COST = 1;
-    private static final int IMPETUS_COST = 50;
+    private static final int ESSENTIA_CAP = 40;
+    private static final int ESSENTIA_SUCTION = 1024;
+    private static final int ESSENTIA_BASE_COST = 6;
+    private static final int IMPETUS_BASE_COST = 3;
+    private static final int HEAT_RESET_TICKS = 240;
     private static final int PEARL_DAMAGE_INTERVAL = 10;
     private static final float VIS_ADD_MULTIPLIER = 0.10F;
     private static final float VIS_MAX_MULTIPLIER = 0.75F;
@@ -60,8 +64,13 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     };
 
     private int tickCounter;
+    private int drawDelay;
+    private int suctionPingCooldown;
     private int essentiaAmount;
     private int pearlUseCounter;
+    private int essentiaCostCurrent = ESSENTIA_BASE_COST;
+    private int impetusCostCurrent = IMPETUS_BASE_COST;
+    private long lastWorkTick;
     @Nullable
     private IImpetusConsumer impetusConsumer;
     @Nullable
@@ -71,6 +80,13 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     public void update() {
         if (world == null || world.isRemote) return;
         ensureImpetusNode();
+        pullEssentiaFromNeighbors();
+        if (suctionPingCooldown-- <= 0) {
+            if (essentiaAmount < ESSENTIA_CAP) {
+                notifyEssentiaChange();
+            }
+            suctionPingCooldown = 20;
+        }
         if (++tickCounter % TICK_INTERVAL != 0) return;
         attemptBoost();
     }
@@ -137,22 +153,45 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     }
 
     private void attemptBoost() {
+        long now = world.getTotalWorldTime();
+        if (now - lastWorkTick >= HEAT_RESET_TICKS) {
+            resetHeatCosts();
+        }
         int pearlBonus = hasPearl() ? 1 : 0;
         int impetusEfficiency = Math.min(3, 2 + pearlBonus);
-        if (canBoostAny(impetusEfficiency) && consumeImpetus(IMPETUS_COST)) {
-            if (boostChunks(impetusEfficiency)) {
-                handlePearlWear();
+        long requestedImpetus = 0L;
+        long consumedImpetus = 0L;
+        int requestedEssentia = 0;
+        int consumedEssentia = 0;
+        float payRatio = 0.0F;
+
+        if (canBoostAny(impetusEfficiency)) {
+            requestedImpetus = impetusCostCurrent;
+            consumedImpetus = consumeImpetus(requestedImpetus, false);
+            payRatio = clamp01(requestedImpetus <= 0 ? 0.0F : (float) consumedImpetus / (float) requestedImpetus);
+            if (payRatio > 0.0F) {
+                debugPowerAttempt(requestedImpetus, consumedImpetus, 0, 0, payRatio);
+                if (boostChunks(impetusEfficiency, payRatio)) {
+                    applyHeatIncrease();
+                    lastWorkTick = now;
+                    handlePearlWear();
+                    return;
+                }
             }
-            return;
         }
 
-        if (essentiaAmount >= ESSENTIA_COST) {
-            int efficiency = Math.min(3, 1 + pearlBonus);
-            if (!canBoostAny(efficiency)) return;
-            if (boostChunks(efficiency)) {
-                consumeEssentia(ESSENTIA_COST);
-                handlePearlWear();
-            }
+        int efficiency = Math.min(3, 1 + pearlBonus);
+        if (!canBoostAny(efficiency)) return;
+        requestedEssentia = essentiaCostCurrent;
+        consumedEssentia = consumeEssentiaPartial(requestedEssentia);
+        payRatio = clamp01(requestedEssentia <= 0 ? 0.0F : (float) consumedEssentia / (float) requestedEssentia);
+        if (payRatio <= 0.0F) return;
+        debugPowerAttempt(0L, 0L, requestedEssentia, consumedEssentia, payRatio);
+        if (boostChunks(efficiency, payRatio)) {
+            consumeEssentia(consumedEssentia);
+            applyHeatIncrease();
+            lastWorkTick = now;
+            handlePearlWear();
         }
     }
 
@@ -192,8 +231,8 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         return needsBoost(chunkX, chunkZ, efficiency);
     }
 
-    private boolean boostChunks(int efficiency) {
-        if (efficiency <= 0) return false;
+    private boolean boostChunks(int efficiency, float payRatio) {
+        if (efficiency <= 0 || payRatio <= 0.0F) return false;
         BlockPos origin = pos;
         int chunkX = origin.getX() >> 4;
         int chunkZ = origin.getZ() >> 4;
@@ -201,12 +240,12 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         if (efficiency == 3) {
             for (int dx = -1; dx <= 1; dx++) {
                 for (int dz = -1; dz <= 1; dz++) {
-                    boosted |= boostChunk(chunkX + dx, chunkZ + dz, efficiency);
+                    boosted |= boostChunk(chunkX + dx, chunkZ + dz, efficiency, payRatio);
                 }
             }
             return boosted;
         }
-        return boostChunk(chunkX, chunkZ, efficiency);
+        return boostChunk(chunkX, chunkZ, efficiency, payRatio);
     }
 
     private boolean needsBoost(int chunkX, int chunkZ, int efficiency) {
@@ -217,7 +256,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         return current < 0.8F * max;
     }
 
-    private boolean boostChunk(int chunkX, int chunkZ, int efficiency) {
+    private boolean boostChunk(int chunkX, int chunkZ, int efficiency, float payRatio) {
         float base = getChunkBase(chunkX, chunkZ);
         if (base <= 0.0F) return false;
         float max = base * (1.0F + VIS_MAX_MULTIPLIER * efficiency);
@@ -229,7 +268,9 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         if (allowed <= 0.0F) return false;
         float toAdd = Math.min(add, allowed);
         if (toAdd <= 0.0F) return false;
-        AuraHelper.addVis(world, chunkPos, toAdd);
+        float scaled = toAdd * payRatio;
+        if (scaled <= 0.0F) return false;
+        AuraHelper.addVis(world, chunkPos, scaled);
         return true;
     }
 
@@ -248,6 +289,62 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         essentiaAmount = Math.max(0, essentiaAmount - amount);
         markDirtyAndSync();
         notifyEssentiaChange();
+    }
+
+    private int consumeEssentiaPartial(int requested) {
+        if (requested <= 0 || essentiaAmount <= 0) return 0;
+        return Math.min(requested, essentiaAmount);
+    }
+
+    private boolean pullEssentiaFromNeighbors() {
+        if (++drawDelay % 5 != 0 || world == null || world.isRemote) return false;
+        if (essentiaAmount >= ESSENTIA_CAP) return false;
+        boolean pulled = false;
+        for (EnumFacing inFace : EnumFacing.VALUES) {
+            TileEntity te = ThaumcraftApiHelper.getConnectableTile(world, pos, inFace);
+            if (!(te instanceof IEssentiaTransport)) continue;
+            IEssentiaTransport transport = (IEssentiaTransport) te;
+            EnumFacing opp = inFace.getOpposite();
+            if (!transport.canOutputTo(opp)) continue;
+            if (transport.getSuctionAmount(opp) < this.getSuctionAmount(inFace)) {
+                int taken = transport.takeEssentia(REQUIRED_ASPECT, 1, opp);
+                if (taken > 0) {
+                    essentiaAmount = Math.min(ESSENTIA_CAP, essentiaAmount + taken);
+                    pulled = true;
+                    break;
+                }
+            }
+        }
+        if (pulled) {
+            markDirtyAndSync();
+            notifyEssentiaChange();
+        }
+        return pulled;
+    }
+
+    private void resetHeatCosts() {
+        essentiaCostCurrent = ESSENTIA_BASE_COST;
+        impetusCostCurrent = IMPETUS_BASE_COST;
+    }
+
+    private void applyHeatIncrease() {
+        essentiaCostCurrent += (int) Math.ceil(ESSENTIA_BASE_COST / 3.0);
+        impetusCostCurrent += (int) Math.ceil(IMPETUS_BASE_COST / 3.0);
+    }
+
+    private void debugPowerAttempt(long requestedImpetus, long consumedImpetus, int requestedEssentia,
+                                   int consumedEssentia, float payRatio) {
+        if (!TAConfig.ENABLE_AURA_BOOSTER_DEBUG_LOGS) return;
+        ThaumicAttempts.LOGGER.debug(
+                "[AuraBooster] requestedImpetus={}, consumed={}, requestedEssentia={}, consumed={}, ratio={}",
+                requestedImpetus, consumedImpetus, requestedEssentia, consumedEssentia, payRatio
+        );
+    }
+
+    private float clamp01(float value) {
+        if (value < 0.0F) return 0.0F;
+        if (value > 1.0F) return 1.0F;
+        return value;
     }
 
     private void notifyEssentiaChange() {
@@ -277,6 +374,11 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         }
         essentiaAmount = compound.getInteger("Essentia");
         pearlUseCounter = compound.getInteger("PearlUse");
+        essentiaCostCurrent = compound.getInteger("HeatEssCost");
+        impetusCostCurrent = compound.getInteger("HeatImpCost");
+        lastWorkTick = compound.getLong("HeatLastWork");
+        if (essentiaCostCurrent <= 0) essentiaCostCurrent = ESSENTIA_BASE_COST;
+        if (impetusCostCurrent <= 0) impetusCostCurrent = IMPETUS_BASE_COST;
         if (compound.hasKey(NBT_IMPETUS_NODE)) {
             pendingImpetusTag = compound.getCompoundTag(NBT_IMPETUS_NODE);
             if (impetusConsumer instanceof INBTSerializable) {
@@ -292,6 +394,9 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         compound.setTag("Inventory", inventory.serializeNBT());
         compound.setInteger("Essentia", essentiaAmount);
         compound.setInteger("PearlUse", pearlUseCounter);
+        compound.setInteger("HeatEssCost", essentiaCostCurrent);
+        compound.setInteger("HeatImpCost", impetusCostCurrent);
+        compound.setLong("HeatLastWork", lastWorkTick);
         if (impetusConsumer instanceof INBTSerializable) {
             compound.setTag(NBT_IMPETUS_NODE, ((INBTSerializable<NBTTagCompound>) impetusConsumer).serializeNBT());
         }
@@ -418,11 +523,11 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         }
     }
 
-    private boolean consumeImpetus(int amount) {
-        if (amount <= 0) return false;
+    private long consumeImpetus(long requested, boolean simulate) {
+        if (requested <= 0) return 0L;
         ensureImpetusNode();
-        if (impetusConsumer == null) return false;
-        ConsumeResult result = NodeHelper.consumeImpetusFromConnectedProviders(amount, impetusConsumer, false);
-        return result != null && result.energyConsumed >= amount;
+        if (impetusConsumer == null) return 0L;
+        ConsumeResult result = NodeHelper.consumeImpetusFromConnectedProviders(requested, impetusConsumer, simulate);
+        return result == null ? 0L : result.energyConsumed;
     }
 }

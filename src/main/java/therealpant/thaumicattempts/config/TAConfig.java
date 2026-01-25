@@ -23,6 +23,10 @@ public class TAConfig {
     @Config.Name("Enable Flux Anomaly Debug Logs")
     public static boolean ENABLE_FLUX_ANOMALY_DEBUG_LOGS = false;
 
+    @Config.Comment("Enable debug logging for aura booster power attempts.")
+    @Config.Name("Enable Aura Booster Debug Logs")
+    public static boolean ENABLE_AURA_BOOSTER_DEBUG_LOGS = false;
+
     @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
     public static class ConfigChangeListener {
         @SubscribeEvent
