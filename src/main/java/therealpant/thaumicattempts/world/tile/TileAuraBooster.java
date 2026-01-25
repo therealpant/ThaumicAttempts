@@ -12,32 +12,48 @@ import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.util.INBTSerializable;
+import net.minecraftforge.fml.relauncher.Side;
+import net.minecraftforge.fml.relauncher.SideOnly;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.fml.common.Loader;
+import software.bernie.geckolib3.core.IAnimatable;
+import software.bernie.geckolib3.core.PlayState;
+import software.bernie.geckolib3.core.builder.AnimationBuilder;
+import software.bernie.geckolib3.core.controller.AnimationController;
+import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
+import software.bernie.geckolib3.core.manager.AnimationData;
+import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.IEssentiaTransport;
 import thaumcraft.api.aura.AuraHelper;
+import thecodex6824.thaumicaugmentation.api.client.ImpetusRenderingManager;
+import thecodex6824.thaumicaugmentation.api.impetus.node.*;
+import thecodex6824.thaumicaugmentation.api.internal.TAInternals;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.config.TAConfig;
-import thecodex6824.thaumicaugmentation.api.impetus.node.CapabilityImpetusNode;
-import thecodex6824.thaumicaugmentation.api.impetus.node.ConsumeResult;
-import thecodex6824.thaumicaugmentation.api.impetus.node.IImpetusConsumer;
-import thecodex6824.thaumicaugmentation.api.impetus.node.NodeHelper;
 
 import thecodex6824.thaumicaugmentation.api.impetus.node.prefab.SimpleImpetusConsumer;
 import thecodex6824.thaumicaugmentation.api.util.DimensionalBlockPos;
-import javax.annotation.Nullable;
 
-public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaTransport {
+import javax.annotation.Nullable;
+import java.util.Deque;
+import java.util.Map;
+import java.util.ArrayList;
+import java.util.List;
+
+
+public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaTransport, IAnimatable {
+
+    private final AnimationFactory factory = new AnimationFactory(this);
 
     private static final String TAUG_MODID = "thaumicaugmentation";
     private static final int TICK_INTERVAL = 60;
     private static final int ESSENTIA_CAP = 40;
     private static final int ESSENTIA_SUCTION = 1024;
     private static final int ESSENTIA_BASE_COST = 6;
-    private static final int IMPETUS_BASE_COST = 3;
+    private static final int IMPETUS_BASE_COST = 6;
     private static final int HEAT_RESET_TICKS = 240;
     private static final int PEARL_DAMAGE_INTERVAL = 10;
     private static final float VIS_ADD_MULTIPLIER = 0.10F;
@@ -502,32 +518,113 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     }
 
     private void ensureImpetusNode() {
-        if (world == null || world.isRemote) return;
+        if (world == null) return;
         if (!Loader.isModLoaded(TAUG_MODID)) return;
+
         if (impetusConsumer == null) {
             DimensionalBlockPos loc = new DimensionalBlockPos(pos, world.provider.getDimension());
             impetusConsumer = new SimpleImpetusConsumer(1, 0, loc);
+
+            // init можно безопасно и на клиенте, и на сервере
             impetusConsumer.init(world);
-            NodeHelper.validate(impetusConsumer, world);
-            NodeHelper.tryConnectNewlyLoadedPeers(impetusConsumer, world);
+
+            // применяем pending nbt (важно и для клиента, чтобы node имел правильные данные)
             if (pendingImpetusTag != null && impetusConsumer instanceof INBTSerializable) {
                 ((INBTSerializable<NBTTagCompound>) impetusConsumer).deserializeNBT(pendingImpetusTag);
                 pendingImpetusTag = null;
             }
+
+            if (world.isRemote) {
+                // ✅ ключевое: регистрируем как renderable node, чтобы strong transaction рисовался до booster
+                registerRenderableNodeClient();
+            } else {
+                // только сервер: граф, валидация, автоконнект
+                NodeHelper.validate(impetusConsumer, world);
+                NodeHelper.tryConnectNewlyLoadedPeers(impetusConsumer, world);
+            }
+        } else {
+            // на всякий: если TE переместился/после загрузки, обновим location
+            if (impetusConsumer instanceof IImpetusNode) {
+                ((IImpetusNode) impetusConsumer).setLocation(
+                        new DimensionalBlockPos(pos, world.provider.getDimension())
+                );
+            }
+        }
+    }
+
+    @SideOnly(Side.CLIENT)
+    private void registerRenderableNodeClient() {
+        if (impetusConsumer instanceof IImpetusNode) {
+            ImpetusRenderingManager.registerRenderableNode((IImpetusNode) impetusConsumer);
+        }
+    }
+
+    @SideOnly(Side.CLIENT)
+    private void deregisterRenderableNodeClient() {
+        if (impetusConsumer instanceof IImpetusNode) {
+            ImpetusRenderingManager.deregisterRenderableNode((IImpetusNode) impetusConsumer);
         }
     }
 
     private void unloadImpetusNode() {
+        if (world != null && world.isRemote) {
+            deregisterRenderableNodeClient();
+        }
         if (impetusConsumer != null) {
             impetusConsumer.unload();
         }
+        impetusConsumer = null;
     }
+
 
     private long consumeImpetus(long requested, boolean simulate) {
         if (requested <= 0) return 0L;
         ensureImpetusNode();
         if (impetusConsumer == null) return 0L;
+
         ConsumeResult result = NodeHelper.consumeImpetusFromConnectedProviders(requested, impetusConsumer, simulate);
-        return result == null ? 0L : result.energyConsumed;
+        long consumed = (result == null) ? 0L : result.energyConsumed;
+
+        if (!simulate && consumed > 0 && result != null && result.paths != null && !result.paths.isEmpty()) {
+            // ВАЖНО: сам consumer должен быть IImpetusNode
+            IImpetusNode selfNode = (impetusConsumer instanceof IImpetusNode) ? (IImpetusNode) impetusConsumer : null;
+
+            for (Map.Entry<Deque<IImpetusNode>, Long> e : result.paths.entrySet()) {
+                Long amt = e.getValue();
+                if (amt == null || amt <= 0) continue;
+
+                // копируем путь, чтобы можно было дописать хвост
+                List<IImpetusNode> nodes = new ArrayList<>(e.getKey());
+
+                // ДОБАВЛЯЕМ consumer в конец, если его нет
+                if (selfNode != null) {
+                    if (nodes.isEmpty() || nodes.get(nodes.size() - 1) != selfNode) {
+                        nodes.add(selfNode);
+                    }
+                }
+
+                TAInternals.syncImpetusTransaction(nodes);
+            }
+        }
+
+        return consumed;
+    }
+
+
+    @Override
+    public void registerControllers(AnimationData data) {
+        data.addAnimationController(new AnimationController<>(this, "controller", 0, this::predicate));
+    }
+
+    private <E extends IAnimatable> PlayState predicate(AnimationEvent<E> event) {
+        event.getController().setAnimation(
+                new AnimationBuilder().addAnimation("animation.aura_booster.idle", true)
+        );
+        return PlayState.CONTINUE;
+    }
+
+    @Override
+    public AnimationFactory getFactory() {
+        return factory;
     }
 }

@@ -97,7 +97,6 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
         registerItemBlockModel(TABlocks.RIFT_STONE_BASE, ThaumicAttempts.MODID + ":rift_stone_base");
         registerItemBlockModel(TABlocks.ANOMALY_BED, ThaumicAttempts.MODID + ":ta_anomaly_bed");
-        registerItemBlockModel(TABlocks.AURA_BOOSTER, ThaumicAttempts.MODID + ":ta_aura_booster");
 
         // ухо — используем таумовскую иконку предмета
         ModelLoader.setCustomModelResourceLocation(
@@ -130,6 +129,8 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.ANOMALY_STONE_ITEM, therealpant.thaumicattempts.world.tile.TileAnomalyStone::new);
         registerItemModel(TABlocks.RIFT_GEOD_ITEM);
         attachTileRenderer(TABlocks.RIFT_GEOD_ITEM, TileRiftGeod::new);
+        registerItemModel(TABlocks.AURA_BOOSTER_ITEM);
+        attachTileRenderer(TABlocks.AURA_BOOSTER_ITEM, TileAuraBooster::new);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 
         // наши крафтеры: игнорируем таумовский ENABLED (если присутствует)
@@ -206,7 +207,7 @@ public final class ClientModels extends CommonProxy {
         );
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileAuraBooster.class,
-                new RenderTileAuraBooster()
+                new RenderAuraBoosterGeo()
         );
     }
 

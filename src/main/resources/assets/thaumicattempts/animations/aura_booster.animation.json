@@ -1,9 +1,9 @@
 {
 	"format_version": "1.8.0",
 	"animations": {
-		"aura_baffer.animation": {
+		"animation.aura_booster.idle": {
 			"loop": true,
-			"animation_length": 12,
+			"animation_length": 18.0417,
 			"bones": {
 				"bone16": {
 					"rotation": {
@@ -33,49 +33,49 @@
 						"0.0": {
 							"vector": [0, 0, 0]
 						},
-						"12.0": {
+						"18.0": {
 							"vector": [0, -360, 0]
 						}
 					}
 				},
 				"bone6": {
 					"position": {
-						"vector": [0, "math.sin(query.anim_time*120+26)", 0]
+						"vector": [0, "math.sin(query.anim_time*60+26)", 0]
 					}
 				},
 				"bone7": {
 					"position": {
-						"vector": [0, "math.sin(query.anim_time*120+28)", 0]
+						"vector": [0, "math.sin(query.anim_time*60-82)", 0]
 					}
 				},
 				"bone8": {
 					"position": {
-						"vector": [0, "math.sin(query.anim_time*120-15)", 0]
+						"vector": [0, "math.sin(query.anim_time*60-68)", 0]
 					}
 				},
 				"bone9": {
 					"position": {
-						"vector": [0, "math.sin(query.anim_time*120-14)", 0]
+						"vector": [0, "math.sin(query.anim_time*60-54)", 0]
 					}
 				},
 				"bone19": {
 					"position": {
-						"vector": [0, "math.sin(query.anim_time*120+16)", 0]
+						"vector": [0, "math.sin(query.anim_time*60+60)", 0]
 					}
 				},
 				"bone20": {
 					"position": {
-						"vector": [0, "math.sin(query.anim_time*120+15)", 0]
+						"vector": [0, "math.sin(query.anim_time*60+70)", 0]
 					}
 				},
 				"bone21": {
 					"position": {
-						"vector": [0, "math.sin(query.anim_time*120+16)", 0]
+						"vector": [0, "math.sin(query.anim_time*60-76)", 0]
 					}
 				},
 				"bone23": {
 					"position": {
-						"vector": [0, "math.sin(query.anim_time*120-18)", 0]
+						"vector": [0, "math.sin(query.anim_time*60+90)", 0]
 					}
 				}
 			}
