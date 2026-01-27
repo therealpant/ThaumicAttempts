@@ -19,6 +19,7 @@ import net.minecraftforge.fml.relauncher.SideOnly;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
+import software.bernie.geckolib3.core.AnimationState;
 import software.bernie.geckolib3.core.IAnimatable;
 import software.bernie.geckolib3.core.PlayState;
 import software.bernie.geckolib3.core.builder.AnimationBuilder;
@@ -54,7 +55,69 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     private static final int TICKS_PER_STAGE = 40;
     private static final int IMPETUS_PER_STAGE = 10;
 
+    private static final int TICKS_PER_SECOND = 20;
+
+    // loop клипы
+    private static final int SLIP_TICKS = 6 * TICKS_PER_SECOND; // 120
+    private static final int WORK_TICKS = 6 * TICKS_PER_SECOND; // 120
+
+    // переходы
+    private static final int TRANSITION_TICKS = 3 * TICKS_PER_SECOND; // 60
+
+
+    @Nullable
+    private AnimVisualState lastSentAnim = null;
+
+    private int transitionTicksLeft = 0;
+
+    // запросы на смену режима (не сразу переключаем, а “ставим в очередь”)
+    private boolean pendingStartWork = false;
+    private boolean pendingStopWork = false;
+
+
     private final AnimationFactory factory = new AnimationFactory(this);
+
+    private AnimVisualState animState = AnimVisualState.SLIP;
+
+    private enum AnimVisualState {
+        SLIP, ACTIV_PLUS, WORK, ACTIV_MINUS
+    }
+
+    private void applyAnimation(AnimationController<?> controller, AnimVisualState state) {
+        if (lastSentAnim == state) return; // важно: не трогаем контроллер каждый кадр
+        lastSentAnim = state;
+
+        switch (state) {
+            case ACTIV_PLUS:
+                controller.setAnimation(new AnimationBuilder().addAnimation("activ+", false));
+                break;
+            case WORK:
+                controller.setAnimation(new AnimationBuilder().addAnimation("work", true));
+                break;
+            case ACTIV_MINUS:
+                controller.setAnimation(new AnimationBuilder().addAnimation("activ-", false));
+                break;
+            case SLIP:
+            default:
+                controller.setAnimation(new AnimationBuilder().addAnimation("slip", true));
+                break;
+        }
+    }
+
+    private boolean shouldWorkForAnimation() {
+        if (world == null) return false;
+
+        // редстоун ставит на паузу => не работаем
+        if (world.isBlockPowered(pos)) return false;
+
+        // без валидной короны — не работаем
+        ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
+        if (crown.isEmpty() || getResultStack(crown).isEmpty()) return false;
+
+        // пока генерация не завершена
+        return stage < STAGE_MAX;
+    }
+
 
     private final ItemStackHandler inventory = new ItemStackHandler(2) {
         @Override
@@ -109,36 +172,37 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
         ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
         ItemStack resultStack = getResultStack(crown);
+
+        // нет валидной короны -> сброс прогресса (но core НЕ трогаем)
         if (resultStack.isEmpty()) {
             resetProgress("crown missing/invalid");
             return;
         }
 
-        if (stage >= STAGE_MAX) {
-            return;
-        }
-
+        // если core занят — генерацию не ведём
+        // (результат можно забрать, а если там “мусор” — игрок должен убрать)
         ItemStack core = inventory.getStackInSlot(SLOT_CORE);
-        if (core.isEmpty()) {
-            if (stage > 0) {
-                resetProgress("core missing during generation");
-                return;
-            }
-            inventory.setStackInSlot(SLOT_CORE, resultStack.copy());
-            ticksToNextStage = 0;
-            stage = 0;
-            ThaumicAttempts.LOGGER.debug("[RiftExtractor] Started generation at {}", pos);
-            markDirtyAndSync();
-        } else if (!isSameItem(core, resultStack)) {
-            resetProgress("core mismatch");
+        if (!core.isEmpty()) {
+            // если core уже результат и stage не 10 — можно аккуратно “зафиксировать”
+            // но проще: просто ждать пока игрок/автоматика заберёт
             return;
         }
 
+        // если уже закончили стадии, но core пуст (например из-за бага) — положим результат
+        if (stage >= STAGE_MAX) {
+            inventory.setStackInSlot(SLOT_CORE, resultStack.copy());
+            ThaumicAttempts.LOGGER.debug("[RiftExtractor] Completion fix: placed result into core at {}", pos);
+            markDirtyAndSync();
+            return;
+        }
+
+        // обычный тик прогресса
         if (ticksToNextStage < TICKS_PER_STAGE) {
             ticksToNextStage++;
             return;
         }
 
+        // достаточно ли импетуса
         if (consumeImpetus(IMPETUS_PER_STAGE, true) < IMPETUS_PER_STAGE) {
             return;
         }
@@ -150,9 +214,11 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
         stage = Math.min(STAGE_MAX, stage + 1);
         ticksToNextStage = 0;
+
         ThaumicAttempts.LOGGER.debug("[RiftExtractor] Stage {}/{} at {}, consumed {} impetus",
                 stage, STAGE_MAX, pos, consumed);
 
+        // 1% шанс разрушить корону и прервать прогресс
         if (world.rand.nextInt(100) == 0) {
             ThaumicAttempts.LOGGER.debug("[RiftExtractor] Crown shattered at {} during stage {}", pos, stage);
             inventory.setStackInSlot(SLOT_CROWN, ItemStack.EMPTY);
@@ -160,11 +226,15 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             return;
         }
 
+        // достигли 10 стадии -> кладём результат в core ОДИН раз
         if (stage >= STAGE_MAX) {
-            ThaumicAttempts.LOGGER.debug("[RiftExtractor] Generation complete at {}", pos);
+            inventory.setStackInSlot(SLOT_CORE, resultStack.copy());
+            ThaumicAttempts.LOGGER.debug("[RiftExtractor] Generation complete at {}, result placed into core", pos);
         }
+
         markDirtyAndSync();
     }
+
 
     @Override
     public void onLoad() {
@@ -221,18 +291,43 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         return true;
     }
 
+    public ItemStack getCoreRenderStack() {
+        // если уже есть реальный результат в core — показываем его всегда
+        ItemStack core = inventory.getStackInSlot(SLOT_CORE);
+        if (!core.isEmpty()) return core;
+
+        // иначе, если идёт прогресс — показываем будущий результат по короне
+        if (stage > 0 && stage < STAGE_MAX) {
+            ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
+            ItemStack res = getResultStack(crown);
+            if (!res.isEmpty()) return res;
+        }
+
+        return ItemStack.EMPTY;
+    }
+
+
     public boolean tryExtractCrown(EntityPlayer player) {
         if (player == null) return false;
+
         ItemStack extracted = inventory.extractItem(SLOT_CROWN, 1, false);
         if (extracted.isEmpty()) return false;
-        resetProgress("crown removed by player");
+
+        // если прогресс не завершён — просто сбрасываем прогресс (core мы больше не трогаем)
+        if (stage < STAGE_MAX) {
+            resetProgress("crown removed by player");
+        }
+
         boolean added = player.inventory.addItemStackToInventory(extracted);
         if (!added && world != null) {
             net.minecraft.inventory.InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), extracted);
         }
+
         markDirtyAndSync();
         return true;
     }
+
+
 
     public boolean tryExtractCore(EntityPlayer player) {
         if (player == null) return false;
@@ -253,14 +348,16 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     }
 
     private void resetProgress(String reason) {
-        boolean hadProgress = stage != 0 || ticksToNextStage != 0 || !inventory.getStackInSlot(SLOT_CORE).isEmpty();
+        boolean hadProgress = stage != 0 || ticksToNextStage != 0;
         if (!hadProgress) return;
+
         stage = 0;
         ticksToNextStage = 0;
-        inventory.setStackInSlot(SLOT_CORE, ItemStack.EMPTY);
-        ThaumicAttempts.LOGGER.debug("[RiftExtractor] Generation interrupted at {} ({})", pos, reason);
+
+        ThaumicAttempts.LOGGER.debug("[RiftExtractor] Progress reset at {} ({})", pos, reason);
         markDirtyAndSync();
     }
+
 
     private boolean isValidCrown(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
@@ -456,11 +553,91 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     }
 
     private <E extends IAnimatable> PlayState predicate(AnimationEvent<E> event) {
-        event.getController().setAnimation(
-                new AnimationBuilder().addAnimation("work", true)
-        );
+        AnimationController<?> controller = event.getController();
+        boolean shouldWork = shouldWorkForAnimation();
+
+        // Важно: event.getAnimationTick() в Geckolib 3 — "время" внутри текущей анимации контроллера.
+        // Оно сбрасывается при setAnimation, поэтому удобно для границ циклов.
+        final double animTick = event.getAnimationTick();
+
+        // 1) Фиксируем "заявки" на смену режима. Не переключаемся сразу!
+        //    Заявка будет выполнена только когда текущая анимация ДОИГРАЕТ.
+        if (shouldWork) {
+            // хотим работать
+            pendingStartWork = true;
+            pendingStopWork = false;
+        } else {
+            // хотим простаивать
+            pendingStopWork = true;
+            pendingStartWork = false;
+        }
+
+        // 2) Границы loop-анимаций: разрешаем старт перехода только на стыке цикла.
+        //    Окно 1 тик в конце или 0.1 в начале (подстрой при желании).
+        java.util.function.DoublePredicate isAtLoopBoundary = (lenTicks) -> {
+            if (lenTicks <= 0) return true;
+            double m = animTick % lenTicks;
+            return (m >= lenTicks - 1.0) || (m <= 0.1);
+        };
+
+        // 3) Если сейчас проигрываем переход (не-loop) — его НЕЛЬЗЯ прерывать.
+        //    Просто играем его и ждём AnimationState.Stopped.
+        if (animState == AnimVisualState.ACTIV_PLUS || animState == AnimVisualState.ACTIV_MINUS) {
+            applyAnimation(controller, animState);
+
+            if (controller.getAnimationState() == AnimationState.Stopped) {
+                // переход доигрался -> выбираем следующее loop-состояние
+                // (по актуальному shouldWork, чтобы если условие сменилось во время перехода — не дёргаться)
+                animState = shouldWork ? AnimVisualState.WORK : AnimVisualState.SLIP;
+                lastSentAnim = null; // чтобы loop реально установился
+                applyAnimation(controller, animState);
+
+                // заявка выполнена
+                pendingStartWork = false;
+                pendingStopWork = false;
+            }
+            return PlayState.CONTINUE;
+        }
+
+        // 4) Мы в loop-состояниях (SLIP/WORK). Их тоже нельзя "резать" на середине.
+        //    Если нужна смена режима — ждём границы цикла и только потом запускаем переход.
+        if (animState == AnimVisualState.SLIP) {
+            // всегда продолжаем slip пока не настало время перехода
+            applyAnimation(controller, AnimVisualState.SLIP);
+
+            if (pendingStartWork && isAtLoopBoundary.test((double) SLIP_TICKS)) {
+                // slip доиграл цикл -> запускаем activ+
+                animState = AnimVisualState.ACTIV_PLUS;
+                lastSentAnim = null;
+                applyAnimation(controller, animState);
+                // pendingStartWork НЕ сбрасываем здесь — сбросим после завершения activ+
+            }
+            return PlayState.CONTINUE;
+        }
+
+        if (animState == AnimVisualState.WORK) {
+            applyAnimation(controller, AnimVisualState.WORK);
+
+            if (pendingStopWork && isAtLoopBoundary.test((double) WORK_TICKS)) {
+                // work доиграл цикл -> запускаем activ-
+                animState = AnimVisualState.ACTIV_MINUS;
+                lastSentAnim = null;
+                applyAnimation(controller, animState);
+                // pendingStopWork НЕ сбрасываем здесь — сбросим после завершения activ-
+            }
+            return PlayState.CONTINUE;
+        }
+
+        // 5) Fallback (на всякий) — ставим корректное loop-состояние, без резких переходов.
+        animState = shouldWork ? AnimVisualState.WORK : AnimVisualState.SLIP;
+        lastSentAnim = null;
+        applyAnimation(controller, animState);
+        pendingStartWork = false;
+        pendingStopWork = false;
         return PlayState.CONTINUE;
     }
+
+
 
     @Override
     public AnimationFactory getFactory() {
@@ -497,11 +674,32 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         @Override
         public ItemStack extractItem(int slot, int amount, boolean simulate) {
             if (amount <= 0) return ItemStack.EMPTY;
+
             ItemStack extracted = inventory.extractItem(SLOT_CROWN, amount, simulate);
+
             if (!simulate && !extracted.isEmpty()) {
-                resetProgress("crown extracted by automation");
+                if (stage < STAGE_MAX) {
+                    resetProgress("crown extracted by automation");
+                } else {
+                    ThaumicAttempts.LOGGER.debug("[RiftExtractor] Crown extracted after completion via automation at {}, core preserved", pos);
+                }
             }
             return extracted;
+        }
+
+        public ItemStack getCoreRenderStack() {
+            // если уже есть реальный результат в core — показываем его всегда
+            ItemStack core = inventory.getStackInSlot(SLOT_CORE);
+            if (!core.isEmpty()) return core;
+
+            // иначе, если идёт прогресс — показываем будущий результат по короне
+            if (stage > 0 && stage < STAGE_MAX) {
+                ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
+                ItemStack res = getResultStack(crown);
+                if (!res.isEmpty()) return res;
+            }
+
+            return ItemStack.EMPTY;
         }
 
         @Override

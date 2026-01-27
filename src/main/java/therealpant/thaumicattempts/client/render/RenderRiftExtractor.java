@@ -23,8 +23,8 @@ public class RenderRiftExtractor extends GeoBlockRenderer<TileRiftExtractor> {
             new ResourceLocation(ThaumicAttempts.MODID, "textures/blocks/mirror_manager_e.png");
     private static final float EMISSIVE_Y_OFFSET = 0.01f;
 
-    private static final double CROWN_Y = 37.5 / 16.0;
-    private static final double CORE_Y = 23.0 / 16.0;
+    private static final double CROWN_Y = 29.5 / 16.0;
+    private static final double CORE_Y = 15.0 / 16.0;
 
     public RenderRiftExtractor() {
         super(new RiftExtractorModel());
@@ -85,7 +85,7 @@ public class RenderRiftExtractor extends GeoBlockRenderer<TileRiftExtractor> {
             renderEmissiveLayer(te, x, y, z, partialTicks);
 
             renderItemStack(te.getCrownStack(), x, y + CROWN_Y, z, partialTicks, 1.0F);
-            renderItemStack(te.getCoreStack(), x, y + CORE_Y, z, partialTicks, te.getCoreAlpha());
+            renderItemStack(te.getCoreRenderStack(), x, y + CORE_Y, z, partialTicks, te.getCoreAlpha());
         } finally {
             if (pushedAttrib) {
                 GL11.glPopAttrib();
