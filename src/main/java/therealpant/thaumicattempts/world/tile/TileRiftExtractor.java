@@ -57,23 +57,8 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
     private static final int TICKS_PER_SECOND = 20;
 
-    // loop клипы
-    private static final int SLIP_TICKS = 6 * TICKS_PER_SECOND; // 120
-    private static final int WORK_TICKS = 6 * TICKS_PER_SECOND; // 120
-
-    // переходы
-    private static final int TRANSITION_TICKS = 3 * TICKS_PER_SECOND; // 60
-
-
     @Nullable
     private AnimVisualState lastSentAnim = null;
-
-    private int transitionTicksLeft = 0;
-
-    // запросы на смену режима (не сразу переключаем, а “ставим в очередь”)
-    private boolean pendingStartWork = false;
-    private boolean pendingStopWork = false;
-
 
     private final AnimationFactory factory = new AnimationFactory(this);
 
@@ -92,14 +77,14 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
                 controller.setAnimation(new AnimationBuilder().addAnimation("activ+", false));
                 break;
             case WORK:
-                controller.setAnimation(new AnimationBuilder().addAnimation("work", true));
+                controller.setAnimation(new AnimationBuilder().addAnimation("work", false));
                 break;
             case ACTIV_MINUS:
                 controller.setAnimation(new AnimationBuilder().addAnimation("activ-", false));
                 break;
             case SLIP:
             default:
-                controller.setAnimation(new AnimationBuilder().addAnimation("slip", true));
+                controller.setAnimation(new AnimationBuilder().addAnimation("slip", false));
                 break;
         }
     }
@@ -555,85 +540,42 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     private <E extends IAnimatable> PlayState predicate(AnimationEvent<E> event) {
         AnimationController<?> controller = event.getController();
         boolean shouldWork = shouldWorkForAnimation();
+        AnimVisualState desiredLoop = shouldWork ? AnimVisualState.WORK : AnimVisualState.SLIP;
 
-        // Важно: event.getAnimationTick() в Geckolib 3 — "время" внутри текущей анимации контроллера.
-        // Оно сбрасывается при setAnimation, поэтому удобно для границ циклов.
-        final double animTick = event.getAnimationTick();
-
-        // 1) Фиксируем "заявки" на смену режима. Не переключаемся сразу!
-        //    Заявка будет выполнена только когда текущая анимация ДОИГРАЕТ.
-        if (shouldWork) {
-            // хотим работать
-            pendingStartWork = true;
-            pendingStopWork = false;
-        } else {
-            // хотим простаивать
-            pendingStopWork = true;
-            pendingStartWork = false;
-        }
-
-        // 2) Границы loop-анимаций: разрешаем старт перехода только на стыке цикла.
-        //    Окно 1 тик в конце или 0.1 в начале (подстрой при желании).
-        java.util.function.DoublePredicate isAtLoopBoundary = (lenTicks) -> {
-            if (lenTicks <= 0) return true;
-            double m = animTick % lenTicks;
-            return (m >= lenTicks - 1.0) || (m <= 0.1);
-        };
-
-        // 3) Если сейчас проигрываем переход (не-loop) — его НЕЛЬЗЯ прерывать.
+        // 1) Если сейчас проигрываем переход (не-loop) — его НЕЛЬЗЯ прерывать.
         //    Просто играем его и ждём AnimationState.Stopped.
         if (animState == AnimVisualState.ACTIV_PLUS || animState == AnimVisualState.ACTIV_MINUS) {
             applyAnimation(controller, animState);
 
             if (controller.getAnimationState() == AnimationState.Stopped) {
                 // переход доигрался -> выбираем следующее loop-состояние
-                // (по актуальному shouldWork, чтобы если условие сменилось во время перехода — не дёргаться)
-                animState = shouldWork ? AnimVisualState.WORK : AnimVisualState.SLIP;
-                lastSentAnim = null; // чтобы loop реально установился
+                animState = (animState == AnimVisualState.ACTIV_PLUS) ? AnimVisualState.WORK : AnimVisualState.SLIP;                lastSentAnim = null; // чтобы loop реально установился
                 applyAnimation(controller, animState);
-
-                // заявка выполнена
-                pendingStartWork = false;
-                pendingStopWork = false;
             }
             return PlayState.CONTINUE;
         }
 
-        // 4) Мы в loop-состояниях (SLIP/WORK). Их тоже нельзя "резать" на середине.
-        //    Если нужна смена режима — ждём границы цикла и только потом запускаем переход.
-        if (animState == AnimVisualState.SLIP) {
-            // всегда продолжаем slip пока не настало время перехода
-            applyAnimation(controller, AnimVisualState.SLIP);
-
-            if (pendingStartWork && isAtLoopBoundary.test((double) SLIP_TICKS)) {
-                // slip доиграл цикл -> запускаем activ+
-                animState = AnimVisualState.ACTIV_PLUS;
+        // 2) Мы в состоянии SLIP/WORK. Даже простои и работа должны доигрывать клип до конца.
+        //    После завершения клипа решаем, что играть дальше.
+        if (animState == AnimVisualState.SLIP || animState == AnimVisualState.WORK) {
+            applyAnimation(controller, animState);
+            if (controller.getAnimationState() == AnimationState.Stopped) {
+                if (animState != desiredLoop) {
+                    animState = (desiredLoop == AnimVisualState.WORK) ? AnimVisualState.ACTIV_PLUS : AnimVisualState.ACTIV_MINUS;
+                } else {
+                    // повторяем тот же клип, пока не потребуется переход
+                    animState = desiredLoop;
+                }
                 lastSentAnim = null;
                 applyAnimation(controller, animState);
-                // pendingStartWork НЕ сбрасываем здесь — сбросим после завершения activ+
             }
             return PlayState.CONTINUE;
         }
 
-        if (animState == AnimVisualState.WORK) {
-            applyAnimation(controller, AnimVisualState.WORK);
-
-            if (pendingStopWork && isAtLoopBoundary.test((double) WORK_TICKS)) {
-                // work доиграл цикл -> запускаем activ-
-                animState = AnimVisualState.ACTIV_MINUS;
-                lastSentAnim = null;
-                applyAnimation(controller, animState);
-                // pendingStopWork НЕ сбрасываем здесь — сбросим после завершения activ-
-            }
-            return PlayState.CONTINUE;
-        }
-
-        // 5) Fallback (на всякий) — ставим корректное loop-состояние, без резких переходов.
-        animState = shouldWork ? AnimVisualState.WORK : AnimVisualState.SLIP;
+        // 3) Fallback (на всякий) — ставим корректное состояние, без резких переходов.
+        animState = desiredLoop;
         lastSentAnim = null;
         applyAnimation(controller, animState);
-        pendingStartWork = false;
-        pendingStopWork = false;
         return PlayState.CONTINUE;
     }
 
