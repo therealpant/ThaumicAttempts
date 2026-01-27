@@ -26,6 +26,7 @@ import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAuraBooster;
+import therealpant.thaumicattempts.world.tile.TileRiftExtractor;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import java.util.function.Supplier;
@@ -65,6 +66,18 @@ public final class ClientModels extends CommonProxy {
         ModelLoader.setCustomModelResourceLocation(
                 ModBlocksItems.RIFT_CRISTAL, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":rift_cristal", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.RIFT_EMBER, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":rift_ember", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.RIFT_AMETIST, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":rift_ametist", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.RIFT_BRILIANT, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":rift_briliant", "inventory")
         );
         ModelLoader.setCustomModelResourceLocation(
                 ModBlocksItems.ANOMALY_SEEDS, 0,
@@ -133,6 +146,8 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.RIFT_GEOD_ITEM, TileRiftGeod::new);
         registerItemModel(TABlocks.AURA_BOOSTER_ITEM);
         attachTileRenderer(TABlocks.AURA_BOOSTER_ITEM, TileAuraBooster::new);
+        registerItemModel(TABlocks.RIFT_EXTRACTOR_ITEM);
+        attachTileRenderer(TABlocks.RIFT_EXTRACTOR_ITEM, TileRiftExtractor::new);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 
         // наши крафтеры: игнорируем таумовский ENABLED (если присутствует)
@@ -210,6 +225,10 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileAuraBooster.class,
                 new RenderAuraBoosterGeo()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftExtractor.class,
+                new RenderRiftExtractor()
         );
     }
 

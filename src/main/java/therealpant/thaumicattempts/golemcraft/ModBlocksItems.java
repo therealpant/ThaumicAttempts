@@ -17,14 +17,7 @@ import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemnet.block.*;
-import therealpant.thaumicattempts.world.block.BlockAnomalyBed;
-import therealpant.thaumicattempts.world.block.BlockAnomalyCrop;
-import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
-import therealpant.thaumicattempts.world.block.BlockAuraBooster;
-import therealpant.thaumicattempts.world.block.BlockAuraBoosterCore;
-import therealpant.thaumicattempts.world.block.BlockRiftBush;
-import therealpant.thaumicattempts.world.block.BlockRiftGeod;
-import therealpant.thaumicattempts.world.block.BlockRistCristalBlock;
+import therealpant.thaumicattempts.world.block.*;
 
 
 import therealpant.thaumicattempts.golemnet.tile.*;
@@ -58,6 +51,9 @@ public final class ModBlocksItems {
     public static Item RIFT_FLOWER;
     public static Item RIFT_STONE;
     public static Item RIFT_CRISTAL;
+    public static Item RIFT_EMBER;
+    public static Item RIFT_AMETIST;
+    public static Item RIFT_BRILIANT;
     public static Item ANOMALY_SEEDS;
     public static Item MIND_FRUIT;
     public static Item MATURE_MIND_FRUIT;
@@ -101,7 +97,7 @@ public final class ModBlocksItems {
         TABlocks.AURA_BOOSTER = new BlockAuraBooster();
         TABlocks.AURA_BOOSTER_CORE = new BlockAuraBoosterCore();
         TABlocks.RIST_CRISTAL_BLOCK = new BlockRistCristalBlock();
-
+        TABlocks.RIFT_EXTRACTOR = new BlockRiftExtractor();
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
                 TABlocks.MIRROR_MANAGER_CORE,
@@ -119,7 +115,8 @@ public final class ModBlocksItems {
                 TABlocks.ANOMALY_CROP,
                 TABlocks.AURA_BOOSTER,
                 TABlocks.AURA_BOOSTER_CORE,
-                TABlocks.RIST_CRISTAL_BLOCK
+                TABlocks.RIST_CRISTAL_BLOCK,
+                TABlocks.RIFT_EXTRACTOR
         );
 
         // TileEntities сети
@@ -149,6 +146,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "ta_anomaly_crop"));
         GameRegistry.registerTileEntity(TileAuraBooster.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "ta_aura_booster"));
+        GameRegistry.registerTileEntity(therealpant.thaumicattempts.world.tile.TileRiftExtractor.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_extractor"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -176,6 +175,18 @@ public final class ModBlocksItems {
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".rift_cristal")
                 .setRegistryName(ThaumicAttempts.MODID, "rift_cristal");
+        RIFT_EMBER = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".rift_ember")
+                .setRegistryName(ThaumicAttempts.MODID, "rift_ember");
+        RIFT_AMETIST = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".rift_ametist")
+                .setRegistryName(ThaumicAttempts.MODID, "rift_ametist");
+        RIFT_BRILIANT = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".rift_briliant")
+                .setRegistryName(ThaumicAttempts.MODID, "rift_briliant");
         ANOMALY_SEEDS = new ItemAnomalySeeds(TABlocks.ANOMALY_CROP, TABlocks.ANOMALY_BED);
         MIND_FRUIT = new ItemMindFruitFood(5, 12.0F, 30 * 20)
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
@@ -199,6 +210,9 @@ public final class ModBlocksItems {
                 RIFT_FLOWER,
                 RIFT_STONE,
                 RIFT_CRISTAL,
+                RIFT_EMBER,
+                RIFT_AMETIST,
+                RIFT_BRILIANT,
                 ANOMALY_SEEDS,
                 MIND_FRUIT,
                 MATURE_MIND_FRUIT,
@@ -251,6 +265,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.AURA_BOOSTER_CORE.getRegistryName());
         TABlocks.RIST_CRISTAL_BLOCK_ITEM = new ItemBlock(TABlocks.RIST_CRISTAL_BLOCK)
                 .setRegistryName(TABlocks.RIST_CRISTAL_BLOCK.getRegistryName());
+        TABlocks.RIFT_EXTRACTOR_ITEM = new ItemBlock(TABlocks.RIFT_EXTRACTOR)
+                .setRegistryName(TABlocks.RIFT_EXTRACTOR.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -268,7 +284,8 @@ public final class ModBlocksItems {
                 TABlocks.ANOMALY_BED_ITEM,
                 TABlocks.AURA_BOOSTER_ITEM,
                 TABlocks.AURA_BOOSTER_CORE_ITEM,
-                TABlocks.RIST_CRISTAL_BLOCK_ITEM
+                TABlocks.RIST_CRISTAL_BLOCK_ITEM,
+                TABlocks.RIFT_EXTRACTOR_ITEM
         );
     }
 }
