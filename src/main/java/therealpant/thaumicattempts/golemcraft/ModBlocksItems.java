@@ -21,8 +21,10 @@ import therealpant.thaumicattempts.world.block.BlockAnomalyBed;
 import therealpant.thaumicattempts.world.block.BlockAnomalyCrop;
 import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
 import therealpant.thaumicattempts.world.block.BlockAuraBooster;
+import therealpant.thaumicattempts.world.block.BlockAuraBoosterCore;
 import therealpant.thaumicattempts.world.block.BlockRiftBush;
 import therealpant.thaumicattempts.world.block.BlockRiftGeod;
+import therealpant.thaumicattempts.world.block.BlockRistCristalBlock;
 
 
 import therealpant.thaumicattempts.golemnet.tile.*;
@@ -97,6 +99,8 @@ public final class ModBlocksItems {
         TABlocks.ANOMALY_BED = new BlockAnomalyBed();
         TABlocks.ANOMALY_CROP = new BlockAnomalyCrop();
         TABlocks.AURA_BOOSTER = new BlockAuraBooster();
+        TABlocks.AURA_BOOSTER_CORE = new BlockAuraBoosterCore();
+        TABlocks.RIST_CRISTAL_BLOCK = new BlockRistCristalBlock();
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -113,7 +117,9 @@ public final class ModBlocksItems {
                 TABlocks.ELDRITCH_CONSTRUCTION,
                 TABlocks.ANOMALY_BED,
                 TABlocks.ANOMALY_CROP,
-                TABlocks.AURA_BOOSTER
+                TABlocks.AURA_BOOSTER,
+                TABlocks.AURA_BOOSTER_CORE,
+                TABlocks.RIST_CRISTAL_BLOCK
         );
 
         // TileEntities сети
@@ -241,6 +247,10 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.ANOMALY_BED.getRegistryName());
         TABlocks.AURA_BOOSTER_ITEM = new ItemBlock(TABlocks.AURA_BOOSTER)
                 .setRegistryName(TABlocks.AURA_BOOSTER.getRegistryName());
+        TABlocks.AURA_BOOSTER_CORE_ITEM = new ItemBlock(TABlocks.AURA_BOOSTER_CORE)
+                .setRegistryName(TABlocks.AURA_BOOSTER_CORE.getRegistryName());
+        TABlocks.RIST_CRISTAL_BLOCK_ITEM = new ItemBlock(TABlocks.RIST_CRISTAL_BLOCK)
+                .setRegistryName(TABlocks.RIST_CRISTAL_BLOCK.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -256,7 +266,9 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_STONE_BASE_ITEM,
                 TABlocks.ELDRITCH_CONSTRUCTION_ITEM,
                 TABlocks.ANOMALY_BED_ITEM,
-                TABlocks.AURA_BOOSTER_ITEM
+                TABlocks.AURA_BOOSTER_ITEM,
+                TABlocks.AURA_BOOSTER_CORE_ITEM,
+                TABlocks.RIST_CRISTAL_BLOCK_ITEM
         );
     }
 }

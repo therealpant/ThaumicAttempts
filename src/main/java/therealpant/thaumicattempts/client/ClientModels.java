@@ -97,6 +97,8 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
         registerItemBlockModel(TABlocks.RIFT_STONE_BASE, ThaumicAttempts.MODID + ":rift_stone_base");
         registerItemBlockModel(TABlocks.ANOMALY_BED, ThaumicAttempts.MODID + ":ta_anomaly_bed");
+        registerItemBlockModel(TABlocks.AURA_BOOSTER_CORE, ThaumicAttempts.MODID + ":aura_booster_core");
+        registerItemBlockModel(TABlocks.RIST_CRISTAL_BLOCK, ThaumicAttempts.MODID + ":rist_cristal_block");
 
         // ухо — используем таумовскую иконку предмета
         ModelLoader.setCustomModelResourceLocation(

@@ -20,6 +20,8 @@ public class TABlocks {
     public static Block ANOMALY_BED;
     public static Block ANOMALY_CROP;
     public static Block AURA_BOOSTER;
+    public static Block AURA_BOOSTER_CORE;
+    public static Block RIST_CRISTAL_BLOCK;
 
     public static Item MIRROR_MANAGER_ITEM;
     public static Item MIRROR_MANAGER_CORE_ITEM;
@@ -35,5 +37,7 @@ public class TABlocks {
     public static Item ELDRITCH_CONSTRUCTION_ITEM;
     public static Item ANOMALY_BED_ITEM;
     public static Item AURA_BOOSTER_ITEM;
+    public static Item AURA_BOOSTER_CORE_ITEM;
+    public static Item RIST_CRISTAL_BLOCK_ITEM;
 }
 

@@ -8,14 +8,20 @@ import javax.annotation.Nullable;
 
 public class TileAnomalyCrop extends TileEntity {
     private static final String NBT_MIN_VIS = "MinVisDuringGrowth";
+    private static final String NBT_MIN_FLUX = "MinFluxDuringGrowth";
     private static final String NBT_BED_STATE = "BedState";
 
     private float minVisDuringGrowth = Float.MAX_VALUE;
+    private float minFluxDuringGrowth = Float.MAX_VALUE;
     @Nullable
     private BlockAnomalyBed.BedState bedState;
 
     public float getMinVisDuringGrowth() {
         return minVisDuringGrowth;
+    }
+
+    public float getMinFluxDuringGrowth() {
+        return minFluxDuringGrowth;
     }
 
     @Nullable
@@ -33,14 +39,24 @@ public class TileAnomalyCrop extends TileEntity {
         markDirty();
     }
 
+    public void setMinFluxDuringGrowth(float minFluxDuringGrowth) {
+        this.minFluxDuringGrowth = minFluxDuringGrowth;
+        markDirty();
+    }
+
     public void resetMinVis() {
         setMinVisDuringGrowth(Float.MAX_VALUE);
+    }
+
+    public void resetMinFlux() {
+        setMinFluxDuringGrowth(Float.MAX_VALUE);
     }
 
     @Override
     public NBTTagCompound writeToNBT(NBTTagCompound compound) {
         super.writeToNBT(compound);
         compound.setFloat(NBT_MIN_VIS, minVisDuringGrowth);
+        compound.setFloat(NBT_MIN_FLUX, minFluxDuringGrowth);
         if (bedState != null) {
             compound.setInteger(NBT_BED_STATE, bedState.ordinal());
         }
@@ -54,6 +70,11 @@ public class TileAnomalyCrop extends TileEntity {
             minVisDuringGrowth = compound.getFloat(NBT_MIN_VIS);
         } else {
             minVisDuringGrowth = Float.MAX_VALUE;
+        }
+        if (compound.hasKey(NBT_MIN_FLUX)) {
+            minFluxDuringGrowth = compound.getFloat(NBT_MIN_FLUX);
+        } else {
+            minFluxDuringGrowth = Float.MAX_VALUE;
         }
         if (compound.hasKey(NBT_BED_STATE)) {
             int ordinal = compound.getInteger(NBT_BED_STATE);

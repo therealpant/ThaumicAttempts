@@ -30,6 +30,7 @@ public class BlockAnomalyCrop extends BlockBush {
     private static final int MAX_AGE = 4;
     private static final int GROWTH_CHANCE = 5;
     private static final float VIS_REQUIRED = 8.0F;
+    private static final float FLUX_PER_STAGE = 0.8F;
     private static final float MATURE_VIS_THRESHOLD = 300.0F;
     private static final float SEED_DROP_CHANCE_NONE = 0.10F;
     private static final float SEED_DROP_CHANCE_DOUBLE = 0.05F;
@@ -71,20 +72,20 @@ public class BlockAnomalyCrop extends BlockBush {
     @Override
     public void onBlockAdded(World worldIn, BlockPos pos, IBlockState state) {
         super.onBlockAdded(worldIn, pos, state);
-        resetMinVis(worldIn, pos);
+        resetGrowthMins(worldIn, pos);
         initializeVariant(worldIn, pos, state);
     }
 
     @Override
     public void onBlockPlacedBy(World worldIn, BlockPos pos, IBlockState state, EntityLivingBase placer, ItemStack stack) {
         super.onBlockPlacedBy(worldIn, pos, state, placer, stack);
-        resetMinVis(worldIn, pos);
+        resetGrowthMins(worldIn, pos);
         initializeVariant(worldIn, pos, state);
     }
 
     @Override
     public void breakBlock(World worldIn, BlockPos pos, IBlockState state) {
-        resetMinVis(worldIn, pos);
+        resetGrowthMins(worldIn, pos);
         super.breakBlock(worldIn, pos, state);
     }
 
@@ -114,7 +115,16 @@ public class BlockAnomalyCrop extends BlockBush {
         }
 
         if (variant == CropVariant.DARK) {
+            float flux = AuraHelper.getFlux(worldIn, pos);
+            TileAnomalyCrop tile = getTile(worldIn, pos);
+            if (tile != null) {
+                tile.setMinFluxDuringGrowth(Math.min(tile.getMinFluxDuringGrowth(), flux));
+            }
             worldIn.setBlockState(pos, state.withProperty(AGE, age + 1), Constants.BlockFlags.DEFAULT);
+            float taken = Math.min(FLUX_PER_STAGE, Math.max(0f, flux));
+            if (taken > 0f) {
+                AuraHelper.drainFlux(worldIn, pos, taken, false);
+            }
         }
     }
 
@@ -230,7 +240,7 @@ public class BlockAnomalyCrop extends BlockBush {
         return tile instanceof TileAnomalyCrop ? (TileAnomalyCrop) tile : null;
     }
 
-    private void resetMinVis(World world, BlockPos pos) {
+    private void resetGrowthMins(World world, BlockPos pos) {
         if (world.isRemote) return;
         TileAnomalyCrop tile = getTile(world, pos);
         if (tile == null) {
@@ -238,6 +248,7 @@ public class BlockAnomalyCrop extends BlockBush {
             world.setTileEntity(pos, tile);
         }
         tile.resetMinVis();
+        tile.resetMinFlux();
     }
     private void initializeVariant(World world, BlockPos pos, IBlockState state) {
         if (world.isRemote) return;

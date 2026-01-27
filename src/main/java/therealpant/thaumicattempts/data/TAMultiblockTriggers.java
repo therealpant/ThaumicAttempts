@@ -17,19 +17,29 @@ public final class TAMultiblockTriggers {
     public static final ResourceLocation MIRROR_MANAGER_MB_ID =
             new ResourceLocation(ThaumicAttempts.MODID, "mirror_manager_multiblock");
 
+    public static final ResourceLocation AURA_BOOSTER_MB_ID =
+            new ResourceLocation(ThaumicAttempts.MODID, "aura_booster_multiblock");
+
     public static void register() {
         try {
             // 1) Триггер мультиблока (Salis Mundus)
-            DustTriggerMultiblock trigger = new DustTriggerMultiblock(
+            DustTriggerMultiblock mirrorTrigger = new DustTriggerMultiblock(
                     "TA_GOLEM_MIRRORS",
                     buildTriggerStructure()
             );
-            IDustTrigger.registerDustTrigger(trigger);
+            IDustTrigger.registerDustTrigger(mirrorTrigger);
+
+            DustTriggerMultiblock auraBoosterTrigger = new DustTriggerMultiblock(
+                    "TA_AURA_BOOSTER",
+                    buildAuraBoosterTriggerStructure()
+            );
+            IDustTrigger.registerDustTrigger(auraBoosterTrigger);
 
             // 2) Blueprint для Таумономикона (схема постройки)
             registerBlueprint();
+            registerAuraBoosterBlueprint();
 
-            ThaumicAttempts.LOGGER.info("Registered mirror manager multiblock dust trigger + blueprint.");
+            ThaumicAttempts.LOGGER.info("Registered multiblock dust triggers + blueprints.");
         } catch (Throwable t) {
             ThaumicAttempts.LOGGER.warn("Mirror manager multiblock registration failed.", t);
         }
@@ -47,6 +57,21 @@ public final class TAMultiblockTriggers {
                 { { coreToAir } },
                 // Y = 1 (НИЗ, СЮДА КЛИКАЕМ ПЫЛЬЮ)
                 { { baseToMgr } }
+        };
+    }
+
+    private static Part[][][] buildAuraBoosterTriggerStructure() {
+        Part topToAir = new Part(TABlocks.RIST_CRISTAL_BLOCK, "AIR");
+        Part middleToAir = new Part(TABlocks.AURA_BOOSTER_CORE, "AIR");
+        Part baseToBooster = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.AURA_BOOSTER);
+
+        return new Part[][][] {
+                // Y = 0 (ВЕРХ)
+                { { topToAir } },
+                // Y = 1 (СЕРЕДИНА)
+                { { middleToAir } },
+                // Y = 2 (НИЗ, СЮДА КЛИКАЕМ ПЫЛЬЮ)
+                { { baseToBooster } }
         };
     }
 
@@ -75,6 +100,33 @@ public final class TAMultiblockTriggers {
         );
 
         ThaumcraftApi.addMultiblockRecipeToCatalog(MIRROR_MANAGER_MB_ID, bp);
+    }
+
+    private static Part[][][] buildAuraBoosterBlueprintStructure() {
+        Part top = new Part(TABlocks.RIST_CRISTAL_BLOCK, TABlocks.RIST_CRISTAL_BLOCK);
+        Part middle = new Part(TABlocks.AURA_BOOSTER_CORE, TABlocks.AURA_BOOSTER_CORE);
+        Part bottom = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.RIFT_STONE_BASE);
+
+        return new Part[][][] {
+                // Y = 0 (ВЕРХ)
+                { { top } },
+                // Y = 1 (СЕРЕДИНА)
+                { { middle } },
+                // Y = 2 (НИЗ)
+                { { bottom } }
+        };
+    }
+
+    private static void registerAuraBoosterBlueprint() {
+        Part[][][] parts = buildAuraBoosterBlueprintStructure();
+
+        ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
+                "TA_AURA_BOOSTER",
+                new ItemStack(TABlocks.AURA_BOOSTER),
+                parts
+        );
+
+        ThaumcraftApi.addMultiblockRecipeToCatalog(AURA_BOOSTER_MB_ID, bp);
     }
 
 
