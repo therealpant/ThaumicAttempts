@@ -1,0 +1,6 @@
+{
+  "parent": "item/generated",
+  "textures": {
+    "layer0": "thaumicattempts:items/void_metal_base_ametist_3"
+  }
+}

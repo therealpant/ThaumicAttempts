@@ -78,3 +78,36 @@ research.TA_GOLEMCONTROLER.text.main= Удалось! Распеределите
 research.TA_GOLEMINFUSION.title=Дистанционное Наполнение
 research.TA_GOLEMINFUSION.text.intro= Наполнение на матрице отнимает большое количесво времени и требует постоянного присутвия. Но у меня есть мысль как автоматизировать этот процес.
 research.TA_GOLEMINFUSION.text.main= §lУправляющий Наполнением§r - блок способный самостоятельно выполнять операции с Матрицей без моего участия, достаточно просто положитьв него §lИнтрукции по Наполнению§r.<BR>Управляющему для работы необходимо указать на пьедесталы и руническую матрицу с которыми ему работать. Shift+ПКМ по Управляющему начнет привязку, ПКМ для привязки пьедесталов §lпервым§r необходимо привязать центральный пьедестал, Shift+ПКМ для привязки матрицы. <BR> Каждое размещение предмета на пьедестале расходует ессенцию Alienis. <BR> Запустить ритуал можно по сигналу редстоуна
+
+# Gem items
+item.thaumicattempts.gem.amber.tier1=Янтарь I
+item.thaumicattempts.gem.amber.tier2=Янтарь II
+item.thaumicattempts.gem.amber.tier3=Янтарь III
+item.thaumicattempts.gem.amethyst.tier1=Аметист I
+item.thaumicattempts.gem.amethyst.tier2=Аметист II
+item.thaumicattempts.gem.amethyst.tier3=Аметист III
+item.thaumicattempts.gem.diamond.tier1=Бриллиант I
+item.thaumicattempts.gem.diamond.tier2=Бриллиант II
+item.thaumicattempts.gem.diamond.tier3=Бриллиант III
+
+tooltip.thaumicattempts.inlay=Инкрустация: %s (тир-%s) %s
+tooltip.thaumicattempts.passive=Пассивно: %s
+tooltip.thaumicattempts.passive.amber=+%s%% урона заклинаний
+tooltip.thaumicattempts.passive.amethyst=+%s к максимуму Arcane Guard
+tooltip.thaumicattempts.passive.diamond=+%s%% урона оружия
+tooltip.thaumicattempts.set.small=Малый набор %s
+tooltip.thaumicattempts.set.full=Полный набор %s
+
+tooltip.thaumicattempts.tier.simple=Простой
+tooltip.thaumicattempts.tier.improved=Улучшенный
+tooltip.thaumicattempts.tier.exquisite=Изысканный
+tooltip.thaumicattempts.tier.roman.1=I
+tooltip.thaumicattempts.tier.roman.2=II
+tooltip.thaumicattempts.tier.roman.3=III
+
+tooltip.thaumicattempts.gem.amber=Янтарь
+tooltip.thaumicattempts.gem.amethyst=Аметист
+tooltip.thaumicattempts.gem.diamond=Бриллиант
+tooltip.thaumicattempts.gem.amber.set=Янтарей
+tooltip.thaumicattempts.gem.amethyst.set=Аметистов
+tooltip.thaumicattempts.gem.diamond.set=Бриллиантов

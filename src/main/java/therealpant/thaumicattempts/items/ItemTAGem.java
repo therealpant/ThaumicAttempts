@@ -11,6 +11,9 @@ import therealpant.thaumicattempts.api.gems.ITAGemDefinition;
 import therealpant.thaumicattempts.api.gems.TAGemNbtKeys;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
 import therealpant.thaumicattempts.common.gems.StubGemDefinition;
+import therealpant.thaumicattempts.gems.AmberGemDefinition;
+import therealpant.thaumicattempts.gems.AmethystGemDefinition;
+import therealpant.thaumicattempts.gems.DiamondGemDefinition;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 
 import javax.annotation.Nullable;
@@ -20,8 +23,11 @@ import javax.annotation.Nullable;
  */
 public class ItemTAGem extends Item {
 
+    private static final int MAX_TIER = 3;
+
     public ItemTAGem() {
         setMaxStackSize(1);
+        setHasSubtypes(true);
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
         setTranslationKey(ThaumicAttempts.MODID + ".ta_gem");
     }
@@ -46,6 +52,10 @@ public class ItemTAGem extends Item {
         gem.setInteger(TAGemNbtKeys.KEY_DAMAGE, dmg);
         root.setTag(TAGemNbtKeys.GEM_TAG, gem);
         stack.setTagCompound(root);
+        int meta = getMetaFromGem(id, tier);
+        if (meta >= 0) {
+            stack.setItemDamage(meta);
+        }
         return stack;
     }
 
@@ -116,21 +126,40 @@ public class ItemTAGem extends Item {
     }
 
     @Override
-    public String getItemStackDisplayName(ItemStack stack) {
-        String base = super.getItemStackDisplayName(stack);
-        int tier = getTier(stack);
-        return tier > 0 ? base + " (Tier " + tier + ")" : base;
+    public int getMetadata(int damage) {
+        return damage;
+    }
+
+    @Override
+    public String getTranslationKey(ItemStack stack) {
+        ResourceLocation id = getGemIdFromMeta(stack.getItemDamage());
+        int tier = getTierFromMeta(stack.getItemDamage());
+        if (id == null || tier < 1) {
+            id = getGemId(stack);
+            tier = getTier(stack);
+        }
+        if (id == null || tier < 1) {
+            return super.getTranslationKey(stack);
+        }
+        String typeKey = getGemTypeKey(id);
+        if (typeKey == null) {
+            return super.getTranslationKey(stack);
+        }
+        return "item." + ThaumicAttempts.MODID + ".gem." + typeKey + ".tier" + tier;
     }
 
     @Override
     public void getSubItems(CreativeTabs tab, NonNullList<ItemStack> items) {
         if (!isInCreativeTab(tab)) return;
-        for (ITAGemDefinition def : TAGemRegistry.all()) {
-            ResourceLocation id = def.getId();
-            for (int tier = 1; tier <= def.getMaxTier(); tier++) {
-                items.add(makeGem(id, tier, 0));
-            }
-        }
+        items.add(makeGem(AmberGemDefinition.ID, 1, 0));
+        items.add(makeGem(AmberGemDefinition.ID, 2, 0));
+        items.add(makeGem(AmberGemDefinition.ID, 3, 0));
+        items.add(makeGem(AmethystGemDefinition.ID, 1, 0));
+        items.add(makeGem(AmethystGemDefinition.ID, 2, 0));
+        items.add(makeGem(AmethystGemDefinition.ID, 3, 0));
+        items.add(makeGem(DiamondGemDefinition.ID, 1, 0));
+        items.add(makeGem(DiamondGemDefinition.ID, 2, 0));
+        items.add(makeGem(DiamondGemDefinition.ID, 3, 0));
         if (TAGemRegistry.all().isEmpty()) {
             items.add(makeGem(StubGemDefinition.ID, 1, 0));
         }
@@ -156,5 +185,61 @@ public class ItemTAGem extends Item {
             root.setTag(TAGemNbtKeys.GEM_TAG, new NBTTagCompound());
         }
         return root.getCompoundTag(TAGemNbtKeys.GEM_TAG);
+    }
+    private static int getMetaFromGem(ResourceLocation id, int tier) {
+        int typeIndex = getTypeIndex(id);
+        if (typeIndex < 0 || tier < 1 || tier > MAX_TIER) {
+            return -1;
+        }
+        return (typeIndex * MAX_TIER) + (tier - 1);
+    }
+
+    @Nullable
+    private static ResourceLocation getGemIdFromMeta(int meta) {
+        int typeIndex = meta / MAX_TIER;
+        switch (typeIndex) {
+            case 0:
+                return AmberGemDefinition.ID;
+            case 1:
+                return AmethystGemDefinition.ID;
+            case 2:
+                return DiamondGemDefinition.ID;
+            default:
+                return null;
+        }
+    }
+
+    private static int getTierFromMeta(int meta) {
+        if (meta < 0 || meta >= MAX_TIER * 3) {
+            return 0;
+        }
+        return (meta % MAX_TIER) + 1;
+    }
+
+    private static int getTypeIndex(ResourceLocation id) {
+        if (AmberGemDefinition.ID.equals(id)) {
+            return 0;
+        }
+        if (AmethystGemDefinition.ID.equals(id)) {
+            return 1;
+        }
+        if (DiamondGemDefinition.ID.equals(id)) {
+            return 2;
+        }
+        return -1;
+    }
+
+    @Nullable
+    private static String getGemTypeKey(ResourceLocation id) {
+        if (AmberGemDefinition.ID.equals(id)) {
+            return "amber";
+        }
+        if (AmethystGemDefinition.ID.equals(id)) {
+            return "amethyst";
+        }
+        if (DiamondGemDefinition.ID.equals(id)) {
+            return "diamond";
+        }
+        return null;
     }
 }

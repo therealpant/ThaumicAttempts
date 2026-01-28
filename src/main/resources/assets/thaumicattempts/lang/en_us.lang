@@ -83,3 +83,36 @@ research.TA_GOLEMCONTROLER.text.main=Success! The Task Distributor is complete!<
 research.TA_GOLEMINFUSION.title=Remote Infusion
 research.TA_GOLEMINFUSION.text.intro=Infusion at the matrix takes a great deal of time and requires constant supervision. I began to wonder whether this process could be automated.
 research.TA_GOLEMINFUSION.text.main=The §lInfusion Supplier§r is a block capable of performing Infusion Matrix operations without my direct involvement, simply by inserting §lInfusion Notes§r into it.<BR>The Supplier must be linked to the pedestals and the Runic Matrix it will operate with. Shift+RMB the Supplier to begin linking; RMB to bind pedestals — the §lcentral pedestal§r must be linked first — and Shift+RMB to bind the matrix.<BR>Each item placement onto a pedestal consumes §lAlienis§r essentia.<BR>The ritual can be started via a redstone signal.
+
+# Gem items
+item.thaumicattempts.gem.amber.tier1=Amber I
+item.thaumicattempts.gem.amber.tier2=Amber II
+item.thaumicattempts.gem.amber.tier3=Amber III
+item.thaumicattempts.gem.amethyst.tier1=Amethyst I
+item.thaumicattempts.gem.amethyst.tier2=Amethyst II
+item.thaumicattempts.gem.amethyst.tier3=Amethyst III
+item.thaumicattempts.gem.diamond.tier1=Diamond I
+item.thaumicattempts.gem.diamond.tier2=Diamond II
+item.thaumicattempts.gem.diamond.tier3=Diamond III
+
+tooltip.thaumicattempts.inlay=Inlay: %s (tier-%s) %s
+tooltip.thaumicattempts.passive=Passive: %s
+tooltip.thaumicattempts.passive.amber=+%s%% spell damage
+tooltip.thaumicattempts.passive.amethyst=+%s maximum Arcane Guard
+tooltip.thaumicattempts.passive.diamond=+%s%% weapon damage
+tooltip.thaumicattempts.set.small=Small set of %s
+tooltip.thaumicattempts.set.full=Full set of %s
+
+tooltip.thaumicattempts.tier.simple=Simple
+tooltip.thaumicattempts.tier.improved=Improved
+tooltip.thaumicattempts.tier.exquisite=Exquisite
+tooltip.thaumicattempts.tier.roman.1=I
+tooltip.thaumicattempts.tier.roman.2=II
+tooltip.thaumicattempts.tier.roman.3=III
+
+tooltip.thaumicattempts.gem.amber=Amber
+tooltip.thaumicattempts.gem.amethyst=Amethyst
+tooltip.thaumicattempts.gem.diamond=Diamond
+tooltip.thaumicattempts.gem.amber.set=Ambers
+tooltip.thaumicattempts.gem.amethyst.set=Amethysts
+tooltip.thaumicattempts.gem.diamond.set=Diamonds

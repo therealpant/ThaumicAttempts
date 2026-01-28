@@ -101,7 +101,39 @@ public final class ClientModels extends CommonProxy {
         );
         ModelLoader.setCustomModelResourceLocation(
                 ModBlocksItems.TA_GEM, 0,
-                new ModelResourceLocation(ThaumicAttempts.MODID + ":ta_gem", "inventory")
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_amber_1", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TA_GEM, 1,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_amber_2", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TA_GEM, 2,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_amber_3", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TA_GEM, 3,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_amethyst_1", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TA_GEM, 4,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_amethyst_2", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TA_GEM, 5,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_amethyst_3", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TA_GEM, 6,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_diamond_1", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TA_GEM, 7,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_diamond_2", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TA_GEM, 8,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_diamond_3", "inventory")
         );
 
         // ItemBlock'и наших блоков (иконки!)
