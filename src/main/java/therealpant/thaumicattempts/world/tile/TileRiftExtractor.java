@@ -69,6 +69,14 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     }
 
     private void applyAnimation(AnimationController<?> controller, AnimVisualState state) {
+        applyAnimation(controller, state, false);
+    }
+
+    private void applyAnimation(AnimationController<?> controller, AnimVisualState state, boolean forceRestart) {
+        if (forceRestart) {
+            controller.markNeedsReload();
+            lastSentAnim = null;
+        }
         if (lastSentAnim == state) return; // важно: не трогаем контроллер каждый кадр
         lastSentAnim = state;
 
@@ -549,8 +557,8 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
             if (controller.getAnimationState() == AnimationState.Stopped) {
                 // переход доигрался -> выбираем следующее loop-состояние
-                animState = (animState == AnimVisualState.ACTIV_PLUS) ? AnimVisualState.WORK : AnimVisualState.SLIP;                lastSentAnim = null; // чтобы loop реально установился
-                applyAnimation(controller, animState);
+                animState = (animState == AnimVisualState.ACTIV_PLUS) ? AnimVisualState.WORK : AnimVisualState.SLIP;
+                applyAnimation(controller, animState, true);
             }
             return PlayState.CONTINUE;
         }
@@ -562,12 +570,12 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             if (controller.getAnimationState() == AnimationState.Stopped) {
                 if (animState != desiredLoop) {
                     animState = (desiredLoop == AnimVisualState.WORK) ? AnimVisualState.ACTIV_PLUS : AnimVisualState.ACTIV_MINUS;
-                } else {
-                    // повторяем тот же клип, пока не потребуется переход
-                    animState = desiredLoop;
+                    applyAnimation(controller, animState, true);
+                    return PlayState.CONTINUE;
                 }
-                lastSentAnim = null;
-                applyAnimation(controller, animState);
+                // повторяем тот же клип, пока не потребуется переход
+                animState = desiredLoop;
+                applyAnimation(controller, animState, true);
             }
             return PlayState.CONTINUE;
         }
