@@ -420,20 +420,37 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
         for (MethodNode m : cn.methods) {
             if ("getSettingValue".equals(m.name) && "(Ljava/lang/String;)I".equals(m.desc)) {
+
+                // Добавляем один новый локал под int (tmp)
+                final int tmp = m.maxLocals;
+                m.maxLocals += 1;
+
                 for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                     if (insn.getOpcode() == IRETURN) {
                         InsnList hook = new InsnList();
-                        hook.add(new VarInsnNode(ALOAD, 1));
+
+                        // На стеке сейчас лежит int (результат). Сохраняем его во временный локал:
+                        hook.add(new VarInsnNode(ISTORE, tmp));
+
+                        // Готовим вызов хука: adjustFocusSetting(FocusNode node, int original, String key)
+                        hook.add(new VarInsnNode(ALOAD, 0));    // this (FocusNode)
+                        hook.add(new VarInsnNode(ILOAD, tmp));  // original int
+                        hook.add(new VarInsnNode(ALOAD, 1));    // key (String)
+
                         hook.add(new MethodInsnNode(
                                 INVOKESTATIC,
                                 HOOKS,
                                 "adjustFocusSetting",
-                                "(ILjava/lang/String;)I",
+                                "(Lthaumcraft/api/casters/FocusNode;ILjava/lang/String;)I",
                                 false
                         ));
+
+                        // Вставляем перед IRETURN: на стек вернётся результат хука (int)
                         m.instructions.insertBefore(insn, hook);
                     }
                 }
+
+                System.out.println("[ThaumicAttempts] Patched FocusNode#getSettingValue with safe hook (node, original, key)");
             }
         }
 
@@ -442,6 +459,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         System.out.println("[ThaumicAttempts] Patched thaumcraft.api.casters.FocusNode");
         return cw.toByteArray();
     }
+
 
 
     // ---------------- TaskHandler ----------------

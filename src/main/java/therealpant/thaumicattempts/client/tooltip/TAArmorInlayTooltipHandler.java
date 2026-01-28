@@ -42,12 +42,10 @@ public final class TAArmorInlayTooltipHandler {
         int setCount = player == null ? 0 : sameGemCount;
 
         String tierName = I18n.format(getTierNameKey(tier));
-        String tierRoman = I18n.format(getTierRomanKey(tier));
         String gemName = I18n.format(getGemNameKey(gemId));
         String inlayValue = I18n.format(
                 "tooltip.thaumicattempts.inlay",
                 TextFormatting.GRAY + tierName,
-                TextFormatting.GRAY + tierRoman,
                 TextFormatting.GRAY + gemName
         );
         event.getToolTip().add(TextFormatting.DARK_GRAY + inlayValue);
@@ -77,19 +75,6 @@ public final class TAArmorInlayTooltipHandler {
                 return "tooltip.thaumicattempts.tier.exquisite";
             default:
                 return "tooltip.thaumicattempts.tier.simple";
-        }
-    }
-
-    private static String getTierRomanKey(int tier) {
-        switch (tier) {
-            case 1:
-                return "tooltip.thaumicattempts.tier.roman.1";
-            case 2:
-                return "tooltip.thaumicattempts.tier.roman.2";
-            case 3:
-                return "tooltip.thaumicattempts.tier.roman.3";
-            default:
-                return "tooltip.thaumicattempts.tier.roman.1";
         }
     }
 

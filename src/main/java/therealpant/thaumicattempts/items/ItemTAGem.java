@@ -66,10 +66,11 @@ public class ItemTAGem extends Item {
      * @return true if gem
      */
     public static boolean isGem(ItemStack stack) {
-        return stack != null
-                && !stack.isEmpty()
-                && stack.getItem() instanceof ItemTAGem
-                && getGemId(stack) != null;
+        if (stack == null || stack.isEmpty() || !(stack.getItem() instanceof ItemTAGem)) {
+            return false;
+        }
+        int meta = stack.getItemDamage();
+        return (getGemIdFromMeta(meta) != null && getTierFromMeta(meta) > 0) || getGemId(stack) != null;
     }
 
     /**

@@ -90,7 +90,7 @@ item.thaumicattempts.gem.diamond.tier1=Бриллиант I
 item.thaumicattempts.gem.diamond.tier2=Бриллиант II
 item.thaumicattempts.gem.diamond.tier3=Бриллиант III
 
-tooltip.thaumicattempts.inlay=Инкрустация: %s (тир-%s) %s
+tooltip.thaumicattempts.inlay=Инкрустация: %s %s
 tooltip.thaumicattempts.passive=Пассивно: %s
 tooltip.thaumicattempts.passive.amber=+%s%% урона заклинаний
 tooltip.thaumicattempts.passive.amethyst=+%s к максимуму Arcane Guard
@@ -101,9 +101,6 @@ tooltip.thaumicattempts.set.full=Полный набор %s
 tooltip.thaumicattempts.tier.simple=Простой
 tooltip.thaumicattempts.tier.improved=Улучшенный
 tooltip.thaumicattempts.tier.exquisite=Изысканный
-tooltip.thaumicattempts.tier.roman.1=I
-tooltip.thaumicattempts.tier.roman.2=II
-tooltip.thaumicattempts.tier.roman.3=III
 
 tooltip.thaumicattempts.gem.amber=Янтарь
 tooltip.thaumicattempts.gem.amethyst=Аметист

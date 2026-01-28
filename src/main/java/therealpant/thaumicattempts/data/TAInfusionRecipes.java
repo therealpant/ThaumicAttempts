@@ -9,6 +9,7 @@ import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 
+import net.minecraftforge.oredict.OreDictionary;
 import thaumcraft.api.ThaumcraftApi;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
@@ -37,7 +38,7 @@ public final class TAInfusionRecipes {
                         "TA_GOLEMCRAFT",
                         1,
                         new AspectList().add(Aspect.MAGIC, 1),
-                        new ItemStack(ModBlocksItems.TA_GEM)
+                        new ItemStack(ModBlocksItems.TA_GEM, 1, OreDictionary.WILDCARD_VALUE)
                 )
         );
         ThaumcraftApi.addInfusionCraftingRecipe(

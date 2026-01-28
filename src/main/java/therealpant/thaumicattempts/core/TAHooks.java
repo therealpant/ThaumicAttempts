@@ -1,16 +1,22 @@
 package therealpant.thaumicattempts.core;
 
+import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import thaumcraft.api.casters.FocusNode;
+import thaumcraft.api.casters.FocusPackage;
 import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.golems.ProvisionRequest;
 import thaumcraft.api.golems.seals.SealPos;
 import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
+import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.effects.AmberEffects;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -37,6 +43,9 @@ public final class TAHooks {
             Collections.synchronizedMap(new WeakHashMap<>());
 
     private static final ThreadLocal<FocusContext> FOCUS_CONTEXT = new ThreadLocal<>();
+
+    private static final ResourceLocation AMBER_ID =
+            new ResourceLocation(ThaumicAttempts.MODID, "amber");
 
     private TAHooks() {}
 
@@ -159,23 +168,51 @@ public final class TAHooks {
         FOCUS_CONTEXT.set(new FocusContext(player, expiresAt));
     }
 
-    public static int adjustFocusSetting(int baseValue, String key) {
-        FocusContext context = FOCUS_CONTEXT.get();
-        if (context == null) return baseValue;
-        EntityPlayer player = context.player;
-        if (player == null || player.world == null) {
-            FOCUS_CONTEXT.remove();
-            return baseValue;
+    public static int adjustFocusSetting(FocusNode node, int original, String key) {
+        try {
+            // fail-open basics
+            if (node == null || key == null) return original;
+
+            // whitelist keys we allow to touch (only amber set2)
+            String k = key.toLowerCase(Locale.ROOT);
+            if (!AmberEffects.isSettingKey(k)) return original;
+
+            // find caster
+            FocusPackage fp = node.getPackage();
+            if (fp == null) return original;
+
+            EntityLivingBase caster = fp.getCaster();
+            if (!(caster instanceof EntityPlayer)) return original;
+
+            EntityPlayer player = (EntityPlayer) caster;
+
+            // count amber gems on armor (sum across 4 pieces)
+            int amberCount = countInlaidGems(player, AMBER_ID);
+
+            // Set of 2 ambers => +1 to selected focus settings
+            if (amberCount >= AmberEffects.SET2_REQUIRED) {
+                return original + 1;
+            }
+
+            return original;
+        } catch (Throwable t) {
+            // NEVER break focus casting.
+            return original;
         }
-        long now = player.world.getTotalWorldTime();
-        if (now > context.expiresAt) {
-            FOCUS_CONTEXT.remove();
-            return baseValue;
+    }
+
+    private static int countInlaidGems(EntityPlayer player, ResourceLocation gemId) {
+        int c = 0;
+        if (player == null || gemId == null) return 0;
+
+        for (ItemStack armor : player.getArmorInventoryList()) {
+            if (armor.isEmpty()) continue;
+            if (!TAGemInlayUtil.hasGem(armor)) continue;
+
+            ResourceLocation id = TAGemInlayUtil.getGemId(armor);
+            if (gemId.equals(id)) c++;
         }
-        if (!therealpant.thaumicattempts.effects.AmberEffects.isSettingKey(key)) return baseValue;
-        int amberCount = countAmberGems(player);
-        if (amberCount < therealpant.thaumicattempts.effects.AmberEffects.SET2_REQUIRED) return baseValue;
-        return baseValue + 1;
+        return c;
     }
 
     private static int countAmberGems(EntityPlayer player) {

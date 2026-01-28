@@ -95,7 +95,7 @@ item.thaumicattempts.gem.diamond.tier1=Diamond I
 item.thaumicattempts.gem.diamond.tier2=Diamond II
 item.thaumicattempts.gem.diamond.tier3=Diamond III
 
-tooltip.thaumicattempts.inlay=Inlay: %s (tier-%s) %s
+tooltip.thaumicattempts.inlay=Inlay: %s %s
 tooltip.thaumicattempts.passive=Passive: %s
 tooltip.thaumicattempts.passive.amber=+%s%% spell damage
 tooltip.thaumicattempts.passive.amethyst=+%s maximum Arcane Guard
@@ -106,9 +106,6 @@ tooltip.thaumicattempts.set.full=Full set of %s
 tooltip.thaumicattempts.tier.simple=Simple
 tooltip.thaumicattempts.tier.improved=Improved
 tooltip.thaumicattempts.tier.exquisite=Exquisite
-tooltip.thaumicattempts.tier.roman.1=I
-tooltip.thaumicattempts.tier.roman.2=II
-tooltip.thaumicattempts.tier.roman.3=III
 
 tooltip.thaumicattempts.gem.amber=Amber
 tooltip.thaumicattempts.gem.amethyst=Amethyst
