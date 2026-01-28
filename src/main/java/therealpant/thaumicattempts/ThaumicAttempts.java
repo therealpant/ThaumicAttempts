@@ -28,6 +28,8 @@ import therealpant.thaumicattempts.data.TAInfusionRecipes;
 import therealpant.thaumicattempts.data.research.TAAspects;
 import therealpant.thaumicattempts.data.research.TAResearchAddenda;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.api.gems.TAGemRegistry;
+import therealpant.thaumicattempts.common.gems.StubGemDefinition;
 import therealpant.thaumicattempts.golemcraft.tile.TileArcaneEarBand;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityArcaneCrafter;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
@@ -81,6 +83,8 @@ public class ThaumicAttempts {
         ModEntities.register();
 
         GeckoLib.initialize();
+
+        TAGemRegistry.register(new StubGemDefinition());
 
         // РЕГИСТРАЦИЯ ВСЕХ ПАКЕТОВ МОДА
         registerPackets();

@@ -99,6 +99,10 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.MIND_POTION, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":mind_potion", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.TA_GEM, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":ta_gem", "inventory")
+        );
 
         // ItemBlock'и наших блоков (иконки!)
         registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER, ThaumicAttempts.MODID + ":golem_crafter");

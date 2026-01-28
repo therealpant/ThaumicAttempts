@@ -17,6 +17,8 @@ import thaumcraft.api.crafting.InfusionRecipe;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.blocks.BlockTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.common.crafting.infusion.RecipeExtractGem;
+import therealpant.thaumicattempts.common.crafting.infusion.RecipeInlayGem;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 
@@ -28,6 +30,25 @@ public final class TAInfusionRecipes {
     private TAInfusionRecipes() {}
 
     public static void register() {
+        // ===== GEM INLAY RECIPES =====
+        ThaumcraftApi.addInfusionCraftingRecipe(
+                new ResourceLocation(ThaumicAttempts.MODID, "inlay_gem"),
+                new RecipeInlayGem(
+                        "UNLOCKED",
+                        1,
+                        new AspectList().add(Aspect.MAGIC, 1),
+                        new ItemStack(ModBlocksItems.TA_GEM)
+                )
+        );
+        ThaumcraftApi.addInfusionCraftingRecipe(
+                new ResourceLocation(ThaumicAttempts.MODID, "extract_gem"),
+                new RecipeExtractGem(
+                        "UNLOCKED",
+                        1,
+                        new AspectList().add(Aspect.MAGIC, 1),
+                        new ItemStack(ItemsTC.salisMundus)
+                )
+        );
         // ===== 1) GOLEM_CRAFTER из ванильного верстака =====
         // Центральный: Crafting Table
         // Внешние: 2× Greatwood Planks, 1× Biothaumic Mind, 1× Morphic Resonator, 1× Seal: Store, 1× Seal: Use
