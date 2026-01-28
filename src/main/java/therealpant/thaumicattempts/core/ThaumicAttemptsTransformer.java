@@ -39,6 +39,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchGolemHelper(basicClass);
                 case "thaumcraft.common.golems.tasks.TaskHandler":
                     return patchTaskHandler(basicClass);
+                case "thaumcraft.api.casters.FocusNode":
+                    return patchFocusNode(basicClass);
                     default:
                     return basicClass;
             }
@@ -409,6 +411,38 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             }
         }
     }
+
+    // ---------------- FocusNode ----------------
+    private byte[] patchFocusNode(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        for (MethodNode m : cn.methods) {
+            if ("getSettingValue".equals(m.name) && "(Ljava/lang/String;)I".equals(m.desc)) {
+                for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (insn.getOpcode() == IRETURN) {
+                        InsnList hook = new InsnList();
+                        hook.add(new VarInsnNode(ALOAD, 1));
+                        hook.add(new MethodInsnNode(
+                                INVOKESTATIC,
+                                HOOKS,
+                                "adjustFocusSetting",
+                                "(ILjava/lang/String;)I",
+                                false
+                        ));
+                        m.instructions.insertBefore(insn, hook);
+                    }
+                }
+            }
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        System.out.println("[ThaumicAttempts] Patched thaumcraft.api.casters.FocusNode");
+        return cw.toByteArray();
+    }
+
 
     // ---------------- TaskHandler ----------------
     private byte[] patchTaskHandler(byte[] basicClass) {

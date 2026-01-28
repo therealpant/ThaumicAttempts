@@ -26,9 +26,13 @@ import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionEnchantments;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
 import therealpant.thaumicattempts.data.research.TAAspects;
+import therealpant.thaumicattempts.events.TAGemEventHandler;
 import therealpant.thaumicattempts.data.research.TAResearchAddenda;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
+import therealpant.thaumicattempts.gems.AmberGemDefinition;
+import therealpant.thaumicattempts.gems.AmethystGemDefinition;
+import therealpant.thaumicattempts.gems.DiamondGemDefinition;
 import therealpant.thaumicattempts.common.gems.StubGemDefinition;
 import therealpant.thaumicattempts.golemcraft.tile.TileArcaneEarBand;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityArcaneCrafter;
@@ -85,6 +89,7 @@ public class ThaumicAttempts {
         GeckoLib.initialize();
 
         TAGemRegistry.register(new StubGemDefinition());
+        MinecraftForge.EVENT_BUS.register(new TAGemEventHandler());
 
         // РЕГИСТРАЦИЯ ВСЕХ ПАКЕТОВ МОДА
         registerPackets();
@@ -123,6 +128,10 @@ public class ThaumicAttempts {
     public void init(FMLInitializationEvent e) {
         // GUI-handler — нужен один раз и один класс (твой общий GuiHandler)
         NetworkRegistry.INSTANCE.registerGuiHandler(ThaumicAttempts.INSTANCE, new GuiHandler());
+
+        TAGemRegistry.register(new AmberGemDefinition());
+        TAGemRegistry.register(new AmethystGemDefinition());
+        TAGemRegistry.register(new DiamondGemDefinition());
 
         //Research
         ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft"));

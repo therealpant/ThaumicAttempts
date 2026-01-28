@@ -34,7 +34,7 @@ public final class TAInfusionRecipes {
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(ThaumicAttempts.MODID, "inlay_gem"),
                 new RecipeInlayGem(
-                        "UNLOCKED",
+                        "TA_GOLEMCRAFT",
                         1,
                         new AspectList().add(Aspect.MAGIC, 1),
                         new ItemStack(ModBlocksItems.TA_GEM)
@@ -43,7 +43,7 @@ public final class TAInfusionRecipes {
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(ThaumicAttempts.MODID, "extract_gem"),
                 new RecipeExtractGem(
-                        "UNLOCKED",
+                        "TA_GOLEMCRAFT",
                         1,
                         new AspectList().add(Aspect.MAGIC, 1),
                         new ItemStack(ItemsTC.salisMundus)

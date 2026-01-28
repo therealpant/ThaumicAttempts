@@ -1,5 +1,7 @@
 package therealpant.thaumicattempts.core;
 
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.math.BlockPos;
@@ -10,6 +12,7 @@ import thaumcraft.api.golems.seals.SealPos;
 import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
+import therealpant.thaumicattempts.util.TAGemInlayUtil;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
@@ -33,6 +36,7 @@ public final class TAHooks {
     private static final Map<ProvisionRequest, UUID> PROVISION_GOLEM =
             Collections.synchronizedMap(new WeakHashMap<>());
 
+    private static final ThreadLocal<FocusContext> FOCUS_CONTEXT = new ThreadLocal<>();
 
     private TAHooks() {}
 
@@ -145,6 +149,54 @@ public final class TAHooks {
                 // задача закреплена за другим големом — выкидываем
                 it.remove();
             }
+        }
+    }
+
+    /* ===================== Focus cast hooks ===================== */
+
+    public static void pushFocusCastingPlayer(EntityPlayer player, long expiresAt) {
+        if (player == null) return;
+        FOCUS_CONTEXT.set(new FocusContext(player, expiresAt));
+    }
+
+    public static int adjustFocusSetting(int baseValue, String key) {
+        FocusContext context = FOCUS_CONTEXT.get();
+        if (context == null) return baseValue;
+        EntityPlayer player = context.player;
+        if (player == null || player.world == null) {
+            FOCUS_CONTEXT.remove();
+            return baseValue;
+        }
+        long now = player.world.getTotalWorldTime();
+        if (now > context.expiresAt) {
+            FOCUS_CONTEXT.remove();
+            return baseValue;
+        }
+        if (!therealpant.thaumicattempts.effects.AmberEffects.isSettingKey(key)) return baseValue;
+        int amberCount = countAmberGems(player);
+        if (amberCount < therealpant.thaumicattempts.effects.AmberEffects.SET2_REQUIRED) return baseValue;
+        return baseValue + 1;
+    }
+
+    private static int countAmberGems(EntityPlayer player) {
+        int count = 0;
+        for (ItemStack armor : player.inventory.armorInventory) {
+            if (armor == null || armor.isEmpty()) continue;
+            if (!TAGemInlayUtil.hasGem(armor)) continue;
+            if (therealpant.thaumicattempts.gems.AmberGemDefinition.ID.equals(TAGemInlayUtil.getGemId(armor))) {
+                count++;
+            }
+        }
+        return count;
+    }
+
+    private static class FocusContext {
+        private final EntityPlayer player;
+        private final long expiresAt;
+
+        private FocusContext(EntityPlayer player, long expiresAt) {
+            this.player = player;
+            this.expiresAt = expiresAt;
         }
     }
 }
