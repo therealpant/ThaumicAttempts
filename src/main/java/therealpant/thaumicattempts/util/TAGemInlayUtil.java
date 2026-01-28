@@ -72,7 +72,7 @@ public final class TAGemInlayUtil {
         NBTTagCompound root = armor.getTagCompound();
         if (root == null || !root.hasKey(TAGemNbtKeys.INLAY_TAG)) return;
         root.removeTag(TAGemNbtKeys.INLAY_TAG);
-        if (root.hasNoTags()) {
+        if (root.isEmpty()) {
             armor.setTagCompound(null);
         }
     }

@@ -44,13 +44,13 @@ public class RecipeInlayGem extends InfusionRecipe {
     }
 
     @Override
-    public Object getRecipeOutput(EntityPlayer player, ItemStack central, List<ItemStack> comps) {
+    public ItemStack  getRecipeOutput(EntityPlayer player, ItemStack central, List<ItemStack> comps) {
         ItemStack out = central.copy();
         out.setCount(1);
         ItemStack gemStack = findGem(comps);
         ResourceLocation id = ItemTAGem.getGemId(gemStack);
         int tier = ItemTAGem.getTier(gemStack);
-        int dmg = ItemTAGem.getDamage(gemStack);
+        int dmg = ItemTAGem.getGemDamage(gemStack);
         if (id != null) {
             TAGemInlayUtil.setGem(out, id, tier, dmg);
         }

@@ -98,7 +98,7 @@ public class ItemTAGem extends Item {
      * @param stack item stack
      * @return damage value
      */
-    public static int getDamage(ItemStack stack) {
+    public static int getGemDamage(ItemStack stack) {
         NBTTagCompound gem = getGemTag(stack);
         return gem == null ? 0 : gem.getInteger(TAGemNbtKeys.KEY_DAMAGE);
     }
@@ -109,7 +109,7 @@ public class ItemTAGem extends Item {
      * @param stack item stack
      * @param dmg new damage
      */
-    public static void setDamage(ItemStack stack, int dmg) {
+    public static void setGemDamage(ItemStack stack, int dmg) {
         NBTTagCompound gem = getOrCreateGemTag(stack);
         if (gem == null) return;
         gem.setInteger(TAGemNbtKeys.KEY_DAMAGE, dmg);

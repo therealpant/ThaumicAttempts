@@ -35,7 +35,7 @@ public class RecipeExtractGem extends InfusionRecipe {
     }
 
     @Override
-    public Object getRecipeOutput(EntityPlayer player, ItemStack central, List<ItemStack> comps) {
+    public ItemStack  getRecipeOutput(EntityPlayer player, ItemStack central, List<ItemStack> comps) {
         ItemStack out = central.copy();
         out.setCount(1);
         ResourceLocation id = TAGemInlayUtil.getGemId(central);
