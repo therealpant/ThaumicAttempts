@@ -41,7 +41,11 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchTaskHandler(basicClass);
                 case "thaumcraft.api.casters.FocusNode":
                     return patchFocusNode(basicClass);
-                    default:
+                case "thaumcraft.common.items.casters.ItemCaster":
+                    return patchItemCaster(basicClass);
+                case "thaumcraft.api.casters.FocusEngine":
+                    return patchFocusEngine(basicClass);
+                default:
                     return basicClass;
             }
         } catch (Throwable t) {
@@ -461,7 +465,176 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
     }
 
 
+    // ---------------- FocusEngine ----------------
+    private byte[] patchFocusEngine(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
 
+        for (MethodNode m : cn.methods) {
+            if ("runFocusPackage".equals(m.name)
+                    && m.desc.startsWith("(Lthaumcraft/api/casters/FocusPackage;")) {
+                int fpIndex = ((m.access & ACC_STATIC) != 0) ? 0 : 1;
+                for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (insn.getType() != AbstractInsnNode.METHOD_INSN) continue;
+                    MethodInsnNode min = (MethodInsnNode) insn;
+                    if ("thaumcraft/api/casters/FocusPackage".equals(min.owner)
+                            && "getPower".equals(min.name)
+                            && "()F".equals(min.desc)) {
+                        InsnList hook = new InsnList();
+                        hook.add(new VarInsnNode(ALOAD, fpIndex));
+                        hook.add(new InsnNode(SWAP));
+                        hook.add(new MethodInsnNode(
+                                INVOKESTATIC,
+                                HOOKS,
+                                "adjustFocusPower",
+                                "(Lthaumcraft/api/casters/FocusPackage;F)F",
+                                false
+                        ));
+                        m.instructions.insert(min, hook);
+                    }
+                }
+            }
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        System.out.println("[ThaumicAttempts] Patched thaumcraft.api.casters.FocusEngine");
+        return cw.toByteArray();
+    }
+
+    // ---------------- ItemCaster ----------------
+    private byte[] patchItemCaster(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        for (MethodNode m : cn.methods) {
+            if (!"onItemRightClick".equals(m.name)
+                    || !"(Lnet/minecraft/world/World;Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/util/EnumHand;)Lnet/minecraft/util/ActionResult;".equals(m.desc)) {
+                continue;
+            }
+
+            int focusIndex = -1;
+            int focusStackIndex = -1;
+
+            for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn.getType() != AbstractInsnNode.METHOD_INSN) continue;
+                MethodInsnNode min = (MethodInsnNode) insn;
+                if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
+                        && "getFocus".equals(min.name)
+                        && "(Lnet/minecraft/item/ItemStack;)Lthaumcraft/common/items/casters/ItemFocus;".equals(min.desc)) {
+                    AbstractInsnNode next = getNextReal(insn);
+                    if (next instanceof VarInsnNode && next.getOpcode() == ASTORE) {
+                        focusIndex = ((VarInsnNode) next).var;
+                    }
+                }
+                if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
+                        && "getFocusStack".equals(min.name)
+                        && "(Lnet/minecraft/item/ItemStack;)Lnet/minecraft/item/ItemStack;".equals(min.desc)) {
+                    AbstractInsnNode next = getNextReal(insn);
+                    if (next instanceof VarInsnNode && next.getOpcode() == ASTORE) {
+                        focusStackIndex = ((VarInsnNode) next).var;
+                    }
+                }
+            }
+
+            int playerIndex = ((m.access & ACC_STATIC) != 0) ? 1 : 2;
+
+            for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; ) {
+                AbstractInsnNode next = insn.getNext();
+                if (insn.getType() == AbstractInsnNode.METHOD_INSN) {
+                    MethodInsnNode min = (MethodInsnNode) insn;
+
+                    if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
+                            && "isOnCooldown".equals(min.name)
+                            && "(Lnet/minecraft/entity/player/EntityPlayer;)Z".equals(min.desc)
+                            && focusIndex >= 0 && focusStackIndex >= 0) {
+                        InsnList hook = new InsnList();
+                        hook.add(new VarInsnNode(ALOAD, focusStackIndex));
+                        hook.add(new VarInsnNode(ALOAD, focusIndex));
+                        m.instructions.insertBefore(min, hook);
+                        m.instructions.set(min, new MethodInsnNode(
+                                INVOKESTATIC,
+                                HOOKS,
+                                "isCasterOnCooldownWithAmber",
+                                "(Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/item/ItemStack;Lthaumcraft/common/items/casters/ItemFocus;)Z",
+                                false
+                        ));
+                    }
+
+                    if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
+                            && "setCooldown".equals(min.name)
+                            && "(Lnet/minecraft/entity/player/EntityPlayer;I)V".equals(min.desc)
+                            && focusIndex >= 0 && focusStackIndex >= 0) {
+                        InsnList hook = new InsnList();
+                        hook.add(new VarInsnNode(ALOAD, focusStackIndex));
+                        hook.add(new VarInsnNode(ALOAD, focusIndex));
+                        m.instructions.insertBefore(min, hook);
+                        m.instructions.set(min, new MethodInsnNode(
+                                INVOKESTATIC,
+                                HOOKS,
+                                "setCasterCooldownWithAmber",
+                                "(Lnet/minecraft/entity/player/EntityPlayer;ILnet/minecraft/item/ItemStack;Lthaumcraft/common/items/casters/ItemFocus;)V",
+                                false
+                        ));
+                    }
+
+                    if ("thaumcraft/common/items/casters/ItemFocus".equals(min.owner)
+                            && "getVisCost".equals(min.name)
+                            && "(Lnet/minecraft/item/ItemStack;)F".equals(min.desc)
+                            && focusIndex >= 0 && focusStackIndex >= 0) {
+                        AbstractInsnNode prev = getPreviousReal(insn);
+                        AbstractInsnNode prevPrev = getPreviousReal(prev);
+                        if (prev instanceof VarInsnNode
+                                && prevPrev instanceof VarInsnNode
+                                && prev.getOpcode() == ALOAD
+                                && prevPrev.getOpcode() == ALOAD
+                                && ((VarInsnNode) prev).var == focusStackIndex
+                                && ((VarInsnNode) prevPrev).var == focusIndex) {
+                            InsnList hook = new InsnList();
+                            hook.add(new VarInsnNode(ALOAD, playerIndex));
+                            hook.add(new VarInsnNode(ALOAD, focusIndex));
+                            hook.add(new VarInsnNode(ALOAD, focusStackIndex));
+                            hook.add(new MethodInsnNode(
+                                    INVOKESTATIC,
+                                    HOOKS,
+                                    "getVisCostWithAmber",
+                                    "(Lnet/minecraft/entity/player/EntityPlayer;Lthaumcraft/common/items/casters/ItemFocus;Lnet/minecraft/item/ItemStack;)F",
+                                    false
+                            ));
+                            m.instructions.insertBefore(prevPrev, hook);
+                            m.instructions.remove(prevPrev);
+                            m.instructions.remove(prev);
+                            m.instructions.remove(insn);
+                        }
+                    }
+                }
+                insn = next;
+            }
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        System.out.println("[ThaumicAttempts] Patched thaumcraft.common.items.casters.ItemCaster");
+        return cw.toByteArray();
+    }
+
+    private AbstractInsnNode getNextReal(AbstractInsnNode insn) {
+        AbstractInsnNode next = insn.getNext();
+        while (next != null && (next instanceof LabelNode || next instanceof LineNumberNode || next instanceof FrameNode)) {
+            next = next.getNext();
+        }
+        return next;
+    }
+
+    private AbstractInsnNode getPreviousReal(AbstractInsnNode insn) {
+        AbstractInsnNode prev = insn != null ? insn.getPrevious() : null;
+        while (prev != null && (prev instanceof LabelNode || prev instanceof LineNumberNode || prev instanceof FrameNode)) {
+            prev = prev.getPrevious();
+        }
+        return prev;
+    }
     // ---------------- TaskHandler ----------------
     private byte[] patchTaskHandler(byte[] basicClass) {
         ClassReader cr = new ClassReader(basicClass);

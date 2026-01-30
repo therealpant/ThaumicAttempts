@@ -14,7 +14,10 @@ import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.golems.ProvisionRequest;
 import thaumcraft.api.golems.seals.SealPos;
 import thaumcraft.api.golems.tasks.Task;
+import thaumcraft.common.items.casters.CasterManager;
+import thaumcraft.common.items.casters.ItemFocus;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
+import thaumcraft.common.items.casters.CasterManager;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.effects.AmberEffects;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
@@ -42,6 +45,12 @@ public final class TAHooks {
     private static final Map<ProvisionRequest, UUID> PROVISION_GOLEM =
             Collections.synchronizedMap(new WeakHashMap<>());
 
+    private static final Map<UUID, Long> COOLDOWN_SERVER = new ConcurrentHashMap<>();
+    private static final Map<UUID, Long> COOLDOWN_CLIENT = new ConcurrentHashMap<>();
+
+    private static Map<UUID, Long> cdMap(EntityPlayer p) {
+        return p.world.isRemote ? COOLDOWN_CLIENT : COOLDOWN_SERVER;
+    }
     private static final ThreadLocal<FocusContext> FOCUS_CONTEXT = new ThreadLocal<>();
 
     private static final ResourceLocation AMBER_ID =
@@ -187,7 +196,7 @@ public final class TAHooks {
             EntityPlayer player = (EntityPlayer) caster;
 
             // count amber gems on armor (sum across 4 pieces)
-            int amberCount = countInlaidGems(player, AMBER_ID);
+            int amberCount = countAmber(player);
 
             // Set of 2 ambers => +1 to selected focus settings
             if (amberCount >= AmberEffects.SET2_REQUIRED) {
@@ -201,30 +210,95 @@ public final class TAHooks {
         }
     }
 
-    private static int countInlaidGems(EntityPlayer player, ResourceLocation gemId) {
-        int c = 0;
-        if (player == null || gemId == null) return 0;
+    public static float adjustFocusPower(FocusPackage focusPackage, float originalPower) {
+        try {
+            if (focusPackage == null) return originalPower;
+            EntityLivingBase caster = focusPackage.getCaster();
+            if (!(caster instanceof EntityPlayer)) return originalPower;
+
+            EntityPlayer player = (EntityPlayer) caster;
+            float bonus = sumAmberDamageBonus(player);
+            if (bonus <= 0f) return originalPower;
+
+            return originalPower * (1.0f + bonus);
+        } catch (Throwable t) {
+            return originalPower;
+        }
+    }
+
+    public static int countAmber(EntityPlayer player) {
+        if (player == null) return 0;
+        int count = 0;
 
         for (ItemStack armor : player.getArmorInventoryList()) {
             if (armor.isEmpty()) continue;
             if (!TAGemInlayUtil.hasGem(armor)) continue;
 
             ResourceLocation id = TAGemInlayUtil.getGemId(armor);
-            if (gemId.equals(id)) c++;
+            if (AMBER_ID.equals(id)) count++;
         }
-        return c;
+        return  count;
     }
 
-    private static int countAmberGems(EntityPlayer player) {
-        int count = 0;
-        for (ItemStack armor : player.inventory.armorInventory) {
-            if (armor == null || armor.isEmpty()) continue;
+    public static float sumAmberDamageBonus(EntityPlayer player) {
+        if (player == null) return 0f;
+        float bonus = 0f;
+        for (ItemStack armor : player.getArmorInventoryList()) {
+            if (armor.isEmpty()) continue;
             if (!TAGemInlayUtil.hasGem(armor)) continue;
-            if (therealpant.thaumicattempts.gems.AmberGemDefinition.ID.equals(TAGemInlayUtil.getGemId(armor))) {
-                count++;
-            }
+            ResourceLocation id = TAGemInlayUtil.getGemId(armor);
+            if (!AMBER_ID.equals(id)) continue;
+            int tier = TAGemInlayUtil.getTier(armor);
+            bonus += AmberEffects.getDamageBonusPerGem(tier);
         }
-        return count;
+        return bonus;
+    }
+
+    public static boolean isCasterOnCooldownWithAmber(EntityPlayer player, ItemStack focusStack, ItemFocus focus) {
+        try {
+            if (player == null) return false;
+            Long until = cdMap(player).get(player.getUniqueID());
+            return until != null && until > System.currentTimeMillis();
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static void setCasterCooldownWithAmber(EntityPlayer player, int vanillaCdTicks, ItemStack focusStack, ItemFocus focus) {
+        try {
+            if (player == null) return;
+
+            int amberCount = countAmber(player);
+            long now = System.currentTimeMillis();
+
+            int cdTicks = vanillaCdTicks;
+            if (amberCount >= AmberEffects.SET4_REQUIRED) {
+                // сет 4 янтаря: всегда 2 секунды
+                cdTicks = AmberEffects.SET4_MIN_INTERVAL_TICKS; // 40
+            }
+
+            cdMap(player).put(player.getUniqueID(), now + cdTicks * 50L);
+        } catch (Throwable t) {
+            // fail-open: ничего
+        }
+    }
+
+    public static float getVisCostWithAmber(EntityPlayer player, ItemFocus focus, ItemStack focusStack) {
+        try {
+            if (focus == null) return 0f;
+            float base = focus.getVisCost(focusStack);
+            if (player == null) return base;
+            int amberCount = countAmber(player);
+            if (amberCount < AmberEffects.SET4_REQUIRED) return base;
+
+            int cdTicks = focus.getActivationTime(focusStack);
+            int cdSeconds = (cdTicks + 19) / 20;
+            int ignored = Math.max(0, cdSeconds - AmberEffects.SET4_BASE_SECONDS);
+            int extraVis = ignored * AmberEffects.SET4_EXTRA_VIS_PER_SECOND;
+            return base + extraVis;
+        } catch (Throwable t) {
+            return focus != null ? focus.getVisCost(focusStack) : 0f;
+        }
     }
 
     private static class FocusContext {
