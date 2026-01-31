@@ -260,52 +260,102 @@ public final class TAHooks {
 
     public static String getFocusSettingValueTextWithAmberColored(NodeSetting setting, EntityPlayer player) {
         if (setting == null) return null;
-        String original;
+
+        String valueText;
         try {
-            original = setting.getValueText();
+            valueText = setting.getValueText(); // оригинальная строка с форматированием TC
         } catch (Throwable t) {
-            original = null;
+            return null;
         }
-        String updated = getFocusSettingValueTextWithAmber(setting, player);
-        if (updated == null) return original;
-        if (original != null && !updated.equals(original)) {
-            return TextFormatting.GREEN + updated + TextFormatting.RESET;
+
+        try {
+            if (!hasAmberSet2(player)) return valueText;
+
+            String key = resolveFocusSettingKey(setting);
+            if (key == null || !isAmberSet2Key(key)) return valueText;
+
+            Integer value = getFocusSettingValue(setting);
+            if (value == null) {
+                // если не смогли вытащить числовое значение — лучше ничего не красить
+                return valueText;
+            }
+
+            return replaceExactNumberWithGreen(valueText, value, value + 1);
+        } catch (Throwable t) {
+            return valueText;
         }
-        return updated;
+    }
+
+    private static String replaceExactNumberWithGreen(String text, int oldValue, int newValue) {
+        if (text == null) return null;
+
+        // точное число как токен
+        String oldStr = Integer.toString(oldValue);
+        Pattern p = Pattern.compile("(?<!\\d)-?" + Pattern.quote(oldStr) + "(?!\\d)");
+        Matcher m = p.matcher(text);
+        if (!m.find()) return text;
+
+        int start = m.start();
+        int end = m.end();
+
+        // ВАЖНО: возвращаем именно последний ЦВЕТ (0-9a-f), а не любой §код.
+        String restoreColor = findLastColorCodeBefore(text, start);
+
+        StringBuilder sb = new StringBuilder(text.length() + 8);
+        sb.append(text, 0, start);
+        sb.append(TextFormatting.GREEN);  // зелёный только для цифр
+        sb.append(newValue);
+        if (!restoreColor.isEmpty()) {
+            sb.append(restoreColor);      // вернули исходный цвет — зелёный дальше не течёт
+        }
+        sb.append(text, end, text.length());
+
+        return sb.toString();
+    }
+
+
+    private static String findLastColorCodeBefore(String text, int pos) {
+        if (text == null || pos <= 0) return "";
+
+        for (int i = pos - 2; i >= 0; i--) {
+            if (text.charAt(i) == '\u00A7') {
+                char code = Character.toLowerCase(text.charAt(i + 1));
+                if ((code >= '0' && code <= '9') || (code >= 'a' && code <= 'f')) {
+                    return "\u00A7" + code;
+                }
+                // игнорируем k,l,m,n,o,r и т.п.
+            }
+        }
+        return "";
     }
 
     public static int getFocusSettingTextColorWithAmber(NodeSetting setting, EntityPlayer player) {
-        try {
-            if (!hasAmberSet2(player)) return 0xFFFFFF;
-            String key = resolveFocusSettingKey(setting);
-            if (key != null && isAmberSet2Key(key)) {
-                return 0x55FF55;
-            }
-            return 0xFFFFFF;
-        } catch (Throwable t) {
-            return 0xFFFFFF;
-        }
+        return 0xFFFFFF;
     }
 
     public static void applyAmberFocusTooltip(List<String> tooltip, ItemStack stack, EntityPlayer player) {
-        if (tooltip == null || tooltip.isEmpty() || stack == null || isStackEmpty(stack)) return;
-        if (!hasAmberSet2(player)) return;
+        try {
+            if (tooltip == null || tooltip.isEmpty() || stack == null || isStackEmpty(stack)) return;
+            if (!hasAmberSet2(player)) return;
 
-        ItemStack focusStack = resolveFocusStack(stack);
-        if (isStackEmpty(focusStack)) return;
+            ItemStack focusStack = resolveFocusStack(stack);
+            if (isStackEmpty(focusStack)) return;
 
-        List<NodeSetting> settings = collectFocusSettings(focusStack);
-        if (settings.isEmpty()) return;
+            List<NodeSetting> settings = collectFocusSettings(focusStack);
+            if (settings.isEmpty()) return;
 
-        for (NodeSetting setting : settings) {
-            if (setting == null) continue;
-            String originalValue = safeGetValueText(setting);
-            if (originalValue == null) continue;
-            String updatedValue = getFocusSettingValueTextWithAmber(setting, player);
-            if (updatedValue == null || updatedValue.equals(originalValue)) continue;
-            String displayName = getSettingDisplayName(setting);
-            if (displayName == null || displayName.isEmpty()) continue;
-            replaceTooltipValue(tooltip, displayName, originalValue, updatedValue);
+            for (NodeSetting setting : settings) {
+                if (setting == null) continue;
+                String originalValue = safeGetValueText(setting);
+                if (originalValue == null) continue;
+                String updatedValue = getFocusSettingValueTextWithAmber(setting, player);
+                if (updatedValue == null || updatedValue.equals(originalValue)) continue;
+                String displayName = getSettingDisplayName(setting);
+                if (displayName == null || displayName.isEmpty()) continue;
+                replaceTooltipValue(tooltip, displayName, originalValue, updatedValue);
+            }
+        } catch (Throwable ignored) {
+            // Defensive: avoid crashing client tooltips if Thaumcraft internals change.
         }
     }
 
@@ -504,14 +554,14 @@ public final class TAHooks {
 
     private static void replaceTooltipValue(List<String> tooltip, String displayName, String originalValue, String updatedValue) {
         if (tooltip == null) return;
-        String coloredValue = TextFormatting.GREEN + updatedValue + TextFormatting.RESET;
         for (int i = 0; i < tooltip.size(); i++) {
             String line = tooltip.get(i);
             if (line == null) continue;
             if (!line.contains(displayName) || !line.contains(originalValue)) continue;
-            tooltip.set(i, line.replace(originalValue, coloredValue));
+            tooltip.set(i, line.replace(originalValue, updatedValue));
         }
     }
+
 
     private static List<Object> asObjectList(Object value) {
         if (value == null) {

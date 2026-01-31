@@ -654,19 +654,22 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         cr.accept(cn, 0);
 
         boolean patched = false;
+
         for (MethodNode m : cn.methods) {
-            if (!(("addInformation".equals(m.name) || "func_77624_a".equals(m.name))
-                    && "(Lnet/minecraft/item/ItemStack;Lnet/minecraft/world/World;Ljava/util/List;Lnet/minecraft/client/util/ITooltipFlag;)V".equals(m.desc))) {
-                continue;
-            }
+            if (m.instructions == null || m.instructions.size() == 0) continue;
+
             for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                if (!(insn instanceof MethodInsnNode)) {
-                    continue;
-                }
+                if (!(insn instanceof MethodInsnNode)) continue;
+
                 MethodInsnNode min = (MethodInsnNode) insn;
+
+                // Ищем любые вызовы NodeSetting.getValueText() внутри ItemFocus
                 if ("thaumcraft/api/casters/NodeSetting".equals(min.owner)
                         && "getValueText".equals(min.name)
                         && "()Ljava/lang/String;".equals(min.desc)) {
+
+                    // Перед вызовом кладём player на стек:
+                    // Minecraft.getMinecraft().player
                     InsnList hook = new InsnList();
                     hook.add(new MethodInsnNode(INVOKESTATIC,
                             "net/minecraft/client/Minecraft",
@@ -677,12 +680,19 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                             "net/minecraft/client/Minecraft",
                             "player",
                             "Lnet/minecraft/client/entity/EntityPlayerSP;"));
+
+                    // ВАЖНО:
+                    // До этого на стеке уже лежит NodeSetting (как receiver для invokevirtual).
+                    // Мы добавляем player, и заменяем вызов на static:
+                    // TAHooks.getFocusSettingValueTextWithAmberColored(setting, player)
                     m.instructions.insertBefore(min, hook);
+
                     min.setOpcode(INVOKESTATIC);
                     min.owner = HOOKS;
                     min.name = "getFocusSettingValueTextWithAmberColored";
                     min.desc = "(Lthaumcraft/api/casters/NodeSetting;Lnet/minecraft/entity/player/EntityPlayer;)Ljava/lang/String;";
                     min.itf = false;
+
                     patched = true;
                 }
             }
@@ -690,13 +700,16 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
         cn.accept(cw);
+
         if (patched) {
-            System.out.println("[ThaumicAttempts] Patched thaumcraft.common.items.casters.ItemFocus");
+            System.out.println("[ThaumicAttempts] Patched thaumcraft.common.items.casters.ItemFocus (tooltip value text via TAHooks)");
         } else {
-            System.out.println("[ThaumicAttempts] ItemFocus patch skipped (addInformation not found)");
+            System.out.println("[ThaumicAttempts] ItemFocus patch skipped (no NodeSetting.getValueText found)");
         }
+
         return cw.toByteArray();
     }
+
     private boolean patchTooltipAddInformation(ClassNode cn) {
         boolean patched = false;
         for (MethodNode m : cn.methods) {
