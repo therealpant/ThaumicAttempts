@@ -21,7 +21,12 @@ public final class AmberEffects {
             "power",
             "duration",
             "projectile",
-            "radius"
+            "radius",
+            "splits",
+            "split",
+            "fork",
+            "scatter",
+            "cloud"
     ));
 
     private AmberEffects() {}

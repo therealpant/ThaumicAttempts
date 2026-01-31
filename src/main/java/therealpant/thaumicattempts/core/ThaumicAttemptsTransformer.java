@@ -475,15 +475,22 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             if ("runFocusPackage".equals(m.name)
                     && m.desc.startsWith("(Lthaumcraft/api/casters/FocusPackage;")) {
                 int fpIndex = ((m.access & ACC_STATIC) != 0) ? 0 : 1;
+                int tmpPower = -1;
                 for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                     if (insn.getType() != AbstractInsnNode.METHOD_INSN) continue;
                     MethodInsnNode min = (MethodInsnNode) insn;
-                    if ("thaumcraft/api/casters/FocusPackage".equals(min.owner)
-                            && "getPower".equals(min.name)
-                            && "()F".equals(min.desc)) {
+                    if ("thaumcraft/api/casters/FocusEffect".equals(min.owner)
+                            && "execute".equals(min.name)
+                            && "(Lnet/minecraft/util/math/RayTraceResult;Lthaumcraft/api/casters/Trajectory;FI)Z".equals(min.desc)) {
+                        if (tmpPower < 0) {
+                            tmpPower = m.maxLocals;
+                            m.maxLocals += 1;
+                        }
                         InsnList hook = new InsnList();
-                        hook.add(new VarInsnNode(ALOAD, fpIndex));
                         hook.add(new InsnNode(SWAP));
+                        hook.add(new VarInsnNode(FSTORE, tmpPower));
+                        hook.add(new VarInsnNode(ALOAD, fpIndex));
+                        hook.add(new VarInsnNode(FLOAD, tmpPower));
                         hook.add(new MethodInsnNode(
                                 INVOKESTATIC,
                                 HOOKS,
@@ -491,7 +498,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                                 "(Lthaumcraft/api/casters/FocusPackage;F)F",
                                 false
                         ));
-                        m.instructions.insert(min, hook);
+                        hook.add(new InsnNode(SWAP));
+                        m.instructions.insertBefore(min, hook);
                     }
                 }
             }
@@ -521,7 +529,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                 if (insn.getType() != AbstractInsnNode.METHOD_INSN) continue;
                 MethodInsnNode min = (MethodInsnNode) insn;
-                if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
+                if ("thaumcraft/common/items/casters/ItemCaster".equals(min.owner)
                         && "getFocus".equals(min.name)
                         && "(Lnet/minecraft/item/ItemStack;)Lthaumcraft/common/items/casters/ItemFocus;".equals(min.desc)) {
                     AbstractInsnNode next = getNextReal(insn);
@@ -529,7 +537,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                         focusIndex = ((VarInsnNode) next).var;
                     }
                 }
-                if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
+                if ("thaumcraft/common/items/casters/ItemCaster".equals(min.owner)
                         && "getFocusStack".equals(min.name)
                         && "(Lnet/minecraft/item/ItemStack;)Lnet/minecraft/item/ItemStack;".equals(min.desc)) {
                     AbstractInsnNode next = getNextReal(insn);
@@ -548,7 +556,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
                     if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
                             && "isOnCooldown".equals(min.name)
-                            && "(Lnet/minecraft/entity/player/EntityPlayer;)Z".equals(min.desc)
+                            && "(Lnet/minecraft/entity/EntityLivingBase;)Z".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
                         InsnList hook = new InsnList();
                         hook.add(new VarInsnNode(ALOAD, focusStackIndex));
@@ -565,7 +573,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
                     if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
                             && "setCooldown".equals(min.name)
-                            && "(Lnet/minecraft/entity/player/EntityPlayer;I)V".equals(min.desc)
+                            && "(Lnet/minecraft/entity/player/EntityLivingBase;I)V".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
                         InsnList hook = new InsnList();
                         hook.add(new VarInsnNode(ALOAD, focusStackIndex));
