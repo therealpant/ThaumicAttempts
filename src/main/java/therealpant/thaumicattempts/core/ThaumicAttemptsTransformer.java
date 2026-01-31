@@ -45,6 +45,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchItemCaster(basicClass);
                 case "thaumcraft.api.casters.FocusEngine":
                     return patchFocusEngine(basicClass);
+                case "thaumcraft.client.gui.plugins.GuiFocusSettingSpinnerButton":
+                    return patchGuiFocusSettingSpinnerButton(basicClass);
                 default:
                     return basicClass;
             }
@@ -652,6 +654,77 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         }
         return prev;
     }
+
+    // ---------------- GuiFocusSettingSpinnerButton ----------------
+    private byte[] patchGuiFocusSettingSpinnerButton(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        boolean patched = false;
+        for (MethodNode m : cn.methods) {
+            if (!"drawButton".equals(m.name)
+                    || !"(Lnet/minecraft/client/Minecraft;IIF)V".equals(m.desc)) {
+                continue;
+            }
+
+            for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn instanceof MethodInsnNode) {
+                    MethodInsnNode min = (MethodInsnNode) insn;
+                    if ("thaumcraft/api/casters/NodeSetting".equals(min.owner)
+                            && "getValueText".equals(min.name)
+                            && "()Ljava/lang/String;".equals(min.desc)) {
+                        InsnList hook = new InsnList();
+                        hook.add(new VarInsnNode(ALOAD, 1));
+                        hook.add(new FieldInsnNode(GETFIELD,
+                                "net/minecraft/client/Minecraft",
+                                "player",
+                                "Lnet/minecraft/client/entity/EntityPlayerSP;"));
+                        m.instructions.insertBefore(min, hook);
+                        min.setOpcode(INVOKESTATIC);
+                        min.owner = HOOKS;
+                        min.name = "getFocusSettingValueTextWithAmber";
+                        min.desc = "(Lthaumcraft/api/casters/NodeSetting;Lnet/minecraft/entity/player/EntityPlayer;)Ljava/lang/String;";
+                        min.itf = false;
+                        patched = true;
+                    }
+                } else if (insn instanceof LdcInsnNode) {
+                    LdcInsnNode ldc = (LdcInsnNode) insn;
+                    if (ldc.cst instanceof Integer && ((Integer) ldc.cst) == 16777215) {
+                        InsnList hook = new InsnList();
+                        hook.add(new VarInsnNode(ALOAD, 0));
+                        hook.add(new FieldInsnNode(GETFIELD,
+                                "thaumcraft/client/gui/plugins/GuiFocusSettingSpinnerButton",
+                                "setting",
+                                "Lthaumcraft/api/casters/NodeSetting;"));
+                        hook.add(new VarInsnNode(ALOAD, 1));
+                        hook.add(new FieldInsnNode(GETFIELD,
+                                "net/minecraft/client/Minecraft",
+                                "player",
+                                "Lnet/minecraft/client/entity/EntityPlayerSP;"));
+                        hook.add(new MethodInsnNode(INVOKESTATIC,
+                                HOOKS,
+                                "getFocusSettingTextColorWithAmber",
+                                "(Lthaumcraft/api/casters/NodeSetting;Lnet/minecraft/entity/player/EntityPlayer;)I",
+                                false));
+                        m.instructions.insertBefore(insn, hook);
+                        m.instructions.remove(insn);
+                        patched = true;
+                    }
+                }
+            }
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        if (patched) {
+            System.out.println("[ThaumicAttempts] Patched thaumcraft.client.gui.plugins.GuiFocusSettingSpinnerButton");
+        } else {
+            System.out.println("[ThaumicAttempts] GuiFocusSettingSpinnerButton patch skipped (drawButton not found)");
+        }
+        return cw.toByteArray();
+    }
+
     // ---------------- TaskHandler ----------------
     private byte[] patchTaskHandler(byte[] basicClass) {
         ClassReader cr = new ClassReader(basicClass);

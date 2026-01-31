@@ -10,6 +10,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import thaumcraft.api.casters.FocusNode;
 import thaumcraft.api.casters.FocusPackage;
+import thaumcraft.api.casters.NodeSetting;
 import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.golems.ProvisionRequest;
 import thaumcraft.api.golems.seals.SealPos;
@@ -24,6 +25,7 @@ import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
+import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 import java.util.Collections;
 import java.util.Iterator;
@@ -32,6 +34,9 @@ import java.util.Locale;
 import java.util.Map;
 import java.util.UUID;
 import java.util.WeakHashMap;
+import java.util.regex.Matcher;
+import java.util.regex.Pattern;
+
 /**
  * Хуки для интеграции с Thaumcraft-голевами.
  *
@@ -211,6 +216,134 @@ public final class TAHooks {
                 || "radius".equals(key)
                 || "fork".equals(key)
                 || "forks".equals(key);
+    }
+
+    public static boolean hasAmberSet2(EntityPlayer player) {
+        try {
+            if (player == null) return false;
+            return countAmber(player) >= AmberEffects.SET2_REQUIRED;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    public static String getFocusSettingValueTextWithAmber(NodeSetting setting, EntityPlayer player) {
+        if (setting == null) return null;
+        String valueText;
+        try {
+            valueText = setting.getValueText();
+        } catch (Throwable t) {
+            return null;
+        }
+        try {
+            if (!hasAmberSet2(player)) return valueText;
+
+            String key = resolveFocusSettingKey(setting);
+            if (key == null || !isAmberSet2Key(key)) return valueText;
+
+            Integer value = getFocusSettingValue(setting);
+            if (value == null) {
+                return incrementNumberInText(valueText);
+            }
+
+            String updated = replaceNumberInText(valueText, value, value + 1);
+            return updated != null ? updated : valueText;
+        } catch (Throwable t) {
+            return valueText;
+        }
+    }
+
+    public static int getFocusSettingTextColorWithAmber(NodeSetting setting, EntityPlayer player) {
+        try {
+            if (!hasAmberSet2(player)) return 0xFFFFFF;
+            String key = resolveFocusSettingKey(setting);
+            if (key != null && isAmberSet2Key(key)) {
+                return 0x55FF55;
+            }
+            return 0xFFFFFF;
+        } catch (Throwable t) {
+            return 0xFFFFFF;
+        }
+    }
+
+    private static String resolveFocusSettingKey(NodeSetting setting) {
+        if (setting == null) return null;
+        try {
+            Method method = setting.getClass().getMethod("getKey");
+            Object result = method.invoke(setting);
+            if (result instanceof String) {
+                return ((String) result).toLowerCase(Locale.ROOT);
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            Method method = setting.getClass().getMethod("getName");
+            Object result = method.invoke(setting);
+            if (result instanceof String) {
+                return ((String) result).toLowerCase(Locale.ROOT);
+            }
+        } catch (Throwable ignored) {
+        }
+        String[] fields = new String[]{"key", "name", "id", "identifier"};
+        for (String fieldName : fields) {
+            try {
+                Field field = setting.getClass().getDeclaredField(fieldName);
+                field.setAccessible(true);
+                Object result = field.get(setting);
+                if (result instanceof String) {
+                    return ((String) result).toLowerCase(Locale.ROOT);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static Integer getFocusSettingValue(NodeSetting setting) {
+        if (setting == null) return null;
+        try {
+            Method method = setting.getClass().getMethod("getValue");
+            Object result = method.invoke(setting);
+            if (result instanceof Number) {
+                return ((Number) result).intValue();
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            Field field = setting.getClass().getDeclaredField("value");
+            field.setAccessible(true);
+            Object result = field.get(setting);
+            if (result instanceof Number) {
+                return ((Number) result).intValue();
+            }
+        } catch (Throwable ignored) {
+        }
+        return null;
+    }
+
+    private static String incrementNumberInText(String valueText) {
+        if (valueText == null) return null;
+        Matcher matcher = Pattern.compile("-?\\d+").matcher(valueText);
+        if (!matcher.find()) return valueText;
+        String number = matcher.group();
+        try {
+            int current = Integer.parseInt(number);
+            int updated = current + 1;
+            return valueText.substring(0, matcher.start()) + updated + valueText.substring(matcher.end());
+        } catch (NumberFormatException ignored) {
+            return valueText;
+        }
+    }
+
+    private static String replaceNumberInText(String valueText, int oldValue, int newValue) {
+        if (valueText == null) return null;
+        String oldString = Integer.toString(oldValue);
+        if (valueText.equals(oldString)) {
+            return Integer.toString(newValue);
+        }
+        Matcher matcher = Pattern.compile("-?\\d+").matcher(valueText);
+        if (!matcher.find()) return valueText;
+        return valueText.substring(0, matcher.start()) + newValue + valueText.substring(matcher.end());
     }
 
     public static float adjustFocusPower(FocusPackage focusPackage, float originalPower) {
