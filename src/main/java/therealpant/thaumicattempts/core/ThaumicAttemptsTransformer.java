@@ -481,17 +481,12 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     MethodInsnNode min = (MethodInsnNode) insn;
                     if ("thaumcraft/api/casters/FocusModSplit".equals(min.owner)
                             && "getSplitPackages".equals(min.name)
-                            && ("()Ljava/util/ArrayList;".equals(min.desc)
-                            || "()Ljava/util/List;".equals(min.desc))) {
-                        String hookName = "()Ljava/util/ArrayList;".equals(min.desc)
-                                ? "getSplitPackagesWithAmber"
-                                : "getSplitPackagesWithAmberList";
-                        String hookDesc = "(Lthaumcraft/api/casters/FocusModSplit;)" + min.desc.substring(2);
+                            && "()Ljava/util/ArrayList;".equals(min.desc)) {
                         m.instructions.set(min, new MethodInsnNode(
                                 INVOKESTATIC,
                                 HOOKS,
-                                hookName,
-                                hookDesc,
+                                "getSplitPackagesWithAmber",
+                                "(Lthaumcraft/api/casters/FocusModSplit;)Ljava/util/ArrayList;",
                                 false
                         ));
                         continue;
@@ -590,7 +585,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
                     if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
                             && "setCooldown".equals(min.name)
-                            && "(Lnet/minecraft/entity/player/EntityLivingBase;I)V".equals(min.desc)
+                            && "(Lnet/minecraft/entity/EntityLivingBase;I)V".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
                         InsnList hook = new InsnList();
                         hook.add(new VarInsnNode(ALOAD, focusStackIndex));

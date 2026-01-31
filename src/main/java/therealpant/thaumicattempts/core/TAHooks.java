@@ -20,15 +20,12 @@ import thaumcraft.common.items.casters.ItemFocus;
 import thaumcraft.common.items.casters.foci.FocusModSplitTrajectory;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.capability.AmberCasterCapability;
-import therealpant.thaumicattempts.capability.IAmberCasterData;
 import therealpant.thaumicattempts.effects.AmberEffects;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
-import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.*;
 /**
@@ -251,123 +248,62 @@ public final class TAHooks {
     }
 
     public static boolean isCasterOnCooldownWithAmber(EntityPlayer player, ItemStack focusStack, ItemFocus focus) {
-        try {
-            if (player == null) return false;
-            int amberCount = countAmber(player);
-            if (amberCount < AmberEffects.SET4_REQUIRED) {
-                return tcIsOnCooldown(player);
-            }
-            return tcIsOnCooldown(player);
-        } catch (Throwable t) {
-            return tcIsOnCooldown(player);
-        }
+        return tcIsOnCooldown(player);
     }
 
     public static void setCasterCooldownWithAmber(EntityPlayer player, int vanillaCdTicks, ItemStack focusStack, ItemFocus focus) {
-        try {
-            if (player == null) return;
+        if (player == null) return;
 
-            int amberCount = countAmber(player);
+        int amberCount = countAmber(player);
 
-            int cdTicks = vanillaCdTicks;
-            if (amberCount >= AmberEffects.SET4_REQUIRED) {
-                cdTicks = Math.max(cdTicks, AmberEffects.SET4_MIN_INTERVAL_TICKS);
-                IAmberCasterData data = AmberCasterCapability.get(player);
-                if (data != null && player.world != null) {
-                    data.recordCast(player.world.getTotalWorldTime());
-                }
-            }
-
-            CasterManager.setCooldown(player, cdTicks);
-        } catch (Throwable t) {
-            // fail-open: ничего
+        int cdTicks = vanillaCdTicks;
+        if (amberCount >= AmberEffects.SET4_REQUIRED) {
+            cdTicks = vanillaCdTicks > 40 ? 40 : vanillaCdTicks;
         }
+
+        CasterManager.setCooldown(player, cdTicks);
     }
 
     public static float getVisCostWithAmber(EntityPlayer player, ItemFocus focus, ItemStack focusStack) {
-        try {
-            if (focus == null) return 0f;
-            float base = focus.getVisCost(focusStack);
-            if (player == null) return base;
-            int amberCount = countAmber(player);
-            if (amberCount < AmberEffects.SET4_REQUIRED) return base;
+        if (focus == null) return 0f;
+        float base = focus.getVisCost(focusStack);
+        if (player == null) return base;
+        int amberCount = countAmber(player);
+        if (amberCount < AmberEffects.SET4_REQUIRED) return base;
 
-            IAmberCasterData data = AmberCasterCapability.get(player);
-            if (data == null || player.world == null) return base;
-            long now = player.world.getTotalWorldTime();
-            data.tick(now, true);
-            float extraVis = data.getFrequency() * AmberEffects.SET4_EXTRA_VIS_PER_FREQUENCY;
-            return base + extraVis;
-        } catch (Throwable t) {
-            return focus != null ? focus.getVisCost(focusStack) : 0f;
+        int vanillaCd = focus.getActivationTime(focusStack);
+        float extra;
+        if (vanillaCd <= 40) {
+            extra = 0f;
+        } else {
+            int reducedTicks = vanillaCd - 40;
+            int reducedSeconds = (int) Math.ceil(reducedTicks / 20.0);
+            extra = 4.0f * reducedSeconds;
         }
+        return base + extra;
     }
 
     public static ArrayList<FocusPackage> getSplitPackagesWithAmber(FocusModSplit split) {
-        ArrayList<FocusPackage> packages = getSplitPackagesWithAmberInternal(split);
-        return packages;
-    }
+        if (split == null) return null;
+        ArrayList<FocusPackage> packages = split.getSplitPackages();
+        if (packages == null || packages.isEmpty()) return packages;
+        if (!(split instanceof FocusModSplitTrajectory)) return packages;
 
-    public static List<FocusPackage> getSplitPackagesWithAmberList(FocusModSplit split) {
-        return getSplitPackagesWithAmberInternal(split);
-    }
+        FocusPackage focusPackage = split.getPackage();
+        if (focusPackage == null) return packages;
 
-    private static ArrayList<FocusPackage> getSplitPackagesWithAmberInternal(FocusModSplit split) {
-        try {
-            if (split == null) return null;
-            ArrayList<FocusPackage> packages = split.getSplitPackages();
-            if (packages == null || packages.isEmpty()) return packages;
-            if (!(split instanceof FocusModSplitTrajectory)) return packages;
+        EntityLivingBase caster = focusPackage.getCaster();
+        if (!(caster instanceof EntityPlayer)) return packages;
 
-            FocusPackage focusPackage = split.getPackage();
-            if (focusPackage == null) return packages;
+        if (countAmber((EntityPlayer) caster) < AmberEffects.SET2_REQUIRED) return packages;
 
-            EntityLivingBase caster = focusPackage.getCaster();
-            if (!(caster instanceof EntityPlayer)) return packages;
+        FocusPackage extra = packages.get(0).copy(caster);
+        if (extra == null) return packages;
+        extra.setUniqueID(UUID.randomUUID());
 
-            if (countAmber((EntityPlayer) caster) < AmberEffects.SET2_REQUIRED) return packages;
-
-            FocusPackage extra = copyFocusPackage(packages.get(0));
-            if (extra == null) return packages;
-
-            ArrayList<FocusPackage> withExtra = new ArrayList<>(packages.size() + 1);
-            withExtra.addAll(packages);
-            withExtra.add(extra);
-            return withExtra;
-        } catch (Throwable t) {
-            try {
-                return split != null ? split.getSplitPackages() : null;
-            } catch (Throwable t2) {
-                return null;
-            }
-        }
-    }
-
-    private static FocusPackage copyFocusPackage(FocusPackage base) {
-        if (base == null) return null;
-        try {
-            Method copyMethod = base.getClass().getMethod("copy");
-            Object copied = copyMethod.invoke(base);
-            if (copied instanceof FocusPackage) {
-                return (FocusPackage) copied;
-            }
-        } catch (Throwable ignored) {
-            // fall through
-        }
-        try {
-            Method cloneMethod = base.getClass().getMethod("clone");
-            Object cloned = cloneMethod.invoke(base);
-            if (cloned instanceof FocusPackage) {
-                return (FocusPackage) cloned;
-            }
-        } catch (Throwable ignored) {
-            // fall through
-        }
-        try {
-            Constructor<? extends FocusPackage> ctor = base.getClass().getConstructor(FocusPackage.class);
-            return ctor.newInstance(base);
-        } catch (Throwable ignored) {
-            return base;
-        }
+        ArrayList<FocusPackage> withExtra = new ArrayList<>(packages.size() + 1);
+        withExtra.addAll(packages);
+        withExtra.add(extra);
+        return withExtra;
     }
 }
