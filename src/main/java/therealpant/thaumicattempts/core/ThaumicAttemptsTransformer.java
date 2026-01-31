@@ -22,6 +22,9 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         if (basicClass == null) return null;
 
         try {
+            if (transformedName != null && transformedName.startsWith("thaumcraft.common.items.casters.ItemFocus")) {
+                return patchItemFocus(basicClass);
+            }
             switch (transformedName) {
                 case "thaumcraft.common.blocks.basic.BlockPillar":
                     if (!TAConfig.ENABLE_PILLAR_MODEL_REPLACEMENT) {
@@ -43,7 +46,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchFocusNode(basicClass);
                 case "thaumcraft.common.items.casters.ItemCaster":
                     return patchItemCaster(basicClass);
-                case "thaumcraft.api.casters.FocusEngine":
+                    case "thaumcraft.api.casters.FocusEngine":
                     return patchFocusEngine(basicClass);
                 case "thaumcraft.client.gui.plugins.GuiFocusSettingSpinnerButton":
                     return patchGuiFocusSettingSpinnerButton(basicClass);
@@ -521,6 +524,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         ClassNode cn = new ClassNode(ASM5);
         cr.accept(cn, 0);
 
+        boolean patchedTooltip = patchTooltipAddInformation(cn);
+
         for (MethodNode m : cn.methods) {
             if (!"onItemRightClick".equals(m.name)
                     || !"(Lnet/minecraft/world/World;Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/util/EnumHand;)Lnet/minecraft/util/ActionResult;".equals(m.desc)) {
@@ -635,8 +640,97 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
         cn.accept(cw);
+        if (patchedTooltip) {
+            System.out.println("[ThaumicAttempts] Patched thaumcraft.common.items.casters.ItemCaster tooltips");
+        }
         System.out.println("[ThaumicAttempts] Patched thaumcraft.common.items.casters.ItemCaster");
         return cw.toByteArray();
+    }
+
+    // ---------------- ItemFocus ----------------
+    private byte[] patchItemFocus(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        boolean patched = false;
+        for (MethodNode m : cn.methods) {
+            if (!(("addInformation".equals(m.name) || "func_77624_a".equals(m.name))
+                    && "(Lnet/minecraft/item/ItemStack;Lnet/minecraft/world/World;Ljava/util/List;Lnet/minecraft/client/util/ITooltipFlag;)V".equals(m.desc))) {
+                continue;
+            }
+            for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (!(insn instanceof MethodInsnNode)) {
+                    continue;
+                }
+                MethodInsnNode min = (MethodInsnNode) insn;
+                if ("thaumcraft/api/casters/NodeSetting".equals(min.owner)
+                        && "getValueText".equals(min.name)
+                        && "()Ljava/lang/String;".equals(min.desc)) {
+                    InsnList hook = new InsnList();
+                    hook.add(new MethodInsnNode(INVOKESTATIC,
+                            "net/minecraft/client/Minecraft",
+                            "getMinecraft",
+                            "()Lnet/minecraft/client/Minecraft;",
+                            false));
+                    hook.add(new FieldInsnNode(GETFIELD,
+                            "net/minecraft/client/Minecraft",
+                            "player",
+                            "Lnet/minecraft/client/entity/EntityPlayerSP;"));
+                    m.instructions.insertBefore(min, hook);
+                    min.setOpcode(INVOKESTATIC);
+                    min.owner = HOOKS;
+                    min.name = "getFocusSettingValueTextWithAmberColored";
+                    min.desc = "(Lthaumcraft/api/casters/NodeSetting;Lnet/minecraft/entity/player/EntityPlayer;)Ljava/lang/String;";
+                    min.itf = false;
+                    patched = true;
+                }
+            }
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        if (patched) {
+            System.out.println("[ThaumicAttempts] Patched thaumcraft.common.items.casters.ItemFocus");
+        } else {
+            System.out.println("[ThaumicAttempts] ItemFocus patch skipped (addInformation not found)");
+        }
+        return cw.toByteArray();
+    }
+    private boolean patchTooltipAddInformation(ClassNode cn) {
+        boolean patched = false;
+        for (MethodNode m : cn.methods) {
+            if (!(("addInformation".equals(m.name) || "func_77624_a".equals(m.name))
+                    && "(Lnet/minecraft/item/ItemStack;Lnet/minecraft/world/World;Ljava/util/List;Lnet/minecraft/client/util/ITooltipFlag;)V".equals(m.desc))) {
+                continue;
+            }
+            int stackIndex = ((m.access & ACC_STATIC) != 0) ? 0 : 1;
+            int listIndex = stackIndex + 2;
+            for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn.getOpcode() == RETURN) {
+                    InsnList hook = new InsnList();
+                    hook.add(new VarInsnNode(ALOAD, listIndex));
+                    hook.add(new VarInsnNode(ALOAD, stackIndex));
+                    hook.add(new MethodInsnNode(INVOKESTATIC,
+                            "net/minecraft/client/Minecraft",
+                            "getMinecraft",
+                            "()Lnet/minecraft/client/Minecraft;",
+                            false));
+                    hook.add(new FieldInsnNode(GETFIELD,
+                            "net/minecraft/client/Minecraft",
+                            "player",
+                            "Lnet/minecraft/client/entity/EntityPlayerSP;"));
+                    hook.add(new MethodInsnNode(INVOKESTATIC,
+                            HOOKS,
+                            "applyAmberFocusTooltip",
+                            "(Ljava/util/List;Lnet/minecraft/item/ItemStack;Lnet/minecraft/entity/player/EntityPlayer;)V",
+                            false));
+                    m.instructions.insertBefore(insn, hook);
+                    patched = true;
+                }
+            }
+        }
+        return patched;
     }
 
     private AbstractInsnNode getNextReal(AbstractInsnNode insn) {

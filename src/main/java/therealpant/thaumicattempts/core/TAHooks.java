@@ -7,6 +7,7 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.text.TextFormatting;
 import net.minecraft.world.World;
 import thaumcraft.api.casters.FocusNode;
 import thaumcraft.api.casters.FocusPackage;
@@ -16,6 +17,7 @@ import thaumcraft.api.golems.ProvisionRequest;
 import thaumcraft.api.golems.seals.SealPos;
 import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.items.casters.CasterManager;
+import thaumcraft.common.items.casters.ItemCaster;
 import thaumcraft.common.items.casters.ItemFocus;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 import therealpant.thaumicattempts.ThaumicAttempts;
@@ -28,6 +30,7 @@ import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
+import java.util.ArrayList;
 import java.util.Collections;
 import java.util.Iterator;
 import java.util.List;
@@ -254,6 +257,22 @@ public final class TAHooks {
         }
     }
 
+    public static String getFocusSettingValueTextWithAmberColored(NodeSetting setting, EntityPlayer player) {
+        if (setting == null) return null;
+        String original;
+        try {
+            original = setting.getValueText();
+        } catch (Throwable t) {
+            original = null;
+        }
+        String updated = getFocusSettingValueTextWithAmber(setting, player);
+        if (updated == null) return original;
+        if (original != null && !updated.equals(original)) {
+            return TextFormatting.GREEN + updated + TextFormatting.RESET;
+        }
+        return updated;
+    }
+
     public static int getFocusSettingTextColorWithAmber(NodeSetting setting, EntityPlayer player) {
         try {
             if (!hasAmberSet2(player)) return 0xFFFFFF;
@@ -264,6 +283,28 @@ public final class TAHooks {
             return 0xFFFFFF;
         } catch (Throwable t) {
             return 0xFFFFFF;
+        }
+    }
+
+    public static void applyAmberFocusTooltip(List<String> tooltip, ItemStack stack, EntityPlayer player) {
+        if (tooltip == null || tooltip.isEmpty() || stack == null || stack.isEmpty()) return;
+        if (!hasAmberSet2(player)) return;
+
+        ItemStack focusStack = resolveFocusStack(stack);
+        if (focusStack.isEmpty()) return;
+
+        List<NodeSetting> settings = collectFocusSettings(focusStack);
+        if (settings.isEmpty()) return;
+
+        for (NodeSetting setting : settings) {
+            if (setting == null) continue;
+            String originalValue = safeGetValueText(setting);
+            if (originalValue == null) continue;
+            String updatedValue = getFocusSettingValueTextWithAmber(setting, player);
+            if (updatedValue == null || updatedValue.equals(originalValue)) continue;
+            String displayName = getSettingDisplayName(setting);
+            if (displayName == null || displayName.isEmpty()) continue;
+            replaceTooltipValue(tooltip, displayName, originalValue, updatedValue);
         }
     }
 
@@ -320,6 +361,162 @@ public final class TAHooks {
         } catch (Throwable ignored) {
         }
         return null;
+    }
+
+    private static ItemStack resolveFocusStack(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return ItemStack.EMPTY;
+        if (stack.getItem() instanceof ItemFocus) {
+            return stack;
+        }
+        if (stack.getItem() instanceof ItemCaster) {
+            try {
+                Method method = stack.getItem().getClass().getMethod("getFocusStack", ItemStack.class);
+                Object result = method.invoke(stack.getItem(), stack);
+                if (result instanceof ItemStack) {
+                    ItemStack focusStack = (ItemStack) result;
+                    return focusStack == null ? ItemStack.EMPTY : focusStack;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    private static List<NodeSetting> collectFocusSettings(ItemStack focusStack) {
+        if (focusStack.isEmpty() || !(focusStack.getItem() instanceof ItemFocus)) {
+            return Collections.emptyList();
+        }
+        ItemFocus focus = (ItemFocus) focusStack.getItem();
+        Object focusPackage = resolveFocusPackage(focus, focusStack);
+        if (focusPackage == null) return Collections.emptyList();
+
+        List<Object> nodes = resolvePackageNodes(focusPackage);
+        if (nodes.isEmpty()) return Collections.emptyList();
+
+        List<NodeSetting> settings = new ArrayList<>();
+        for (Object node : nodes) {
+            if (node == null) continue;
+            List<Object> nodeSettings = resolveNodeSettings(node);
+            for (Object setting : nodeSettings) {
+                if (setting instanceof NodeSetting) {
+                    settings.add((NodeSetting) setting);
+                }
+            }
+        }
+        return settings;
+    }
+
+    private static Object resolveFocusPackage(ItemFocus focus, ItemStack stack) {
+        String[] methods = new String[]{"getFocusPackage", "getPackage", "getFocus", "getPackageFromStack"};
+        for (String methodName : methods) {
+            try {
+                Method method = focus.getClass().getMethod(methodName, ItemStack.class);
+                Object result = method.invoke(focus, stack);
+                if (result != null) return result;
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static List<Object> resolvePackageNodes(Object focusPackage) {
+        String[] methods = new String[]{"getFocusNodes", "getNodes", "getNodesList", "getNodeList"};
+        for (String methodName : methods) {
+            try {
+                Method method = focusPackage.getClass().getMethod(methodName);
+                Object result = method.invoke(focusPackage);
+                List<Object> nodes = asObjectList(result);
+                if (!nodes.isEmpty()) return nodes;
+            } catch (Throwable ignored) {
+            }
+        }
+        Object fieldValue = readField(focusPackage.getClass(), focusPackage, "nodes");
+        List<Object> nodes = asObjectList(fieldValue);
+        return nodes.isEmpty() ? Collections.emptyList() : nodes;
+    }
+
+    private static List<Object> resolveNodeSettings(Object node) {
+        String[] methods = new String[]{"getSettingList", "getSettings", "getSettingsList"};
+        for (String methodName : methods) {
+            try {
+                Method method = node.getClass().getMethod(methodName);
+                Object result = method.invoke(node);
+                List<Object> settings = asObjectList(result);
+                if (!settings.isEmpty()) return settings;
+            } catch (Throwable ignored) {
+            }
+        }
+        Object fieldValue = readField(node.getClass(), node, "settings");
+        List<Object> settings = asObjectList(fieldValue);
+        return settings.isEmpty() ? Collections.emptyList() : settings;
+    }
+
+    private static String safeGetValueText(NodeSetting setting) {
+        try {
+            return setting.getValueText();
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static String getSettingDisplayName(NodeSetting setting) {
+        String[] methods = new String[]{"getLocalizedName", "getName", "getKey"};
+        for (String methodName : methods) {
+            try {
+                Method method = setting.getClass().getMethod(methodName);
+                Object result = method.invoke(setting);
+                if (result instanceof String) {
+                    String name = (String) result;
+                    if (!name.isEmpty()) return name;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static void replaceTooltipValue(List<String> tooltip, String displayName, String originalValue, String updatedValue) {
+        if (tooltip == null) return;
+        String coloredValue = TextFormatting.GREEN + updatedValue + TextFormatting.RESET;
+        for (int i = 0; i < tooltip.size(); i++) {
+            String line = tooltip.get(i);
+            if (line == null) continue;
+            if (!line.contains(displayName) || !line.contains(originalValue)) continue;
+            tooltip.set(i, line.replace(originalValue, coloredValue));
+        }
+    }
+
+    private static List<Object> asObjectList(Object value) {
+        if (value == null) {
+            return Collections.emptyList();
+        }
+        if (value instanceof List) {
+            return new ArrayList<>((List<?>) value);
+        }
+        if (value instanceof Iterable) {
+            List<Object> result = new ArrayList<>();
+            for (Object entry : (Iterable<?>) value) {
+                result.add(entry);
+            }
+            return result;
+        }
+        if (value.getClass().isArray()) {
+            List<Object> result = new ArrayList<>();
+            Object[] array = (Object[]) value;
+            Collections.addAll(result, array);
+            return result;
+        }
+        return Collections.emptyList();
+    }
+
+    private static Object readField(Class<?> type, Object target, String fieldName) {
+        try {
+            Field field = type.getDeclaredField(fieldName);
+            field.setAccessible(true);
+            return field.get(target);
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     private static String incrementNumberInText(String valueText) {
