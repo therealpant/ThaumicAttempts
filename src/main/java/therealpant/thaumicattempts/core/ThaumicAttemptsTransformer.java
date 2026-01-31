@@ -479,6 +479,23 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                 for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                     if (insn.getType() != AbstractInsnNode.METHOD_INSN) continue;
                     MethodInsnNode min = (MethodInsnNode) insn;
+                    if ("thaumcraft/api/casters/FocusModSplit".equals(min.owner)
+                            && "getSplitPackages".equals(min.name)
+                            && ("()Ljava/util/ArrayList;".equals(min.desc)
+                            || "()Ljava/util/List;".equals(min.desc))) {
+                        String hookName = "()Ljava/util/ArrayList;".equals(min.desc)
+                                ? "getSplitPackagesWithAmber"
+                                : "getSplitPackagesWithAmberList";
+                        String hookDesc = "(Lthaumcraft/api/casters/FocusModSplit;)" + min.desc.substring(2);
+                        m.instructions.set(min, new MethodInsnNode(
+                                INVOKESTATIC,
+                                HOOKS,
+                                hookName,
+                                hookDesc,
+                                false
+                        ));
+                        continue;
+                    }
                     if ("thaumcraft/api/casters/FocusEffect".equals(min.owner)
                             && "execute".equals(min.name)
                             && "(Lnet/minecraft/util/math/RayTraceResult;Lthaumcraft/api/casters/Trajectory;FI)Z".equals(min.desc)) {

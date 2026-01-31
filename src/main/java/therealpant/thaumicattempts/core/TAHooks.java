@@ -3,7 +3,6 @@ package therealpant.thaumicattempts.core;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
-import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
@@ -11,12 +10,14 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import thaumcraft.api.casters.FocusNode;
 import thaumcraft.api.casters.FocusPackage;
+import thaumcraft.api.casters.FocusModSplit;
 import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.golems.ProvisionRequest;
 import thaumcraft.api.golems.seals.SealPos;
 import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.items.casters.CasterManager;
 import thaumcraft.common.items.casters.ItemFocus;
+import thaumcraft.common.items.casters.foci.FocusModSplitTrajectory;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.capability.AmberCasterCapability;
@@ -27,6 +28,7 @@ import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
+import java.lang.reflect.Constructor;
 import java.lang.reflect.Method;
 import java.util.*;
 /**
@@ -249,7 +251,16 @@ public final class TAHooks {
     }
 
     public static boolean isCasterOnCooldownWithAmber(EntityPlayer player, ItemStack focusStack, ItemFocus focus) {
-        return tcIsOnCooldown(player);
+        try {
+            if (player == null) return false;
+            int amberCount = countAmber(player);
+            if (amberCount < AmberEffects.SET4_REQUIRED) {
+                return tcIsOnCooldown(player);
+            }
+            return tcIsOnCooldown(player);
+        } catch (Throwable t) {
+            return tcIsOnCooldown(player);
+        }
     }
 
     public static void setCasterCooldownWithAmber(EntityPlayer player, int vanillaCdTicks, ItemStack focusStack, ItemFocus focus) {
@@ -289,6 +300,74 @@ public final class TAHooks {
             return base + extraVis;
         } catch (Throwable t) {
             return focus != null ? focus.getVisCost(focusStack) : 0f;
+        }
+    }
+
+    public static ArrayList<FocusPackage> getSplitPackagesWithAmber(FocusModSplit split) {
+        ArrayList<FocusPackage> packages = getSplitPackagesWithAmberInternal(split);
+        return packages;
+    }
+
+    public static List<FocusPackage> getSplitPackagesWithAmberList(FocusModSplit split) {
+        return getSplitPackagesWithAmberInternal(split);
+    }
+
+    private static ArrayList<FocusPackage> getSplitPackagesWithAmberInternal(FocusModSplit split) {
+        try {
+            if (split == null) return null;
+            ArrayList<FocusPackage> packages = split.getSplitPackages();
+            if (packages == null || packages.isEmpty()) return packages;
+            if (!(split instanceof FocusModSplitTrajectory)) return packages;
+
+            FocusPackage focusPackage = split.getPackage();
+            if (focusPackage == null) return packages;
+
+            EntityLivingBase caster = focusPackage.getCaster();
+            if (!(caster instanceof EntityPlayer)) return packages;
+
+            if (countAmber((EntityPlayer) caster) < AmberEffects.SET2_REQUIRED) return packages;
+
+            FocusPackage extra = copyFocusPackage(packages.get(0));
+            if (extra == null) return packages;
+
+            ArrayList<FocusPackage> withExtra = new ArrayList<>(packages.size() + 1);
+            withExtra.addAll(packages);
+            withExtra.add(extra);
+            return withExtra;
+        } catch (Throwable t) {
+            try {
+                return split != null ? split.getSplitPackages() : null;
+            } catch (Throwable t2) {
+                return null;
+            }
+        }
+    }
+
+    private static FocusPackage copyFocusPackage(FocusPackage base) {
+        if (base == null) return null;
+        try {
+            Method copyMethod = base.getClass().getMethod("copy");
+            Object copied = copyMethod.invoke(base);
+            if (copied instanceof FocusPackage) {
+                return (FocusPackage) copied;
+            }
+        } catch (Throwable ignored) {
+            // fall through
+        }
+        try {
+            Method cloneMethod = base.getClass().getMethod("clone");
+            Object cloned = cloneMethod.invoke(base);
+            if (cloned instanceof FocusPackage) {
+                return (FocusPackage) cloned;
+            }
+        } catch (Throwable ignored) {
+            // fall through
+        }
+        try {
+            Constructor<? extends FocusPackage> ctor = base.getClass().getConstructor(FocusPackage.class);
+            return ctor.newInstance(base);
+        } catch (Throwable ignored) {
+            return base;
         }
     }
 }
