@@ -191,9 +191,10 @@ public final class TAHooks {
 
             // Set of 2 ambers => +1 to selected focus settings
             if (amberCount >= AmberEffects.SET2_REQUIRED) {
-                System.out.println("[TA] Amber SET2 getSettingValue: key=" + k + " original=" + original
-                        + " -> " + (original + 1) + " caster=" + player.getName());
-                return original + 1;
+                int result = original + 1;
+                System.out.println("[TA] Amber SET2 lens buff: key=" + k + " original=" + original
+                        + " result=" + result);
+                return result;
             }
 
             return original;
@@ -205,17 +206,11 @@ public final class TAHooks {
 
     private static boolean isAmberSet2Key(String key) {
         if (key == null) return false;
-        if ("power".equals(key)
+        return "power".equals(key)
                 || "duration".equals(key)
                 || "radius".equals(key)
                 || "fork".equals(key)
-                || "forks".equals(key)) {
-            return true;
-        }
-        return key.contains("power")
-                || key.contains("duration")
-                || key.contains("radius")
-                || key.contains("fork");
+                || "forks".equals(key);
     }
 
     public static float adjustFocusPower(FocusPackage focusPackage, float originalPower) {

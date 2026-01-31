@@ -423,7 +423,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         cr.accept(cn, 0);
 
         for (MethodNode m : cn.methods) {
-            if (!"(Ljava/lang/String;)I".equals(m.desc)) {
+            if (!"getSettingValue".equals(m.name)
+                    || !"(Ljava/lang/String;)I".equals(m.desc)) {
                 continue;
             }
             if ((m.access & ACC_ABSTRACT) != 0) {
