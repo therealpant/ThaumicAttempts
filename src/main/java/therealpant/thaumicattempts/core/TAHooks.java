@@ -1,5 +1,6 @@
 package therealpant.thaumicattempts.core;
 
+import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
@@ -588,18 +589,41 @@ public final class TAHooks {
 
     public static int countAmber(EntityPlayer player) {
         if (player == null) return 0;
-        if (player.world != null && player.world.isRemote) {
-            int cached = TAGemCountCache.getClientAmberCount(player.getUniqueID());
-            if (cached >= 0) {
-                return cached;
-            }
-        }
-        int count = 0;
 
+        int count = 0;
         for (TAGemArmorUtil.GemInlay inlay : TAGemArmorUtil.getEquippedGemInlays(player)) {
             if (AMBER_ID.equals(inlay.getId())) count++;
         }
         return count;
+    }
+
+
+    private static World resolvePlayerWorld(EntityPlayer player) {
+        if (player == null) return null;
+        try {
+            return player.world;
+        } catch (Throwable ignored) {
+        }
+        Object fieldValue = readField(Entity.class, player, "world");
+        if (fieldValue instanceof World) {
+            return (World) fieldValue;
+        }
+        fieldValue = readField(Entity.class, player, "field_70170_p");
+        if (fieldValue instanceof World) {
+            return (World) fieldValue;
+        }
+        String[] methods = new String[]{"getEntityWorld", "func_130014_f_"};
+        for (String methodName : methods) {
+            try {
+                Method method = Entity.class.getMethod(methodName);
+                Object result = method.invoke(player);
+                if (result instanceof World) {
+                    return (World) result;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 
     public static float sumAmberDamageBonus(EntityPlayer player) {
