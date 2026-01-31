@@ -10,14 +10,12 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import thaumcraft.api.casters.FocusNode;
 import thaumcraft.api.casters.FocusPackage;
-import thaumcraft.api.casters.FocusModSplit;
 import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.golems.ProvisionRequest;
 import thaumcraft.api.golems.seals.SealPos;
 import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.items.casters.CasterManager;
 import thaumcraft.common.items.casters.ItemFocus;
-import thaumcraft.common.items.casters.foci.FocusModSplitTrajectory;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.effects.AmberEffects;
@@ -27,7 +25,13 @@ import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
 import java.lang.reflect.Method;
-import java.util.*;
+import java.util.Collections;
+import java.util.Iterator;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
+import java.util.WeakHashMap;
 /**
  * Хуки для интеграции с Thaumcraft-голевами.
  *
@@ -167,12 +171,11 @@ public final class TAHooks {
     /* ===================== Focus cast hooks ===================== */
     public static int adjustFocusSetting(FocusNode node, int original, String key) {
         try {
-            // fail-open basics
             if (node == null || key == null) return original;
 
             // whitelist keys we allow to touch (only amber set2)
             String k = key.toLowerCase(Locale.ROOT);
-            if (!AmberEffects.isSettingKey(k)) return original;
+            if (!isAmberSet2Key(k)) return original;
 
             // find caster
             FocusPackage fp = node.getPackage();
@@ -188,8 +191,8 @@ public final class TAHooks {
 
             // Set of 2 ambers => +1 to selected focus settings
             if (amberCount >= AmberEffects.SET2_REQUIRED) {
-                System.out.println("[TA] Amber set2 focus setting: key=" + k + " original=" + original
-                        + " amberCount=" + amberCount + " caster=" + player.getName() + "/" + player.getUniqueID());
+                System.out.println("[TA] Amber SET2 getSettingValue: key=" + k + " original=" + original
+                        + " -> " + (original + 1) + " caster=" + player.getName());
                 return original + 1;
             }
 
@@ -198,6 +201,21 @@ public final class TAHooks {
             // NEVER break focus casting.
             return original;
         }
+    }
+
+    private static boolean isAmberSet2Key(String key) {
+        if (key == null) return false;
+        if ("power".equals(key)
+                || "duration".equals(key)
+                || "radius".equals(key)
+                || "fork".equals(key)
+                || "forks".equals(key)) {
+            return true;
+        }
+        return key.contains("power")
+                || key.contains("duration")
+                || key.contains("radius")
+                || key.contains("fork");
     }
 
     public static float adjustFocusPower(FocusPackage focusPackage, float originalPower) {
@@ -285,39 +303,4 @@ public final class TAHooks {
         return base + extra;
     }
 
-    public static ArrayList<FocusPackage> getSplitPackagesWithAmber(FocusModSplit split) {
-        try {
-            if (split == null) return null;
-            ArrayList<FocusPackage> original = split.getSplitPackages();
-            int originalSize = original == null ? 0 : original.size();
-            FocusPackage focusPackage = split.getPackage();
-            EntityLivingBase caster = focusPackage != null ? focusPackage.getCaster() : null;
-            EntityPlayer player = caster instanceof EntityPlayer ? (EntityPlayer) caster : null;
-            int amberCount = player != null ? countAmber(player) : 0;
-            String casterInfo = player != null
-                    ? player.getName() + "/" + player.getUniqueID()
-                    : (caster == null ? "null" : caster.getClass().getName());
-            boolean shouldAdd = split instanceof FocusModSplitTrajectory
-                    && player != null
-                    && amberCount >= AmberEffects.SET2_REQUIRED
-                    && original != null
-                    && !original.isEmpty();
-            System.out.println("[TA] Amber split check: split=" + split.getClass().getName()
-                    + " originalSize=" + originalSize
-                    + " caster=" + casterInfo
-                    + " amberCount=" + amberCount
-                    + " decision=" + (shouldAdd ? "ADD EXTRA" : "SKIP"));
-            if (!shouldAdd) return original;
-            ArrayList<FocusPackage> out = new ArrayList<>(original.size() + 1);
-            out.addAll(original);
-            FocusPackage extra = original.get(0).copy(caster);
-            if (extra == null) return original;
-            extra.setUniqueID(UUID.randomUUID());
-            out.add(extra);
-            System.out.println("[TA] Amber split +1: was=" + originalSize + " now=" + out.size());
-            return out;
-        } catch (Throwable t) {
-            return split != null ? split.getSplitPackages() : null;
-        }
-        }
 }

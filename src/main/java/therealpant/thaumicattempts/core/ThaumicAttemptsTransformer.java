@@ -423,39 +423,40 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         cr.accept(cn, 0);
 
         for (MethodNode m : cn.methods) {
-            if ("getSettingValue".equals(m.name) && "(Ljava/lang/String;)I".equals(m.desc)) {
-
-                // Добавляем один новый локал под int (tmp)
-                final int tmp = m.maxLocals;
-                m.maxLocals += 1;
-
-                for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                    if (insn.getOpcode() == IRETURN) {
-                        InsnList hook = new InsnList();
-
-                        // На стеке сейчас лежит int (результат). Сохраняем его во временный локал:
-                        hook.add(new VarInsnNode(ISTORE, tmp));
-
-                        // Готовим вызов хука: adjustFocusSetting(FocusNode node, int original, String key)
-                        hook.add(new VarInsnNode(ALOAD, 0));    // this (FocusNode)
-                        hook.add(new VarInsnNode(ILOAD, tmp));  // original int
-                        hook.add(new VarInsnNode(ALOAD, 1));    // key (String)
-
-                        hook.add(new MethodInsnNode(
-                                INVOKESTATIC,
-                                HOOKS,
-                                "adjustFocusSetting",
-                                "(Lthaumcraft/api/casters/FocusNode;ILjava/lang/String;)I",
-                                false
-                        ));
-
-                        // Вставляем перед IRETURN: на стек вернётся результат хука (int)
-                        m.instructions.insertBefore(insn, hook);
-                    }
-                }
-
-                System.out.println("[ThaumicAttempts] Patched FocusNode#getSettingValue with safe hook (node, original, key)");
+            if (!"(Ljava/lang/String;)I".equals(m.desc)) {
+                continue;
             }
+            if ((m.access & ACC_ABSTRACT) != 0) {
+                continue;
+            }
+            if (m.instructions == null || m.instructions.size() == 0) {
+                continue;
+            }
+            final int tmp = m.maxLocals;
+            m.maxLocals += 1;
+
+        for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+            if (insn.getOpcode() == IRETURN) {
+                InsnList hook = new InsnList();
+
+                hook.add(new VarInsnNode(ISTORE, tmp));
+                hook.add(new VarInsnNode(ALOAD, 0));
+                hook.add(new VarInsnNode(ILOAD, tmp));
+                hook.add(new VarInsnNode(ALOAD, 1));
+
+                hook.add(new MethodInsnNode(
+                        INVOKESTATIC,
+                        HOOKS,
+                        "adjustFocusSetting",
+                        "(Lthaumcraft/api/casters/FocusNode;ILjava/lang/String;)I",
+                        false
+                ));
+
+                m.instructions.insertBefore(insn, hook);
+                }
+            }
+            System.out.println("[ThaumicAttempts] Patched FocusNode (method=" + m.name + m.desc + ") for SET2 lens buffs");
+            break;
         }
 
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
@@ -479,19 +480,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                 for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                     if (insn.getType() != AbstractInsnNode.METHOD_INSN) continue;
                     MethodInsnNode min = (MethodInsnNode) insn;
-                    if ("thaumcraft/api/casters/FocusModSplit".equals(min.owner)
-                            && "getSplitPackages".equals(min.name)
-                            && "()Ljava/util/ArrayList;".equals(min.desc)) {
-                        m.instructions.set(min, new MethodInsnNode(
-                                INVOKESTATIC,
-                                HOOKS,
-                                "getSplitPackagesWithAmber",
-                                "(Lthaumcraft/api/casters/FocusModSplit;)Ljava/util/ArrayList;",
-                                false
-                        ));
-                        System.out.println("[ThaumicAttempts] Replaced FocusModSplit#getSplitPackages with TAHooks#getSplitPackagesWithAmber");
-                        continue;
-                    }
                     if ("thaumcraft/api/casters/FocusEffect".equals(min.owner)
                             && "execute".equals(min.name)
                             && "(Lnet/minecraft/util/math/RayTraceResult;Lthaumcraft/api/casters/Trajectory;FI)Z".equals(min.desc)) {
