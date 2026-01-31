@@ -188,6 +188,8 @@ public final class TAHooks {
 
             // Set of 2 ambers => +1 to selected focus settings
             if (amberCount >= AmberEffects.SET2_REQUIRED) {
+                System.out.println("[TA] Amber set2 focus setting: key=" + k + " original=" + original
+                        + " amberCount=" + amberCount + " caster=" + player.getName() + "/" + player.getUniqueID());
                 return original + 1;
             }
 
@@ -286,20 +288,34 @@ public final class TAHooks {
     public static ArrayList<FocusPackage> getSplitPackagesWithAmber(FocusModSplit split) {
         try {
             if (split == null) return null;
-            ArrayList<FocusPackage> packages = split.getSplitPackages();
-            if (packages == null || packages.isEmpty()) return packages;
-            if (!(split instanceof FocusModSplitTrajectory)) return packages;
+            ArrayList<FocusPackage> original = split.getSplitPackages();
+            int originalSize = original == null ? 0 : original.size();
             FocusPackage focusPackage = split.getPackage();
-            if (focusPackage == null) return packages;
-            EntityLivingBase caster = focusPackage.getCaster();
-            if (!(caster instanceof EntityPlayer)) return packages;
-            if (countAmber((EntityPlayer) caster) < AmberEffects.SET2_REQUIRED) return packages;
-            FocusPackage extra = packages.get(0).copy(caster);
-            if (extra == null) return packages;
-            int before = packages.size();
-            packages.add(extra);
-            System.out.println("[TA] Amber split +1: was=" + before + " now=" + packages.size()); // TODO remove debug
-            return packages;
+            EntityLivingBase caster = focusPackage != null ? focusPackage.getCaster() : null;
+            EntityPlayer player = caster instanceof EntityPlayer ? (EntityPlayer) caster : null;
+            int amberCount = player != null ? countAmber(player) : 0;
+            String casterInfo = player != null
+                    ? player.getName() + "/" + player.getUniqueID()
+                    : (caster == null ? "null" : caster.getClass().getName());
+            boolean shouldAdd = split instanceof FocusModSplitTrajectory
+                    && player != null
+                    && amberCount >= AmberEffects.SET2_REQUIRED
+                    && original != null
+                    && !original.isEmpty();
+            System.out.println("[TA] Amber split check: split=" + split.getClass().getName()
+                    + " originalSize=" + originalSize
+                    + " caster=" + casterInfo
+                    + " amberCount=" + amberCount
+                    + " decision=" + (shouldAdd ? "ADD EXTRA" : "SKIP"));
+            if (!shouldAdd) return original;
+            ArrayList<FocusPackage> out = new ArrayList<>(original.size() + 1);
+            out.addAll(original);
+            FocusPackage extra = original.get(0).copy(caster);
+            if (extra == null) return original;
+            extra.setUniqueID(UUID.randomUUID());
+            out.add(extra);
+            System.out.println("[TA] Amber split +1: was=" + originalSize + " now=" + out.size());
+            return out;
         } catch (Throwable t) {
             return split != null ? split.getSplitPackages() : null;
         }

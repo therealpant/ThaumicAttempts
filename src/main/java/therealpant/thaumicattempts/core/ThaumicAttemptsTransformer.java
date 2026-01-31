@@ -489,6 +489,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                                 "(Lthaumcraft/api/casters/FocusModSplit;)Ljava/util/ArrayList;",
                                 false
                         ));
+                        System.out.println("[ThaumicAttempts] Replaced FocusModSplit#getSplitPackages with TAHooks#getSplitPackagesWithAmber");
                         continue;
                     }
                     if ("thaumcraft/api/casters/FocusEffect".equals(min.owner)
