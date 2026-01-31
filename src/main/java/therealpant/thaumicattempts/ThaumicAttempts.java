@@ -22,10 +22,12 @@ import therealpant.thaumicattempts.client.gui.GuiHandler;
 import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_RECIPE;
 
 import therealpant.thaumicattempts.command.*;
+import therealpant.thaumicattempts.capability.AmberCasterCapability;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
 import therealpant.thaumicattempts.data.TAInfusionEnchantments;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
 import therealpant.thaumicattempts.data.research.TAAspects;
+import therealpant.thaumicattempts.events.AmberCasterCapabilityHandler;
 import therealpant.thaumicattempts.events.TAGemEventHandler;
 import therealpant.thaumicattempts.data.research.TAResearchAddenda;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
@@ -88,8 +90,11 @@ public class ThaumicAttempts {
 
         GeckoLib.initialize();
 
+        AmberCasterCapability.register();
+
         TAGemRegistry.register(new StubGemDefinition());
         MinecraftForge.EVENT_BUS.register(new TAGemEventHandler());
+        MinecraftForge.EVENT_BUS.register(new AmberCasterCapabilityHandler());
 
         // РЕГИСТРАЦИЯ ВСЕХ ПАКЕТОВ МОДА
         registerPackets();

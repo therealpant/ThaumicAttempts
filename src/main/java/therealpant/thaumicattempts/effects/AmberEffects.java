@@ -13,9 +13,10 @@ public final class AmberEffects {
     public static final int SET2_REQUIRED = 2;
     public static final int SET4_REQUIRED = 4;
     public static final int SET4_MIN_INTERVAL_TICKS = 40;
-    public static final int SET4_BASE_SECONDS = 2;
-    public static final int SET4_EXTRA_VIS_PER_SECOND = 3;
-    public static final int FOCUS_CONTEXT_TICKS = 2;
+    public static final float SET4_FREQUENCY_INCREMENT = 1.0f;
+    public static final float SET4_FREQUENCY_MAX = 8.0f;
+    public static final float SET4_FREQUENCY_DECAY_PER_TICK = 0.05f;
+    public static final float SET4_EXTRA_VIS_PER_FREQUENCY = 1.0f;
 
     public static final Set<String> SETTING_KEYS = new HashSet<>(Arrays.asList(
             "power",

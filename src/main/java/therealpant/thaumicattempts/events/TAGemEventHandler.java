@@ -1,8 +1,5 @@
 package therealpant.thaumicattempts.events;
 
-import java.lang.reflect.InvocationTargetException;
-import java.lang.reflect.Method;
-import java.lang.reflect.Modifier;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Locale;
@@ -11,8 +8,8 @@ import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.SharedMonsterAttributes;
 import net.minecraft.entity.ai.attributes.AttributeModifier;
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.item.ItemStack;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
@@ -21,23 +18,23 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent.PlayerTickEvent;
 import thaumcraft.api.casters.ICaster;
-import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.api.gems.GemDamageSource;
 import therealpant.thaumicattempts.api.gems.ITAGemDefinition;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
+import therealpant.thaumicattempts.capability.AmberCasterCapability;
+import therealpant.thaumicattempts.capability.IAmberCasterData;
 import therealpant.thaumicattempts.combat.ArcaneGuardData;
 import therealpant.thaumicattempts.combat.ArcaneMarkData;
-import therealpant.thaumicattempts.core.TAHooks;
 import therealpant.thaumicattempts.effects.AmberEffects;
 import therealpant.thaumicattempts.effects.AmethystEffects;
 import therealpant.thaumicattempts.effects.DiamondEffects;
 import therealpant.thaumicattempts.gems.AmberGemDefinition;
 import therealpant.thaumicattempts.gems.AmethystGemDefinition;
 import therealpant.thaumicattempts.gems.DiamondGemDefinition;
+import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
 
 public class TAGemEventHandler {
-    private static final String TAG_AMBER_LAST_CAST = "ta_amber_last_cast";
 
     @SubscribeEvent
     public void onPlayerTick(PlayerTickEvent event) {
@@ -46,6 +43,7 @@ public class TAGemEventHandler {
         long now = event.player.world.getTotalWorldTime();
         updateArcaneGuard(event.player, now);
         updateDiamondModifiers(event.player);
+        updateAmberFrequency(event.player, now);
     }
 
     @SubscribeEvent
@@ -104,25 +102,6 @@ public class TAGemEventHandler {
         GemSummary amberSummary = getGemSummary(player, AmberGemDefinition.ID);
         if (amberSummary.count <= 0) return;
 
-        long now = player.world.getTotalWorldTime();
-        TAHooks.pushFocusCastingPlayer(player, now + AmberEffects.FOCUS_CONTEXT_TICKS);
-
-        if (amberSummary.count >= AmberEffects.SET4_REQUIRED) {
-            if (!canAmberCast(player, now)) {
-                event.setCanceled(true);
-                return;
-            }
-            int cooldownTicks = getFocusCooldownTicks(player, stack);
-            int cooldownSeconds = cooldownTicks / 20;
-            int extraVis = Math.max(0, cooldownSeconds - AmberEffects.SET4_BASE_SECONDS) * AmberEffects.SET4_EXTRA_VIS_PER_SECOND;
-            if (extraVis > 0 && !consumeExtraVis(player, stack, extraVis)) {
-                event.setCanceled(true);
-                return;
-            }
-            setAmberLastCast(player, now);
-            clearFocusCooldown(player, stack, AmberEffects.SET4_MIN_INTERVAL_TICKS);
-        }
-
         damageGemInlays(player, GemDamageSource.ON_FOCUS_CAST);
     }
 
@@ -168,6 +147,13 @@ public class TAGemEventHandler {
                 player.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).removeModifier(DiamondEffects.MOVE_SPEED_UUID);
             }
         }
+    }
+
+    private void updateAmberFrequency(EntityPlayer player, long now) {
+        IAmberCasterData data = AmberCasterCapability.get(player);
+        if (data == null) return;
+        GemSummary summary = getGemSummary(player, AmberGemDefinition.ID);
+        data.tick(now, summary.count >= AmberEffects.SET4_REQUIRED);
     }
 
     private void applyAmethystGuard(EntityPlayer player, GemSummary summary, LivingHurtEvent event) {
@@ -271,103 +257,8 @@ public class TAGemEventHandler {
         data.setLong(DiamondEffects.MARK_EXPIRE_TAG, now + DiamondEffects.MARK_DURATION_TICKS);
     }
 
-    private boolean canAmberCast(EntityPlayer player, long now) {
-        NBTTagCompound data = player.getEntityData();
-        long last = data.getLong(TAG_AMBER_LAST_CAST);
-        return now - last >= AmberEffects.SET4_MIN_INTERVAL_TICKS;
-    }
-
-    private void setAmberLastCast(EntityPlayer player, long now) {
-        player.getEntityData().setLong(TAG_AMBER_LAST_CAST, now);
-    }
-
     private boolean isCasterItem(ItemStack stack) {
         return stack != null && !stack.isEmpty() && stack.getItem() instanceof ICaster;
-    }
-
-    private int getFocusCooldownTicks(EntityPlayer player, ItemStack stack) {
-        try {
-            Class<?> casterManager = Class.forName("thaumcraft.api.casters.CasterManager");
-            for (Method method : casterManager.getMethods()) {
-                if (!Modifier.isStatic(method.getModifiers())) continue;
-                if (!(method.getName().equals("getFocusCooldown") || method.getName().equals("getCooldown"))) continue;
-                if (!int.class.equals(method.getReturnType())) continue;
-                Class<?>[] params = method.getParameterTypes();
-                if (params.length == 2 && EntityPlayer.class.isAssignableFrom(params[0])
-                        && ItemStack.class.isAssignableFrom(params[1])) {
-                    return (int) method.invoke(null, player, stack);
-                }
-                if (params.length == 1 && EntityPlayer.class.isAssignableFrom(params[0])) {
-                    return (int) method.invoke(null, player);
-                }
-            }
-        } catch (ClassNotFoundException | IllegalAccessException | InvocationTargetException ex) {
-            ThaumicAttempts.LOGGER.error("[TA] Amber cooldown lookup failed", ex);
-        }
-        return 0;
-    }
-
-    private void clearFocusCooldown(EntityPlayer player, ItemStack stack, int minTicks) {
-        try {
-            Class<?> casterManager = Class.forName("thaumcraft.api.casters.CasterManager");
-            for (Method method : casterManager.getMethods()) {
-                if (!Modifier.isStatic(method.getModifiers())) continue;
-                if (!(method.getName().equals("setFocusCooldown") || method.getName().equals("setCooldown"))) continue;
-                Class<?>[] params = method.getParameterTypes();
-                if (params.length == 2 && EntityPlayer.class.isAssignableFrom(params[0]) && params[1] == int.class) {
-                    method.invoke(null, player, minTicks);
-                    return;
-                }
-                if (params.length == 3 && EntityPlayer.class.isAssignableFrom(params[0])
-                        && ItemStack.class.isAssignableFrom(params[1]) && params[2] == int.class) {
-                    method.invoke(null, player, stack, minTicks);
-                    return;
-                }
-            }
-        } catch (ClassNotFoundException | IllegalAccessException | InvocationTargetException ex) {
-            ThaumicAttempts.LOGGER.error("[TA] Amber cooldown override failed", ex);
-        }
-    }
-
-    private boolean consumeExtraVis(EntityPlayer player, ItemStack stack, int extraVis) {
-        try {
-            Class<?> rechargeHelper = Class.forName("thaumcraft.api.items.RechargeHelper");
-            for (Method method : rechargeHelper.getMethods()) {
-                if (!method.getName().equals("consumeCharge")) continue;
-                Class<?>[] params = method.getParameterTypes();
-                if (params.length == 3
-                        && ItemStack.class.isAssignableFrom(params[0])
-                        && EntityLivingBase.class.isAssignableFrom(params[1])
-                        && params[2] == float.class) {
-                    Object result = method.invoke(null, stack, player, (float) extraVis);
-                    return result instanceof Boolean && (Boolean) result;
-                }
-                if (params.length == 4
-                        && ItemStack.class.isAssignableFrom(params[0])
-                        && EntityLivingBase.class.isAssignableFrom(params[1])
-                        && params[2] == float.class
-                        && params[3] == boolean.class) {
-                    Object result = method.invoke(null, stack, player, (float) extraVis, true);
-                    return result instanceof Boolean && (Boolean) result;
-                }
-                if (params.length == 2
-                        && EntityLivingBase.class.isAssignableFrom(params[0])
-                        && params[1] == float.class) {
-                    Object result = method.invoke(null, player, (float) extraVis);
-                    return result instanceof Boolean && (Boolean) result;
-                }
-                if (params.length == 3
-                        && EntityLivingBase.class.isAssignableFrom(params[0])
-                        && params[1] == float.class
-                        && params[2] == boolean.class) {
-                    Object result = method.invoke(null, player, (float) extraVis, true);
-                    return result instanceof Boolean && (Boolean) result;
-                }
-            }
-        } catch (ClassNotFoundException | IllegalAccessException | InvocationTargetException ex) {
-            ThaumicAttempts.LOGGER.error("[TA] Amber vis drain failed", ex);
-        }
-        return false;
     }
 
     private boolean isFocusDamage(DamageSource source) {
@@ -379,51 +270,27 @@ public class TAGemEventHandler {
     }
 
     private void damageGemInlays(EntityPlayer player, GemDamageSource source) {
-        for (GemInlay inlay : getGemInlays(player)) {
-            ITAGemDefinition def = TAGemRegistry.get(inlay.id);
-            if (def == null) {
-                ThaumicAttempts.LOGGER.error("[TA] Gem inlay missing definition for {}", inlay.id);
-                continue;
-            }
+        for (TAGemArmorUtil.GemInlay inlay : TAGemArmorUtil.getEquippedGemInlays(player)) {
+            ITAGemDefinition def = TAGemRegistry.get(inlay.getId());
+            if (def == null) continue;
             if (def.getDamageSource() != source) continue;
-            int maxDurability = def.getBaseDurability(inlay.tier);
-            if (maxDurability <= 0) {
-                ThaumicAttempts.LOGGER.error("[TA] Gem inlay invalid durability for {} tier {}", inlay.id, inlay.tier);
-                continue;
-            }
-            int newDamage = inlay.damage + 1;
+            int maxDurability = def.getBaseDurability(inlay.getTier());
+            if (maxDurability <= 0) continue;
+            int newDamage = inlay.getDamage() + 1;
             if (newDamage >= maxDurability) {
-                TAGemInlayUtil.clearGem(inlay.stack);
+                TAGemInlayUtil.clearGem(inlay.getStack());
             } else {
-                TAGemInlayUtil.setDamage(inlay.stack, newDamage);
+                TAGemInlayUtil.setDamage(inlay.getStack(), newDamage);
             }
         }
-    }
-
-    private List<GemInlay> getGemInlays(EntityPlayer player) {
-        List<GemInlay> inlays = new ArrayList<>();
-        for (ItemStack armor : player.inventory.armorInventory) {
-            if (armor == null || armor.isEmpty()) continue;
-            if (!TAGemInlayUtil.hasGem(armor)) continue;
-            ResourceLocation id = TAGemInlayUtil.getGemId(armor);
-            if (id == null) continue;
-            int tier = TAGemInlayUtil.getTier(armor);
-            int damage = TAGemInlayUtil.getDamage(armor);
-            inlays.add(new GemInlay(armor, id, tier, damage));
-        }
-        return inlays;
     }
 
     private GemSummary getGemSummary(EntityPlayer player, ResourceLocation id) {
         GemSummary summary = new GemSummary();
-        for (ItemStack armor : player.inventory.armorInventory) {
-            if (armor == null || armor.isEmpty()) continue;
-            if (!TAGemInlayUtil.hasGem(armor)) continue;
-            ResourceLocation gemId = TAGemInlayUtil.getGemId(armor);
-            if (gemId == null || !gemId.equals(id)) continue;
-            int tier = TAGemInlayUtil.getTier(armor);
+        for (TAGemArmorUtil.GemInlay inlay : TAGemArmorUtil.getEquippedGemInlays(player)) {
+            if (!inlay.getId().equals(id)) continue;
             summary.count++;
-            summary.tiers.add(tier);
+            summary.tiers.add(inlay.getTier());
         }
         return summary;
     }
@@ -439,20 +306,6 @@ public class TAGemEventHandler {
     private static class GemSummary {
         private final List<Integer> tiers = new ArrayList<>();
         private int count;
-    }
-
-    private static class GemInlay {
-        private final ItemStack stack;
-        private final ResourceLocation id;
-        private final int tier;
-        private final int damage;
-
-        private GemInlay(ItemStack stack, ResourceLocation id, int tier, int damage) {
-            this.stack = stack;
-            this.id = id;
-            this.tier = tier;
-            this.damage = damage;
-        }
     }
 
     private interface TierBonusResolver {

@@ -3,6 +3,7 @@ package therealpant.thaumicattempts.core;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
+import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
@@ -17,17 +18,17 @@ import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.items.casters.CasterManager;
 import thaumcraft.common.items.casters.ItemFocus;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
-import thaumcraft.common.items.casters.CasterManager;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.capability.AmberCasterCapability;
+import therealpant.thaumicattempts.capability.IAmberCasterData;
 import therealpant.thaumicattempts.effects.AmberEffects;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
-import therealpant.thaumicattempts.util.TAGemInlayUtil;
+import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
+import java.lang.reflect.Method;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
-
 /**
  * Хуки для интеграции с Thaumcraft-голевами.
  *
@@ -45,16 +46,10 @@ public final class TAHooks {
     private static final Map<ProvisionRequest, UUID> PROVISION_GOLEM =
             Collections.synchronizedMap(new WeakHashMap<>());
 
-    private static final Map<UUID, Long> COOLDOWN_SERVER = new ConcurrentHashMap<>();
-    private static final Map<UUID, Long> COOLDOWN_CLIENT = new ConcurrentHashMap<>();
-
-    private static Map<UUID, Long> cdMap(EntityPlayer p) {
-        return p.world.isRemote ? COOLDOWN_CLIENT : COOLDOWN_SERVER;
-    }
-    private static final ThreadLocal<FocusContext> FOCUS_CONTEXT = new ThreadLocal<>();
-
     private static final ResourceLocation AMBER_ID =
             new ResourceLocation(ThaumicAttempts.MODID, "amber");
+
+    private static Method TC_IS_ON_COOLDOWN;
 
     private TAHooks() {}
 
@@ -171,12 +166,6 @@ public final class TAHooks {
     }
 
     /* ===================== Focus cast hooks ===================== */
-
-    public static void pushFocusCastingPlayer(EntityPlayer player, long expiresAt) {
-        if (player == null) return;
-        FOCUS_CONTEXT.set(new FocusContext(player, expiresAt));
-    }
-
     public static int adjustFocusSetting(FocusNode node, int original, String key) {
         try {
             // fail-open basics
@@ -230,38 +219,37 @@ public final class TAHooks {
         if (player == null) return 0;
         int count = 0;
 
-        for (ItemStack armor : player.getArmorInventoryList()) {
-            if (armor.isEmpty()) continue;
-            if (!TAGemInlayUtil.hasGem(armor)) continue;
-
-            ResourceLocation id = TAGemInlayUtil.getGemId(armor);
-            if (AMBER_ID.equals(id)) count++;
+        for (TAGemArmorUtil.GemInlay inlay : TAGemArmorUtil.getEquippedGemInlays(player)) {
+            if (AMBER_ID.equals(inlay.getId())) count++;
         }
-        return  count;
+        return count;
     }
 
     public static float sumAmberDamageBonus(EntityPlayer player) {
         if (player == null) return 0f;
         float bonus = 0f;
-        for (ItemStack armor : player.getArmorInventoryList()) {
-            if (armor.isEmpty()) continue;
-            if (!TAGemInlayUtil.hasGem(armor)) continue;
-            ResourceLocation id = TAGemInlayUtil.getGemId(armor);
-            if (!AMBER_ID.equals(id)) continue;
-            int tier = TAGemInlayUtil.getTier(armor);
-            bonus += AmberEffects.getDamageBonusPerGem(tier);
+        for (TAGemArmorUtil.GemInlay inlay : TAGemArmorUtil.getEquippedGemInlays(player)) {
+            if (!AMBER_ID.equals(inlay.getId())) continue;
+            bonus += AmberEffects.getDamageBonusPerGem(inlay.getTier());
         }
         return bonus;
     }
 
-    public static boolean isCasterOnCooldownWithAmber(EntityPlayer player, ItemStack focusStack, ItemFocus focus) {
+    private static boolean tcIsOnCooldown(EntityLivingBase entity) {
         try {
-            if (player == null) return false;
-            Long until = cdMap(player).get(player.getUniqueID());
-            return until != null && until > System.currentTimeMillis();
+            if (entity == null) return false;
+            if (TC_IS_ON_COOLDOWN == null) {
+                TC_IS_ON_COOLDOWN = CasterManager.class.getDeclaredMethod("isOnCooldown", EntityLivingBase.class);
+                TC_IS_ON_COOLDOWN.setAccessible(true);
+            }
+            return (boolean) TC_IS_ON_COOLDOWN.invoke(null, entity);
         } catch (Throwable t) {
-            return false;
+            return false; // fail-open, но спам уже не будет, если setCooldown работает
         }
+    }
+
+    public static boolean isCasterOnCooldownWithAmber(EntityPlayer player, ItemStack focusStack, ItemFocus focus) {
+        return tcIsOnCooldown(player);
     }
 
     public static void setCasterCooldownWithAmber(EntityPlayer player, int vanillaCdTicks, ItemStack focusStack, ItemFocus focus) {
@@ -269,15 +257,17 @@ public final class TAHooks {
             if (player == null) return;
 
             int amberCount = countAmber(player);
-            long now = System.currentTimeMillis();
 
             int cdTicks = vanillaCdTicks;
             if (amberCount >= AmberEffects.SET4_REQUIRED) {
-                // сет 4 янтаря: всегда 2 секунды
-                cdTicks = AmberEffects.SET4_MIN_INTERVAL_TICKS; // 40
+                cdTicks = Math.max(cdTicks, AmberEffects.SET4_MIN_INTERVAL_TICKS);
+                IAmberCasterData data = AmberCasterCapability.get(player);
+                if (data != null && player.world != null) {
+                    data.recordCast(player.world.getTotalWorldTime());
+                }
             }
 
-            cdMap(player).put(player.getUniqueID(), now + cdTicks * 50L);
+            CasterManager.setCooldown(player, cdTicks);
         } catch (Throwable t) {
             // fail-open: ничего
         }
@@ -291,23 +281,14 @@ public final class TAHooks {
             int amberCount = countAmber(player);
             if (amberCount < AmberEffects.SET4_REQUIRED) return base;
 
-            int cdTicks = focus.getActivationTime(focusStack);
-            int cdSeconds = (cdTicks + 19) / 20;
-            int ignored = Math.max(0, cdSeconds - AmberEffects.SET4_BASE_SECONDS);
-            int extraVis = ignored * AmberEffects.SET4_EXTRA_VIS_PER_SECOND;
+            IAmberCasterData data = AmberCasterCapability.get(player);
+            if (data == null || player.world == null) return base;
+            long now = player.world.getTotalWorldTime();
+            data.tick(now, true);
+            float extraVis = data.getFrequency() * AmberEffects.SET4_EXTRA_VIS_PER_FREQUENCY;
             return base + extraVis;
         } catch (Throwable t) {
             return focus != null ? focus.getVisCost(focusStack) : 0f;
-        }
-    }
-
-    private static class FocusContext {
-        private final EntityPlayer player;
-        private final long expiresAt;
-
-        private FocusContext(EntityPlayer player, long expiresAt) {
-            this.player = player;
-            this.expiresAt = expiresAt;
         }
     }
 }
