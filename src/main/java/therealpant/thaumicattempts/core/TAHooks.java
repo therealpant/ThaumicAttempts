@@ -284,26 +284,24 @@ public final class TAHooks {
     }
 
     public static ArrayList<FocusPackage> getSplitPackagesWithAmber(FocusModSplit split) {
-        if (split == null) return null;
-        ArrayList<FocusPackage> packages = split.getSplitPackages();
-        if (packages == null || packages.isEmpty()) return packages;
-        if (!(split instanceof FocusModSplitTrajectory)) return packages;
-
-        FocusPackage focusPackage = split.getPackage();
-        if (focusPackage == null) return packages;
-
-        EntityLivingBase caster = focusPackage.getCaster();
-        if (!(caster instanceof EntityPlayer)) return packages;
-
-        if (countAmber((EntityPlayer) caster) < AmberEffects.SET2_REQUIRED) return packages;
-
-        FocusPackage extra = packages.get(0).copy(caster);
-        if (extra == null) return packages;
-        extra.setUniqueID(UUID.randomUUID());
-
-        ArrayList<FocusPackage> withExtra = new ArrayList<>(packages.size() + 1);
-        withExtra.addAll(packages);
-        withExtra.add(extra);
-        return withExtra;
-    }
+        try {
+            if (split == null) return null;
+            ArrayList<FocusPackage> packages = split.getSplitPackages();
+            if (packages == null || packages.isEmpty()) return packages;
+            if (!(split instanceof FocusModSplitTrajectory)) return packages;
+            FocusPackage focusPackage = split.getPackage();
+            if (focusPackage == null) return packages;
+            EntityLivingBase caster = focusPackage.getCaster();
+            if (!(caster instanceof EntityPlayer)) return packages;
+            if (countAmber((EntityPlayer) caster) < AmberEffects.SET2_REQUIRED) return packages;
+            FocusPackage extra = packages.get(0).copy(caster);
+            if (extra == null) return packages;
+            int before = packages.size();
+            packages.add(extra);
+            System.out.println("[TA] Amber split +1: was=" + before + " now=" + packages.size()); // TODO remove debug
+            return packages;
+        } catch (Throwable t) {
+            return split != null ? split.getSplitPackages() : null;
+        }
+        }
 }

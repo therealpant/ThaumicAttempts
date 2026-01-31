@@ -604,14 +604,21 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                             && "getVisCost".equals(min.name)
                             && "(Lnet/minecraft/item/ItemStack;)F".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
-                        AbstractInsnNode prev = getPreviousReal(insn);
-                        AbstractInsnNode prevPrev = getPreviousReal(prev);
-                        if (prev instanceof VarInsnNode
-                                && prevPrev instanceof VarInsnNode
-                                && prev.getOpcode() == ALOAD
-                                && prevPrev.getOpcode() == ALOAD
-                                && ((VarInsnNode) prev).var == focusStackIndex
-                                && ((VarInsnNode) prevPrev).var == focusIndex) {
+                        AbstractInsnNode cursor = getPreviousReal(insn);
+                        AbstractInsnNode focusStackLoad = null;
+                        AbstractInsnNode focusLoad = null;
+                        while (cursor != null && (focusStackLoad == null || focusLoad == null)) {
+                            if (cursor instanceof VarInsnNode && cursor.getOpcode() == ALOAD) {
+                                int var = ((VarInsnNode) cursor).var;
+                                if (focusStackLoad == null && var == focusStackIndex) {
+                                    focusStackLoad = cursor;
+                                } else if (focusLoad == null && var == focusIndex) {
+                                    focusLoad = cursor;
+                                }
+                            }
+                            cursor = getPreviousReal(cursor);
+                        }
+                        if (focusLoad != null && focusStackLoad != null) {
                             InsnList hook = new InsnList();
                             hook.add(new VarInsnNode(ALOAD, playerIndex));
                             hook.add(new VarInsnNode(ALOAD, focusIndex));
@@ -623,9 +630,9 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                                     "(Lnet/minecraft/entity/player/EntityPlayer;Lthaumcraft/common/items/casters/ItemFocus;Lnet/minecraft/item/ItemStack;)F",
                                     false
                             ));
-                            m.instructions.insertBefore(prevPrev, hook);
-                            m.instructions.remove(prevPrev);
-                            m.instructions.remove(prev);
+                            m.instructions.insertBefore(focusLoad, hook);
+                            m.instructions.remove(focusLoad);
+                            m.instructions.remove(focusStackLoad);
                             m.instructions.remove(insn);
                         }
                     }
