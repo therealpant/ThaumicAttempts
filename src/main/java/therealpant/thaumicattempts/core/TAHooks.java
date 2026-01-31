@@ -22,6 +22,7 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.effects.AmberEffects;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
+import therealpant.thaumicattempts.util.TAGemCountCache;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
@@ -364,6 +365,12 @@ public final class TAHooks {
 
     public static int countAmber(EntityPlayer player) {
         if (player == null) return 0;
+        if (player.world != null && player.world.isRemote) {
+            int cached = TAGemCountCache.getClientAmberCount(player.getUniqueID());
+            if (cached >= 0) {
+                return cached;
+            }
+        }
         int count = 0;
 
         for (TAGemArmorUtil.GemInlay inlay : TAGemArmorUtil.getEquippedGemInlays(player)) {

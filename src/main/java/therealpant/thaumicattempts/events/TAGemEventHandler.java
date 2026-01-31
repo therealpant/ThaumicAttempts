@@ -1,19 +1,24 @@
 package therealpant.thaumicattempts.events;
 
 import java.util.ArrayList;
+import java.util.HashMap;
 import java.util.List;
 import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
 
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.SharedMonsterAttributes;
 import net.minecraft.entity.ai.attributes.AttributeModifier;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.entity.player.EntityPlayerMP;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
+import net.minecraftforge.fml.common.gameevent.PlayerEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent.PlayerTickEvent;
@@ -31,19 +36,24 @@ import therealpant.thaumicattempts.effects.DiamondEffects;
 import therealpant.thaumicattempts.gems.AmberGemDefinition;
 import therealpant.thaumicattempts.gems.AmethystGemDefinition;
 import therealpant.thaumicattempts.gems.DiamondGemDefinition;
+import therealpant.thaumicattempts.net.msg.S2C_AmberCountUpdate;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
+import therealpant.thaumicattempts.ThaumicAttempts;
 
 public class TAGemEventHandler {
+    private final Map<UUID, Integer> amberCountCache = new HashMap<>();
 
     @SubscribeEvent
     public void onPlayerTick(PlayerTickEvent event) {
         if (event.player == null || event.player.world == null || event.player.world.isRemote) return;
         if (event.phase != TickEvent.Phase.END) return;
         long now = event.player.world.getTotalWorldTime();
+        GemSummary amberSummary = getGemSummary(event.player, AmberGemDefinition.ID);
         updateArcaneGuard(event.player, now);
         updateDiamondModifiers(event.player);
-        updateAmberFrequency(event.player, now);
+        updateAmberFrequency(event.player, now, amberSummary.count);
+        syncAmberCount(event.player, amberSummary.count);
     }
 
     @SubscribeEvent
@@ -105,6 +115,13 @@ public class TAGemEventHandler {
         damageGemInlays(player, GemDamageSource.ON_FOCUS_CAST);
     }
 
+    @SubscribeEvent
+    public void onPlayerLogout(PlayerEvent.PlayerLoggedOutEvent event) {
+        if (event.player == null || event.player.world == null || event.player.world.isRemote) return;
+        amberCountCache.remove(event.player.getUniqueID());
+    }
+
+
     private void updateArcaneGuard(EntityPlayer player, long now) {
         ArcaneGuardData data = ArcaneGuardData.get(player.world);
         ArcaneGuardData.GuardState state = data.getState(player.getUniqueID());
@@ -149,11 +166,19 @@ public class TAGemEventHandler {
         }
     }
 
-    private void updateAmberFrequency(EntityPlayer player, long now) {
+    private void updateAmberFrequency(EntityPlayer player, long now, int amberCount) {
         IAmberCasterData data = AmberCasterCapability.get(player);
         if (data == null) return;
-        GemSummary summary = getGemSummary(player, AmberGemDefinition.ID);
-        data.tick(now, summary.count >= AmberEffects.SET4_REQUIRED);
+        data.tick(now, amberCount >= AmberEffects.SET4_REQUIRED);
+    }
+
+    private void syncAmberCount(EntityPlayer player, int amberCount) {
+        if (!(player instanceof EntityPlayerMP)) return;
+        UUID playerId = player.getUniqueID();
+        Integer last = amberCountCache.get(playerId);
+        if (last != null && last == amberCount) return;
+        amberCountCache.put(playerId, amberCount);
+        ThaumicAttempts.NET.sendTo(new S2C_AmberCountUpdate(playerId, amberCount), (EntityPlayerMP) player);
     }
 
     private void applyAmethystGuard(EntityPlayer player, GemSummary summary, LivingHurtEvent event) {

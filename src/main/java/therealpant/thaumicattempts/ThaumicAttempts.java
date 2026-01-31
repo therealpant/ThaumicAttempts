@@ -46,6 +46,7 @@ import therealpant.thaumicattempts.golemnet.net.msg.C2S_RequestCatalogPage;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.init.ModEntities;
+import therealpant.thaumicattempts.net.msg.S2C_AmberCountUpdate;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -190,6 +191,9 @@ public class ThaumicAttempts {
 
         NET.registerMessage(therealpant.thaumicattempts.golemnet.net.msg.S2C_SnapshotCreated.Handler.class,
                 therealpant.thaumicattempts.golemnet.net.msg.S2C_SnapshotCreated.class, id++, Side.CLIENT);
+
+        NET.registerMessage(S2C_AmberCountUpdate.Handler.class,
+                S2C_AmberCountUpdate.class, id++, Side.CLIENT);
     }
 
     @Mod.EventHandler
