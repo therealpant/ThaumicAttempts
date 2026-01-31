@@ -287,11 +287,11 @@ public final class TAHooks {
     }
 
     public static void applyAmberFocusTooltip(List<String> tooltip, ItemStack stack, EntityPlayer player) {
-        if (tooltip == null || tooltip.isEmpty() || stack == null || stack.isEmpty()) return;
+        if (tooltip == null || tooltip.isEmpty() || stack == null || isStackEmpty(stack)) return;
         if (!hasAmberSet2(player)) return;
 
         ItemStack focusStack = resolveFocusStack(stack);
-        if (focusStack.isEmpty()) return;
+        if (isStackEmpty(focusStack)) return;
 
         List<NodeSetting> settings = collectFocusSettings(focusStack);
         if (settings.isEmpty()) return;
@@ -364,7 +364,7 @@ public final class TAHooks {
     }
 
     private static ItemStack resolveFocusStack(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return ItemStack.EMPTY;
+        if (stack == null || isStackEmpty(stack)) return ItemStack.EMPTY;
         if (stack.getItem() instanceof ItemFocus) {
             return stack;
         }
@@ -383,7 +383,7 @@ public final class TAHooks {
     }
 
     private static List<NodeSetting> collectFocusSettings(ItemStack focusStack) {
-        if (focusStack.isEmpty() || !(focusStack.getItem() instanceof ItemFocus)) {
+        if (isStackEmpty(focusStack) || !(focusStack.getItem() instanceof ItemFocus)) {
             return Collections.emptyList();
         }
         ItemFocus focus = (ItemFocus) focusStack.getItem();
@@ -404,6 +404,32 @@ public final class TAHooks {
             }
         }
         return settings;
+    }
+
+    private static boolean isStackEmpty(ItemStack stack) {
+        if (stack == null) return true;
+        try {
+            Method method = ItemStack.class.getMethod("isEmpty");
+            Object result = method.invoke(stack);
+            if (result instanceof Boolean) {
+                return (Boolean) result;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            Method method = ItemStack.class.getMethod("func_190926_b");
+            Object result = method.invoke(stack);
+            if (result instanceof Boolean) {
+                return (Boolean) result;
+            }
+        } catch (Throwable ignored) {
+        }
+        try {
+            if (stack.getItem() == null) return true;
+            return stack.getCount() <= 0;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     private static Object resolveFocusPackage(ItemFocus focus, ItemStack stack) {
