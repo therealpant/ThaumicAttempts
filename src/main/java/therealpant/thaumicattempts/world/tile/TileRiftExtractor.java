@@ -276,6 +276,34 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         return MathHelper.clamp((float) stage / (float) maxStages, 0.0F, 1.0F);
     }
 
+    @SideOnly(Side.CLIENT)
+    public float getCoreAlphaSmooth(float partialTicks) {
+        int maxStages = stageMax;
+
+        if (maxStages <= 0) {
+            EldritchExtractorRecipe recipe = getRecipeForCrown(inventory.getStackInSlot(SLOT_CROWN));
+            maxStages = (recipe == null) ? 1 : Math.max(1, recipe.getStages());
+        }
+
+        // вообще не стартовали — полностью скрыто
+        if (stage <= 0 && ticksToNextStage <= 0) {
+            return 0.0F;
+        }
+
+        float stageProgress = MathHelper.clamp(
+                (ticksToNextStage + partialTicks) / (float) TICKS_PER_STAGE,
+                0.0F, 1.0F
+        );
+
+        float t = ((float) stage + stageProgress) / (float) maxStages;
+        t = MathHelper.clamp(t, 0.0F, 1.0F);
+
+        // smoothstep
+        t = t * t * (3.0F - 2.0F * t);
+
+        return t; // 0..1
+    }
+
     public boolean tryInsertCrown(EntityPlayer player, EnumHand hand) {
         if (player == null || hand == null) return false;
         ItemStack held = player.getHeldItem(hand);
@@ -294,9 +322,9 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         // если уже есть реальный результат в core — показываем его всегда
         ItemStack core = inventory.getStackInSlot(SLOT_CORE);
         if (!core.isEmpty()) return core;
-
         // иначе, если идёт прогресс — показываем будущий результат по короне
-        if (stage > 0 && stage < stageMax) {
+        // иначе, если идёт прогресс — показываем будущий результат по короне
+        if ((stage > 0 || ticksToNextStage > 0) && stage < stageMax) {
             ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
             EldritchExtractorRecipe recipe = getRecipeForCrown(crown);
             if (recipe != null && !recipe.getResult().isEmpty()) return recipe.getResult();
@@ -678,7 +706,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             if (!core.isEmpty()) return core;
 
             // иначе, если идёт прогресс — показываем будущий результат по короне
-            if (stage > 0 && stage < stageMax) {
+            if ((stage > 0 || ticksToNextStage > 0) && stage < stageMax) {
                 ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
                 EldritchExtractorRecipe recipe = getRecipeForCrown(crown);
                 if (recipe != null && !recipe.getResult().isEmpty()) return recipe.getResult();

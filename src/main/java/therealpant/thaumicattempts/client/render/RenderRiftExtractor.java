@@ -1,12 +1,19 @@
 package therealpant.thaumicattempts.client.render;
 
 import net.minecraft.client.Minecraft;
-import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.client.renderer.OpenGlHelper;
+import net.minecraft.client.renderer.*;
+import net.minecraft.client.renderer.block.model.IBakedModel;
+import net.minecraft.client.renderer.block.model.ItemCameraTransforms;
 import net.minecraft.client.renderer.entity.RenderManager;
+import net.minecraft.client.renderer.texture.TextureMap;
+import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
+import net.minecraft.util.math.MathHelper;
+import net.minecraftforge.client.ForgeHooksClient;
+import net.minecraftforge.client.model.pipeline.LightUtil;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import org.lwjgl.opengl.GL11;
@@ -23,8 +30,8 @@ public class RenderRiftExtractor extends GeoBlockRenderer<TileRiftExtractor> {
             new ResourceLocation(ThaumicAttempts.MODID, "textures/blocks/mirror_manager_e.png");
     private static final float EMISSIVE_Y_OFFSET = 0.01f;
 
-    private static final double CROWN_Y = 29.5 / 16.0;
-    private static final double CORE_Y = 15.0 / 16.0;
+    private static final double CROWN_Y = 33.5 / 16.0;
+    private static final double CORE_Y = 17.0 / 16.0;
 
     public RenderRiftExtractor() {
         super(new RiftExtractorModel());
@@ -64,6 +71,26 @@ public class RenderRiftExtractor extends GeoBlockRenderer<TileRiftExtractor> {
         }
     }
 
+    private static float clamp01(float v) {
+        return v < 0f ? 0f : (v > 1f ? 1f : v);
+    }
+
+    private static float computeCoreAlpha(int stage, int maxStage, float stageProgress01) {
+        if (maxStage <= 0) return 1.0f;
+
+        // Нормализуем общий прогресс: stage + прогресс внутри стадии
+        float s = clamp01(stageProgress01);
+        float t = (stage + s) / (float) maxStage;   // 0..1
+
+        // Чтобы на 0 стадии было "едва видно", а не полностью 0
+        float minAlpha = 0.05f;
+
+        // Можно сделать более "плавно": smoothstep
+        t = t * t * (3f - 2f * t);
+
+        return minAlpha + (1.0f - minAlpha) * clamp01(t);
+    }
+
     @Override
     public void render(TileRiftExtractor te,
                        double x, double y, double z,
@@ -85,7 +112,9 @@ public class RenderRiftExtractor extends GeoBlockRenderer<TileRiftExtractor> {
             renderEmissiveLayer(te, x, y, z, partialTicks);
 
             renderItemStack(te.getCrownStack(), x, y + CROWN_Y, z, partialTicks, 1.0F);
-            renderItemStack(te.getCoreRenderStack(), x, y + CORE_Y, z, partialTicks, te.getCoreAlpha());
+            float coreAlpha = te.getCoreAlphaSmooth(partialTicks);
+            renderItemStack(te.getCoreRenderStack(), x, y + CORE_Y, z, partialTicks, coreAlpha);
+
         } finally {
             if (pushedAttrib) {
                 GL11.glPopAttrib();
@@ -100,30 +129,76 @@ public class RenderRiftExtractor extends GeoBlockRenderer<TileRiftExtractor> {
         Minecraft mc = Minecraft.getMinecraft();
         if (mc == null || mc.world == null || mc.getRenderViewEntity() == null) return;
 
+        if (alpha <= 0.001F) return;
+
         float ticks = (float) mc.getRenderViewEntity().ticksExisted + partialTicks;
 
         GL11.glPushMatrix();
         try {
+            // позиция слота
             GL11.glTranslatef((float) x + 0.5F, (float) y, (float) z + 0.5F);
-            GL11.glScaled(1.25D, 1.25D, 1.25D);
-            GL11.glRotatef(ticks % 360.0F, 0.0F, 1.0F, 0.0F);
-
-            if (alpha < 1.0F) {
-                GlStateManager.enableBlend();
-                GlStateManager.color(1F, 1F, 1F, alpha);
-            }
 
             ItemStack is = stack.copy();
             is.setCount(1);
 
-            EntityItem entityitem = new EntityItem(mc.world, 0.0D, 0.0D, 0.0D, is);
-            entityitem.hoverStart = 0.0F;
+            // получаем модель + overrides
+            IBakedModel model = mc.getRenderItem().getItemModelWithOverrides(is, mc.world, null);
 
-            RenderManager rendermanager = mc.getRenderManager();
-            rendermanager.renderEntity(entityitem, 0.0D, 0.0D, 0.0D, 0.0F, 0.0F, false);
+            // применяем "display.ground" трансформ (как у нормального предмета на земле)
+            // ВАЖНО: вращение должно быть ПОСЛЕ этого вызова
+            model = ForgeHooksClient.handleCameraTransforms(model, ItemCameraTransforms.TransformType.GROUND, false);
 
-            if (alpha < 1.0F) {
-                GlStateManager.color(1F, 1F, 1F, 1F);
+            // --- ВРАЩЕНИЕ ВОКРУГ ЦЕНТРА (исправляет "вокруг угла") ---
+            float rot = ticks % 360.0F;
+
+            // для ground у большинства предметов правильнее центр по XZ, без подъёма по Y
+            GlStateManager.translate(0.0F, 0.0F, 0.0F);
+            GlStateManager.rotate(rot, 0.0F, 1.0F, 0.0F);
+            GlStateManager.translate(-0.5F, 0.0F, -0.5F);
+            // ---------------------------------------------------------
+
+            // ARGB с альфой
+            int a = MathHelper.clamp((int) (alpha * 255.0F), 0, 255);
+            int argb = (a << 24) | 0xFFFFFF;
+
+            // blend только когда реально нужна прозрачность
+            boolean translucent = alpha < 0.999F;
+            if (translucent) {
+                GlStateManager.enableBlend();
+                GlStateManager.tryBlendFuncSeparate(
+                        GlStateManager.SourceFactor.SRC_ALPHA,
+                        GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                        GlStateManager.SourceFactor.ONE,
+                        GlStateManager.DestFactor.ZERO
+                );
+                GlStateManager.depthMask(false);
+            } else {
+                GlStateManager.disableBlend();
+                GlStateManager.depthMask(true);
+            }
+
+            RenderHelper.enableStandardItemLighting();
+            mc.getTextureManager().bindTexture(TextureMap.LOCATION_BLOCKS_TEXTURE);
+
+            Tessellator tess = Tessellator.getInstance();
+            BufferBuilder buf = tess.getBuffer();
+            buf.begin(GL11.GL_QUADS, DefaultVertexFormats.ITEM);
+
+            for (EnumFacing f : EnumFacing.values()) {
+                for (net.minecraft.client.renderer.block.model.BakedQuad q : model.getQuads(null, f, 0L)) {
+                    LightUtil.renderQuadColor(buf, q, argb);
+                }
+            }
+            for (net.minecraft.client.renderer.block.model.BakedQuad q : model.getQuads(null, null, 0L)) {
+                LightUtil.renderQuadColor(buf, q, argb);
+            }
+
+            tess.draw();
+
+            RenderHelper.disableStandardItemLighting();
+
+            if (translucent) {
+                GlStateManager.depthMask(true);
                 GlStateManager.disableBlend();
             }
         } finally {
