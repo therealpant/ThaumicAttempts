@@ -62,6 +62,8 @@ public final class TAHooks {
     private static final ResourceLocation AMBER_ID =
             new ResourceLocation(ThaumicAttempts.MODID, "amber");
 
+    private static final String TC_BASE = TextFormatting.DARK_AQUA.toString();
+
     private static Method TC_IS_ON_COOLDOWN;
 
     private TAHooks() {}
@@ -263,7 +265,7 @@ public final class TAHooks {
 
         String valueText;
         try {
-            valueText = setting.getValueText(); // оригинальная строка с форматированием TC
+            valueText = setting.getValueText();
         } catch (Throwable t) {
             return null;
         }
@@ -275,15 +277,35 @@ public final class TAHooks {
             if (key == null || !isAmberSet2Key(key)) return valueText;
 
             Integer value = getFocusSettingValue(setting);
-            if (value == null) {
-                // если не смогли вытащить числовое значение — лучше ничего не красить
-                return valueText;
-            }
+            if (value == null) return valueText;
 
-            return replaceExactNumberWithGreen(valueText, value, value + 1);
+            return paintOnlyNumberGreenAndRestore(valueText, value, value + 1);
         } catch (Throwable t) {
             return valueText;
         }
+    }
+
+
+    private static String paintOnlyNumberGreenAndRestore(String text, int oldValue, int newValue) {
+        if (text == null) return null;
+
+        String oldStr = Integer.toString(oldValue);
+
+        // матчим ровно это число как отдельный токен (чтобы не цеплять 16 внутри 160)
+        Pattern p = Pattern.compile("(?<!\\d)" + Pattern.quote(oldStr) + "(?!\\d)");
+        Matcher m = p.matcher(text);
+        if (!m.find()) return text;
+
+        int start = m.start();
+        int end = m.end();
+
+        StringBuilder sb = new StringBuilder(text.length() + 8);
+        sb.append(text, 0, start);
+        sb.append(TextFormatting.GREEN);     // зелёный только на числе
+        sb.append(newValue);
+        sb.append(TC_BASE);                  // ВАЖНО: сразу вернуть тёмно-бирюзовый
+        sb.append(text, end, text.length());
+        return sb.toString();
     }
 
     private static String replaceExactNumberWithGreen(String text, int oldValue, int newValue) {
@@ -298,35 +320,95 @@ public final class TAHooks {
         int start = m.start();
         int end = m.end();
 
-        // ВАЖНО: возвращаем именно последний ЦВЕТ (0-9a-f), а не любой §код.
-        String restoreColor = findLastColorCodeBefore(text, start);
+        // ВАЖНО: возвращаем полный набор форматирования до числа, чтобы не утекал зелёный.
+        String restoreFormatting = findFormattingCodesBefore(text, start);
 
         StringBuilder sb = new StringBuilder(text.length() + 8);
         sb.append(text, 0, start);
         sb.append(TextFormatting.GREEN);  // зелёный только для цифр
         sb.append(newValue);
-        if (!restoreColor.isEmpty()) {
-            sb.append(restoreColor);      // вернули исходный цвет — зелёный дальше не течёт
-        }
+        if (restoreFormatting != null && !restoreFormatting.isEmpty()) {
+            sb.append(restoreFormatting);  // вернули исходное форматирование — зелёный дальше не течёт
+        } else {
+            sb.append(TextFormatting.GRAY);
+        }// в ванильных подсказках нет §цвета, используем стандартный серый    // вернули исходное форматирование — зелёный дальше не течёт
         sb.append(text, end, text.length());
 
         return sb.toString();
     }
 
 
-    private static String findLastColorCodeBefore(String text, int pos) {
-        if (text == null || pos <= 0) return "";
+    private static String findFormattingCodesBefore(String text, int pos) {
+        if (text == null || pos <= 0) return null;
 
-        for (int i = pos - 2; i >= 0; i--) {
-            if (text.charAt(i) == '\u00A7') {
-                char code = Character.toLowerCase(text.charAt(i + 1));
-                if ((code >= '0' && code <= '9') || (code >= 'a' && code <= 'f')) {
-                    return "\u00A7" + code;
-                }
-                // игнорируем k,l,m,n,o,r и т.п.
+        String color = null;
+        boolean obfuscated = false;
+        boolean bold = false;
+        boolean strikethrough = false;
+        boolean underline = false;
+        boolean italic = false;
+        boolean sawFormatting = false;
+        boolean lastWasReset = false;
+
+        for (int i = 0; i < pos - 1; i++) {
+            if (text.charAt(i) != '\u00A7') continue;
+            char code = Character.toLowerCase(text.charAt(i + 1));
+            sawFormatting = true;
+            if ((code >= '0' && code <= '9') || (code >= 'a' && code <= 'f')) {
+                color = "\u00A7" + code;
+                obfuscated = false;
+                bold = false;
+                strikethrough = false;
+                underline = false;
+                italic = false;
+                lastWasReset = false;
+            } else if (code == 'k') {
+                obfuscated = true;
+                lastWasReset = false;
+            } else if (code == 'l') {
+                bold = true;
+                lastWasReset = false;
+            } else if (code == 'm') {
+                strikethrough = true;
+                lastWasReset = false;
+            } else if (code == 'n') {
+                underline = true;
+                lastWasReset = false;
+            } else if (code == 'o') {
+                italic = true;
+                lastWasReset = false;
+            } else if (code == 'r') {
+                color = null;
+                obfuscated = false;
+                bold = false;
+                strikethrough = false;
+                underline = false;
+                italic = false;
+                lastWasReset = true;
             }
         }
-        return "";
+        if (!sawFormatting) {
+            return null;
+        }
+
+        boolean hasStyle = obfuscated || bold || strikethrough || underline || italic;
+
+        StringBuilder restore = new StringBuilder();
+        if (color != null) {
+            restore.append(color);
+        } else if (lastWasReset) {
+            restore.append(TextFormatting.RESET);
+        } else if (hasStyle) {
+            restore.append(TextFormatting.GRAY);
+        } else {
+            return "";
+        }
+        if (obfuscated) restore.append(TextFormatting.OBFUSCATED);
+        if (bold) restore.append(TextFormatting.BOLD);
+        if (strikethrough) restore.append(TextFormatting.STRIKETHROUGH);
+        if (underline) restore.append(TextFormatting.UNDERLINE);
+        if (italic) restore.append(TextFormatting.ITALIC);
+        return restore.toString();
     }
 
     public static int getFocusSettingTextColorWithAmber(NodeSetting setting, EntityPlayer player) {

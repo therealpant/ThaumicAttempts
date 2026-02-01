@@ -24,6 +24,7 @@ import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_
 import therealpant.thaumicattempts.command.*;
 import therealpant.thaumicattempts.capability.AmberCasterCapability;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
+import therealpant.thaumicattempts.data.TAEldritchExtractorRecipes;
 import therealpant.thaumicattempts.data.TAInfusionEnchantments;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
 import therealpant.thaumicattempts.data.research.TAAspects;
@@ -155,6 +156,7 @@ public class ThaumicAttempts {
     public void postInit(FMLPostInitializationEvent e) {
 
         TAInfusionRecipes.register();
+        TAEldritchExtractorRecipes.register();
         TAAlchemyRecipes.register();
         TAMultiblockTriggers.register();
         TAInfusionEnchantments.register();

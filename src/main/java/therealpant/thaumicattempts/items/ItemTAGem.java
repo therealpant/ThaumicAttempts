@@ -6,6 +6,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.util.NonNullList;
 import net.minecraft.util.ResourceLocation;
+import net.minecraft.util.math.MathHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.api.gems.ITAGemDefinition;
 import therealpant.thaumicattempts.api.gems.TAGemNbtKeys;
@@ -114,6 +115,16 @@ public class ItemTAGem extends Item {
         return gem == null ? 0 : gem.getInteger(TAGemNbtKeys.KEY_DAMAGE);
     }
 
+    public static int getMaxGemDurability(ItemStack stack) {
+        ResourceLocation id = getGemIdFromStack(stack);
+        int tier = getTierFromStack(stack);
+        ITAGemDefinition def = TAGemRegistry.get(id);
+        if (def == null || tier < 1) {
+            return 0;
+        }
+        return def.getBaseDurability(tier);
+    }
+
     /**
      * Update gem damage in item NBT.
      *
@@ -124,6 +135,28 @@ public class ItemTAGem extends Item {
         NBTTagCompound gem = getOrCreateGemTag(stack);
         if (gem == null) return;
         gem.setInteger(TAGemNbtKeys.KEY_DAMAGE, dmg);
+    }
+
+    public static ResourceLocation getGemIdFromStack(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return null;
+        }
+        ResourceLocation id = getGemId(stack);
+        if (id != null) {
+            return id;
+        }
+        return getGemIdFromMeta(stack.getItemDamage());
+    }
+
+    public static int getTierFromStack(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) {
+            return 0;
+        }
+        int tier = getTier(stack);
+        if (tier > 0) {
+            return tier;
+        }
+        return getTierFromMeta(stack.getItemDamage());
     }
 
     @Override
@@ -147,6 +180,21 @@ public class ItemTAGem extends Item {
             return super.getTranslationKey(stack);
         }
         return "item." + ThaumicAttempts.MODID + ".gem." + typeKey + ".tier" + tier;
+    }
+
+    @Override
+    public boolean showDurabilityBar(ItemStack stack) {
+        return getMaxGemDurability(stack) > 0;
+    }
+
+    @Override
+    public double getDurabilityForDisplay(ItemStack stack) {
+        int maxDurability = getMaxGemDurability(stack);
+        if (maxDurability <= 0) {
+            return 0.0D;
+        }
+        int dmg = getGemDamage(stack);
+        return MathHelper.clamp((double) dmg / (double) maxDurability, 0.0D, 1.0D);
     }
 
     @Override

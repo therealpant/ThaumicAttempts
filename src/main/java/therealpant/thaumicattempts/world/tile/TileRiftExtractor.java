@@ -37,7 +37,9 @@ import thecodex6824.thaumicaugmentation.api.impetus.node.prefab.SimpleImpetusCon
 import thecodex6824.thaumicaugmentation.api.internal.TAInternals;
 import thecodex6824.thaumicaugmentation.api.util.DimensionalBlockPos;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.api.EldritchExtractorApi;
+import therealpant.thaumicattempts.api.EldritchExtractorRecipe;
+import therealpant.thaumicattempts.items.ItemTAGem;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -51,9 +53,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     private static final String NBT_IMPETUS_NODE = "TAugImpetusNode";
     private static final int SLOT_CROWN = 0;
     private static final int SLOT_CORE = 1;
-    private static final int STAGE_MAX = 10;
     private static final int TICKS_PER_STAGE = 40;
-    private static final int IMPETUS_PER_STAGE = 10;
 
     private static final int TICKS_PER_SECOND = 20;
 
@@ -105,10 +105,12 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
         // без валидной короны — не работаем
         ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
-        if (crown.isEmpty() || getResultStack(crown).isEmpty()) return false;
+        EldritchExtractorRecipe recipe = getRecipeForCrown(crown);
+        if (crown.isEmpty() || recipe == null || recipe.getResult().isEmpty()) return false;
 
+        int maxStages = stageMax > 0 ? stageMax : recipe.getStages();
         // пока генерация не завершена
-        return stage < STAGE_MAX;
+        return stage < maxStages;
     }
 
 
@@ -121,7 +123,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         @Override
         public boolean isItemValid(int slot, ItemStack stack) {
             if (slot == SLOT_CROWN) {
-                return isValidCrown(stack);
+                return getRecipeForCrown(stack) != null;
             }
             return false;
         }
@@ -137,6 +139,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     private final IItemHandler combinedHandler = new CombinedHandler();
 
     private int stage;
+    private int stageMax;
     private int ticksToNextStage;
     private boolean pausedByRedstone;
 
@@ -164,14 +167,20 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         }
 
         ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
-        ItemStack resultStack = getResultStack(crown);
+        EldritchExtractorRecipe recipe = getRecipeForCrown(crown);
+        ItemStack resultStack = recipe == null ? ItemStack.EMPTY : recipe.getResult();
 
         // нет валидной короны -> сброс прогресса (но core НЕ трогаем)
-        if (resultStack.isEmpty()) {
+        if (recipe == null || resultStack.isEmpty() || recipe.getStages() <= 0 || recipe.getImpetusCost() <= 0) {
             resetProgress("crown missing/invalid");
             return;
         }
-
+        if (stageMax != recipe.getStages()) {
+            if (stage > 0 || ticksToNextStage > 0) {
+                resetProgress("crown recipe changed");
+            }
+            stageMax = recipe.getStages();
+        }
         // если core занят — генерацию не ведём
         // (результат можно забрать, а если там “мусор” — игрок должен убрать)
         ItemStack core = inventory.getStackInSlot(SLOT_CORE);
@@ -182,7 +191,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         }
 
         // если уже закончили стадии, но core пуст (например из-за бага) — положим результат
-        if (stage >= STAGE_MAX) {
+        if (stage >= stageMax) {
             inventory.setStackInSlot(SLOT_CORE, resultStack.copy());
             ThaumicAttempts.LOGGER.debug("[RiftExtractor] Completion fix: placed result into core at {}", pos);
             markDirtyAndSync();
@@ -196,31 +205,24 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         }
 
         // достаточно ли импетуса
-        if (consumeImpetus(IMPETUS_PER_STAGE, true) < IMPETUS_PER_STAGE) {
+        if (consumeImpetus(recipe.getImpetusCost(), true) < recipe.getImpetusCost()) {
             return;
         }
 
-        long consumed = consumeImpetus(IMPETUS_PER_STAGE, false);
-        if (consumed < IMPETUS_PER_STAGE) {
+        long consumed = consumeImpetus(recipe.getImpetusCost(), false);
+        if (consumed < recipe.getImpetusCost()) {
             return;
         }
 
-        stage = Math.min(STAGE_MAX, stage + 1);
+        stage = Math.min(stageMax, stage + 1);
         ticksToNextStage = 0;
 
         ThaumicAttempts.LOGGER.debug("[RiftExtractor] Stage {}/{} at {}, consumed {} impetus",
-                stage, STAGE_MAX, pos, consumed);
+                stage, stageMax, pos, consumed);
 
-        // 1% шанс разрушить корону и прервать прогресс
-        if (world.rand.nextInt(100) == 0) {
-            ThaumicAttempts.LOGGER.debug("[RiftExtractor] Crown shattered at {} during stage {}", pos, stage);
-            inventory.setStackInSlot(SLOT_CROWN, ItemStack.EMPTY);
-            resetProgress("crown shattered");
-            return;
-        }
-
-        // достигли 10 стадии -> кладём результат в core ОДИН раз
-        if (stage >= STAGE_MAX) {
+        // достигли финальной стадии -> кладём результат в core ОДИН раз
+        if (stage >= stageMax) {
+            applyCrownUsage(recipe, crown);
             inventory.setStackInSlot(SLOT_CORE, resultStack.copy());
             ThaumicAttempts.LOGGER.debug("[RiftExtractor] Generation complete at {}, result placed into core", pos);
         }
@@ -266,14 +268,18 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     }
 
     public float getCoreAlpha() {
-        return MathHelper.clamp((float) stage / (float) STAGE_MAX, 0.0F, 1.0F);
+        int maxStages = stageMax;
+        if (maxStages <= 0) {
+            EldritchExtractorRecipe recipe = getRecipeForCrown(inventory.getStackInSlot(SLOT_CROWN));
+            maxStages = recipe == null ? 1 : recipe.getStages();
+        }
+        return MathHelper.clamp((float) stage / (float) maxStages, 0.0F, 1.0F);
     }
 
     public boolean tryInsertCrown(EntityPlayer player, EnumHand hand) {
         if (player == null || hand == null) return false;
         ItemStack held = player.getHeldItem(hand);
-        if (!isValidCrown(held)) return false;
-        if (!inventory.getStackInSlot(SLOT_CROWN).isEmpty()) return false;
+        if (getRecipeForCrown(held) == null) return false;
         ItemStack toInsert = held.copy();
         toInsert.setCount(1);
         inventory.setStackInSlot(SLOT_CROWN, toInsert);
@@ -290,10 +296,10 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         if (!core.isEmpty()) return core;
 
         // иначе, если идёт прогресс — показываем будущий результат по короне
-        if (stage > 0 && stage < STAGE_MAX) {
+        if (stage > 0 && stage < stageMax) {
             ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
-            ItemStack res = getResultStack(crown);
-            if (!res.isEmpty()) return res;
+            EldritchExtractorRecipe recipe = getRecipeForCrown(crown);
+            if (recipe != null && !recipe.getResult().isEmpty()) return recipe.getResult();
         }
 
         return ItemStack.EMPTY;
@@ -307,7 +313,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         if (extracted.isEmpty()) return false;
 
         // если прогресс не завершён — просто сбрасываем прогресс (core мы больше не трогаем)
-        if (stage < STAGE_MAX) {
+        if (stage < stageMax) {
             resetProgress("crown removed by player");
         }
 
@@ -324,7 +330,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
     public boolean tryExtractCore(EntityPlayer player) {
         if (player == null) return false;
-        if (stage < STAGE_MAX) return false;
+        if (stage < stageMax || stageMax <= 0) return false;
         ItemStack extracted = inventory.extractItem(SLOT_CORE, 1, false);
         if (extracted.isEmpty()) return false;
         boolean added = player.inventory.addItemStackToInventory(extracted);
@@ -334,6 +340,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         if (inventory.getStackInSlot(SLOT_CORE).isEmpty()) {
             stage = 0;
             ticksToNextStage = 0;
+            stageMax = 0;
             ThaumicAttempts.LOGGER.debug("[RiftExtractor] Core extracted, reset at {}", pos);
             markDirtyAndSync();
         }
@@ -342,44 +349,70 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
     private void resetProgress(String reason) {
         boolean hadProgress = stage != 0 || ticksToNextStage != 0;
-        if (!hadProgress) return;
+        if (!hadProgress) {
+            stageMax = 0;
+            return;
+        }
 
         stage = 0;
         ticksToNextStage = 0;
+        stageMax = 0;
 
         ThaumicAttempts.LOGGER.debug("[RiftExtractor] Progress reset at {} ({})", pos, reason);
         markDirtyAndSync();
     }
 
 
-    private boolean isValidCrown(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return false;
-        Item item = stack.getItem();
-        return item == ModBlocksItems.RIFT_EMBER
-                || item == ModBlocksItems.RIFT_AMETIST
-                || item == ModBlocksItems.RIFT_BRILIANT;
+    @Nullable
+    private EldritchExtractorRecipe getRecipeForCrown(ItemStack crown) {
+        return EldritchExtractorApi.findRecipe(crown);
     }
 
-    private ItemStack getResultStack(ItemStack crown) {
-        if (!isValidCrown(crown)) return ItemStack.EMPTY;
-        Item item = crown.getItem();
-        if (item == ModBlocksItems.RIFT_EMBER) {
-            return new ItemStack(ModBlocksItems.RIFT_FLOWER);
+    private void applyCrownUsage(EldritchExtractorRecipe recipe, ItemStack crown) {
+        if (world == null || recipe == null || crown == null || crown.isEmpty()) return;
+
+        int minDamage = Math.max(0, recipe.getMinDamage());
+        int maxDamage = Math.max(0, recipe.getMaxDamage());
+        int applied = getRandomValueInRange(minDamage, maxDamage);
+
+        if (ItemTAGem.isGem(crown)) {
+            int maxDurability = ItemTAGem.getMaxGemDurability(crown);
+            if (maxDurability <= 0) return;
+            int newDamage = ItemTAGem.getGemDamage(crown) + applied;
+            if (newDamage >= maxDurability) {
+                inventory.setStackInSlot(SLOT_CROWN, ItemStack.EMPTY);
+            } else {
+                ItemTAGem.setGemDamage(crown, newDamage);
+            }
+            return;
         }
-        if (item == ModBlocksItems.RIFT_AMETIST) {
-            return new ItemStack(ModBlocksItems.RIFT_STONE);
+        if (crown.isItemStackDamageable()) {
+            int maxDurability = crown.getMaxDamage();
+            int newDamage = crown.getItemDamage() + applied;
+            if (newDamage >= maxDurability) {
+                inventory.setStackInSlot(SLOT_CROWN, ItemStack.EMPTY);
+            } else {
+                crown.setItemDamage(newDamage);
+            }
+            return;
         }
-        if (item == ModBlocksItems.RIFT_BRILIANT) {
-            return new ItemStack(ModBlocksItems.RIFT_CRISTAL);
-        }
-        return ItemStack.EMPTY;
+            if (applied <= 0) return;
+            int chance = Math.min(100, applied);
+            if (world.rand.nextInt(100) < chance) {
+                inventory.setStackInSlot(SLOT_CROWN, ItemStack.EMPTY);
+            }
     }
 
-    private boolean isSameItem(ItemStack stack, ItemStack other) {
-        if (stack.isEmpty() || other.isEmpty()) return false;
-        return stack.getItem() == other.getItem();
+    private int getRandomValueInRange(int minValue, int maxValue) {
+        int min = Math.min(minValue, maxValue);
+        int max = Math.max(minValue, maxValue);
+        int size = max - min + 1;
+        int[] range = new int[size];
+        for (int i = 0; i < size; i++) {
+            range[i] = min + i;
+        }
+        return range[world.rand.nextInt(size)];
     }
-
     private void markDirtyAndSync() {
         markDirty();
         if (world != null) {
@@ -395,6 +428,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         }
         stage = compound.getInteger("Stage");
         ticksToNextStage = compound.getInteger("TicksToNextStage");
+        stageMax = compound.getInteger("StageMax");
         if (compound.hasKey(NBT_IMPETUS_NODE)) {
             pendingImpetusTag = compound.getCompoundTag(NBT_IMPETUS_NODE);
             if (impetusConsumer instanceof INBTSerializable) {
@@ -410,6 +444,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         compound.setTag("Inventory", inventory.serializeNBT());
         compound.setInteger("Stage", stage);
         compound.setInteger("TicksToNextStage", ticksToNextStage);
+        compound.setInteger("StageMax", stageMax);
         if (impetusConsumer instanceof INBTSerializable) {
             compound.setTag(NBT_IMPETUS_NODE, ((INBTSerializable<NBTTagCompound>) impetusConsumer).serializeNBT());
         }
@@ -608,7 +643,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         @Override
         public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
             if (stack == null || stack.isEmpty()) return ItemStack.EMPTY;
-            if (!isValidCrown(stack)) return stack;
+            if (getRecipeForCrown(stack) == null) return stack;
             if (!inventory.getStackInSlot(SLOT_CROWN).isEmpty()) return stack;
 
             ItemStack remainder = stack.copy();
@@ -628,7 +663,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             ItemStack extracted = inventory.extractItem(SLOT_CROWN, amount, simulate);
 
             if (!simulate && !extracted.isEmpty()) {
-                if (stage < STAGE_MAX) {
+                if (stage < stageMax) {
                     resetProgress("crown extracted by automation");
                 } else {
                     ThaumicAttempts.LOGGER.debug("[RiftExtractor] Crown extracted after completion via automation at {}, core preserved", pos);
@@ -643,10 +678,10 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             if (!core.isEmpty()) return core;
 
             // иначе, если идёт прогресс — показываем будущий результат по короне
-            if (stage > 0 && stage < STAGE_MAX) {
+            if (stage > 0 && stage < stageMax) {
                 ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
-                ItemStack res = getResultStack(crown);
-                if (!res.isEmpty()) return res;
+                EldritchExtractorRecipe recipe = getRecipeForCrown(crown);
+                if (recipe != null && !recipe.getResult().isEmpty()) return recipe.getResult();
             }
 
             return ItemStack.EMPTY;
@@ -676,11 +711,12 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
         @Override
         public ItemStack extractItem(int slot, int amount, boolean simulate) {
-            if (stage < STAGE_MAX || amount <= 0) return ItemStack.EMPTY;
+            if (stage < stageMax || stageMax <= 0 || amount <= 0) return ItemStack.EMPTY;
             ItemStack extracted = inventory.extractItem(SLOT_CORE, amount, simulate);
             if (!simulate && !extracted.isEmpty() && inventory.getStackInSlot(SLOT_CORE).isEmpty()) {
                 stage = 0;
                 ticksToNextStage = 0;
+                stageMax = 0;
                 ThaumicAttempts.LOGGER.debug("[RiftExtractor] Core extracted via automation at {}", pos);
                 markDirtyAndSync();
             }
