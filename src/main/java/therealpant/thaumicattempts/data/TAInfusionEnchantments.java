@@ -38,9 +38,8 @@ public final class TAInfusionEnchantments {
                         1,
                         amuletOrStone,
                         new ItemStack(ItemsTC.plate, 1, 3),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
+                        new ItemStack(ModBlocksItems.RIFT_EMBER),
                         new ItemStack(ItemsTC.plate, 1, 3)
                 )
         );
@@ -56,11 +55,9 @@ public final class TAInfusionEnchantments {
                         2,
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767),
                         new ItemStack(ItemsTC.plate, 1, 3),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
+                        new ItemStack(ModBlocksItems.RIFT_EMBER),
+                        new ItemStack(ModBlocksItems.RIFT_EMBER),
                         new ItemStack(ItemsTC.plate, 1, 3)
                 )
         );
@@ -76,13 +73,10 @@ public final class TAInfusionEnchantments {
                         3,
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767),
                         new ItemStack(ItemsTC.plate, 1, 3),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
-                        new ItemStack(ModBlocksItems.RIFT_FLOWER),
+                        new ItemStack(ModBlocksItems.RIFT_EMBER),
+                        new ItemStack(ModBlocksItems.RIFT_EMBER),
+                        new ItemStack(ModBlocksItems.RIFT_EMBER),
                         new ItemStack(ItemsTC.plate, 1, 3)
                 )
         );

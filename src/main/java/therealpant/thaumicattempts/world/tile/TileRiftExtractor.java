@@ -142,6 +142,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     private int stageMax;
     private int ticksToNextStage;
     private boolean pausedByRedstone;
+    private ItemStack cachedCoreRenderStack = ItemStack.EMPTY;
 
     @Nullable
     private IImpetusConsumer impetusConsumer;
@@ -175,6 +176,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             resetProgress("crown missing/invalid");
             return;
         }
+        cachedCoreRenderStack = resultStack.copy();
         if (stageMax != recipe.getStages()) {
             if (stage > 0 || ticksToNextStage > 0) {
                 resetProgress("crown recipe changed");
@@ -308,6 +310,10 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         if (player == null || hand == null) return false;
         ItemStack held = player.getHeldItem(hand);
         if (getRecipeForCrown(held) == null) return false;
+        if (!inventory.getStackInSlot(SLOT_CROWN).isEmpty()) {
+            if (!tryExtractCrown(player)) return false;
+        }
+        if (!inventory.getStackInSlot(SLOT_CROWN).isEmpty()) return false;
         ItemStack toInsert = held.copy();
         toInsert.setCount(1);
         inventory.setStackInSlot(SLOT_CROWN, toInsert);
@@ -323,11 +329,16 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         ItemStack core = inventory.getStackInSlot(SLOT_CORE);
         if (!core.isEmpty()) return core;
         // иначе, если идёт прогресс — показываем будущий результат по короне
-        // иначе, если идёт прогресс — показываем будущий результат по короне
         if ((stage > 0 || ticksToNextStage > 0) && stage < stageMax) {
             ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
             EldritchExtractorRecipe recipe = getRecipeForCrown(crown);
-            if (recipe != null && !recipe.getResult().isEmpty()) return recipe.getResult();
+            if (recipe != null && !recipe.getResult().isEmpty()) {
+                cachedCoreRenderStack = recipe.getResult().copy();
+                return recipe.getResult();
+            }
+            if (!cachedCoreRenderStack.isEmpty()) {
+                return cachedCoreRenderStack;
+            }
         }
 
         return ItemStack.EMPTY;
@@ -337,11 +348,15 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     public boolean tryExtractCrown(EntityPlayer player) {
         if (player == null) return false;
 
+        ItemStack crown = inventory.getStackInSlot(SLOT_CROWN);
+        EldritchExtractorRecipe recipe = getRecipeForCrown(crown);
+        boolean wasCrafting = isCraftingActive(crown, recipe);
+
         ItemStack extracted = inventory.extractItem(SLOT_CROWN, 1, false);
         if (extracted.isEmpty()) return false;
 
         // если прогресс не завершён — просто сбрасываем прогресс (core мы больше не трогаем)
-        if (stage < stageMax) {
+        if (stage < stageMax && wasCrafting) {
             resetProgress("crown removed by player");
         }
 
@@ -379,12 +394,14 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         boolean hadProgress = stage != 0 || ticksToNextStage != 0;
         if (!hadProgress) {
             stageMax = 0;
+            cachedCoreRenderStack = ItemStack.EMPTY;
             return;
         }
 
         stage = 0;
         ticksToNextStage = 0;
         stageMax = 0;
+        cachedCoreRenderStack = ItemStack.EMPTY;
 
         ThaumicAttempts.LOGGER.debug("[RiftExtractor] Progress reset at {} ({})", pos, reason);
         markDirtyAndSync();
@@ -457,6 +474,11 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         stage = compound.getInteger("Stage");
         ticksToNextStage = compound.getInteger("TicksToNextStage");
         stageMax = compound.getInteger("StageMax");
+        if (compound.hasKey("CachedCoreRenderStack")) {
+            cachedCoreRenderStack = new ItemStack(compound.getCompoundTag("CachedCoreRenderStack"));
+        } else {
+            cachedCoreRenderStack = ItemStack.EMPTY;
+        }
         if (compound.hasKey(NBT_IMPETUS_NODE)) {
             pendingImpetusTag = compound.getCompoundTag(NBT_IMPETUS_NODE);
             if (impetusConsumer instanceof INBTSerializable) {
@@ -473,6 +495,9 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         compound.setInteger("Stage", stage);
         compound.setInteger("TicksToNextStage", ticksToNextStage);
         compound.setInteger("StageMax", stageMax);
+        if (!cachedCoreRenderStack.isEmpty()) {
+            compound.setTag("CachedCoreRenderStack", cachedCoreRenderStack.serializeNBT());
+        }
         if (impetusConsumer instanceof INBTSerializable) {
             compound.setTag(NBT_IMPETUS_NODE, ((INBTSerializable<NBTTagCompound>) impetusConsumer).serializeNBT());
         }
@@ -655,6 +680,16 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     @Override
     public AnimationFactory getFactory() {
         return factory;
+    }
+
+    private boolean isCraftingActive(ItemStack crown, @Nullable EldritchExtractorRecipe recipe) {
+        if (world == null) return false;
+        if (world.isBlockPowered(pos)) return false;
+        if (recipe == null || recipe.getResult().isEmpty()) return false;
+        if (recipe.getStages() <= 0 || recipe.getImpetusCost() <= 0) return false;
+        if (stage >= recipe.getStages()) return false;
+        if (!inventory.getStackInSlot(SLOT_CORE).isEmpty()) return false;
+        return stage > 0 || ticksToNextStage > 0;
     }
 
     private class CrownHandler implements IItemHandler {
