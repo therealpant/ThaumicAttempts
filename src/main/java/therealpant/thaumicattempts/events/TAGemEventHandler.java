@@ -54,6 +54,7 @@ import therealpant.thaumicattempts.gems.DiamondGemDefinition;
 import therealpant.thaumicattempts.net.msg.S2C_AmberCountUpdate;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
+import therealpant.thaumicattempts.util.ObfCompat;
 import therealpant.thaumicattempts.ThaumicAttempts;
 
 
@@ -93,9 +94,11 @@ public class TAGemEventHandler {
 
     @SubscribeEvent
     public void onPlayerTick(PlayerTickEvent event) {
-        if (event.player == null || event.player.world == null || event.player.world.isRemote) return;
+        if (event.player == null || ObfCompat.isRemote(event.player)) return;
         if (event.phase != TickEvent.Phase.END) return;
-        long now = event.player.world.getTotalWorldTime();
+        World world = ObfCompat.getWorld(event.player);
+        if (world == null) return;
+        long now = world.getTotalWorldTime();
 
         GemSummary amberSummary = getGemSummary(event.player, AmberGemDefinition.ID);
         GemSummary amethystSummary = getGemSummary(event.player, AmethystGemDefinition.ID);
@@ -112,7 +115,7 @@ public class TAGemEventHandler {
         if (!(event.getEntityLiving() instanceof EntityPlayer)) return;
         if (event.isCanceled() || event.getAmount() <= 0f) return;
         EntityPlayer player = (EntityPlayer) event.getEntityLiving();
-        if (player.world.isRemote) return;
+        if (ObfCompat.isRemote(player)) return;
 
         GemSummary amethystSummary = getGemSummary(player, AmethystGemDefinition.ID);
         if (amethystSummary.count > 0) {
@@ -124,7 +127,7 @@ public class TAGemEventHandler {
 
     @SubscribeEvent
     public void onLivingHurtByPlayer(LivingHurtEvent event) {
-        if (event.getEntityLiving() == null || event.getEntityLiving().world.isRemote) return;
+        if (event.getEntityLiving() == null || ObfCompat.isRemote(event.getEntityLiving())) return;
         if (!(event.getSource().getTrueSource() instanceof EntityPlayer)) return;
         EntityPlayer player = (EntityPlayer) event.getSource().getTrueSource();
 
@@ -174,7 +177,7 @@ public class TAGemEventHandler {
     public void onFocusCast(PlayerInteractEvent.RightClickItem event) {
         if (event.getEntityPlayer() == null) return;
         EntityPlayer player = event.getEntityPlayer();
-        if (player.world.isRemote) return;
+        if (ObfCompat.isRemote(player)) return;
 
         ItemStack stack = event.getItemStack();
         if (!isCasterItem(stack)) return;
@@ -187,7 +190,7 @@ public class TAGemEventHandler {
 
     @SubscribeEvent
     public void onPlayerLogout(net.minecraftforge.fml.common.gameevent.PlayerEvent.PlayerLoggedOutEvent event) {
-        if (event.player == null || event.player.world == null || event.player.world.isRemote) return;
+        if (event.player == null || ObfCompat.isRemote(event.player)) return;
         amberCountCache.remove(event.player.getUniqueID());
     }
 
@@ -244,7 +247,9 @@ public class TAGemEventHandler {
         int newStacks = Math.min(cap, stacks + (gained ? 1 : 0));
 
         data.setInteger(NBT_AMETHYST_STACKS, newStacks);
-        data.setLong(NBT_AMETHYST_EXPIRE, player.world.getTotalWorldTime() + AmethystEffects.STACK_DURATION_TICKS);
+        World world = ObfCompat.getWorld(player);
+        if (world == null) return;
+        data.setLong(NBT_AMETHYST_EXPIRE, world.getTotalWorldTime() + AmethystEffects.STACK_DURATION_TICKS);
 
         if (gained) {
             float currentAbs = TAHooks.getRunicCurrent(player) + 1.0f;
@@ -259,7 +264,9 @@ public class TAGemEventHandler {
         if (projected > AmethystEffects.WAVE_HEALTH_THRESHOLD) return;
 
         NBTTagCompound data = getPersistedData(player);
-        long now = player.world.getTotalWorldTime();
+        World world = ObfCompat.getWorld(player);
+        if (world == null) return;
+        long now = world.getTotalWorldTime();
         if (data.getBoolean(NBT_AMETHYST_WAVE_ACTIVE)) return;
         if (now < data.getLong(NBT_AMETHYST_TOTEM_CD)) return;
 
@@ -516,7 +523,9 @@ public class TAGemEventHandler {
 
     private boolean hasNearbyHostiles(EntityPlayer player) {
         AxisAlignedBB box = player.getEntityBoundingBox().grow(AmethystEffects.SET2_HOSTILE_RADIUS);
-        List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, box, entity -> {
+        World world = ObfCompat.getWorld(player);
+        if (world == null) return false;
+        List<EntityLivingBase> entities = world.getEntitiesWithinAABB(EntityLivingBase.class, box, entity -> {
             if (entity == null || entity == player) return false;
             if (!entity.isEntityAlive()) return false;
             return entity instanceof IMob;
@@ -527,7 +536,9 @@ public class TAGemEventHandler {
     private void startDiamondStrikeSeries(EntityPlayer player, EntityLivingBase originalTarget) {
         NBTTagCompound data = getPersistedData(player);
         data.setInteger(NBT_DIAMOND_STRIKES_LEFT, DiamondEffects.SET4_STRIKE_COUNT);
-        data.setLong(NBT_DIAMOND_STRIKE_NEXT, player.world.getTotalWorldTime() + 1L);
+        World world = ObfCompat.getWorld(player);
+        if (world == null) return;
+        data.setLong(NBT_DIAMOND_STRIKE_NEXT, world.getTotalWorldTime() + 1L);
         data.setInteger(NBT_DIAMOND_STRIKE_INTERVAL, DIAMOND_STRIKE_INTERVAL_TICKS);
         if (originalTarget != null) {
             data.setString(NBT_DIAMOND_LAST_TARGET, originalTarget.getUniqueID().toString());
@@ -597,7 +608,8 @@ public class TAGemEventHandler {
         try {
             UUID id = UUID.fromString(data.getString(NBT_DIAMOND_LAST_TARGET));
 
-            World world = player.world;
+            World world = ObfCompat.getWorld(player);
+            if (world == null) return null;
             Entity entity = null;
 
             if (player instanceof EntityPlayerMP) {
@@ -618,7 +630,9 @@ public class TAGemEventHandler {
 
     private List<EntityLivingBase> findDiamondTargets(EntityPlayer player) {
         AxisAlignedBB box = player.getEntityBoundingBox().grow(DiamondEffects.SET4_TARGET_RADIUS);
-        List<EntityLivingBase> targets = player.world.getEntitiesWithinAABB(EntityLivingBase.class, box, entity -> {
+        World world = ObfCompat.getWorld(player);
+        if (world == null) return new ArrayList<>();
+        List<EntityLivingBase> targets = world.getEntitiesWithinAABB(EntityLivingBase.class, box, entity -> {
             if (entity == null || entity == player) return false;
             if (entity.isDead || !entity.isEntityAlive()) return false;
             return entity.getHealth() > 0f;
@@ -692,13 +706,9 @@ public class TAGemEventHandler {
         return total;
     }
 
-        private NBTTagCompound getPersistedData(EntityPlayer player) {
-            NBTTagCompound data = player.getEntityData();
-            if (!data.hasKey(EntityPlayer.PERSISTED_NBT_TAG)) {
-                data.setTag(EntityPlayer.PERSISTED_NBT_TAG, new NBTTagCompound());
-            }
-            return data.getCompoundTag(EntityPlayer.PERSISTED_NBT_TAG);
-        }
+    private NBTTagCompound getPersistedData(EntityPlayer player) {
+        return ObfCompat.getPersistedPlayerData(player);
+    }
 
     private static class GemSummary {
         private final List<Integer> tiers = new ArrayList<>();

@@ -4,7 +4,6 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
-import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
@@ -12,7 +11,6 @@ import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextFormatting;
 import net.minecraft.world.World;
-import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.fml.common.Loader;
 import thaumcraft.api.casters.FocusNode;
 import thaumcraft.api.casters.FocusPackage;
@@ -30,6 +28,7 @@ import therealpant.thaumicattempts.effects.AmberEffects;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.TAGemCountCache;
+import therealpant.thaumicattempts.util.ObfCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
@@ -78,19 +77,6 @@ public final class TAHooks {
     private static Method TT_SET_RUNIC_SHIELD;
     private static boolean TT_CHECKED;
     private static boolean TT_AVAILABLE;
-
-    private static Method NBT_HAS_KEY_SRG;
-    private static Method NBT_HAS_KEY_TYPED_SRG;
-    private static boolean NBT_HAS_KEY_CHECKED;
-    private static boolean NBT_HAS_KEY_TYPED_CHECKED;
-
-    private static Method NBT_SET_TAG_SRG;
-    private static Method NBT_SET_TAG_MCP;
-    private static boolean NBT_SET_TAG_CHECKED;
-
-    private static Method NBT_GET_COMPOUND_SRG;
-    private static Method NBT_GET_COMPOUND_MCP;
-    private static boolean NBT_GET_COMPOUND_CHECKED;
 
     private TAHooks() {}
 
@@ -244,43 +230,51 @@ public final class TAHooks {
     }
 
     public static void setRunicWaitOverride(EntityPlayer player, int ticks) {
-        if (player == null || player.world == null || player.world.isRemote) return;
-        NBTTagCompound data = getPersistedData(player);
+        if (player == null) return;
+        World world = ObfCompat.getWorld(player);
+        if (ObfCompat.isRemote(world) || world == null) return;
+        NBTTagCompound data = ObfCompat.getPersistedPlayerData(player);
         data.setInteger(NBT_RUNIC_WAIT_OVERRIDE, ticks);
     }
 
     public static void setRunicRechargeOverride(EntityPlayer player, int ticks) {
-        if (player == null || player.world == null || player.world.isRemote) return;
-        NBTTagCompound data = getPersistedData(player);
+        if (player == null) return;
+        World world = ObfCompat.getWorld(player);
+        if (ObfCompat.isRemote(world) || world == null) return;
+        NBTTagCompound data = ObfCompat.getPersistedPlayerData(player);
         data.setInteger(NBT_RUNIC_RECHARGE_OVERRIDE, ticks);
     }
 
     public static int getRunicWaitOverride(EntityPlayer player) {
         if (player == null) return -1;
-        NBTTagCompound data = getPersistedData(player);
-        return hasKey(data, NBT_RUNIC_WAIT_OVERRIDE, 3) ? data.getInteger(NBT_RUNIC_WAIT_OVERRIDE) : -1;
+        NBTTagCompound data = ObfCompat.getPersistedPlayerData(player);
+        return ObfCompat.safeHasKeyTyped(data, NBT_RUNIC_WAIT_OVERRIDE, 3)
+                ? data.getInteger(NBT_RUNIC_WAIT_OVERRIDE)
+                : -1;
     }
 
     public static int getRunicRechargeOverride(EntityPlayer player) {
         if (player == null) return -1;
-        NBTTagCompound data = getPersistedData(player);
-        return hasKey(data, NBT_RUNIC_RECHARGE_OVERRIDE, 3) ? data.getInteger(NBT_RUNIC_RECHARGE_OVERRIDE) : -1;
+        NBTTagCompound data = ObfCompat.getPersistedPlayerData(player);
+        return ObfCompat.safeHasKeyTyped(data, NBT_RUNIC_RECHARGE_OVERRIDE, 3)
+                ? data.getInteger(NBT_RUNIC_RECHARGE_OVERRIDE)
+                : -1;
     }
 
     public static void resetRunicWait(EntityPlayer player) {
-        if (player == null || player.world == null || player.world.isRemote) return;
+        if (player == null || ObfCompat.isRemote(player)) return;
         setRunicWaitOverride(player, 0);
     }
 
     public static void requestForceRunicRechargeTick(EntityPlayer player) {
-        if (player == null || player.world == null || player.world.isRemote) return;
-        NBTTagCompound data = getPersistedData(player);
+        if (player == null || ObfCompat.isRemote(player)) return;
+        NBTTagCompound data = ObfCompat.getPersistedPlayerData(player);
         data.setBoolean(NBT_RUNIC_FORCE_TICK, true);
     }
 
     public static boolean consumeForceRunicRechargeTick(EntityPlayer player) {
-        if (player == null || player.world == null || player.world.isRemote) return false;
-        NBTTagCompound data = getPersistedData(player);
+        if (player == null || ObfCompat.isRemote(player)) return false;
+        NBTTagCompound data = ObfCompat.getPersistedPlayerData(player);
         boolean value = data.getBoolean(NBT_RUNIC_FORCE_TICK);
         if (value) {
             data.setBoolean(NBT_RUNIC_FORCE_TICK, false);
@@ -315,80 +309,6 @@ public final class TAHooks {
             TT_AVAILABLE = false;
         }
         return TT_AVAILABLE;
-    }
-
-    private static NBTTagCompound getPersistedData(EntityPlayer player) {
-        NBTTagCompound data = player.getEntityData();
-
-        if (!hasKey(data, EntityPlayer.PERSISTED_NBT_TAG, Constants.NBT.TAG_COMPOUND)) {
-            setTagSafe(data, EntityPlayer.PERSISTED_NBT_TAG, new NBTTagCompound());
-        }
-
-        return getCompoundTagSafe(data, EntityPlayer.PERSISTED_NBT_TAG);
-    }
-
-    private static boolean hasKey(NBTTagCompound tag, String key) {
-        if (tag == null) return false;
-        try {
-            return tag.hasKey(key);
-        } catch (NoSuchMethodError ignored) {
-            return hasKeySrg(tag, key);
-        }
-    }
-
-    private static boolean hasKey(NBTTagCompound tag, String key, int type) {
-        if (tag == null) return false;
-        try {
-            return tag.hasKey(key, type);
-        } catch (NoSuchMethodError ignored) {
-            return hasKeyTypedSrg(tag, key, type);
-        }
-    }
-
-    private static boolean hasKeySrg(NBTTagCompound tag, String key) {
-        Method method = NBT_HAS_KEY_SRG;
-        if (method == null && !NBT_HAS_KEY_CHECKED) {
-            NBT_HAS_KEY_CHECKED = true;
-            try {
-                method = NBTTagCompound.class.getMethod("func_74764_b", String.class);
-                method.setAccessible(true);
-                NBT_HAS_KEY_SRG = method;
-            } catch (Throwable ignored) {
-                NBT_HAS_KEY_SRG = null;
-            }
-        }
-        if (method == null) {
-            return false;
-        }
-        try {
-            Object value = method.invoke(tag, key);
-            return value instanceof Boolean && (Boolean) value;
-        } catch (Throwable ignored) {
-            return false;
-        }
-    }
-
-    private static boolean hasKeyTypedSrg(NBTTagCompound tag, String key, int type) {
-        Method method = NBT_HAS_KEY_TYPED_SRG;
-        if (method == null && !NBT_HAS_KEY_TYPED_CHECKED) {
-            NBT_HAS_KEY_TYPED_CHECKED = true;
-            try {
-                method = NBTTagCompound.class.getMethod("func_150297_b", String.class, int.class);
-                method.setAccessible(true);
-                NBT_HAS_KEY_TYPED_SRG = method;
-            } catch (Throwable ignored) {
-                NBT_HAS_KEY_TYPED_SRG = null;
-            }
-        }
-        if (method == null) {
-            return false;
-        }
-        try {
-            Object value = method.invoke(tag, key, type);
-            return value instanceof Boolean && (Boolean) value;
-        } catch (Throwable ignored) {
-            return false;
-        }
     }
 
     /* ===================== Focus cast hooks ===================== */
@@ -751,29 +671,7 @@ public final class TAHooks {
     }
 
     private static boolean isStackEmpty(ItemStack stack) {
-        if (stack == null) return true;
-        try {
-            Method method = ItemStack.class.getMethod("isEmpty");
-            Object result = method.invoke(stack);
-            if (result instanceof Boolean) {
-                return (Boolean) result;
-            }
-        } catch (Throwable ignored) {
-        }
-        try {
-            Method method = ItemStack.class.getMethod("func_190926_b");
-            Object result = method.invoke(stack);
-            if (result instanceof Boolean) {
-                return (Boolean) result;
-            }
-        } catch (Throwable ignored) {
-        }
-        try {
-            if (stack.getItem() == null) return true;
-            return stack.getCount() <= 0;
-        } catch (Throwable ignored) {
-            return false;
-        }
+        return ObfCompat.isEmpty(stack);
     }
 
     private static Object resolveFocusPackage(ItemFocus focus, ItemStack stack) {
@@ -940,35 +838,6 @@ public final class TAHooks {
         return count;
     }
 
-
-    private static World resolvePlayerWorld(EntityPlayer player) {
-        if (player == null) return null;
-        try {
-            return player.world;
-        } catch (Throwable ignored) {
-        }
-        Object fieldValue = readField(Entity.class, player, "world");
-        if (fieldValue instanceof World) {
-            return (World) fieldValue;
-        }
-        fieldValue = readField(Entity.class, player, "field_70170_p");
-        if (fieldValue instanceof World) {
-            return (World) fieldValue;
-        }
-        String[] methods = new String[]{"getEntityWorld", "func_130014_f_"};
-        for (String methodName : methods) {
-            try {
-                Method method = Entity.class.getMethod(methodName);
-                Object result = method.invoke(player);
-                if (result instanceof World) {
-                    return (World) result;
-                }
-            } catch (Throwable ignored) {
-            }
-        }
-        return null;
-    }
-
     public static float sumAmberDamageBonus(EntityPlayer player) {
         if (player == null) return 0f;
         float bonus = 0f;
@@ -1026,97 +895,6 @@ public final class TAHooks {
             extra = 4.0f * reducedSeconds;
         }
         return base + extra;
-    }
-
-    private static void setTagSafe(NBTTagCompound tag, String key, NBTBase value) {
-        if (tag == null) return;
-
-        // 1) пробуем “обычный” вызов
-        try {
-            tag.setTag(key, value);
-            return;
-        } catch (NoSuchMethodError ignored) {
-            // fallthrough
-        } catch (Throwable ignored) {
-            // fallthrough
-        }
-
-        // 2) reflection MCP/SRG (кешируем)
-        if (!NBT_SET_TAG_CHECKED) {
-            NBT_SET_TAG_CHECKED = true;
-            try {
-                NBT_SET_TAG_MCP = NBTTagCompound.class.getMethod("setTag", String.class, NBTBase.class);
-                NBT_SET_TAG_MCP.setAccessible(true);
-            } catch (Throwable ignored) {
-                NBT_SET_TAG_MCP = null;
-            }
-            try {
-                NBT_SET_TAG_SRG = NBTTagCompound.class.getMethod("func_74782_a", String.class, NBTBase.class);
-                NBT_SET_TAG_SRG.setAccessible(true);
-            } catch (Throwable ignored) {
-                NBT_SET_TAG_SRG = null;
-            }
-        }
-
-        try {
-            if (NBT_SET_TAG_MCP != null) {
-                NBT_SET_TAG_MCP.invoke(tag, key, value);
-                return;
-            }
-        } catch (Throwable ignored) {}
-
-        try {
-            if (NBT_SET_TAG_SRG != null) {
-                NBT_SET_TAG_SRG.invoke(tag, key, value);
-            }
-        } catch (Throwable ignored) {}
-    }
-
-    private static NBTTagCompound getCompoundTagSafe(NBTTagCompound tag, String key) {
-        if (tag == null) return new NBTTagCompound();
-
-        // 1) обычный вызов
-        try {
-            return tag.getCompoundTag(key);
-        } catch (NoSuchMethodError ignored) {
-            // fallthrough
-        } catch (Throwable ignored) {
-            // fallthrough
-        }
-
-        // 2) reflection MCP/SRG (кеш)
-        if (!NBT_GET_COMPOUND_CHECKED) {
-            NBT_GET_COMPOUND_CHECKED = true;
-            try {
-                NBT_GET_COMPOUND_MCP = NBTTagCompound.class.getMethod("getCompoundTag", String.class);
-                NBT_GET_COMPOUND_MCP.setAccessible(true);
-            } catch (Throwable ignored) {
-                NBT_GET_COMPOUND_MCP = null;
-            }
-            // SRG для getCompoundTag в 1.12.2 обычно func_74775_l
-            try {
-                NBT_GET_COMPOUND_SRG = NBTTagCompound.class.getMethod("func_74775_l", String.class);
-                NBT_GET_COMPOUND_SRG.setAccessible(true);
-            } catch (Throwable ignored) {
-                NBT_GET_COMPOUND_SRG = null;
-            }
-        }
-
-        try {
-            if (NBT_GET_COMPOUND_MCP != null) {
-                Object r = NBT_GET_COMPOUND_MCP.invoke(tag, key);
-                if (r instanceof NBTTagCompound) return (NBTTagCompound) r;
-            }
-        } catch (Throwable ignored) {}
-
-        try {
-            if (NBT_GET_COMPOUND_SRG != null) {
-                Object r = NBT_GET_COMPOUND_SRG.invoke(tag, key);
-                if (r instanceof NBTTagCompound) return (NBTTagCompound) r;
-            }
-        } catch (Throwable ignored) {}
-
-        return new NBTTagCompound();
     }
 
 }
