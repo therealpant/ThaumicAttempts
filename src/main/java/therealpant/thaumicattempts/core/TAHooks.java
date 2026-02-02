@@ -11,6 +11,7 @@ import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextFormatting;
 import net.minecraft.world.World;
+import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.fml.common.Loader;
 import thaumcraft.api.casters.FocusNode;
 import thaumcraft.api.casters.FocusPackage;
@@ -304,7 +305,7 @@ public final class TAHooks {
 
     private static NBTTagCompound getPersistedData(EntityPlayer player) {
         NBTTagCompound data = player.getEntityData();
-        if (!data.hasKey(EntityPlayer.PERSISTED_NBT_TAG)) {
+        if (!data.hasKey(EntityPlayer.PERSISTED_NBT_TAG, Constants.NBT.TAG_COMPOUND)) {
             data.setTag(EntityPlayer.PERSISTED_NBT_TAG, new NBTTagCompound());
         }
         return data.getCompoundTag(EntityPlayer.PERSISTED_NBT_TAG);
