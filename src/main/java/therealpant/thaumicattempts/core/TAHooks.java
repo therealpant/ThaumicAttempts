@@ -4,12 +4,14 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextFormatting;
 import net.minecraft.world.World;
+import net.minecraftforge.fml.common.Loader;
 import thaumcraft.api.casters.FocusNode;
 import thaumcraft.api.casters.FocusPackage;
 import thaumcraft.api.casters.NodeSetting;
@@ -65,6 +67,15 @@ public final class TAHooks {
     private static final String TC_BASE = TextFormatting.DARK_AQUA.toString();
 
     private static Method TC_IS_ON_COOLDOWN;
+
+    private static final String NBT_RUNIC_WAIT_OVERRIDE = "ta_runic_wait_override";
+    private static final String NBT_RUNIC_RECHARGE_OVERRIDE = "ta_runic_recharge_override";
+    private static final String NBT_RUNIC_FORCE_TICK = "ta_runic_force_tick";
+
+    private static Method TT_GET_RUNIC_SHIELD;
+    private static Method TT_SET_RUNIC_SHIELD;
+    private static boolean TT_CHECKED;
+    private static boolean TT_AVAILABLE;
 
     private TAHooks() {}
 
@@ -178,6 +189,125 @@ public final class TAHooks {
                 it.remove();
             }
         }
+    }
+
+    /* ===================== Runic shield hooks ===================== */
+
+    public static float getRunicCurrent(EntityPlayer player) {
+        if (player == null) return 0.0f;
+        if (ensureThaumicTweaker()) {
+            try {
+                Object value = TT_GET_RUNIC_SHIELD.invoke(null, player);
+                if (value instanceof Double) {
+                    return ((Double) value).floatValue();
+                }
+                if (value instanceof Number) {
+                    return ((Number) value).floatValue();
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return player.getAbsorptionAmount();
+    }
+
+    public static void setRunicCurrent(EntityPlayer player, float value) {
+        if (player == null) return;
+        if (ensureThaumicTweaker()) {
+            try {
+                TT_SET_RUNIC_SHIELD.invoke(null, player, (double) value);
+                return;
+            } catch (Throwable ignored) {
+            }
+        }
+        player.setAbsorptionAmount(value);
+    }
+
+    public static void addRunicCurrent(EntityPlayer player, float delta) {
+        if (player == null) return;
+        float current = getRunicCurrent(player);
+        setRunicCurrent(player, current + delta);
+    }
+
+    public static void setRunicWaitOverride(EntityPlayer player, int ticks) {
+        if (player == null || player.world == null || player.world.isRemote) return;
+        NBTTagCompound data = getPersistedData(player);
+        data.setInteger(NBT_RUNIC_WAIT_OVERRIDE, ticks);
+    }
+
+    public static void setRunicRechargeOverride(EntityPlayer player, int ticks) {
+        if (player == null || player.world == null || player.world.isRemote) return;
+        NBTTagCompound data = getPersistedData(player);
+        data.setInteger(NBT_RUNIC_RECHARGE_OVERRIDE, ticks);
+    }
+
+    public static int getRunicWaitOverride(EntityPlayer player) {
+        if (player == null) return -1;
+        NBTTagCompound data = getPersistedData(player);
+        return data.hasKey(NBT_RUNIC_WAIT_OVERRIDE, 3) ? data.getInteger(NBT_RUNIC_WAIT_OVERRIDE) : -1;
+    }
+
+    public static int getRunicRechargeOverride(EntityPlayer player) {
+        if (player == null) return -1;
+        NBTTagCompound data = getPersistedData(player);
+        return data.hasKey(NBT_RUNIC_RECHARGE_OVERRIDE, 3) ? data.getInteger(NBT_RUNIC_RECHARGE_OVERRIDE) : -1;
+    }
+
+    public static void resetRunicWait(EntityPlayer player) {
+        if (player == null || player.world == null || player.world.isRemote) return;
+        setRunicWaitOverride(player, 0);
+    }
+
+    public static void requestForceRunicRechargeTick(EntityPlayer player) {
+        if (player == null || player.world == null || player.world.isRemote) return;
+        NBTTagCompound data = getPersistedData(player);
+        data.setBoolean(NBT_RUNIC_FORCE_TICK, true);
+    }
+
+    public static boolean consumeForceRunicRechargeTick(EntityPlayer player) {
+        if (player == null || player.world == null || player.world.isRemote) return false;
+        NBTTagCompound data = getPersistedData(player);
+        boolean value = data.getBoolean(NBT_RUNIC_FORCE_TICK);
+        if (value) {
+            data.setBoolean(NBT_RUNIC_FORCE_TICK, false);
+        }
+        return value;
+    }
+
+    public static void forceRunicRechargeNow(EntityPlayer player) {
+        requestForceRunicRechargeTick(player);
+    }
+
+    public static void speedUpRunicRegen(EntityPlayer player, int waitTicksOverride, int rechargeTicksOverride) {
+        setRunicWaitOverride(player, waitTicksOverride);
+        setRunicRechargeOverride(player, rechargeTicksOverride);
+    }
+
+    private static boolean ensureThaumicTweaker() {
+        if (TT_CHECKED) {
+            return TT_AVAILABLE;
+        }
+        TT_CHECKED = true;
+        if (!Loader.isModLoaded("thaumictweaker")) {
+            TT_AVAILABLE = false;
+            return false;
+        }
+        try {
+            Class<?> handler = Class.forName("mod.emt.thaumictweaker.events.RunicShieldingHandler");
+            TT_GET_RUNIC_SHIELD = handler.getMethod("getRunicShielding", EntityLivingBase.class);
+            TT_SET_RUNIC_SHIELD = handler.getMethod("setRunicShielding", EntityLivingBase.class, double.class);
+            TT_AVAILABLE = true;
+        } catch (Throwable ignored) {
+            TT_AVAILABLE = false;
+        }
+        return TT_AVAILABLE;
+    }
+
+    private static NBTTagCompound getPersistedData(EntityPlayer player) {
+        NBTTagCompound data = player.getEntityData();
+        if (!data.hasKey(EntityPlayer.PERSISTED_NBT_TAG)) {
+            data.setTag(EntityPlayer.PERSISTED_NBT_TAG, new NBTTagCompound());
+        }
+        return data.getCompoundTag(EntityPlayer.PERSISTED_NBT_TAG);
     }
 
     /* ===================== Focus cast hooks ===================== */
