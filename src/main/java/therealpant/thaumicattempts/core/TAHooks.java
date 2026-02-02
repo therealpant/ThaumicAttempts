@@ -4,6 +4,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
+import net.minecraft.nbt.NBTBase;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
@@ -77,6 +78,19 @@ public final class TAHooks {
     private static Method TT_SET_RUNIC_SHIELD;
     private static boolean TT_CHECKED;
     private static boolean TT_AVAILABLE;
+
+    private static Method NBT_HAS_KEY_SRG;
+    private static Method NBT_HAS_KEY_TYPED_SRG;
+    private static boolean NBT_HAS_KEY_CHECKED;
+    private static boolean NBT_HAS_KEY_TYPED_CHECKED;
+
+    private static Method NBT_SET_TAG_SRG;
+    private static Method NBT_SET_TAG_MCP;
+    private static boolean NBT_SET_TAG_CHECKED;
+
+    private static Method NBT_GET_COMPOUND_SRG;
+    private static Method NBT_GET_COMPOUND_MCP;
+    private static boolean NBT_GET_COMPOUND_CHECKED;
 
     private TAHooks() {}
 
@@ -244,13 +258,13 @@ public final class TAHooks {
     public static int getRunicWaitOverride(EntityPlayer player) {
         if (player == null) return -1;
         NBTTagCompound data = getPersistedData(player);
-        return data.hasKey(NBT_RUNIC_WAIT_OVERRIDE, 3) ? data.getInteger(NBT_RUNIC_WAIT_OVERRIDE) : -1;
+        return hasKey(data, NBT_RUNIC_WAIT_OVERRIDE, 3) ? data.getInteger(NBT_RUNIC_WAIT_OVERRIDE) : -1;
     }
 
     public static int getRunicRechargeOverride(EntityPlayer player) {
         if (player == null) return -1;
         NBTTagCompound data = getPersistedData(player);
-        return data.hasKey(NBT_RUNIC_RECHARGE_OVERRIDE, 3) ? data.getInteger(NBT_RUNIC_RECHARGE_OVERRIDE) : -1;
+        return hasKey(data, NBT_RUNIC_RECHARGE_OVERRIDE, 3) ? data.getInteger(NBT_RUNIC_RECHARGE_OVERRIDE) : -1;
     }
 
     public static void resetRunicWait(EntityPlayer player) {
@@ -305,10 +319,76 @@ public final class TAHooks {
 
     private static NBTTagCompound getPersistedData(EntityPlayer player) {
         NBTTagCompound data = player.getEntityData();
-        if (!data.hasKey(EntityPlayer.PERSISTED_NBT_TAG, Constants.NBT.TAG_COMPOUND)) {
-            data.setTag(EntityPlayer.PERSISTED_NBT_TAG, new NBTTagCompound());
+
+        if (!hasKey(data, EntityPlayer.PERSISTED_NBT_TAG, Constants.NBT.TAG_COMPOUND)) {
+            setTagSafe(data, EntityPlayer.PERSISTED_NBT_TAG, new NBTTagCompound());
         }
-        return data.getCompoundTag(EntityPlayer.PERSISTED_NBT_TAG);
+
+        return getCompoundTagSafe(data, EntityPlayer.PERSISTED_NBT_TAG);
+    }
+
+    private static boolean hasKey(NBTTagCompound tag, String key) {
+        if (tag == null) return false;
+        try {
+            return tag.hasKey(key);
+        } catch (NoSuchMethodError ignored) {
+            return hasKeySrg(tag, key);
+        }
+    }
+
+    private static boolean hasKey(NBTTagCompound tag, String key, int type) {
+        if (tag == null) return false;
+        try {
+            return tag.hasKey(key, type);
+        } catch (NoSuchMethodError ignored) {
+            return hasKeyTypedSrg(tag, key, type);
+        }
+    }
+
+    private static boolean hasKeySrg(NBTTagCompound tag, String key) {
+        Method method = NBT_HAS_KEY_SRG;
+        if (method == null && !NBT_HAS_KEY_CHECKED) {
+            NBT_HAS_KEY_CHECKED = true;
+            try {
+                method = NBTTagCompound.class.getMethod("func_74764_b", String.class);
+                method.setAccessible(true);
+                NBT_HAS_KEY_SRG = method;
+            } catch (Throwable ignored) {
+                NBT_HAS_KEY_SRG = null;
+            }
+        }
+        if (method == null) {
+            return false;
+        }
+        try {
+            Object value = method.invoke(tag, key);
+            return value instanceof Boolean && (Boolean) value;
+        } catch (Throwable ignored) {
+            return false;
+        }
+    }
+
+    private static boolean hasKeyTypedSrg(NBTTagCompound tag, String key, int type) {
+        Method method = NBT_HAS_KEY_TYPED_SRG;
+        if (method == null && !NBT_HAS_KEY_TYPED_CHECKED) {
+            NBT_HAS_KEY_TYPED_CHECKED = true;
+            try {
+                method = NBTTagCompound.class.getMethod("func_150297_b", String.class, int.class);
+                method.setAccessible(true);
+                NBT_HAS_KEY_TYPED_SRG = method;
+            } catch (Throwable ignored) {
+                NBT_HAS_KEY_TYPED_SRG = null;
+            }
+        }
+        if (method == null) {
+            return false;
+        }
+        try {
+            Object value = method.invoke(tag, key, type);
+            return value instanceof Boolean && (Boolean) value;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     /* ===================== Focus cast hooks ===================== */
@@ -946,6 +1026,97 @@ public final class TAHooks {
             extra = 4.0f * reducedSeconds;
         }
         return base + extra;
+    }
+
+    private static void setTagSafe(NBTTagCompound tag, String key, NBTBase value) {
+        if (tag == null) return;
+
+        // 1) пробуем “обычный” вызов
+        try {
+            tag.setTag(key, value);
+            return;
+        } catch (NoSuchMethodError ignored) {
+            // fallthrough
+        } catch (Throwable ignored) {
+            // fallthrough
+        }
+
+        // 2) reflection MCP/SRG (кешируем)
+        if (!NBT_SET_TAG_CHECKED) {
+            NBT_SET_TAG_CHECKED = true;
+            try {
+                NBT_SET_TAG_MCP = NBTTagCompound.class.getMethod("setTag", String.class, NBTBase.class);
+                NBT_SET_TAG_MCP.setAccessible(true);
+            } catch (Throwable ignored) {
+                NBT_SET_TAG_MCP = null;
+            }
+            try {
+                NBT_SET_TAG_SRG = NBTTagCompound.class.getMethod("func_74782_a", String.class, NBTBase.class);
+                NBT_SET_TAG_SRG.setAccessible(true);
+            } catch (Throwable ignored) {
+                NBT_SET_TAG_SRG = null;
+            }
+        }
+
+        try {
+            if (NBT_SET_TAG_MCP != null) {
+                NBT_SET_TAG_MCP.invoke(tag, key, value);
+                return;
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            if (NBT_SET_TAG_SRG != null) {
+                NBT_SET_TAG_SRG.invoke(tag, key, value);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+    private static NBTTagCompound getCompoundTagSafe(NBTTagCompound tag, String key) {
+        if (tag == null) return new NBTTagCompound();
+
+        // 1) обычный вызов
+        try {
+            return tag.getCompoundTag(key);
+        } catch (NoSuchMethodError ignored) {
+            // fallthrough
+        } catch (Throwable ignored) {
+            // fallthrough
+        }
+
+        // 2) reflection MCP/SRG (кеш)
+        if (!NBT_GET_COMPOUND_CHECKED) {
+            NBT_GET_COMPOUND_CHECKED = true;
+            try {
+                NBT_GET_COMPOUND_MCP = NBTTagCompound.class.getMethod("getCompoundTag", String.class);
+                NBT_GET_COMPOUND_MCP.setAccessible(true);
+            } catch (Throwable ignored) {
+                NBT_GET_COMPOUND_MCP = null;
+            }
+            // SRG для getCompoundTag в 1.12.2 обычно func_74775_l
+            try {
+                NBT_GET_COMPOUND_SRG = NBTTagCompound.class.getMethod("func_74775_l", String.class);
+                NBT_GET_COMPOUND_SRG.setAccessible(true);
+            } catch (Throwable ignored) {
+                NBT_GET_COMPOUND_SRG = null;
+            }
+        }
+
+        try {
+            if (NBT_GET_COMPOUND_MCP != null) {
+                Object r = NBT_GET_COMPOUND_MCP.invoke(tag, key);
+                if (r instanceof NBTTagCompound) return (NBTTagCompound) r;
+            }
+        } catch (Throwable ignored) {}
+
+        try {
+            if (NBT_GET_COMPOUND_SRG != null) {
+                Object r = NBT_GET_COMPOUND_SRG.invoke(tag, key);
+                if (r instanceof NBTTagCompound) return (NBTTagCompound) r;
+            }
+        } catch (Throwable ignored) {}
+
+        return new NBTTagCompound();
     }
 
 }
