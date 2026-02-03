@@ -275,11 +275,27 @@ public final class TAHooks {
     public static boolean consumeForceRunicRechargeTick(EntityPlayer player) {
         if (player == null || ObfCompat.isRemote(player)) return false;
         NBTTagCompound data = ObfCompat.getPersistedPlayerData(player);
-        boolean value = data.getBoolean(NBT_RUNIC_FORCE_TICK);
+        boolean value = getBooleanSafe(data, NBT_RUNIC_FORCE_TICK);
         if (value) {
             data.setBoolean(NBT_RUNIC_FORCE_TICK, false);
         }
         return value;
+    }
+
+    private static boolean getBooleanSafe(NBTTagCompound data, String key) {
+        if (data == null) {
+            return false;
+        }
+        try {
+            return data.getBoolean(key);
+        } catch (NoSuchMethodError ignored) {
+        } catch (Throwable ignored) {
+        }
+        try {
+            return data.getByte(key) != 0;
+        } catch (Throwable ignored) {
+            return false;
+        }
     }
 
     public static void forceRunicRechargeNow(EntityPlayer player) {

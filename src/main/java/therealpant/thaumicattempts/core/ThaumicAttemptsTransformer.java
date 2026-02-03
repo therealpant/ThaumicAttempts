@@ -1,6 +1,7 @@
 package therealpant.thaumicattempts.core;
 
 import net.minecraft.launchwrapper.IClassTransformer;
+import net.minecraftforge.fml.relauncher.FMLLaunchHandler;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.*;
@@ -16,6 +17,16 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
     // ВАЖНО: путь к реальному TAHooks
     private static final String HOOKS = "therealpant/thaumicattempts/core/TAHooks";
+
+    private static final boolean DEOBF_ENV = isDeobfEnvironment();
+
+    private static boolean isDeobfEnvironment() {
+        try {
+            return FMLLaunchHandler.isDeobfuscatedEnvironment();
+        } catch (Throwable ignored) {
+            return true;
+        }
+    }
 
     @Override
     public byte[] transform(String name, String transformedName, byte[] basicClass) {
@@ -287,8 +298,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                 MethodInsnNode mn = (MethodInsnNode) insn;
                 if (mn.getOpcode() == INVOKEVIRTUAL
                         && "net/minecraft/entity/player/EntityPlayer".equals(mn.owner)
-                        && "getAbsorptionAmount".equals(mn.name)
-                        && "()F".equals(mn.desc)) {
+                        && isEntityGetAbsorptionAmount(mn)) {
                     mn.setOpcode(INVOKESTATIC);
                     mn.owner = HOOKS;
                     mn.name = "getRunicCurrent";
@@ -296,8 +306,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     modified = true;
                 } else if (mn.getOpcode() == INVOKEVIRTUAL
                         && "net/minecraft/entity/player/EntityPlayer".equals(mn.owner)
-                        && "setAbsorptionAmount".equals(mn.name)
-                        && "(F)V".equals(mn.desc)) {
+                        && isEntitySetAbsorptionAmount(mn)) {
                     mn.setOpcode(INVOKESTATIC);
                     mn.owner = HOOKS;
                     mn.name = "setRunicCurrent";
@@ -394,7 +403,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
         list.add(new FieldInsnNode(GETSTATIC, "thaumcraft/common/lib/events/PlayerEvents", "runicInfo", "Ljava/util/HashMap;"));
         list.add(new VarInsnNode(ALOAD, 0));
-        list.add(new MethodInsnNode(INVOKEVIRTUAL, "net/minecraft/entity/Entity", "getEntityId", "()I", false));
+        list.add(new MethodInsnNode(INVOKEVIRTUAL, "net/minecraft/entity/Entity", getEntityIdName(), "()I", false));
         list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false));
         list.add(new MethodInsnNode(INVOKEVIRTUAL, "java/util/HashMap", "get", "(Ljava/lang/Object;)Ljava/lang/Object;", false));
         list.add(new TypeInsnNode(CHECKCAST, "java/lang/Integer"));
@@ -406,17 +415,17 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         list.add(new JumpInsnNode(IF_ICMPGE, skipForce));
 
         list.add(new VarInsnNode(ALOAD, 0));
-        list.add(new FieldInsnNode(GETFIELD, "net/minecraft/entity/Entity", "world", "Lnet/minecraft/world/World;"));
+        list.add(new FieldInsnNode(GETFIELD, "net/minecraft/entity/Entity", getWorldFieldName(), "Lnet/minecraft/world/World;"));
         list.add(new VarInsnNode(ALOAD, 0));
         list.add(new VarInsnNode(ALOAD, 0));
-        list.add(new MethodInsnNode(INVOKEVIRTUAL, "net/minecraft/entity/Entity", "getPosition",
+        list.add(new MethodInsnNode(INVOKEVIRTUAL, "net/minecraft/entity/Entity", getPositionName(),
                 "()Lnet/minecraft/util/math/BlockPos;", false));
         list.add(new MethodInsnNode(INVOKESTATIC, "thaumcraft/common/world/aura/AuraHandler", "shouldPreserveAura",
                 "(Lnet/minecraft/world/World;Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/util/math/BlockPos;)Z", false));
         list.add(new JumpInsnNode(IFNE, skipForce));
 
         list.add(new VarInsnNode(ALOAD, 0));
-        list.add(new FieldInsnNode(GETFIELD, "net/minecraft/entity/Entity", "world", "Lnet/minecraft/world/World;"));
+        list.add(new FieldInsnNode(GETFIELD, "net/minecraft/entity/Entity", getWorldFieldName(), "Lnet/minecraft/world/World;"));
         list.add(new TypeInsnNode(NEW, "net/minecraft/util/math/BlockPos"));
         list.add(new InsnNode(DUP));
         list.add(new VarInsnNode(ALOAD, 0));
@@ -433,7 +442,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
         list.add(new FieldInsnNode(GETSTATIC, "thaumcraft/common/lib/events/PlayerEvents", "nextCycle", "Ljava/util/HashMap;"));
         list.add(new VarInsnNode(ALOAD, 0));
-        list.add(new MethodInsnNode(INVOKEVIRTUAL, "net/minecraft/entity/Entity", "getEntityId", "()I", false));
+        list.add(new MethodInsnNode(INVOKEVIRTUAL, "net/minecraft/entity/Entity", getEntityIdName(), "()I", false));
         list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false));
         list.add(new VarInsnNode(LLOAD, timeVar));
         list.add(buildShieldIntervalLoad(rechargeOverrideIndex, "shieldRecharge"));
@@ -445,7 +454,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         list.add(new InsnNode(POP));
 
         list.add(new VarInsnNode(ALOAD, 0));
-        list.add(new FieldInsnNode(GETFIELD, "net/minecraft/entity/Entity", "world", "Lnet/minecraft/world/World;"));
+        list.add(new FieldInsnNode(GETFIELD, "net/minecraft/entity/Entity", getWorldFieldName(), "Lnet/minecraft/world/World;"));
         list.add(new TypeInsnNode(NEW, "net/minecraft/util/math/BlockPos"));
         list.add(new InsnNode(DUP));
         list.add(new VarInsnNode(ALOAD, 0));
@@ -472,7 +481,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
         list.add(new FieldInsnNode(GETSTATIC, "thaumcraft/common/lib/events/PlayerEvents", "lastCharge", "Ljava/util/HashMap;"));
         list.add(new VarInsnNode(ALOAD, 0));
-        list.add(new MethodInsnNode(INVOKEVIRTUAL, "net/minecraft/entity/Entity", "getEntityId", "()I", false));
+        list.add(new MethodInsnNode(INVOKEVIRTUAL, "net/minecraft/entity/Entity", getEntityIdName(), "()I", false));
         list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false));
         list.add(new VarInsnNode(ILOAD, chargeVar));
         list.add(new MethodInsnNode(INVOKESTATIC, "java/lang/Integer", "valueOf", "(I)Ljava/lang/Integer;", false));
@@ -482,6 +491,32 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
         list.add(skipForce);
         return list;
+    }
+
+    private static boolean isEntityGetAbsorptionAmount(MethodInsnNode mn) {
+        if (!"()F".equals(mn.desc)) {
+            return false;
+        }
+        return "getAbsorptionAmount".equals(mn.name) || "func_110143_aJ".equals(mn.name);
+    }
+
+    private static boolean isEntitySetAbsorptionAmount(MethodInsnNode mn) {
+        if (!"(F)V".equals(mn.desc)) {
+            return false;
+        }
+        return "setAbsorptionAmount".equals(mn.name) || "func_110149_m".equals(mn.name);
+    }
+
+    private static String getWorldFieldName() {
+        return DEOBF_ENV ? "world" : "field_70170_p";
+    }
+
+    private static String getEntityIdName() {
+        return DEOBF_ENV ? "getEntityId" : "func_145782_y";
+    }
+
+    private static String getPositionName() {
+        return DEOBF_ENV ? "getPosition" : "func_180425_c";
     }
 
     // ---------------- Task ----------------
