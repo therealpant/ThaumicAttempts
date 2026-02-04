@@ -29,6 +29,8 @@ repositories {
     // Mojang libraries (для 1.12.2 обязательно)
     maven { url "https://libraries.minecraft.net" }
 
+    maven { url = "https://cursemaven.com" }
+
     // LegacyDev форк
     maven {
         name "Su5ed LegacyDev Fork"
@@ -140,6 +142,7 @@ dependencies {
     compileOnly 'curse.maven:auracontrol-397104:3013979'
     compileOnly 'curse.maven:electroblobs-wizardry-265642:2929294'
     compileOnly 'curse.maven:thaumcraftfix-1069346:5889900'
+    compileOnly fg.deobf("curse.maven:thaumictweaker-1341797:7198475")
 
     testImplementation 'org.junit.jupiter:junit-jupiter:5.11.+'
     testRuntimeOnly 'org.junit.platform:junit-platform-launcher:1.11.+'

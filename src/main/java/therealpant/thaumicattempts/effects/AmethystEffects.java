@@ -12,17 +12,14 @@ public final class AmethystEffects {
     public static final int STACK_DURATION_TICKS = 20 * 60;
     public static final int RUNIC_UPDATE_INTERVAL_TICKS = 10;
 
-    public static final int SET2_RECHARGE_INTERVAL = 10;
-    public static final int SET2_RECHARGE_INTERVAL_HOSTILE = 5;
-    public static final double SET2_HOSTILE_RADIUS = 4.0d;
+    public static final int SET2_RESISTANCE_DURATION_TICKS = 2;
+    public static final float SET2_MIN_PERCENT = 0.40f;
+    public static final float SET2_MAX_PERCENT = 1.0f;
 
-    public static final float WAVE_HEALTH_THRESHOLD = 10.0f;
-    public static final int WAVE_COOLDOWN_TICKS = 20 * 60;
-    public static final int WAVE_RECHARGE_INTERVAL_TICKS = 10;
-    public static final int WAVE_REGEN_DURATION_TICKS = 200;
-    public static final int WAVE_REGEN_AMPLIFIER = 2;
-    public static final int WAVE_RESISTANCE_REFRESH_TICKS = 20;
-    public static final int WAVE_RESISTANCE_AMPLIFIER = 1;
+    public static final int OVERLOAD_RESTORE_AMOUNT = 3;
+    public static final int OVERLOAD_INTERVAL_TICKS = 20;
+    public static final int OVERLOAD_RESET_TICKS = 20 * 20;
+    public static final int OVERLOAD_COOLDOWN_TICKS = 20 * 60;
 
     private AmethystEffects() {}
 

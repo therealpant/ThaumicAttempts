@@ -13,10 +13,8 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.SharedMonsterAttributes;
 import net.minecraft.entity.ai.attributes.AttributeModifier;
-import net.minecraft.entity.monster.IMob;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.inventory.EntityEquipmentSlot;
 import net.minecraft.inventory.EntityEquipmentSlot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
@@ -25,6 +23,7 @@ import net.minecraft.init.MobEffects;
 import net.minecraft.util.DamageSource;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.AxisAlignedBB;
+import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
 import net.minecraftforge.event.entity.player.AttackEntityEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
@@ -32,14 +31,15 @@ import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent.PlayerTickEvent;
+import thaumcraft.api.aura.AuraHelper;
 import thaumcraft.api.casters.ICaster;
+import thaumcraft.api.items.IRechargable;
+import thaumcraft.api.items.RechargeHelper;
 import therealpant.thaumicattempts.api.gems.GemDamageSource;
 import therealpant.thaumicattempts.api.gems.ITAGemDefinition;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
 import therealpant.thaumicattempts.capability.AmberCasterCapability;
 import therealpant.thaumicattempts.capability.IAmberCasterData;
-import therealpant.thaumicattempts.combat.ArcaneGuardData;
-import therealpant.thaumicattempts.combat.ArcaneMarkData;
 import therealpant.thaumicattempts.effects.AmberEffects;
 import therealpant.thaumicattempts.effects.AmethystEffects;
 import therealpant.thaumicattempts.effects.DiamondEffects;
@@ -47,29 +47,34 @@ import therealpant.thaumicattempts.gems.AmberGemDefinition;
 import therealpant.thaumicattempts.gems.AmethystGemDefinition;
 import therealpant.thaumicattempts.gems.DiamondGemDefinition;
 import therealpant.thaumicattempts.net.msg.S2C_AmberCountUpdate;
+import therealpant.thaumicattempts.util.RunicMaxCalculator;
+import therealpant.thaumicattempts.util.RunicShieldAdapter;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
 import therealpant.thaumicattempts.ThaumicAttempts;
 
 import static org.apache.commons.lang3.reflect.MethodUtils.invokeMethod;
+import static thaumcraft.api.items.RechargeHelper.getCharge;
 
 public class TAGemEventHandler {
     private static final String NBT_AMETHYST_STACKS = "ta_amethyst_stacks";
     private static final String NBT_AMETHYST_EXPIRE = "ta_amethyst_expire";
-    private static final String NBT_AMETHYST_RECHARGE_TICKER = "ta_amethyst_rechargeTicker";
-    private static final String NBT_AMETHYST_TOTEM_CD = "ta_amethyst_totem_cd_until";
-    private static final String NBT_AMETHYST_WAVE_ACTIVE = "ta_amethyst_wave_active";
-    private static final String NBT_AMETHYST_WAVE_NEXT = "ta_amethyst_wave_nextTick";
     private static final String NBT_AMETHYST_LAST_RUNIC_UPDATE = "ta_amethyst_runic_update";
     private static final String NBT_AMETHYST_LAST_STACKS = "ta_amethyst_lastStacks";
     private static final String NBT_AMETHYST_LAST_TARGET = "ta_amethyst_lastTarget";
+    private static final String NBT_AMETHYST_OVER_N = "ta_am_over_n";
+    private static final String NBT_AMETHYST_OVER_LAST = "ta_am_over_last";
+    private static final String NBT_AMETHYST_OVER_CD = "ta_am_over_cd_until";
 
     private static final String NBT_DIAMOND_HITCOUNT = "ta_diamond_hitcount";
     private static final String NBT_DIAMOND_INTERNAL_CAST = "ta_diamond_internal_cast";
 
     private static final String RUNIC_TAG = "TC.RUNIC";
-    private static final String RUNIC_BASE_TAG = "TA.RUNIC_BASE";
-    private static final String RUNIC_TMP_TAG = "TA.RUNIC_TMP";
+    private static final String RUNIC_BASE_TAG = "ta_am_base_runic";
+    private static final String RUNIC_BONUS_TAG = "ta_am_bonus_runic";
+    private static final String RUNIC_BASE_TAG_LEGACY = "TA.RUNIC_BASE";
+    private static final String RUNIC_TMP_TAG_LEGACY = "TA.RUNIC_TMP";
+
 
     private static final EntityEquipmentSlot[] ARMOR_SLOTS = new EntityEquipmentSlot[]{
             EntityEquipmentSlot.HEAD,
@@ -104,7 +109,6 @@ public class TAGemEventHandler {
         GemSummary amethystSummary = getGemSummary(player, AmethystGemDefinition.ID);
         if (amethystSummary.count > 0) {
             applyAmethystStacks(player, amethystSummary, event.getAmount());
-            maybeTriggerAmethystWave(player, amethystSummary, event.getAmount());
             damageGemInlays(player, GemDamageSource.ON_PLAYER_HURT);
         }
     }
@@ -204,8 +208,9 @@ public class TAGemEventHandler {
                 data.setInteger(NBT_AMETHYST_STACKS, 0);
                 data.setLong(NBT_AMETHYST_EXPIRE, 0L);
             }
-            data.setBoolean(NBT_AMETHYST_WAVE_ACTIVE, false);
-            data.setInteger(NBT_AMETHYST_RECHARGE_TICKER, 0);
+            data.setInteger(NBT_AMETHYST_OVER_N, 0);
+            data.setLong(NBT_AMETHYST_OVER_LAST, 0L);
+            data.setLong(NBT_AMETHYST_OVER_CD, 0L);
             updateAmethystRunicBonus(player, 0, now);
             return;
         }
@@ -215,8 +220,8 @@ public class TAGemEventHandler {
             data.setLong(NBT_AMETHYST_EXPIRE, 0L);
         }
         updateAmethystRunicBonus(player, stacks, now);
-        updateAmethystRecharge(player, summary, stacks, now);
-        updateAmethystWave(player, now);
+        applyAmethystSet2Defense(player, summary);
+        updateAmethystOverload(player, summary, now);
     }
 
     private void applyAmethystStacks(EntityPlayer player, GemSummary summary, float damageAmount) {
@@ -226,87 +231,72 @@ public class TAGemEventHandler {
 
         NBTTagCompound data = getPersistedData(player);
         int stacks = data.getInteger(NBT_AMETHYST_STACKS);
-        boolean gained = stacks < cap;
-        int newStacks = Math.min(cap, stacks + (gained ? 1 : 0));
+        int newStacks = Math.min(cap, stacks + (stacks < cap ? 1 : 0));
 
         data.setInteger(NBT_AMETHYST_STACKS, newStacks);
         data.setLong(NBT_AMETHYST_EXPIRE, player.world.getTotalWorldTime() + AmethystEffects.STACK_DURATION_TICKS);
-
-        if (gained) {
-            float currentAbs = player.getAbsorptionAmount() + 1.0f;
-            float maxAbs = getRunicBaseFromGear(player) + newStacks;
-            player.setAbsorptionAmount(Math.min(currentAbs, maxAbs));
-        }
     }
 
-    private void maybeTriggerAmethystWave(EntityPlayer player, GemSummary summary, float damageAmount) {
-        if (summary.count < AmethystEffects.SET4_REQUIRED) return;
-        float projected = player.getHealth() - damageAmount;
-        if (projected > AmethystEffects.WAVE_HEALTH_THRESHOLD) return;
+    private void applyAmethystSet2Defense(EntityPlayer player, GemSummary summary) {
+        if (summary.count < AmethystEffects.SET2_REQUIRED) return;
+        int maxRunic = RunicMaxCalculator.getRunicMax(player);
+        if (maxRunic <= 0) return;
+        float current = RunicShieldAdapter.getCurrentShield(player);
+        float effective = Math.min(current, maxRunic);
+        float percent = effective / (float) maxRunic;
+        if (percent >= AmethystEffects.SET2_MAX_PERCENT || percent < AmethystEffects.SET2_MIN_PERCENT) return;
 
-        NBTTagCompound data = getPersistedData(player);
-        long now = player.world.getTotalWorldTime();
-        if (data.getBoolean(NBT_AMETHYST_WAVE_ACTIVE)) return;
-        if (now < data.getLong(NBT_AMETHYST_TOTEM_CD)) return;
+        PotionEffect existing = player.getActivePotionEffect(MobEffects.RESISTANCE);
+        if (existing != null && existing.getAmplifier() > 0) return;
 
-        data.setBoolean(NBT_AMETHYST_WAVE_ACTIVE, true);
-        data.setLong(NBT_AMETHYST_WAVE_NEXT, now);
-        data.setLong(NBT_AMETHYST_TOTEM_CD, now + AmethystEffects.WAVE_COOLDOWN_TICKS);
 
-        PotionEffect regen = new PotionEffect(MobEffects.REGENERATION,
-                AmethystEffects.WAVE_REGEN_DURATION_TICKS,
-                AmethystEffects.WAVE_REGEN_AMPLIFIER,
-                false,
-                true);
-        player.addPotionEffect(regen);
-    }
-
-    private void updateAmethystRecharge(EntityPlayer player, GemSummary summary, int stacks, long now) {
-        int cap = getAmethystStackCap(summary);
-        boolean canRecharge = cap > 0 && stacks >= cap && summary.count >= AmethystEffects.SET2_REQUIRED;
-        NBTTagCompound data = getPersistedData(player);
-        if (!canRecharge) {
-            data.setInteger(NBT_AMETHYST_RECHARGE_TICKER, 0);
-            return;
-        }
-
-        boolean nearHostiles = hasNearbyHostiles(player);
-        int interval = nearHostiles ? AmethystEffects.SET2_RECHARGE_INTERVAL_HOSTILE : AmethystEffects.SET2_RECHARGE_INTERVAL;
-        int ticker = data.getInteger(NBT_AMETHYST_RECHARGE_TICKER) + 1;
-        if (ticker >= interval) {
-            ticker = 0;
-            if (!forceRunicRecharge(player)) {
-                addAbsorptionSafely(player, 1);
-            }
-        }
-        data.setInteger(NBT_AMETHYST_RECHARGE_TICKER, ticker);
-    }
-
-    private void updateAmethystWave(EntityPlayer player, long now) {
-        NBTTagCompound data = getPersistedData(player);
-        if (!data.getBoolean(NBT_AMETHYST_WAVE_ACTIVE)) return;
-
-        int maxAbs = getRunicMaxFromGear(player);
-        float currentAbs = player.getAbsorptionAmount();
-        if (currentAbs >= maxAbs) {
-            data.setBoolean(NBT_AMETHYST_WAVE_ACTIVE, false);
-            return;
-        }
-
-        long nextTick = data.getLong(NBT_AMETHYST_WAVE_NEXT);
-        if (now >= nextTick) {
-            if (!forceRunicRecharge(player)) {
-                addAbsorptionSafely(player, 1);
-            }
-            data.setLong(NBT_AMETHYST_WAVE_NEXT, now + AmethystEffects.WAVE_RECHARGE_INTERVAL_TICKS);
-        }
-
-        PotionEffect resistance = new PotionEffect(MobEffects.RESISTANCE,
-                AmethystEffects.WAVE_RESISTANCE_REFRESH_TICKS,
-                AmethystEffects.WAVE_RESISTANCE_AMPLIFIER,
+        PotionEffect resistance = new PotionEffect(
+                MobEffects.RESISTANCE,
+                AmethystEffects.SET2_RESISTANCE_DURATION_TICKS,
+                0,
                 false,
                 true);
         player.addPotionEffect(resistance);
+    }
+
+    private void updateAmethystOverload(EntityPlayer player, GemSummary summary, long now) {
+        NBTTagCompound data = getPersistedData(player);
+        if (summary.count < AmethystEffects.SET4_REQUIRED) {
+            data.setInteger(NBT_AMETHYST_OVER_N, 0);
+            data.setLong(NBT_AMETHYST_OVER_LAST, 0L);
+            data.setLong(NBT_AMETHYST_OVER_CD, 0L);
+            return;
+        }
+
+        int n = data.getInteger(NBT_AMETHYST_OVER_N);
+        long last = data.getLong(NBT_AMETHYST_OVER_LAST);
+        long cdUntil = data.getLong(NBT_AMETHYST_OVER_CD);
+
+        if (last > 0 && now - last > AmethystEffects.OVERLOAD_RESET_TICKS) {
+            n = 0;
+            data.setInteger(NBT_AMETHYST_OVER_N, 0);
+        }
+        if (now < cdUntil) return;
+        if (!player.isSneaking()) return;
+        if (now % AmethystEffects.OVERLOAD_INTERVAL_TICKS != 0) return;
+
+
+        int maxRunic = RunicMaxCalculator.getRunicMax(player);
+        if (maxRunic <= 0) return;
+
+        float current = RunicShieldAdapter.getCurrentShield(player);
+        if (current >= maxRunic) return;
+
+        int cost = getOverloadCost(n);
+        if (!tryConsumeVis(player, cost)) {
+            data.setLong(NBT_AMETHYST_OVER_CD, now + AmethystEffects.OVERLOAD_COOLDOWN_TICKS);
+            return;
+        }
+
+        float next = Math.min(current + AmethystEffects.OVERLOAD_RESTORE_AMOUNT, maxRunic);
+        RunicShieldAdapter.setCurrentShield(player, next);
+        data.setInteger(NBT_AMETHYST_OVER_N, n + 1);
+        data.setLong(NBT_AMETHYST_OVER_LAST, now);
     }
 
     private void updateAmethystRunicBonus(EntityPlayer player, int stacks, long now) {
@@ -404,7 +394,7 @@ public class TAGemEventHandler {
             ItemStack stack = player.getItemStackFromSlot(slot);
             if (stack.isEmpty()) continue;
             NBTTagCompound tag = stack.getTagCompound();
-            if (tag != null && tag.hasKey(RUNIC_TMP_TAG, 1)) {
+            if (tag != null && (tag.hasKey(RUNIC_BONUS_TAG, 1) || tag.hasKey(RUNIC_TMP_TAG_LEGACY, 1))) {
                 return true;
             }
         }
@@ -423,16 +413,13 @@ public class TAGemEventHandler {
             stack.setTagCompound(tag);
         }
 
-        int base;
-        if (tag.hasKey(RUNIC_BASE_TAG, 1)) {
-            base = tag.getByte(RUNIC_BASE_TAG);
-        } else {
-            base = tag.hasKey(RUNIC_TAG, 1) ? tag.getByte(RUNIC_TAG) : 0;
-            tag.setByte(RUNIC_BASE_TAG, (byte) clampRunic(base));
-        }
+        int base = clampRunic(getStoredRunicBase(tag));
+        tag.setByte(RUNIC_BASE_TAG, (byte) base);
+        tag.removeTag(RUNIC_BASE_TAG_LEGACY);
+        tag.removeTag(RUNIC_TMP_TAG_LEGACY);
         int tmp = clampRunic(stacks);
         int total = clampRunic(base + tmp);
-        tag.setByte(RUNIC_TMP_TAG, (byte) tmp);
+        tag.setByte(RUNIC_BONUS_TAG, (byte) tmp);
         tag.setByte(RUNIC_TAG, (byte) total);
     }
 
@@ -440,48 +427,26 @@ public class TAGemEventHandler {
         if (stack.isEmpty()) return;
         NBTTagCompound tag = stack.getTagCompound();
         if (tag == null) return;
-        if (!tag.hasKey(RUNIC_BASE_TAG, 1) && !tag.hasKey(RUNIC_TMP_TAG, 1)) return;
+        if (!tag.hasKey(RUNIC_BASE_TAG, 1)
+                && !tag.hasKey(RUNIC_BONUS_TAG, 1)
+                && !tag.hasKey(RUNIC_BASE_TAG_LEGACY, 1)
+                && !tag.hasKey(RUNIC_TMP_TAG_LEGACY, 1)) {
+            return;
+        }
 
-        int base = tag.hasKey(RUNIC_BASE_TAG, 1) ? tag.getByte(RUNIC_BASE_TAG) : (tag.hasKey(RUNIC_TAG, 1) ? tag.getByte(RUNIC_TAG) : 0);
+        int base = getStoredRunicBase(tag);
         tag.setByte(RUNIC_TAG, (byte) clampRunic(base));
         tag.removeTag(RUNIC_BASE_TAG);
-        tag.removeTag(RUNIC_TMP_TAG);
+        tag.removeTag(RUNIC_BONUS_TAG);
+        tag.removeTag(RUNIC_BASE_TAG_LEGACY);
+        tag.removeTag(RUNIC_TMP_TAG_LEGACY);
     }
-
-    private int getRunicBaseFromGear(EntityPlayer player) {
-        int total = 0;
-        for (EntityEquipmentSlot slot : ARMOR_SLOTS) {
-            ItemStack stack = player.getItemStackFromSlot(slot);
-            if (stack.isEmpty()) continue;
-            total += getRunicBase(stack);
-        }
-        return total;
-    }
-
-    private int getRunicBase(ItemStack stack) {
-        NBTTagCompound tag = stack.getTagCompound();
-        if (tag != null) {
-            if (tag.hasKey(RUNIC_BASE_TAG, 1)) {
-                return tag.getByte(RUNIC_BASE_TAG);
-            }
-            if (tag.hasKey(RUNIC_TAG, 1)) {
-                return tag.getByte(RUNIC_TAG);
-            }
-        }
+    private int getStoredRunicBase(NBTTagCompound tag) {
+        if (tag == null) return 0;
+        if (tag.hasKey(RUNIC_BASE_TAG, 1)) return tag.getByte(RUNIC_BASE_TAG);
+        if (tag.hasKey(RUNIC_BASE_TAG_LEGACY, 1)) return tag.getByte(RUNIC_BASE_TAG_LEGACY);
+        if (tag.hasKey(RUNIC_TAG, 1)) return tag.getByte(RUNIC_TAG);
         return 0;
-    }
-
-    private int getRunicMaxFromGear(EntityPlayer player) {
-        int total = 0;
-        for (EntityEquipmentSlot slot : ARMOR_SLOTS) {
-            ItemStack stack = player.getItemStackFromSlot(slot);
-            if (stack.isEmpty()) continue;
-            NBTTagCompound tag = stack.getTagCompound();
-            if (tag != null && tag.hasKey(RUNIC_TAG, 1)) {
-                total += tag.getByte(RUNIC_TAG);
-            }
-        }
-        return total;
     }
 
     private int clampRunic(int value) {
@@ -489,29 +454,163 @@ public class TAGemEventHandler {
         return Math.min(127, value);
     }
 
+    private int getOverloadCost(int currentSeries) {
+        double cost = 5.0d + (currentSeries * currentSeries) / 5.0d;
+        return (int) Math.ceil(cost);
+    }
+
+    private boolean tryConsumeVis(EntityPlayer player, int cost) {
+        if (cost <= 0) return true;
+        BlockPos pos = player.getPosition();
+        float available = AuraHelper.getVis(player.world, pos);
+        if (available + 1.0e-4f >= cost) {
+            float drained = AuraHelper.drainVis(player.world, pos, cost, true);
+            if (drained + 1.0e-4f >= cost) {
+                return true;
+            }
+        }
+        return consumeChargeFromItems(player, cost);
+    }
+
+    private boolean consumeChargeFromItems(EntityPlayer player, int cost) {
+        int available = getTotalCharge(player);
+        if (available < cost) return false;
+        if (consumeChargeFromPlayer(player, cost)) return true;
+        int remaining = cost;
+        for (ItemStack stack : player.inventory.mainInventory) {
+            remaining = drainChargeFromStack(player, stack, remaining);
+            if (remaining <= 0) return true;
+        }
+        for (ItemStack stack : player.inventory.offHandInventory) {
+            remaining = drainChargeFromStack(player, stack, remaining);
+            if (remaining <= 0) return true;
+        }
+        for (ItemStack stack : player.inventory.armorInventory) {
+            remaining = drainChargeFromStack(player, stack, remaining);
+            if (remaining <= 0) return true;
+        }
+        remaining = drainChargeFromBaubles(player, remaining);
+        return remaining <= 0;
+    }
+
+    private int drainChargeFromStack(EntityPlayer player, ItemStack stack, int remaining) {
+        if (remaining <= 0 || stack == null || stack.isEmpty()) return remaining;
+        if (!(stack.getItem() instanceof IRechargable)) return remaining;
+        int charge = RechargeHelper.getCharge(stack);
+        if (charge <= 0) return remaining;
+        int toDrain = Math.min(charge, remaining);
+        if (consumeCharge(stack, player, toDrain)) {
+            return remaining - toDrain;
+        }
+        return remaining;
+    }
+
+    private int drainChargeFromBaubles(EntityPlayer player, int remaining) {
+        if (remaining <= 0) return 0;
+        try {
+            Class<?> api = Class.forName("baubles.api.BaublesApi");
+            Method getHandler = api.getMethod("getBaublesHandler", EntityPlayer.class);
+            Object handler = getHandler.invoke(null, player);
+            if (handler == null) return remaining;
+            Method getSlots = handler.getClass().getMethod("getSlots");
+            Method getStack = handler.getClass().getMethod("getStackInSlot", int.class);
+            int slots = (int) getSlots.invoke(handler);
+            int pending = remaining;
+            for (int i = 0; i < slots; i++) {
+                Object stackObj = getStack.invoke(handler, i);
+                if (!(stackObj instanceof ItemStack)) continue;
+                pending = drainChargeFromStack(player, (ItemStack) stackObj, pending);
+                if (pending <= 0) return 0;
+            }
+            return pending;
+        } catch (Throwable ignored) {
+            return remaining;
+            }
+    }
+
+
+    private int getTotalCharge(EntityPlayer player) {
+        int total = 0;
+        for (ItemStack stack : player.inventory.mainInventory) {
+            total += getCharge(stack);
+        }
+        for (ItemStack stack : player.inventory.offHandInventory) {
+            total += getCharge(stack);
+        }
+        for (ItemStack stack : player.inventory.armorInventory) {
+            total += getCharge(stack);
+        }
+        total += getBaublesCharge(player);
+        return total;
+    }
+
+    private int getCharge(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return 0;
+        if (!(stack.getItem() instanceof IRechargable)) return 0;
+        return Math.max(0, RechargeHelper.getCharge(stack));
+    }
+
+    private int getBaublesCharge(EntityPlayer player) {
+        try {
+            Class<?> api = Class.forName("baubles.api.BaublesApi");
+            Method getHandler = api.getMethod("getBaublesHandler", EntityPlayer.class);
+            Object handler = getHandler.invoke(null, player);
+            if (handler == null) return 0;
+            Method getSlots = handler.getClass().getMethod("getSlots");
+            Method getStack = handler.getClass().getMethod("getStackInSlot", int.class);
+            int slots = (int) getSlots.invoke(handler);
+            int total = 0;
+            for (int i = 0; i < slots; i++) {
+                Object stackObj = getStack.invoke(handler, i);
+                if (stackObj instanceof ItemStack) {
+                    total += getCharge((ItemStack) stackObj);
+                }
+            }
+            return total;
+        } catch (Throwable ignored) {
+            return 0;
+        }
+    }
+
+    private boolean consumeCharge(ItemStack stack, EntityPlayer player, int amount) {
+        try {
+            Method method = RechargeHelper.class.getMethod("consumeCharge", ItemStack.class, EntityLivingBase.class, int.class);
+            Object result = method.invoke(null, stack, player, amount);
+            return !(result instanceof Boolean) || (Boolean) result;
+        } catch (Throwable ignored) {
+        }
+        try {
+            Method method = RechargeHelper.class.getMethod("consumeCharge", ItemStack.class, EntityPlayer.class, int.class);
+            Object result = method.invoke(null, stack, player, amount);
+            return !(result instanceof Boolean) || (Boolean) result;
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
+    private boolean consumeChargeFromPlayer(EntityPlayer player, int amount) {
+        try {
+            Method method = RechargeHelper.class.getMethod("consumeCharge", EntityLivingBase.class, int.class);
+            Object result = method.invoke(null, player, amount);
+            return !(result instanceof Boolean) || (Boolean) result;
+        } catch (Throwable ignored) {
+        }
+        try {
+            Method method = RechargeHelper.class.getMethod("consumeCharge", EntityPlayer.class, int.class);
+            Object result = method.invoke(null, player, amount);
+            return !(result instanceof Boolean) || (Boolean) result;
+        } catch (Throwable ignored) {
+        }
+        return false;
+    }
+
     private void clearAmethystData(EntityPlayer player) {
         NBTTagCompound data = getPersistedData(player);
         data.setInteger(NBT_AMETHYST_STACKS, 0);
         data.setLong(NBT_AMETHYST_EXPIRE, 0L);
-        data.setInteger(NBT_AMETHYST_RECHARGE_TICKER, 0);
-        data.setBoolean(NBT_AMETHYST_WAVE_ACTIVE, false);
-        data.setLong(NBT_AMETHYST_WAVE_NEXT, 0L);
-    }
-
-    private void addAbsorptionSafely(EntityPlayer player, int amount) {
-        int maxAbs = getRunicMaxFromGear(player);
-        float next = Math.min(player.getAbsorptionAmount() + amount, maxAbs);
-        player.setAbsorptionAmount(next);
-    }
-
-    private boolean hasNearbyHostiles(EntityPlayer player) {
-        AxisAlignedBB box = player.getEntityBoundingBox().grow(AmethystEffects.SET2_HOSTILE_RADIUS);
-        List<EntityLivingBase> entities = player.world.getEntitiesWithinAABB(EntityLivingBase.class, box, entity -> {
-            if (entity == null || entity == player) return false;
-            if (!entity.isEntityAlive()) return false;
-            return entity instanceof IMob;
-        });
-        return !entities.isEmpty();
+        data.setInteger(NBT_AMETHYST_OVER_N, 0);
+        data.setLong(NBT_AMETHYST_OVER_LAST, 0L);
+        data.setLong(NBT_AMETHYST_OVER_CD, 0L);
     }
 
     private void triggerDiamondFocusStrikes(EntityPlayer player, EntityLivingBase originalTarget) {
@@ -638,28 +737,6 @@ public class TAGemEventHandler {
             Method method = target.getClass().getMethod(name);
             method.invoke(target);
         } catch (Throwable ignored) {
-        }
-    }
-
-    private boolean forceRunicRecharge(EntityPlayer player) {
-        return invokeRunicHook(player, "forceRunicRecharge")
-                || invokeRunicHook(player, "forceRunicRechargeTick")
-                || invokeRunicHook(player, "resetRunicCooldown");
-    }
-
-    private boolean invokeRunicHook(EntityPlayer player, String methodName) {
-        if (invokeRunicHookOn("therealpant.thaumicattempts.core.TAHooks", player, methodName)) return true;
-        return invokeRunicHookOn("thaumcraft.common.lib.events.PlayerEvents", player, methodName);
-    }
-
-    private boolean invokeRunicHookOn(String className, EntityPlayer player, String methodName) {
-        try {
-            Class<?> clazz = Class.forName(className);
-            Method method = clazz.getMethod(methodName, EntityPlayer.class);
-            method.invoke(null, player);
-            return true;
-        } catch (Throwable ignored) {
-            return false;
         }
     }
 
