@@ -11,6 +11,7 @@ public final class RunicShieldAdapter {
 
     private static boolean checked;
     private static boolean available;
+    private static boolean customShieldingEnabled;
 
     private static Method getMethod; // getRunicShielding(EntityLivingBase) -> double
     private static Method setMethod; // setRunicShielding(EntityLivingBase, double)
@@ -20,13 +21,19 @@ public final class RunicShieldAdapter {
     public static boolean isTTActive() {
         if (!isThaumicTweakerLoaded()) return false;
         ensureMethods();
-        return available;
+        return available && customShieldingEnabled;
+    }
+
+    public static boolean isCustomShieldingEnabled() {
+        if (!isThaumicTweakerLoaded()) return false;
+        if (!ensureMethods()) return false;
+        return customShieldingEnabled;
     }
 
     public static float getCurrentShield(EntityPlayer player) {
         if (player == null) return 0f;
 
-        if (isThaumicTweakerLoaded() && ensureMethods()) {
+        if (isCustomShieldingEnabled()) {
             try {
                 Object v = getMethod.invoke(null, (EntityLivingBase) player);
                 if (v instanceof Number) return ((Number) v).floatValue();
@@ -39,7 +46,7 @@ public final class RunicShieldAdapter {
     public static void setCurrentShield(EntityPlayer player, float value) {
         if (player == null) return;
 
-        if (isThaumicTweakerLoaded() && ensureMethods()) {
+        if (isCustomShieldingEnabled()) {
             try {
                 setMethod.invoke(null, (EntityLivingBase) player, (double) value);
                 return;
@@ -65,11 +72,13 @@ public final class RunicShieldAdapter {
             Class<?> clazz = Class.forName(TT_HANDLER);
             getMethod = clazz.getMethod("getRunicShielding", EntityLivingBase.class);
             setMethod = clazz.getMethod("setRunicShielding", EntityLivingBase.class, double.class);
+            customShieldingEnabled = clazz.getField("ENABLE_NEW_RUNIC_SHIELDING").getBoolean(null);
             available = (getMethod != null && setMethod != null);
         } catch (Throwable ignored) {
             getMethod = null;
             setMethod = null;
             available = false;
+            customShieldingEnabled = false;
         }
 
         return available;

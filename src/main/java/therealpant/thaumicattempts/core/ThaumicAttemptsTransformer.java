@@ -1,6 +1,7 @@
 package therealpant.thaumicattempts.core;
 
 import net.minecraft.launchwrapper.IClassTransformer;
+import net.minecraftforge.fml.common.asm.transformers.deobf.FMLDeobfuscatingRemapper;
 import org.objectweb.asm.ClassReader;
 import org.objectweb.asm.ClassWriter;
 import org.objectweb.asm.tree.*;
@@ -16,6 +17,14 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
     // ВАЖНО: путь к реальному TAHooks
     private static final String HOOKS = "therealpant/thaumicattempts/core/TAHooks";
+
+    private static String deobfMethod(String ownerInternal, String name, String desc) {
+        return FMLDeobfuscatingRemapper.INSTANCE.mapMethodName(ownerInternal, name, desc);
+    }
+
+    private static String deobfField(String ownerInternal, String name, String desc) {
+        return FMLDeobfuscatingRemapper.INSTANCE.mapFieldName(ownerInternal, name, desc);
+    }
 
     @Override
     public byte[] transform(String name, String transformedName, byte[] basicClass) {
@@ -428,16 +437,13 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         cr.accept(cn, 0);
 
         for (MethodNode m : cn.methods) {
-            if (!"getSettingValue".equals(m.name)
-                    || !"(Ljava/lang/String;)I".equals(m.desc)) {
-                continue;
-            }
-            if ((m.access & ACC_ABSTRACT) != 0) {
-                continue;
-            }
-            if (m.instructions == null || m.instructions.size() == 0) {
-                continue;
-            }
+            if (m.instructions == null || m.instructions.size() == 0) continue;
+            if ((m.access & ACC_ABSTRACT) != 0) continue;
+
+            // имя в prod будет SRG, поэтому сравниваем deobf
+            String mName = deobfMethod(cn.name, m.name, m.desc);
+            if (!"getSettingValue".equals(mName) || !"(Ljava/lang/String;)I".equals(m.desc)) continue;
+
             final int tmp = m.maxLocals;
             m.maxLocals += 1;
 
@@ -461,6 +467,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     m.instructions.insertBefore(insn, hook);
                 }
             }
+
             System.out.println("[ThaumicAttempts] Patched FocusNode (method=" + m.name + m.desc + ") for SET2 lens buffs");
             break;
         }
@@ -473,50 +480,103 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
 
     // ---------------- FocusEngine ----------------
+// ---------------- FocusEngine ----------------
     private byte[] patchFocusEngine(byte[] basicClass) {
         ClassReader cr = new ClassReader(basicClass);
         ClassNode cn = new ClassNode(ASM5);
         cr.accept(cn, 0);
 
+        int injected = 0;
+        int executeSeen = 0;
+
         for (MethodNode m : cn.methods) {
-            if ("runFocusPackage".equals(m.name)
-                    && m.desc.startsWith("(Lthaumcraft/api/casters/FocusPackage;")) {
-                int fpIndex = ((m.access & ACC_STATIC) != 0) ? 0 : 1;
-                int tmpPower = -1;
-                for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
-                    if (insn.getType() != AbstractInsnNode.METHOD_INSN) continue;
-                    MethodInsnNode min = (MethodInsnNode) insn;
-                    if ("thaumcraft/api/casters/FocusEffect".equals(min.owner)
-                            && "execute".equals(min.name)
-                            && "(Lnet/minecraft/util/math/RayTraceResult;Lthaumcraft/api/casters/Trajectory;FI)Z".equals(min.desc)) {
-                        if (tmpPower < 0) {
-                            tmpPower = m.maxLocals;
-                            m.maxLocals += 1;
-                        }
-                        InsnList hook = new InsnList();
-                        hook.add(new InsnNode(SWAP));
-                        hook.add(new VarInsnNode(FSTORE, tmpPower));
-                        hook.add(new VarInsnNode(ALOAD, fpIndex));
-                        hook.add(new VarInsnNode(FLOAD, tmpPower));
-                        hook.add(new MethodInsnNode(
-                                INVOKESTATIC,
-                                HOOKS,
-                                "adjustFocusPower",
-                                "(Lthaumcraft/api/casters/FocusPackage;F)F",
-                                false
-                        ));
-                        hook.add(new InsnNode(SWAP));
-                        m.instructions.insertBefore(min, hook);
-                    }
+            if (m.instructions == null || m.instructions.size() == 0) continue;
+
+            String mName = deobfMethod(cn.name, m.name, m.desc);
+
+            if (!"runFocusPackage".equals(mName) || !m.desc.startsWith("(Lthaumcraft/api/casters/FocusPackage;")) {
+                continue;
+            }
+
+            int fpIndex = ((m.access & ACC_STATIC) != 0) ? 0 : 1;
+
+            // локал для временного float
+            int tmpPower = m.maxLocals;
+            m.maxLocals += 1;
+
+            for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (insn.getType() != AbstractInsnNode.METHOD_INSN) continue;
+
+                MethodInsnNode min = (MethodInsnNode) insn;
+                String callName = deobfMethod(min.owner, min.name, min.desc);
+
+                // Ищем execute(...) по deobf-имени, owner НЕ фиксируем (важно!)
+                if (!"execute".equals(callName)) continue;
+
+                executeSeen++;
+
+                // Вариант A: точная сигнатура как у тебя
+                boolean sigA = "(Lnet/minecraft/util/math/RayTraceResult;Lthaumcraft/api/casters/Trajectory;FI)Z".equals(min.desc);
+
+                // Вариант B: некоторые сборки/ответвления меняют пакет Trajectory или добавляют/меняют параметры
+                // Поэтому делаем мягкий матч: RayTraceResult + Trajectory + float + int, и return Z
+                boolean sigSoft =
+                        min.desc.startsWith("(Lnet/minecraft/util/math/RayTraceResult;")
+                                && min.desc.contains("Lthaumcraft/api/casters/Trajectory;")
+                                && min.desc.contains("F")
+                                && min.desc.endsWith(")Z");
+
+                if (!sigA && !sigSoft) {
+                    // полезно увидеть реальные сигнатуры в обычном клиенте
+                    // (оставь на время диагностики)
+                    System.out.println("[ThaumicAttempts] FocusEngine: saw execute desc=" + min.desc + " owner=" + min.owner);
+                    continue;
                 }
+
+                /*
+                 * На стеке перед INVOKEVIRTUAL execute обычно:
+                 *   RayTraceResult, Trajectory, floatPower, int
+                 *
+                 * Мы хотим заменить floatPower на adjustFocusPower(fp, floatPower)
+                 *
+                 * Самый надёжный способ без сложного анализа стека:
+                 *   SWAP (меняем местами int и float)
+                 *   FSTORE tmp
+                 *   ALOAD fp
+                 *   FLOAD tmp
+                 *   INVOKESTATIC adjustFocusPower
+                 *   SWAP (возвращаем порядок float, int)
+                 */
+                InsnList hook = new InsnList();
+                hook.add(new InsnNode(SWAP));                 // ... int, float
+                hook.add(new VarInsnNode(FSTORE, tmpPower));  // store float
+                hook.add(new VarInsnNode(ALOAD, fpIndex));    // FocusPackage
+                hook.add(new VarInsnNode(FLOAD, tmpPower));   // float
+                hook.add(new MethodInsnNode(
+                        INVOKESTATIC,
+                        HOOKS,
+                        "adjustFocusPower",
+                        "(Lthaumcraft/api/casters/FocusPackage;F)F",
+                        false
+                ));
+                hook.add(new InsnNode(SWAP));                 // ... float, int
+
+                m.instructions.insertBefore(min, hook);
+                injected++;
             }
         }
 
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
         cn.accept(cw);
-        System.out.println("[ThaumicAttempts] Patched thaumcraft.api.casters.FocusEngine");
+
+        System.out.println("[ThaumicAttempts] Patched thaumcraft.api.casters.FocusEngine"
+                + " executeSeen=" + executeSeen
+                + " injected=" + injected);
+
         return cw.toByteArray();
     }
+
+
 
     // ---------------- ItemCaster ----------------
     private byte[] patchItemCaster(byte[] basicClass) {
@@ -527,7 +587,11 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         boolean patchedTooltip = patchTooltipAddInformation(cn);
 
         for (MethodNode m : cn.methods) {
-            if (!"onItemRightClick".equals(m.name)
+            if (m.instructions == null || m.instructions.size() == 0) continue;
+
+            String mName = deobfMethod(cn.name, m.name, m.desc);
+
+            if (!"onItemRightClick".equals(mName)
                     || !"(Lnet/minecraft/world/World;Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/util/EnumHand;)Lnet/minecraft/util/ActionResult;".equals(m.desc)) {
                 continue;
             }
@@ -535,19 +599,24 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             int focusIndex = -1;
             int focusStackIndex = -1;
 
+            // ищем локалы, куда записан focus / focusStack
             for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
                 if (insn.getType() != AbstractInsnNode.METHOD_INSN) continue;
                 MethodInsnNode min = (MethodInsnNode) insn;
+
+                String callName = deobfMethod(min.owner, min.name, min.desc);
+
                 if ("thaumcraft/common/items/casters/ItemCaster".equals(min.owner)
-                        && "getFocus".equals(min.name)
+                        && "getFocus".equals(callName)
                         && "(Lnet/minecraft/item/ItemStack;)Lthaumcraft/common/items/casters/ItemFocus;".equals(min.desc)) {
                     AbstractInsnNode next = getNextReal(insn);
                     if (next instanceof VarInsnNode && next.getOpcode() == ASTORE) {
                         focusIndex = ((VarInsnNode) next).var;
                     }
                 }
+
                 if ("thaumcraft/common/items/casters/ItemCaster".equals(min.owner)
-                        && "getFocusStack".equals(min.name)
+                        && "getFocusStack".equals(callName)
                         && "(Lnet/minecraft/item/ItemStack;)Lnet/minecraft/item/ItemStack;".equals(min.desc)) {
                     AbstractInsnNode next = getNextReal(insn);
                     if (next instanceof VarInsnNode && next.getOpcode() == ASTORE) {
@@ -560,17 +629,22 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
             for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; ) {
                 AbstractInsnNode next = insn.getNext();
+
                 if (insn.getType() == AbstractInsnNode.METHOD_INSN) {
                     MethodInsnNode min = (MethodInsnNode) insn;
+                    String callName = deobfMethod(min.owner, min.name, min.desc);
 
+                    // CasterManager.isOnCooldown(EntityLivingBase) -> TAHooks.isCasterOnCooldownWithAmber(...)
                     if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
-                            && "isOnCooldown".equals(min.name)
+                            && "isOnCooldown".equals(callName)
                             && "(Lnet/minecraft/entity/EntityLivingBase;)Z".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
+
                         InsnList hook = new InsnList();
                         hook.add(new VarInsnNode(ALOAD, focusStackIndex));
                         hook.add(new VarInsnNode(ALOAD, focusIndex));
                         m.instructions.insertBefore(min, hook);
+
                         m.instructions.set(min, new MethodInsnNode(
                                 INVOKESTATIC,
                                 HOOKS,
@@ -580,14 +654,17 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                         ));
                     }
 
+                    // CasterManager.setCooldown(EntityLivingBase, int) -> TAHooks.setCasterCooldownWithAmber(...)
                     if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
-                            && "setCooldown".equals(min.name)
+                            && "setCooldown".equals(callName)
                             && "(Lnet/minecraft/entity/EntityLivingBase;I)V".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
+
                         InsnList hook = new InsnList();
                         hook.add(new VarInsnNode(ALOAD, focusStackIndex));
                         hook.add(new VarInsnNode(ALOAD, focusIndex));
                         m.instructions.insertBefore(min, hook);
+
                         m.instructions.set(min, new MethodInsnNode(
                                 INVOKESTATIC,
                                 HOOKS,
@@ -597,13 +674,16 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                         ));
                     }
 
+                    // ItemFocus.getVisCost(ItemStack) -> TAHooks.getVisCostWithAmber(player, focus, focusStack)
                     if ("thaumcraft/common/items/casters/ItemFocus".equals(min.owner)
-                            && "getVisCost".equals(min.name)
+                            && "getVisCost".equals(callName)
                             && "(Lnet/minecraft/item/ItemStack;)F".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
+
                         AbstractInsnNode cursor = getPreviousReal(insn);
                         AbstractInsnNode focusStackLoad = null;
                         AbstractInsnNode focusLoad = null;
+
                         while (cursor != null && (focusStackLoad == null || focusLoad == null)) {
                             if (cursor instanceof VarInsnNode && cursor.getOpcode() == ALOAD) {
                                 int var = ((VarInsnNode) cursor).var;
@@ -615,6 +695,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                             }
                             cursor = getPreviousReal(cursor);
                         }
+
                         if (focusLoad != null && focusStackLoad != null) {
                             InsnList hook = new InsnList();
                             hook.add(new VarInsnNode(ALOAD, playerIndex));
@@ -627,6 +708,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                                     "(Lnet/minecraft/entity/player/EntityPlayer;Lthaumcraft/common/items/casters/ItemFocus;Lnet/minecraft/item/ItemStack;)F",
                                     false
                             ));
+
                             m.instructions.insertBefore(focusLoad, hook);
                             m.instructions.remove(focusLoad);
                             m.instructions.remove(focusStackLoad);
@@ -634,18 +716,21 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                         }
                     }
                 }
+
                 insn = next;
             }
         }
 
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
         cn.accept(cw);
+
         if (patchedTooltip) {
             System.out.println("[ThaumicAttempts] Patched thaumcraft.common.items.casters.ItemCaster tooltips");
         }
         System.out.println("[ThaumicAttempts] Patched thaumcraft.common.items.casters.ItemCaster");
         return cw.toByteArray();
     }
+
 
     // ---------------- ItemFocus ----------------
     private byte[] patchItemFocus(byte[] basicClass) {
@@ -663,28 +748,22 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
                 MethodInsnNode min = (MethodInsnNode) insn;
 
-                // Ищем любые вызовы NodeSetting.getValueText() внутри ItemFocus
+                // deobf имя вызова (в prod это func_****)
+                String callName = deobfMethod(min.owner, min.name, min.desc);
+
                 if ("thaumcraft/api/casters/NodeSetting".equals(min.owner)
-                        && "getValueText".equals(min.name)
+                        && "getValueText".equals(callName)
                         && "()Ljava/lang/String;".equals(min.desc)) {
 
-                    // Перед вызовом кладём player на стек:
-                    // Minecraft.getMinecraft().player
                     InsnList hook = new InsnList();
-                    hook.add(new MethodInsnNode(INVOKESTATIC,
-                            "net/minecraft/client/Minecraft",
-                            "getMinecraft",
-                            "()Lnet/minecraft/client/Minecraft;",
-                            false));
-                    hook.add(new FieldInsnNode(GETFIELD,
-                            "net/minecraft/client/Minecraft",
-                            "player",
-                            "Lnet/minecraft/client/entity/EntityPlayerSP;"));
+                    hook.add(new MethodInsnNode(
+                            INVOKESTATIC,
+                            HOOKS,
+                            "getClientPlayerSafe",
+                            "()Lnet/minecraft/entity/player/EntityPlayer;",
+                            false
+                    ));
 
-                    // ВАЖНО:
-                    // До этого на стеке уже лежит NodeSetting (как receiver для invokevirtual).
-                    // Мы добавляем player, и заменяем вызов на static:
-                    // TAHooks.getFocusSettingValueTextWithAmberColored(setting, player)
                     m.instructions.insertBefore(min, hook);
 
                     min.setOpcode(INVOKESTATIC);
@@ -710,6 +789,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         return cw.toByteArray();
     }
 
+
     private boolean patchTooltipAddInformation(ClassNode cn) {
         boolean patched = false;
         for (MethodNode m : cn.methods) {
@@ -725,14 +805,10 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     hook.add(new VarInsnNode(ALOAD, listIndex));
                     hook.add(new VarInsnNode(ALOAD, stackIndex));
                     hook.add(new MethodInsnNode(INVOKESTATIC,
-                            "net/minecraft/client/Minecraft",
-                            "getMinecraft",
-                            "()Lnet/minecraft/client/Minecraft;",
+                            HOOKS,
+                            "getClientPlayerSafe",
+                            "()Lnet/minecraft/entity/player/EntityPlayer;",
                             false));
-                    hook.add(new FieldInsnNode(GETFIELD,
-                            "net/minecraft/client/Minecraft",
-                            "player",
-                            "Lnet/minecraft/client/entity/EntityPlayerSP;"));
                     hook.add(new MethodInsnNode(INVOKESTATIC,
                             HOOKS,
                             "applyAmberFocusTooltip",
@@ -857,5 +933,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         System.out.println("[ThaumicAttempts] Patched thaumcraft.common.golems.tasks.TaskHandler");
         return cw.toByteArray();
     }
+
+
 
 }

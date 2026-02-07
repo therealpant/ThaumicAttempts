@@ -52,6 +52,10 @@ import java.util.regex.Pattern;
  */
 public final class TAHooks {
 
+    private static boolean mcChecked = false;
+    private static Method mGetMc = null;
+    private static Field fPlayer = null;
+
     // Контекст "этот provisioning создаётся под конкретного диспетчерского голема"
     private static final ThreadLocal<UUID> DISPATCH_GOLEM_CTX = new ThreadLocal<>();
 
@@ -815,6 +819,46 @@ public final class TAHooks {
             extra = 4.0f * reducedSeconds;
         }
         return base + extra;
+    }
+
+    /**
+     * Возвращает client player и в dev, и в obf среде.
+     * Никогда не вызывает классы клиента на dedicated server,
+     * потому что этот метод должен вызываться ТОЛЬКО из клиентских классов,
+     * которые ты уже патчишь (ItemCaster/ItemFocus/GUI).
+     */
+    public static EntityPlayer getClientPlayerSafe() {
+        try {
+            Object mc = getMinecraftInstance();
+            if (mc == null) return null;
+            Object p = fPlayer.get(mc);
+            return (p instanceof EntityPlayer) ? (EntityPlayer) p : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
+
+    private static Object getMinecraftInstance() throws Exception {
+        if (!mcChecked) {
+            mcChecked = true;
+            Class<?> mc = Class.forName("net.minecraft.client.Minecraft");
+
+            // getMinecraft() (dev) или func_71410_x() (obf)
+            try {
+                mGetMc = mc.getMethod("getMinecraft");
+            } catch (NoSuchMethodException e) {
+                mGetMc = mc.getMethod("func_71410_x");
+            }
+
+            // player (dev) или field_71439_g (obf)
+            try {
+                fPlayer = mc.getDeclaredField("player");
+            } catch (NoSuchFieldException e) {
+                fPlayer = mc.getDeclaredField("field_71439_g");
+            }
+            fPlayer.setAccessible(true);
+        }
+        return mGetMc.invoke(null);
     }
 
 }
