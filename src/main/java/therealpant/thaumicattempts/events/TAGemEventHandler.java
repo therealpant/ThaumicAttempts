@@ -121,8 +121,6 @@ public class TAGemEventHandler {
         if (event.getEntityLiving() == null || event.getEntityLiving().world.isRemote) return;
         EntityPlayer player = resolvePlayerFromDamageSource(event.getSource());
         if (player == null) return;
-
-
         boolean melee = event.getSource().getImmediateSource() == player;
 
         GemSummary amberSummary = getGemSummary(player, AmberGemDefinition.ID);
@@ -137,36 +135,26 @@ public class TAGemEventHandler {
             GemSummary diamondSummary = getGemSummary(player, DiamondGemDefinition.ID);
             if (diamondSummary.count > 0) {
                 applyDiamondSet4VisBonus(player, diamondSummary, event);
+                if (diamondSummary.count >= DiamondEffects.SET2_REQUIRED) {
+                    NBTTagCompound data = getPersistedData(player);
+                    if (!data.getBoolean(NBT_DIAMOND_INTERNAL_CAST)) {
+                        int hits = data.getInteger(NBT_DIAMOND_HITCOUNT) + 1;
+                        if (hits >= DiamondEffects.SET4_HIT_THRESHOLD) {
+                            data.setInteger(NBT_DIAMOND_HITCOUNT, 0);
+                            triggerDiamondFocusStrikes(player, (EntityLivingBase) event.getEntityLiving());
+                        } else {
+                            data.setInteger(NBT_DIAMOND_HITCOUNT, hits);
+                        }
+                    }
+                } else {
+                    NBTTagCompound data = getPersistedData(player);
+                    data.setInteger(NBT_DIAMOND_HITCOUNT, 0);
+                }
                 damageGemInlays(player, GemDamageSource.ON_PLAYER_HIT);
             }
         }
     }
 
-    @SubscribeEvent
-    public void onAttackEntity(AttackEntityEvent event) {
-        if (event.getEntityPlayer() == null || event.getEntityPlayer().world.isRemote) return;
-        if (!(event.getTarget() instanceof EntityLivingBase)) return;
-        EntityPlayer player = event.getEntityPlayer();
-        EntityLivingBase target = (EntityLivingBase) event.getTarget();
-
-        GemSummary diamondSummary = getGemSummary(player, DiamondGemDefinition.ID);
-        NBTTagCompound data = getPersistedData(player);
-        if (diamondSummary.count < DiamondEffects.SET2_REQUIRED) {
-            data.setInteger(NBT_DIAMOND_HITCOUNT, 0);
-            return;
-        }
-        if (data.getBoolean(NBT_DIAMOND_INTERNAL_CAST)) {
-            return;
-        }
-
-        int hits = data.getInteger(NBT_DIAMOND_HITCOUNT) + 1;
-        if (hits >= DiamondEffects.SET4_HIT_THRESHOLD) {
-            data.setInteger(NBT_DIAMOND_HITCOUNT, 0);
-            triggerDiamondFocusStrikes(player, target);
-        } else {
-            data.setInteger(NBT_DIAMOND_HITCOUNT, hits);
-        }
-    }
 
     @SubscribeEvent
     public void onFocusCast(PlayerInteractEvent.RightClickItem event) {
@@ -663,8 +651,6 @@ public class TAGemEventHandler {
             boolean cast = castFluxStrike(player, target);
             if (!cast) {
                 target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), 8.0f);
-            } else {
-                target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), 8.0f);
             }
         } finally {
             data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, false);
@@ -689,8 +675,6 @@ public class TAGemEventHandler {
                 if (target == null || !target.isEntityAlive()) continue;
                 boolean cast = castFluxStrike(player, target);
                 if (!cast) {
-                    target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), DiamondEffects.SET2_STRIKE_DAMAGE);
-                } else {
                     target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), DiamondEffects.SET2_STRIKE_DAMAGE);
                 }
             }
