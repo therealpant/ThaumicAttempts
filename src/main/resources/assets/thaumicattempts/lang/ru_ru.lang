@@ -94,7 +94,7 @@ tooltip.thaumicattempts.inlay=Инкрустация: %s %s
 tooltip.thaumicattempts.passive=Пассивно: %s
 tooltip.thaumicattempts.passive.amber=+%s%% урона заклинаний
 tooltip.thaumicattempts.passive.amethyst=+%s к максимуму Arcane Guard
-tooltip.thaumicattempts.passive.diamond=+%s%% урона оружия
+tooltip.thaumicattempts.passive.diamond=+%s%% к скорости атаки
 tooltip.thaumicattempts.set.small=Малый набор %s
 tooltip.thaumicattempts.set.full=Полный набор %s
 

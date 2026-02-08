@@ -591,8 +591,7 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
             String mName = deobfMethod(cn.name, m.name, m.desc);
 
-            if (!"onItemRightClick".equals(mName)
-                    || !"(Lnet/minecraft/world/World;Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/util/EnumHand;)Lnet/minecraft/util/ActionResult;".equals(m.desc)) {
+            if (!"(Lnet/minecraft/world/World;Lnet/minecraft/entity/player/EntityPlayer;Lnet/minecraft/util/EnumHand;)Lnet/minecraft/util/ActionResult;".equals(m.desc)) {
                 continue;
             }
 
@@ -607,7 +606,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                 String callName = deobfMethod(min.owner, min.name, min.desc);
 
                 if ("thaumcraft/common/items/casters/ItemCaster".equals(min.owner)
-                        && "getFocus".equals(callName)
                         && "(Lnet/minecraft/item/ItemStack;)Lthaumcraft/common/items/casters/ItemFocus;".equals(min.desc)) {
                     AbstractInsnNode next = getNextReal(insn);
                     if (next instanceof VarInsnNode && next.getOpcode() == ASTORE) {
@@ -616,7 +614,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                 }
 
                 if ("thaumcraft/common/items/casters/ItemCaster".equals(min.owner)
-                        && "getFocusStack".equals(callName)
                         && "(Lnet/minecraft/item/ItemStack;)Lnet/minecraft/item/ItemStack;".equals(min.desc)) {
                     AbstractInsnNode next = getNextReal(insn);
                     if (next instanceof VarInsnNode && next.getOpcode() == ASTORE) {
@@ -636,7 +633,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
                     // CasterManager.isOnCooldown(EntityLivingBase) -> TAHooks.isCasterOnCooldownWithAmber(...)
                     if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
-                            && "isOnCooldown".equals(callName)
                             && "(Lnet/minecraft/entity/EntityLivingBase;)Z".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
 
@@ -656,7 +652,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
                     // CasterManager.setCooldown(EntityLivingBase, int) -> TAHooks.setCasterCooldownWithAmber(...)
                     if ("thaumcraft/common/items/casters/CasterManager".equals(min.owner)
-                            && "setCooldown".equals(callName)
                             && "(Lnet/minecraft/entity/EntityLivingBase;I)V".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
 
@@ -676,7 +671,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
 
                     // ItemFocus.getVisCost(ItemStack) -> TAHooks.getVisCostWithAmber(player, focus, focusStack)
                     if ("thaumcraft/common/items/casters/ItemFocus".equals(min.owner)
-                            && "getVisCost".equals(callName)
                             && "(Lnet/minecraft/item/ItemStack;)F".equals(min.desc)
                             && focusIndex >= 0 && focusStackIndex >= 0) {
 

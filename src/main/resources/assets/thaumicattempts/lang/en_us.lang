@@ -99,7 +99,7 @@ tooltip.thaumicattempts.inlay=Inlay: %s %s
 tooltip.thaumicattempts.passive=Passive: %s
 tooltip.thaumicattempts.passive.amber=+%s%% spell damage
 tooltip.thaumicattempts.passive.amethyst=+%s maximum Arcane Guard
-tooltip.thaumicattempts.passive.diamond=+%s%% weapon damage
+tooltip.thaumicattempts.passive.diamond=+%s%% attack speed
 tooltip.thaumicattempts.set.small=Small set of %s
 tooltip.thaumicattempts.set.full=Full set of %s
 

@@ -117,7 +117,11 @@ public final class TAArmorInlayTooltipHandler {
         } else {
             base = getTierValue(tier, 3, 4, 5);
         }
-        return base * Math.max(1, sameGemCount);
+        int total = base * Math.max(1, sameGemCount);
+        if (DiamondGemDefinition.ID.equals(gemId)) {
+            return Math.min(20, total);
+        }
+        return total;
     }
 
     private static int getTierValue(int tier, int tier1, int tier2, int tier3) {

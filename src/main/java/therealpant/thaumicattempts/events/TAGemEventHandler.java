@@ -21,6 +21,8 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.potion.PotionEffect;
 import net.minecraft.init.MobEffects;
 import net.minecraft.util.DamageSource;
+import net.minecraft.util.EntityDamageSource;
+import net.minecraft.util.EntityDamageSourceIndirect;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
@@ -66,6 +68,7 @@ public class TAGemEventHandler {
     private static final String NBT_AMETHYST_OVER_LAST = "ta_am_over_last";
     private static final String NBT_AMETHYST_OVER_CD = "ta_am_over_cd_until";
 
+    private static final String NBT_DIAMOND_VIS_BONUS = "ta_diamond_vis_bonus";
     private static final String NBT_DIAMOND_HITCOUNT = "ta_diamond_hitcount";
     private static final String NBT_DIAMOND_INTERNAL_CAST = "ta_diamond_internal_cast";
 
@@ -116,13 +119,14 @@ public class TAGemEventHandler {
     @SubscribeEvent
     public void onLivingHurtByPlayer(LivingHurtEvent event) {
         if (event.getEntityLiving() == null || event.getEntityLiving().world.isRemote) return;
-        if (!(event.getSource().getTrueSource() instanceof EntityPlayer)) return;
-        EntityPlayer player = (EntityPlayer) event.getSource().getTrueSource();
+        EntityPlayer player = resolvePlayerFromDamageSource(event.getSource());
+        if (player == null) return;
+
 
         boolean melee = event.getSource().getImmediateSource() == player;
 
         GemSummary amberSummary = getGemSummary(player, AmberGemDefinition.ID);
-        if (amberSummary.count > 0 && isFocusDamage(event.getSource())) {
+        if (amberSummary.count > 0 && isFocusDamage(event.getSource(), player)) {
             float bonus = getTotalDamageBonus(amberSummary, AmberEffects::getDamageBonusPerGem);
             if (bonus > 0f) {
                 event.setAmount(event.getAmount() * (1.0f + bonus));
@@ -132,10 +136,7 @@ public class TAGemEventHandler {
         if (melee) {
             GemSummary diamondSummary = getGemSummary(player, DiamondGemDefinition.ID);
             if (diamondSummary.count > 0) {
-                float bonus = getTotalDamageBonus(diamondSummary, DiamondEffects::getDamageBonusPerGem);
-                if (bonus > 0f) {
-                    event.setAmount(event.getAmount() * (1.0f + bonus));
-                }
+                applyDiamondSet4VisBonus(player, diamondSummary, event);
                 damageGemInlays(player, GemDamageSource.ON_PLAYER_HIT);
             }
         }
@@ -150,7 +151,7 @@ public class TAGemEventHandler {
 
         GemSummary diamondSummary = getGemSummary(player, DiamondGemDefinition.ID);
         NBTTagCompound data = getPersistedData(player);
-        if (diamondSummary.count < DiamondEffects.SET4_REQUIRED) {
+        if (diamondSummary.count < DiamondEffects.SET2_REQUIRED) {
             data.setInteger(NBT_DIAMOND_HITCOUNT, 0);
             return;
         }
@@ -196,6 +197,7 @@ public class TAGemEventHandler {
         NBTTagCompound data = getPersistedData(event.getEntityPlayer());
         data.setInteger(NBT_DIAMOND_HITCOUNT, 0);
         data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, false);
+        data.setFloat(NBT_DIAMOND_VIS_BONUS, 0f);
     }
 
     private void updateAmethystState(EntityPlayer player, long now, GemSummary summary) {
@@ -278,7 +280,7 @@ public class TAGemEventHandler {
         }
         if (now < cdUntil) return;
         if (!player.isSneaking()) return;
-        if (now % AmethystEffects.OVERLOAD_INTERVAL_TICKS != 0) return;
+        if (last > 0 && now - last < AmethystEffects.OVERLOAD_INTERVAL_TICKS) return;
 
 
         int maxRunic = RunicMaxCalculator.getRunicMax(player);
@@ -334,26 +336,17 @@ public class TAGemEventHandler {
 
     private void updateDiamondModifiers(EntityPlayer player) {
         GemSummary summary = getGemSummary(player, DiamondGemDefinition.ID);
-        boolean hasSet = summary.count >= DiamondEffects.SET2_REQUIRED;
+        float bonus = getTotalAttackSpeedBonus(summary);
         AttributeModifier attackSpeed = new AttributeModifier(DiamondEffects.ATTACK_SPEED_UUID,
-                "ta_diamond_attack_speed", DiamondEffects.SET2_ATTACK_SPEED_BONUS, 1);
-        AttributeModifier moveSpeed = new AttributeModifier(DiamondEffects.MOVE_SPEED_UUID,
-                "ta_diamond_move_speed", DiamondEffects.SET2_MOVE_SPEED_BONUS, 1);
+                "ta_diamond_attack_speed", bonus, 1);
 
-        if (hasSet) {
-            if (player.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED).getModifier(DiamondEffects.ATTACK_SPEED_UUID) == null) {
-                player.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED).applyModifier(attackSpeed);
-            }
-            if (player.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).getModifier(DiamondEffects.MOVE_SPEED_UUID) == null) {
-                player.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).applyModifier(moveSpeed);
-            }
-        } else {
+        if (bonus > 0f) {
             if (player.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED).getModifier(DiamondEffects.ATTACK_SPEED_UUID) != null) {
                 player.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED).removeModifier(DiamondEffects.ATTACK_SPEED_UUID);
             }
-            if (player.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).getModifier(DiamondEffects.MOVE_SPEED_UUID) != null) {
-                player.getEntityAttribute(SharedMonsterAttributes.MOVEMENT_SPEED).removeModifier(DiamondEffects.MOVE_SPEED_UUID);
-            }
+            player.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED).applyModifier(attackSpeed);
+        } else if (player.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED).getModifier(DiamondEffects.ATTACK_SPEED_UUID) != null) {
+            player.getEntityAttribute(SharedMonsterAttributes.ATTACK_SPEED).removeModifier(DiamondEffects.ATTACK_SPEED_UUID);
         }
     }
 
@@ -613,6 +606,79 @@ public class TAGemEventHandler {
         data.setLong(NBT_AMETHYST_OVER_CD, 0L);
     }
 
+    private void applyDiamondSet4VisBonus(EntityPlayer player, GemSummary summary, LivingHurtEvent event) {
+        if (summary.count < DiamondEffects.SET4_REQUIRED) {
+            clearDiamondVisBonus(player);
+            return;
+        }
+        if (!tryDrainVisFromAura(player, 10)) return;
+
+        float baseDamage = (float) player.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+        if (baseDamage <= 0f) return;
+
+        NBTTagCompound data = getPersistedData(player);
+        float stored = data.getFloat(NBT_DIAMOND_VIS_BONUS);
+        float newStored = stored + 2.0f;
+        data.setFloat(NBT_DIAMOND_VIS_BONUS, newStored);
+        event.setAmount(event.getAmount() + 2.0f);
+
+        if (newStored >= baseDamage) {
+            data.setFloat(NBT_DIAMOND_VIS_BONUS, 0f);
+            triggerDiamondOverflowStrike(player, (EntityLivingBase) event.getEntityLiving());
+        }
+    }
+
+    private void clearDiamondVisBonus(EntityPlayer player) {
+        NBTTagCompound data = getPersistedData(player);
+        if (data.hasKey(NBT_DIAMOND_VIS_BONUS)) {
+            data.setFloat(NBT_DIAMOND_VIS_BONUS, 0f);
+        }
+    }
+
+    private float getTotalAttackSpeedBonus(GemSummary summary) {
+        float total = 0f;
+        for (int tier : summary.tiers) {
+            total += DiamondEffects.getAttackSpeedBonusPerGem(tier);
+        }
+        return Math.min(DiamondEffects.MAX_ATTACK_SPEED_BONUS, total);
+    }
+
+    private boolean tryDrainVisFromAura(EntityPlayer player, int cost) {
+        if (cost <= 0) return true;
+        BlockPos pos = player.getPosition();
+        float available = AuraHelper.getVis(player.world, pos);
+        if (available + 1.0e-4f < cost) {
+            return false;
+        }
+        float drained = AuraHelper.drainVis(player.world, pos, cost, true);
+        return drained + 1.0e-4f >= cost;
+    }
+
+    private void triggerDiamondOverflowStrike(EntityPlayer player, EntityLivingBase originalTarget) {
+        NBTTagCompound data = getPersistedData(player);
+        data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, true);
+        try {
+            EntityLivingBase target = pickNearestDiamondTarget(player, originalTarget);
+            if (target == null || !target.isEntityAlive()) return;
+            boolean cast = castFluxStrike(player, target);
+            if (!cast) {
+                target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), 8.0f);
+            } else {
+                target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), 8.0f);
+            }
+        } finally {
+            data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, false);
+        }
+    }
+
+    private EntityLivingBase pickNearestDiamondTarget(EntityPlayer player, EntityLivingBase fallback) {
+        List<EntityLivingBase> targets = findDiamondTargets(player);
+        if (!targets.isEmpty()) {
+            return targets.get(0);
+        }
+        return fallback;
+    }
+
     private void triggerDiamondFocusStrikes(EntityPlayer player, EntityLivingBase originalTarget) {
         NBTTagCompound data = getPersistedData(player);
         data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, true);
@@ -623,9 +689,9 @@ public class TAGemEventHandler {
                 if (target == null || !target.isEntityAlive()) continue;
                 boolean cast = castFluxStrike(player, target);
                 if (!cast) {
-                    target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), DiamondEffects.SET4_STRIKE_DAMAGE);
+                    target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), DiamondEffects.SET2_STRIKE_DAMAGE);
                 } else {
-                    target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), DiamondEffects.SET4_STRIKE_DAMAGE);
+                    target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), DiamondEffects.SET2_STRIKE_DAMAGE);
                 }
             }
         } finally {
@@ -633,7 +699,7 @@ public class TAGemEventHandler {
         }
     }
     private List<EntityLivingBase> findDiamondTargets(EntityPlayer player) {
-        AxisAlignedBB box = player.getEntityBoundingBox().grow(DiamondEffects.SET4_TARGET_RADIUS);
+        AxisAlignedBB box = player.getEntityBoundingBox().grow(DiamondEffects.SET2_TARGET_RADIUS);
         List<EntityLivingBase> targets = player.world.getEntitiesWithinAABB(EntityLivingBase.class, box, entity -> {
             if (entity == null || entity == player) return false;
             if (!entity.isEntityAlive()) return false;
@@ -744,12 +810,86 @@ public class TAGemEventHandler {
         return stack != null && !stack.isEmpty() && stack.getItem() instanceof ICaster;
     }
 
-    private boolean isFocusDamage(DamageSource source) {
+    private boolean isFocusDamage(DamageSource source, EntityPlayer player) {
         if (source == null) return false;
         String type = source.getDamageType();
         if (type != null && type.toLowerCase(Locale.ROOT).contains("focus")) return true;
         String className = source.getClass().getName().toLowerCase(Locale.ROOT);
-        return className.contains("focus");
+        if (className.contains("focus")) return true;
+        if (source instanceof EntityDamageSource) {
+            Entity immediate = ((EntityDamageSource) source).getImmediateSource();
+            if (immediate != null) {
+                String immediateClass = immediate.getClass().getName().toLowerCase(Locale.ROOT);
+                if (immediateClass.contains("focus")) return true;
+            }
+        }
+        if (player != null && source.isMagicDamage()) {
+            return isCasterItem(player.getHeldItemMainhand())
+                    || isCasterItem(player.getHeldItemOffhand());
+        }
+        return false;
+    }
+
+    private EntityPlayer resolvePlayerFromDamageSource(DamageSource source) {
+        if (source == null) return null;
+        Entity trueSource = source.getTrueSource();
+        if (trueSource instanceof EntityPlayer) return (EntityPlayer) trueSource;
+        Entity immediate = source.getImmediateSource();
+        EntityPlayer player = extractPlayerFromEntity(immediate);
+        if (player != null) return player;
+        if (source instanceof EntityDamageSourceIndirect) {
+            Entity indirect = ((EntityDamageSourceIndirect) source).getImmediateSource();
+            player = extractPlayerFromEntity(indirect);
+            if (player != null) return player;
+        }
+        return null;
+    }
+
+    private EntityPlayer extractPlayerFromEntity(Entity entity) {
+        if (entity instanceof EntityPlayer) return (EntityPlayer) entity;
+        EntityLivingBase owner = resolveOwner(entity);
+        return owner instanceof EntityPlayer ? (EntityPlayer) owner : null;
+    }
+
+    private EntityLivingBase resolveOwner(Entity entity) {
+        if (entity == null) return null;
+        if (entity instanceof EntityLivingBase) return (EntityLivingBase) entity;
+        EntityLivingBase owner = invokeLivingMethod(entity, "getThrower", "func_85052_h");
+        if (owner != null) return owner;
+        owner = invokeLivingMethod(entity, "getOwner", "func_184662_a");
+        if (owner != null) return owner;
+        owner = invokeLivingMethod(entity, "getShooter", "func_184655_a");
+        if (owner != null) return owner;
+        Object field = readField(entity, "thrower", "field_70192_c", "shootingEntity", "field_70235_a");
+        return field instanceof EntityLivingBase ? (EntityLivingBase) field : null;
+    }
+
+    private EntityLivingBase invokeLivingMethod(Object target, String... names) {
+        if (target == null) return null;
+        for (String name : names) {
+            try {
+                Method method = target.getClass().getMethod(name);
+                Object result = method.invoke(target);
+                if (result instanceof EntityLivingBase) {
+                    return (EntityLivingBase) result;
+                }
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
+    private Object readField(Object target, String... names) {
+        if (target == null) return null;
+        for (String name : names) {
+            try {
+                java.lang.reflect.Field field = target.getClass().getDeclaredField(name);
+                field.setAccessible(true);
+                return field.get(target);
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
     }
 
     private void damageGemInlays(EntityPlayer player, GemDamageSource source) {
