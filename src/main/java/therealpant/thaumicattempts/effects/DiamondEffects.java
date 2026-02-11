@@ -11,10 +11,15 @@ public final class DiamondEffects {
     public static final int SET2_REQUIRED = 2;
     public static final int SET4_REQUIRED = 4;
 
-    public static final int SET4_HIT_THRESHOLD = 4;
-    public static final int SET4_STRIKE_COUNT = 4;
+    public static final int SET2_HIT_THRESHOLD = 4;
+    public static final int SET2_STRIKE_COUNT = 4;
+    public static final int SET2_STRIKE_DELAY_TICKS = 10;
     public static final float SET2_STRIKE_DAMAGE = 6.0f;
     public static final double SET2_TARGET_RADIUS = 6.0d;
+    public static final int SET4_VIS_COST_PER_HIT = 6;
+    public static final float SET4_STACK_BONUS_PER_HIT = 2.0f;
+    public static final float SET4_FINISH_DAMAGE = 10.0f;
+    public static final float SET4_MAX_STACK = 40.0f;
     public static final UUID ATTACK_SPEED_UUID = UUID.fromString("cdb09f60-4c9e-4c7f-bd2d-5e1b7e2c9253");
 
 

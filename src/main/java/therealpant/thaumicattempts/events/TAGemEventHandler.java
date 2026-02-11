@@ -4,6 +4,7 @@ import java.lang.reflect.Method;
 import java.util.ArrayList;
 import java.util.Comparator;
 import java.util.HashMap;
+import java.util.Iterator;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -21,22 +22,24 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.potion.PotionEffect;
 import net.minecraft.init.MobEffects;
 import net.minecraft.util.DamageSource;
+import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.util.EntityDamageSource;
-import net.minecraft.util.EntityDamageSourceIndirect;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.Vec3d;
 import net.minecraftforge.event.entity.living.LivingHurtEvent;
-import net.minecraftforge.event.entity.player.AttackEntityEvent;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
 import net.minecraftforge.event.entity.player.PlayerEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent;
 import net.minecraftforge.fml.common.gameevent.TickEvent.PlayerTickEvent;
 import thaumcraft.api.aura.AuraHelper;
-import thaumcraft.api.casters.ICaster;
+import thaumcraft.api.casters.*;
 import thaumcraft.api.items.IRechargable;
 import thaumcraft.api.items.RechargeHelper;
+import thaumcraft.api.casters.Trajectory;
+import thaumcraft.common.items.casters.foci.FocusEffectFlux;
 import therealpant.thaumicattempts.api.gems.GemDamageSource;
 import therealpant.thaumicattempts.api.gems.ITAGemDefinition;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
@@ -54,9 +57,7 @@ import therealpant.thaumicattempts.util.RunicShieldAdapter;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
 import therealpant.thaumicattempts.ThaumicAttempts;
-
-import static org.apache.commons.lang3.reflect.MethodUtils.invokeMethod;
-import static thaumcraft.api.items.RechargeHelper.getCharge;
+;
 
 public class TAGemEventHandler {
     private static final String NBT_AMETHYST_STACKS = "ta_amethyst_stacks";
@@ -78,6 +79,7 @@ public class TAGemEventHandler {
     private static final String RUNIC_BASE_TAG_LEGACY = "TA.RUNIC_BASE";
     private static final String RUNIC_TMP_TAG_LEGACY = "TA.RUNIC_TMP";
 
+    private static final double DIAMOND_STRIKE_SPEED = 3.5d;
 
     private static final EntityEquipmentSlot[] ARMOR_SLOTS = new EntityEquipmentSlot[]{
             EntityEquipmentSlot.HEAD,
@@ -86,12 +88,15 @@ public class TAGemEventHandler {
             EntityEquipmentSlot.FEET
     };
     private final Map<UUID, Integer> amberCountCache = new HashMap<>();
+    private static final Map<UUID, List<PendingDiamondStrike>> DIAMOND_STRIKE_QUEUE = new HashMap<>();
 
     @SubscribeEvent
     public void onPlayerTick(PlayerTickEvent event) {
         if (event.player == null || event.player.world == null || event.player.world.isRemote) return;
         if (event.phase != TickEvent.Phase.END) return;
         long now = event.player.world.getTotalWorldTime();
+
+        tickDiamondStrikeQueue(event.player, now);
 
         GemSummary amberSummary = getGemSummary(event.player, AmberGemDefinition.ID);
         GemSummary amethystSummary = getGemSummary(event.player, AmethystGemDefinition.ID);
@@ -134,23 +139,22 @@ public class TAGemEventHandler {
         if (melee) {
             GemSummary diamondSummary = getGemSummary(player, DiamondGemDefinition.ID);
             if (diamondSummary.count > 0) {
-                applyDiamondSet4VisBonus(player, diamondSummary, event);
-                if (diamondSummary.count >= DiamondEffects.SET2_REQUIRED) {
-                    NBTTagCompound data = getPersistedData(player);
-                    if (!data.getBoolean(NBT_DIAMOND_INTERNAL_CAST)) {
+                NBTTagCompound data = getPersistedData(player);
+                if (!data.getBoolean(NBT_DIAMOND_INTERNAL_CAST)) {
+                    applyDiamondSet4VisBonus(player, diamondSummary, event);
+                    if (diamondSummary.count >= DiamondEffects.SET2_REQUIRED) {
                         int hits = data.getInteger(NBT_DIAMOND_HITCOUNT) + 1;
-                        if (hits >= DiamondEffects.SET4_HIT_THRESHOLD) {
+                        if (hits >= DiamondEffects.SET2_HIT_THRESHOLD) {
                             data.setInteger(NBT_DIAMOND_HITCOUNT, 0);
-                            triggerDiamondFocusStrikes(player, (EntityLivingBase) event.getEntityLiving());
+                            scheduleDiamondSet2Strikes(player, (EntityLivingBase) event.getEntityLiving());
                         } else {
                             data.setInteger(NBT_DIAMOND_HITCOUNT, hits);
                         }
+                    } else {
+                        data.setInteger(NBT_DIAMOND_HITCOUNT, 0);
                     }
-                } else {
-                    NBTTagCompound data = getPersistedData(player);
-                    data.setInteger(NBT_DIAMOND_HITCOUNT, 0);
+                    damageGemInlays(player, GemDamageSource.ON_PLAYER_HIT);
                 }
-                damageGemInlays(player, GemDamageSource.ON_PLAYER_HIT);
             }
         }
     }
@@ -175,6 +179,7 @@ public class TAGemEventHandler {
     public void onPlayerLogout(net.minecraftforge.fml.common.gameevent.PlayerEvent.PlayerLoggedOutEvent event) {
         if (event.player == null || event.player.world == null || event.player.world.isRemote) return;
         amberCountCache.remove(event.player.getUniqueID());
+        DIAMOND_STRIKE_QUEUE.remove(event.player.getUniqueID());
     }
 
 
@@ -599,20 +604,34 @@ public class TAGemEventHandler {
             clearDiamondVisBonus(player);
             return;
         }
-        if (!tryDrainVisFromAura(player, 10)) return;
 
-        float baseDamage = (float) player.getEntityAttribute(SharedMonsterAttributes.ATTACK_DAMAGE).getAttributeValue();
+        float baseDamage = event.getAmount();
         if (baseDamage <= 0f) return;
 
         NBTTagCompound data = getPersistedData(player);
         float stored = data.getFloat(NBT_DIAMOND_VIS_BONUS);
-        float newStored = stored + 2.0f;
-        data.setFloat(NBT_DIAMOND_VIS_BONUS, newStored);
-        event.setAmount(event.getAmount() + 2.0f);
 
-        if (newStored >= baseDamage) {
+        // каждый удар оружием стоит 10 vis
+        if (!tryDrainVisFromAura(player, DiamondEffects.SET4_VIS_COST_PER_HIT)) {
+            // если стаки были — превращаем их в финалку, иначе просто выходим
+            if (stored > 0f) {
+                data.setFloat(NBT_DIAMOND_VIS_BONUS, 0f);
+                triggerDiamondFinisher(player, (EntityLivingBase) event.getEntityLiving());
+            }
+            return;
+        }
+
+        // накапливаем +2
+        float newStored = Math.min(DiamondEffects.SET4_MAX_STACK, stored + DiamondEffects.SET4_STACK_BONUS_PER_HIT);
+        data.setFloat(NBT_DIAMOND_VIS_BONUS, newStored);
+
+        // к текущему удару добавляем накопительный бонус
+        event.setAmount(baseDamage + newStored);
+
+        // финалка: достигли капа ИЛИ бонус превысил базовый урон удара
+        if (newStored >= DiamondEffects.SET4_MAX_STACK || newStored > baseDamage) {
             data.setFloat(NBT_DIAMOND_VIS_BONUS, 0f);
-            triggerDiamondOverflowStrike(player, (EntityLivingBase) event.getEntityLiving());
+            triggerDiamondFinisher(player, (EntityLivingBase) event.getEntityLiving());
         }
     }
 
@@ -632,162 +651,153 @@ public class TAGemEventHandler {
     }
 
     private boolean tryDrainVisFromAura(EntityPlayer player, int cost) {
+        if (player == null || player.world == null) return false;
         if (cost <= 0) return true;
+
         BlockPos pos = player.getPosition();
         float available = AuraHelper.getVis(player.world, pos);
-        if (available + 1.0e-4f < cost) {
-            return false;
-        }
-        float drained = AuraHelper.drainVis(player.world, pos, cost, true);
+        if (available + 1.0e-4f < cost) return false;
+
+        // ВАЖНО: false = реально слить vis, true = симуляция
+        float drained = AuraHelper.drainVis(player.world, pos, cost, false);
         return drained + 1.0e-4f >= cost;
     }
 
-    private void triggerDiamondOverflowStrike(EntityPlayer player, EntityLivingBase originalTarget) {
+    private void triggerDiamondFinisher(EntityPlayer player, EntityLivingBase originalTarget) {
         NBTTagCompound data = getPersistedData(player);
         data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, true);
         try {
             EntityLivingBase target = pickNearestDiamondTarget(player, originalTarget);
             if (target == null || !target.isEntityAlive()) return;
-            boolean cast = castFluxStrike(player, target);
-            if (!cast) {
-                target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), 8.0f);
-            }
+
+            // FX на цели
+            castFluxStrikeVisual(player, target, DIAMOND_STRIKE_SPEED);
+
+            DamageSource ds = new EntityDamageSource("ta_diamond_flux", player).setMagicDamage();
+            target.attackEntityFrom(ds, DiamondEffects.SET4_FINISH_DAMAGE);
         } finally {
             data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, false);
         }
     }
+
 
     private EntityLivingBase pickNearestDiamondTarget(EntityPlayer player, EntityLivingBase fallback) {
         List<EntityLivingBase> targets = findDiamondTargets(player);
         if (!targets.isEmpty()) {
             return targets.get(0);
         }
-        return fallback;
+        return isValidDiamondTarget(player, fallback) ? fallback : null;
     }
 
-    private void triggerDiamondFocusStrikes(EntityPlayer player, EntityLivingBase originalTarget) {
-        NBTTagCompound data = getPersistedData(player);
-        data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, true);
-        try {
-            List<EntityLivingBase> targets = findDiamondTargets(player);
-            for (int i = 0; i < DiamondEffects.SET4_STRIKE_COUNT; i++) {
-                EntityLivingBase target = targets.isEmpty() ? originalTarget : targets.get(i % targets.size());
-                if (target == null || !target.isEntityAlive()) continue;
-                boolean cast = castFluxStrike(player, target);
-                if (!cast) {
-                    target.attackEntityFrom(DamageSource.causeIndirectMagicDamage(player, player), DiamondEffects.SET2_STRIKE_DAMAGE);
-                }
-            }
-        } finally {
-            data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, false);
+    private void scheduleDiamondSet2Strikes(EntityPlayer player, EntityLivingBase originalTarget) {
+        long now = player.world.getTotalWorldTime();
+        UUID playerId = player.getUniqueID();
+        List<PendingDiamondStrike> strikes = DIAMOND_STRIKE_QUEUE.computeIfAbsent(playerId, id -> new ArrayList<>());
+        int fallbackId = originalTarget == null ? -1 : originalTarget.getEntityId();
+        for (int i = 0; i < DiamondEffects.SET2_STRIKE_COUNT; i++) {
+            long executeAt = now + (long) i * DiamondEffects.SET2_STRIKE_DELAY_TICKS;
+            strikes.add(new PendingDiamondStrike(executeAt, fallbackId, DiamondEffects.SET2_STRIKE_DAMAGE));
         }
     }
+
+
     private List<EntityLivingBase> findDiamondTargets(EntityPlayer player) {
         AxisAlignedBB box = player.getEntityBoundingBox().grow(DiamondEffects.SET2_TARGET_RADIUS);
-        List<EntityLivingBase> targets = player.world.getEntitiesWithinAABB(EntityLivingBase.class, box, entity -> {
-            if (entity == null || entity == player) return false;
-            if (!entity.isEntityAlive()) return false;
-            return entity.canBeAttackedWithItem();
+        List<EntityLivingBase> targets = player.world.getEntitiesWithinAABB(EntityLivingBase.class, box, e -> {
+            if (e == null || e == player) return false;
+            if (!e.isEntityAlive()) return false;
+            // не используем canBeAttackedWithItem() — оно иногда режет манекены/особые мобы
+            if (e.isEntityInvulnerable(DamageSource.GENERIC)) return false;
+            return true;
         });
         targets.sort(Comparator.comparingDouble(player::getDistanceSq));
         return targets;
     }
 
-    private boolean castFluxStrike(EntityPlayer player, EntityLivingBase target) {
-        try {
-            Class<?> packageClass = Class.forName("thaumcraft.api.casters.FocusPackage");
-            Class<?> nodeClass = Class.forName("thaumcraft.api.casters.FocusNode");
-            Object focusPackage = packageClass.getDeclaredConstructor().newInstance();
-            Object root = Class.forName("thaumcraft.api.casters.FocusMediumRoot").getDeclaredConstructor().newInstance();
-            Object flux = Class.forName("thaumcraft.common.items.casters.foci.FocusEffectFlux").getDeclaredConstructor().newInstance();
 
-            invokeMethod(root, "initialize");
-            invokeMethod(flux, "initialize");
-            invokeMethod(root, "setupFromCasterToTarget", EntityLivingBase.class, Entity.class, player, target);
+    private boolean castFluxStrikeVisual(EntityPlayer player, EntityLivingBase target, double speed) {
+        if (player == null || target == null || player.world == null) return false;
 
-            invokeMethod(focusPackage, "setCaster", EntityLivingBase.class, player);
-            invokeMethod(focusPackage, "setTarget", Entity.class, target);
-            invokeMethod(focusPackage, "addNode", nodeClass, root);
-            invokeMethod(focusPackage, "addNode", nodeClass, flux);
+        // hitVec ДОЛЖЕН быть на цели
+        final Vec3d hit = target.getPositionVector().add(0.0d, target.height * 0.5d, 0.0d);
+        final RayTraceResult rtr = new RayTraceResult(target, hit);
 
-            Class<?> engineClass = Class.forName("thaumcraft.api.casters.FocusEngine");
-            if (invokeStaticFocusCast(engineClass, player, focusPackage)) {
-                return true;
-            }
-        } catch (Throwable ignored) {
-        }
-        return false;
-    }
+        try {
+            // ВАЖНО: FocusPackage(player) проставляет caster/world
+            FocusPackage fp = new FocusPackage(player);
 
-    private boolean invokeStaticFocusCast(Class<?> engineClass, EntityPlayer player, Object focusPackage) {
-        try {
-            Method method = findCastMethod(engineClass, EntityLivingBase.class, focusPackage.getClass(), boolean.class);
-            if (method != null) {
-                method.invoke(null, player, focusPackage, true);
-                return true;
-            }
-        } catch (Throwable ignored) {
-        }
-        try {
-            Method method = findCastMethod(engineClass, focusPackage.getClass(), boolean.class);
-            if (method != null) {
-                method.invoke(null, focusPackage, true);
-                return true;
-            }
-        } catch (Throwable ignored) {
-        }
-        try {
-            Method method = findCastMethod(engineClass, EntityLivingBase.class, focusPackage.getClass());
-            if (method != null) {
-                method.invoke(null, player, focusPackage);
-                return true;
-            }
-        } catch (Throwable ignored) {
-        }
-        try {
-            Method method = findCastMethod(engineClass, focusPackage.getClass());
-            if (method != null) {
-                method.invoke(null, focusPackage);
-                return true;
-            }
-        } catch (Throwable ignored) {
-        }
-        return false;
-    }
+            FocusEffectFlux flux = new FocusEffectFlux();
+            flux.initialize();
+            fp.addNode(flux);
 
-    private Method findCastMethod(Class<?> engineClass, Class<?>... paramTypes) {
-        try {
-            return engineClass.getMethod("castFocusPackage", paramTypes);
-        } catch (Throwable ignored) {
-            return null;
+            Trajectory traj = buildTrajectoryToEntity(player, target, speed);
+
+            // ВАЖНО: правильная сигнатура (без player)
+            FocusEngine.runFocusPackage(fp, new Trajectory[]{traj}, new RayTraceResult[]{rtr});
+            return true;
+        } catch (Throwable t) {
+            // FALLBACK: напрямую отправляем тот же FX-пакет, что делает FocusEffectFlux
+            try {
+                if (!player.world.isRemote) {
+                    net.minecraftforge.fml.common.network.NetworkRegistry.TargetPoint tp =
+                            new net.minecraftforge.fml.common.network.NetworkRegistry.TargetPoint(
+                                    player.world.provider.getDimension(),
+                                    hit.x, hit.y, hit.z,
+                                    64.0d
+                            );
+
+                    thaumcraft.common.lib.network.PacketHandler.INSTANCE.sendToAllAround(
+                            new thaumcraft.common.lib.network.fx.PacketFXFocusPartImpact(
+                                    hit.x, hit.y, hit.z,
+                                    new String[]{ "thaumcraft.FLUX" }
+                            ),
+                            tp
+                    );
+                }
+                return true;
+            } catch (Throwable ignored) {
+                return false;
+            }
         }
     }
 
-    private void invokeMethod(Object target, String name, Class<?> paramType, Object arg) {
-        if (target == null) return;
-        try {
-            Method method = target.getClass().getMethod(name, paramType);
-            method.invoke(target, arg);
-        } catch (Throwable ignored) {
+    private Trajectory buildTrajectoryToEntity(EntityPlayer player, EntityLivingBase target, double speed) {
+        Vec3d src = player.getPositionEyes(1.0f);
+        Vec3d look = player.getLookVec();
+        src = src.add(look.x * 0.35d, look.y * 0.35d, look.z * 0.35d);
+
+        Vec3d dst = target.getPositionVector().add(0.0d, target.height * 0.5d, 0.0d);
+        Vec3d dir = dst.subtract(src);
+
+        if (dir.lengthSquared() < 1.0e-6) {
+            dir = look; // на всякий
         }
+
+        return new Trajectory(src, dir.normalize());
     }
 
-    private void invokeMethod(Object target, String name, Class<?> paramTypeA, Class<?> paramTypeB, Object argA, Object argB) {
-        if (target == null) return;
-        try {
-            Method method = target.getClass().getMethod(name, paramTypeA, paramTypeB);
-            method.invoke(target, argA, argB);
-        } catch (Throwable ignored) {
-        }
+    private RayTraceResult buildRayTraceOnEntity(EntityLivingBase target) {
+        Vec3d hit = target.getPositionVector().add(0.0d, target.height * 0.5d, 0.0d);
+        return new RayTraceResult(target, hit);
     }
 
-    private void invokeMethod(Object target, String name) {
-        if (target == null) return;
-        try {
-            Method method = target.getClass().getMethod(name);
-            method.invoke(target);
-        } catch (Throwable ignored) {
-        }
+    private FocusMediumRoot createRootToTarget(EntityPlayer caster, EntityLivingBase target, double speed) {
+        // Логика близкая к TC, но targets = именно target
+        Vec3d src = caster.getPositionEyes(1.0f);
+        Vec3d look = caster.getLookVec();
+        // небольшой вынос вперёд, чтобы "вылетало" из руки
+        src = src.add(look.x * 0.5d, look.y * 0.5d, look.z * 0.5d);
+
+        Vec3d dst = target.getPositionVector().add(0.0d, target.height * 0.5d, 0.0d);
+        Vec3d dir = dst.subtract(src);
+
+        Trajectory traj = new Trajectory(src, dir.normalize());
+
+        RayTraceResult rtr = new RayTraceResult(target);
+
+        FocusMediumRoot root = new FocusMediumRoot(new Trajectory[]{traj}, new RayTraceResult[]{rtr});
+        root.initialize();
+        return root;
     }
 
     private boolean isCasterItem(ItemStack stack) {
@@ -821,11 +831,6 @@ public class TAGemEventHandler {
         Entity immediate = source.getImmediateSource();
         EntityPlayer player = extractPlayerFromEntity(immediate);
         if (player != null) return player;
-        if (source instanceof EntityDamageSourceIndirect) {
-            Entity indirect = ((EntityDamageSourceIndirect) source).getImmediateSource();
-            player = extractPlayerFromEntity(indirect);
-            if (player != null) return player;
-        }
         return null;
     }
 
@@ -918,9 +923,82 @@ public class TAGemEventHandler {
         return data.getCompoundTag(EntityPlayer.PERSISTED_NBT_TAG);
     }
 
+    private void tickDiamondStrikeQueue(EntityPlayer player, long now) {
+        UUID playerId = player.getUniqueID();
+        List<PendingDiamondStrike> strikes = DIAMOND_STRIKE_QUEUE.get(playerId);
+        if (strikes == null || strikes.isEmpty()) return;
+        Iterator<PendingDiamondStrike> iterator = strikes.iterator();
+        while (iterator.hasNext()) {
+            PendingDiamondStrike strike = iterator.next();
+            if (strike.executeAt > now) continue;
+            iterator.remove();
+            executeDiamondStrike(player, strike);
+        }
+        if (strikes.isEmpty()) {
+            DIAMOND_STRIKE_QUEUE.remove(playerId);
+        }
+    }
+
+    // 5) СЕТ-2 “тычки”: у тебя они уже есть и дамажат,
+// но визуал должен идти через runFocusPackage.
+// Если метод есть — замени целиком
+    private void executeDiamondStrike(EntityPlayer player, PendingDiamondStrike strike) {
+        if (player == null || player.world == null || player.world.isRemote) return;
+
+        EntityLivingBase fallbackTarget = null;
+        if (strike.fallbackTargetId >= 0) {
+            Entity e = player.world.getEntityByID(strike.fallbackTargetId);
+            if (e instanceof EntityLivingBase) {
+                fallbackTarget = (EntityLivingBase) e;
+            }
+        }
+
+        EntityLivingBase target = pickRandomNearbyTarget(player, fallbackTarget);
+        if (target == null) return;
+
+        NBTTagCompound data = getPersistedData(player);
+        data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, true);
+        try {
+            // визуал
+            castFluxStrikeVisual(player, target, DIAMOND_STRIKE_SPEED);
+
+            // урон
+            DamageSource ds = new EntityDamageSource("ta_diamond_flux", player).setMagicDamage();
+            target.attackEntityFrom(ds, strike.damage);
+        } finally {
+            data.setBoolean(NBT_DIAMOND_INTERNAL_CAST, false);
+        }
+    }
+
+    private EntityLivingBase pickRandomNearbyTarget(EntityPlayer player, EntityLivingBase fallback) {
+        List<EntityLivingBase> targets = findDiamondTargets(player);
+        if (!targets.isEmpty()) {
+            return targets.get(player.getRNG().nextInt(targets.size()));
+        }
+        return isValidDiamondTarget(player, fallback) ? fallback : null;
+    }
+
+    private boolean isValidDiamondTarget(EntityPlayer player, EntityLivingBase target) {
+        if (target == null || !target.isEntityAlive()) return false;
+        if (target == player) return false;
+        return target.canBeAttackedWithItem();
+    }
+
     private static class GemSummary {
         private final List<Integer> tiers = new ArrayList<>();
         private int count;
+    }
+
+    private static class PendingDiamondStrike {
+        private final long executeAt;
+        private final int fallbackTargetId;
+        private final float damage;
+
+        private PendingDiamondStrike(long executeAt, int fallbackTargetId, float damage) {
+            this.executeAt = executeAt;
+            this.fallbackTargetId = fallbackTargetId;
+            this.damage = damage;
+        }
     }
 
     private interface TierBonusResolver {
