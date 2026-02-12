@@ -73,6 +73,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Nullable
     private Object impetusNode;
 
+    private int impetusPulseTicks;
     private int tickCounter;
     private int drawDelay;
     private int suctionPingCooldown;
@@ -80,11 +81,22 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private int pearlUseCounter;
     private int essentiaCostCurrent = ESSENTIA_BASE_COST;
     private int impetusCostCurrent = IMPETUS_BASE_COST;
+
     private long lastWorkTick;
+    // === TAUG импетус по-тиковая оплата (для "пульса" на линии) ===
+    private long stageImpetusNeed;     // сколько нужно оплатить за текущую стадию
+    private long stageImpetusPaid;     // сколько уже оплачено за текущую стадию
+    private boolean lastTickHadImpetusFlow; // для анимации/рендера (опционально)
 
     @Override
     public void update() {
-        if (world == null || world.isRemote) return;
+        if (world == null) return;
+
+        if (world.isRemote) {
+            if (impetusPulseTicks > 0) impetusPulseTicks--;
+            return;
+        }
+
         pullEssentiaFromNeighbors();
         if (suctionPingCooldown-- <= 0) {
             if (essentiaAmount < ESSENTIA_CAP) {
@@ -99,14 +111,16 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Override
     public void onLoad() {
         super.onLoad();
-        if (ImpetusCompat.isLoaded()) {
-            if (impetusNode == null) {
-                // лимиты линков можешь настроить
-                impetusNode = ImpetusCompat.createBufferedConsumerNode(this, 4, 4, 200000L);
-            }
-            ImpetusCompat.updateNodeLocation(impetusNode, world, pos);
-            ImpetusCompat.initNode(impetusNode, world);
+        if (!ImpetusCompat.isLoaded() || world == null) return;
+
+        if (impetusNode == null) {
+            impetusNode = ImpetusCompat.createBufferedConsumerNode(this, 4, 4, 200000L);
         }
+
+        ImpetusCompat.updateNodeLocation(impetusNode, world, pos);
+
+        // ВАЖНО: init надо на ОБЕИХ сторонах
+        ImpetusCompat.initNode(impetusNode, world);
     }
 
 
@@ -382,6 +396,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         if (compound.hasKey("Inventory")) {
             inventory.deserializeNBT(compound.getCompoundTag("Inventory"));
         }
+        impetusPulseTicks = compound.getInteger("ImpetusPulse");
         essentiaAmount = compound.getInteger("Essentia");
         pearlUseCounter = compound.getInteger("PearlUse");
         essentiaCostCurrent = compound.getInteger("HeatEssCost");
@@ -394,6 +409,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     public NBTTagCompound writeToNBT(NBTTagCompound compound) {
         super.writeToNBT(compound);
         compound.setTag("Inventory", inventory.serializeNBT());
+        compound.setInteger("ImpetusPulse", impetusPulseTicks);
         compound.setInteger("Essentia", essentiaAmount);
         compound.setInteger("PearlUse", pearlUseCounter);
         compound.setInteger("HeatEssCost", essentiaCostCurrent);
@@ -509,7 +525,16 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private long consumeImpetus(long requested, boolean simulate) {
         if (!ImpetusCompat.isLoaded() || requested <= 0) return 0L;
         if (impetusNode == null) return 0L;
-        return ImpetusCompat.consumeFromNode(impetusNode, requested, simulate);
+
+        long consumed = ImpetusCompat.consumeFromNode(impetusNode, requested, simulate);
+
+        if (!simulate && consumed > 0 && world != null && !world.isRemote) {
+            // 8-12 тиков обычно выглядит “пульсом”
+            impetusPulseTicks = 10;
+            markDirtyAndSync(); // отправит update packet
+        }
+
+        return consumed;
     }
 
 
