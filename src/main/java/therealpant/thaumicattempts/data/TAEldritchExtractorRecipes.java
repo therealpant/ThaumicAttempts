@@ -39,7 +39,7 @@ public final class TAEldritchExtractorRecipes {
             JsonObject root = new JsonParser()
                     .parse(new InputStreamReader(in, StandardCharsets.UTF_8))
                     .getAsJsonObject();
-            JsonArray recipes = JsonUtils.getJsonArray(root, "recipes");
+            JsonArray recipes = JsonUtils.getJsonArray(root, "assets/thaumicattempts/recipes");
 
             for (JsonElement element : recipes) {
                 JsonObject entry = element.getAsJsonObject();
