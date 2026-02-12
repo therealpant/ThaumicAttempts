@@ -70,6 +70,9 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         }
     };
 
+    @Nullable
+    private Object impetusNode;
+
     private int tickCounter;
     private int drawDelay;
     private int suctionPingCooldown;
@@ -96,8 +99,16 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Override
     public void onLoad() {
         super.onLoad();
-
+        if (ImpetusCompat.isLoaded()) {
+            if (impetusNode == null) {
+                // лимиты линков можешь настроить
+                impetusNode = ImpetusCompat.createBufferedConsumerNode(this, 4, 4, 200000L);
+            }
+            ImpetusCompat.updateNodeLocation(impetusNode, world, pos);
+            ImpetusCompat.initNode(impetusNode, world);
+        }
     }
+
 
     @Override
     public void validate() {
@@ -107,13 +118,17 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
 
     @Override
     public void invalidate() {
-
+        if (ImpetusCompat.isLoaded()) {
+            ImpetusCompat.unloadNode(impetusNode);
+        }
         super.invalidate();
     }
 
     @Override
     public void onChunkUnload() {
-
+        if (ImpetusCompat.isLoaded()) {
+            ImpetusCompat.unloadNode(impetusNode);
+        }
         super.onChunkUnload();
     }
 
@@ -404,20 +419,28 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
 
     @Override
     public boolean hasCapability(Capability<?> capability, @Nullable EnumFacing facing) {
+        Capability<?> impCap = ImpetusCompat.getImpetusNodeCapability();
+        if (impCap != null && capability == impCap) return true;
         if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) return true;
-        if (ImpetusCompat.isImpetusCapability(capability)) return true;
         return super.hasCapability(capability, facing);
     }
 
     @Nullable
     @Override
     public <T> T getCapability(Capability<T> capability, @Nullable EnumFacing facing) {
+        Capability<?> impCap = ImpetusCompat.getImpetusNodeCapability();
+        if (impCap != null && capability == impCap) {
+            if (impetusNode == null && ImpetusCompat.isLoaded()) {
+                impetusNode = ImpetusCompat.createBufferedConsumerNode(this, 4, 4, 200000L);
+                ImpetusCompat.updateNodeLocation(impetusNode, world, pos);
+                ImpetusCompat.initNode(impetusNode, world);
+            }
+            @SuppressWarnings("unchecked")
+            T cast = (T) impetusNode;
+            return cast;
+        }
         if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) {
             return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(inventory);
-        }
-        if (ImpetusCompat.isImpetusCapability(capability)) {
-            T node = ImpetusCompat.getImpetusCapabilityInstance(capability, this);
-            if (node != null) return node;
         }
         return super.getCapability(capability, facing);
     }
@@ -484,11 +507,9 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     }
 
     private long consumeImpetus(long requested, boolean simulate) {
-        if (requested <= 0 || !Loader.isModLoaded(TAUG_MODID)) return 0L;
-        int req = requested > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) requested;
-        return simulate
-                ? (ImpetusCompat.canConsumeImpetus(this, req) ? req : 0L)
-                : (ImpetusCompat.consumeImpetus(this, req) ? req : 0L);
+        if (!ImpetusCompat.isLoaded() || requested <= 0) return 0L;
+        if (impetusNode == null) return 0L;
+        return ImpetusCompat.consumeFromNode(impetusNode, requested, simulate);
     }
 
 

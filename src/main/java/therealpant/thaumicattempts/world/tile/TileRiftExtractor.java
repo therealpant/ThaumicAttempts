@@ -52,6 +52,9 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     private static final float FLUX_RATIO = 0.20F;
 
     @Nullable
+    private Object impetusNode;
+
+    @Nullable
     private AnimVisualState lastSentAnim = null;
 
     private final AnimationFactory factory = new AnimationFactory(this);
@@ -250,7 +253,14 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     @Override
     public void onLoad() {
         super.onLoad();
-
+        if (ImpetusCompat.isLoaded()) {
+            if (impetusNode == null) {
+                // лимиты линков можешь настроить
+                impetusNode = ImpetusCompat.createBufferedConsumerNode(this, 4, 4, 200000L);
+            }
+            ImpetusCompat.updateNodeLocation(impetusNode, world, pos);
+            ImpetusCompat.initNode(impetusNode, world);
+        }
     }
 
     @Override
@@ -261,13 +271,17 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
     @Override
     public void invalidate() {
-
+        if (ImpetusCompat.isLoaded()) {
+            ImpetusCompat.unloadNode(impetusNode);
+        }
         super.invalidate();
     }
 
     @Override
     public void onChunkUnload() {
-
+        if (ImpetusCompat.isLoaded()) {
+            ImpetusCompat.unloadNode(impetusNode);
+        }
         super.onChunkUnload();
     }
 
@@ -596,36 +610,36 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
     @Override
     public boolean hasCapability(Capability<?> capability, @Nullable EnumFacing facing) {
+        Capability<?> impCap = ImpetusCompat.getImpetusNodeCapability();
+        if (impCap != null && capability == impCap) return true;
         if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) return true;
-        if (ImpetusCompat.isImpetusCapability(capability)) return true;
         return super.hasCapability(capability, facing);
     }
 
     @Nullable
     @Override
     public <T> T getCapability(Capability<T> capability, @Nullable EnumFacing facing) {
-        if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) {
-            if (facing == EnumFacing.DOWN) {
-                return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(coreHandler);
+        Capability<?> impCap = ImpetusCompat.getImpetusNodeCapability();
+        if (impCap != null && capability == impCap) {
+            if (impetusNode == null && ImpetusCompat.isLoaded()) {
+                impetusNode = ImpetusCompat.createBufferedConsumerNode(this, 4, 4, 200000L);
+                ImpetusCompat.updateNodeLocation(impetusNode, world, pos);
+                ImpetusCompat.initNode(impetusNode, world);
             }
-            if (facing == null) {
-                return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(combinedHandler);
-            }
-            return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(crownHandler);
+            @SuppressWarnings("unchecked")
+            T cast = (T) impetusNode;
+            return cast;
         }
-        if (ImpetusCompat.isImpetusCapability(capability)) {
-            T node = ImpetusCompat.getImpetusCapabilityInstance(capability, this);
-            if (node != null) return node;
+        if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) {
+            return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(inventory);
         }
         return super.getCapability(capability, facing);
     }
 
     private long consumeImpetus(long requested, boolean simulate) {
-        if (requested <= 0 || !Loader.isModLoaded(TAUG_MODID)) return 0L;
-        int req = requested > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) requested;
-        return simulate
-                ? (ImpetusCompat.canConsumeImpetus(this, req) ? req : 0L)
-                : (ImpetusCompat.consumeImpetus(this, req) ? req : 0L);
+        if (!ImpetusCompat.isLoaded() || requested <= 0) return 0L;
+        if (impetusNode == null) return 0L;
+        return ImpetusCompat.consumeFromNode(impetusNode, requested, simulate);
     }
 
     @Override
