@@ -11,9 +11,6 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.common.capabilities.Capability;
-import net.minecraftforge.common.util.INBTSerializable;
-import net.minecraftforge.fml.relauncher.Side;
-import net.minecraftforge.fml.relauncher.SideOnly;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.fml.common.Loader;
@@ -24,24 +21,18 @@ import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
-import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.IEssentiaTransport;
 import thaumcraft.api.aura.AuraHelper;
-import thecodex6824.thaumicaugmentation.api.client.ImpetusRenderingManager;
-import thecodex6824.thaumicaugmentation.api.impetus.node.*;
-import thecodex6824.thaumicaugmentation.api.internal.TAInternals;
+import thaumcraft.common.lib.events.EssentiaHandler;
+import thaumcraft.common.lib.events.EssentiaHandler;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.config.TAConfig;
 
-import thecodex6824.thaumicaugmentation.api.impetus.node.prefab.SimpleImpetusConsumer;
-import thecodex6824.thaumicaugmentation.api.util.DimensionalBlockPos;
+import therealpant.thaumicattempts.integration.thaumicaugmentation.ImpetusCompat;
 
 import javax.annotation.Nullable;
-import java.util.Deque;
-import java.util.Map;
-import java.util.ArrayList;
-import java.util.List;
+
 
 
 public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaTransport, IAnimatable {
@@ -52,6 +43,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private static final int TICK_INTERVAL = 60;
     private static final int ESSENTIA_CAP = 40;
     private static final int ESSENTIA_SUCTION = 1024;
+    private static final int ESSENTIA_DRAIN_RANGE = 8;
     private static final int ESSENTIA_BASE_COST = 6;
     private static final int IMPETUS_BASE_COST = 6;
     private static final int HEAT_RESET_TICKS = 240;
@@ -60,7 +52,6 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private static final float VIS_MAX_MULTIPLIER = 0.75F;
     private static final Aspect REQUIRED_ASPECT = Aspect.AURA;
     private static final String PEARL_ID = "thaumcraft:primordial_pearl";
-    private static final String NBT_IMPETUS_NODE = "TAugImpetusNode";
 
     private final ItemStackHandler inventory = new ItemStackHandler(1) {
         @Override
@@ -87,15 +78,10 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private int essentiaCostCurrent = ESSENTIA_BASE_COST;
     private int impetusCostCurrent = IMPETUS_BASE_COST;
     private long lastWorkTick;
-    @Nullable
-    private IImpetusConsumer impetusConsumer;
-    @Nullable
-    private NBTTagCompound pendingImpetusTag;
 
     @Override
     public void update() {
         if (world == null || world.isRemote) return;
-        ensureImpetusNode();
         pullEssentiaFromNeighbors();
         if (suctionPingCooldown-- <= 0) {
             if (essentiaAmount < ESSENTIA_CAP) {
@@ -110,24 +96,24 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Override
     public void onLoad() {
         super.onLoad();
-        ensureImpetusNode();
+
     }
 
     @Override
     public void validate() {
         super.validate();
-        ensureImpetusNode();
+
     }
 
     @Override
     public void invalidate() {
-        unloadImpetusNode();
+
         super.invalidate();
     }
 
     @Override
     public void onChunkUnload() {
-        unloadImpetusNode();
+
         super.onChunkUnload();
     }
 
@@ -315,27 +301,20 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private boolean pullEssentiaFromNeighbors() {
         if (++drawDelay % 5 != 0 || world == null || world.isRemote) return false;
         if (essentiaAmount >= ESSENTIA_CAP) return false;
-        boolean pulled = false;
-        for (EnumFacing inFace : EnumFacing.VALUES) {
-            TileEntity te = ThaumcraftApiHelper.getConnectableTile(world, pos, inFace);
-            if (!(te instanceof IEssentiaTransport)) continue;
-            IEssentiaTransport transport = (IEssentiaTransport) te;
-            EnumFacing opp = inFace.getOpposite();
-            if (!transport.canOutputTo(opp)) continue;
-            if (transport.getSuctionAmount(opp) < this.getSuctionAmount(inFace)) {
-                int taken = transport.takeEssentia(REQUIRED_ASPECT, 1, opp);
-                if (taken > 0) {
-                    essentiaAmount = Math.min(ESSENTIA_CAP, essentiaAmount + taken);
-                    pulled = true;
-                    break;
-                }
-            }
+        int canTake = ESSENTIA_CAP - essentiaAmount;
+        int pulled = 0;
+        for (int i = 0; i < canTake; i++) {
+            boolean ok = EssentiaHandler.drainEssentia(this, REQUIRED_ASPECT, EnumFacing.UP, ESSENTIA_DRAIN_RANGE, 0);
+            if (!ok) break;
+            pulled++;
+            essentiaAmount++;
         }
-        if (pulled) {
+        if (pulled > 0) {
             markDirtyAndSync();
             notifyEssentiaChange();
+            return true;
         }
-        return pulled;
+        return false;
     }
 
     private void resetHeatCosts() {
@@ -394,14 +373,6 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         impetusCostCurrent = compound.getInteger("HeatImpCost");
         lastWorkTick = compound.getLong("HeatLastWork");
         if (essentiaCostCurrent <= 0) essentiaCostCurrent = ESSENTIA_BASE_COST;
-        if (impetusCostCurrent <= 0) impetusCostCurrent = IMPETUS_BASE_COST;
-        if (compound.hasKey(NBT_IMPETUS_NODE)) {
-            pendingImpetusTag = compound.getCompoundTag(NBT_IMPETUS_NODE);
-            if (impetusConsumer instanceof INBTSerializable) {
-                ((INBTSerializable<NBTTagCompound>) impetusConsumer).deserializeNBT(pendingImpetusTag);
-                pendingImpetusTag = null;
-            }
-        }
     }
 
     @Override
@@ -413,9 +384,6 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         compound.setInteger("HeatEssCost", essentiaCostCurrent);
         compound.setInteger("HeatImpCost", impetusCostCurrent);
         compound.setLong("HeatLastWork", lastWorkTick);
-        if (impetusConsumer instanceof INBTSerializable) {
-            compound.setTag(NBT_IMPETUS_NODE, ((INBTSerializable<NBTTagCompound>) impetusConsumer).serializeNBT());
-        }
         return compound;
     }
 
@@ -437,7 +405,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Override
     public boolean hasCapability(Capability<?> capability, @Nullable EnumFacing facing) {
         if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) return true;
-        if (capability == CapabilityImpetusNode.IMPETUS_NODE && Loader.isModLoaded(TAUG_MODID)) return true;
+        if (ImpetusCompat.isImpetusCapability(capability)) return true;
         return super.hasCapability(capability, facing);
     }
 
@@ -447,11 +415,9 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) {
             return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(inventory);
         }
-        if (capability == CapabilityImpetusNode.IMPETUS_NODE && Loader.isModLoaded(TAUG_MODID)) {
-            ensureImpetusNode();
-            if (impetusConsumer != null) {
-                return capability.cast((T) impetusConsumer);
-            }
+        if (ImpetusCompat.isImpetusCapability(capability)) {
+            T node = ImpetusCompat.getImpetusCapabilityInstance(capability, this);
+            if (node != null) return node;
         }
         return super.getCapability(capability, facing);
     }
@@ -517,97 +483,12 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         return 8;
     }
 
-    private void ensureImpetusNode() {
-        if (world == null) return;
-        if (!Loader.isModLoaded(TAUG_MODID)) return;
-
-        if (impetusConsumer == null) {
-            DimensionalBlockPos loc = new DimensionalBlockPos(pos, world.provider.getDimension());
-            impetusConsumer = new SimpleImpetusConsumer(1, 0, loc);
-
-            // init можно безопасно и на клиенте, и на сервере
-            impetusConsumer.init(world);
-
-            // применяем pending nbt (важно и для клиента, чтобы node имел правильные данные)
-            if (pendingImpetusTag != null && impetusConsumer instanceof INBTSerializable) {
-                ((INBTSerializable<NBTTagCompound>) impetusConsumer).deserializeNBT(pendingImpetusTag);
-                pendingImpetusTag = null;
-            }
-
-            if (world.isRemote) {
-                // ✅ ключевое: регистрируем как renderable node, чтобы strong transaction рисовался до booster
-                registerRenderableNodeClient();
-            } else {
-                // только сервер: граф, валидация, автоконнект
-                NodeHelper.validate(impetusConsumer, world);
-                NodeHelper.tryConnectNewlyLoadedPeers(impetusConsumer, world);
-            }
-        } else {
-            // на всякий: если TE переместился/после загрузки, обновим location
-            if (impetusConsumer instanceof IImpetusNode) {
-                ((IImpetusNode) impetusConsumer).setLocation(
-                        new DimensionalBlockPos(pos, world.provider.getDimension())
-                );
-            }
-        }
-    }
-
-    @SideOnly(Side.CLIENT)
-    private void registerRenderableNodeClient() {
-        if (impetusConsumer instanceof IImpetusNode) {
-            ImpetusRenderingManager.registerRenderableNode((IImpetusNode) impetusConsumer);
-        }
-    }
-
-    @SideOnly(Side.CLIENT)
-    private void deregisterRenderableNodeClient() {
-        if (impetusConsumer instanceof IImpetusNode) {
-            ImpetusRenderingManager.deregisterRenderableNode((IImpetusNode) impetusConsumer);
-        }
-    }
-
-    private void unloadImpetusNode() {
-        if (world != null && world.isRemote) {
-            deregisterRenderableNodeClient();
-        }
-        if (impetusConsumer != null) {
-            impetusConsumer.unload();
-        }
-        impetusConsumer = null;
-    }
-
-
     private long consumeImpetus(long requested, boolean simulate) {
-        if (requested <= 0) return 0L;
-        ensureImpetusNode();
-        if (impetusConsumer == null) return 0L;
-
-        ConsumeResult result = NodeHelper.consumeImpetusFromConnectedProviders(requested, impetusConsumer, simulate);
-        long consumed = (result == null) ? 0L : result.energyConsumed;
-
-        if (!simulate && consumed > 0 && result != null && result.paths != null && !result.paths.isEmpty()) {
-            // ВАЖНО: сам consumer должен быть IImpetusNode
-            IImpetusNode selfNode = (impetusConsumer instanceof IImpetusNode) ? (IImpetusNode) impetusConsumer : null;
-
-            for (Map.Entry<Deque<IImpetusNode>, Long> e : result.paths.entrySet()) {
-                Long amt = e.getValue();
-                if (amt == null || amt <= 0) continue;
-
-                // копируем путь, чтобы можно было дописать хвост
-                List<IImpetusNode> nodes = new ArrayList<>(e.getKey());
-
-                // ДОБАВЛЯЕМ consumer в конец, если его нет
-                if (selfNode != null) {
-                    if (nodes.isEmpty() || nodes.get(nodes.size() - 1) != selfNode) {
-                        nodes.add(selfNode);
-                    }
-                }
-
-                TAInternals.syncImpetusTransaction(nodes);
-            }
-        }
-
-        return consumed;
+        if (requested <= 0 || !Loader.isModLoaded(TAUG_MODID)) return 0L;
+        int req = requested > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) requested;
+        return simulate
+                ? (ImpetusCompat.canConsumeImpetus(this, req) ? req : 0L)
+                : (ImpetusCompat.consumeImpetus(this, req) ? req : 0L);
     }
 
 

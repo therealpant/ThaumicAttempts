@@ -12,7 +12,6 @@ import net.minecraft.util.EnumHand;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.math.MathHelper;
 import net.minecraftforge.common.capabilities.Capability;
-import net.minecraftforge.common.util.INBTSerializable;
 import net.minecraftforge.fml.common.Loader;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
@@ -27,35 +26,30 @@ import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
-import thecodex6824.thaumicaugmentation.api.client.ImpetusRenderingManager;
-import thecodex6824.thaumicaugmentation.api.impetus.node.CapabilityImpetusNode;
-import thecodex6824.thaumicaugmentation.api.impetus.node.ConsumeResult;
-import thecodex6824.thaumicaugmentation.api.impetus.node.IImpetusConsumer;
-import thecodex6824.thaumicaugmentation.api.impetus.node.IImpetusNode;
-import thecodex6824.thaumicaugmentation.api.impetus.node.NodeHelper;
-import thecodex6824.thaumicaugmentation.api.impetus.node.prefab.SimpleImpetusConsumer;
-import thecodex6824.thaumicaugmentation.api.internal.TAInternals;
-import thecodex6824.thaumicaugmentation.api.util.DimensionalBlockPos;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.api.EldritchExtractorApi;
 import therealpant.thaumicattempts.api.EldritchExtractorRecipe;
+import therealpant.thaumicattempts.integration.thaumicaugmentation.ImpetusCompat;
 import therealpant.thaumicattempts.items.ItemTAGem;
+import thaumcraft.api.aspects.Aspect;
+import thaumcraft.common.lib.events.EssentiaHandler;
 
 import javax.annotation.Nullable;
-import java.util.ArrayList;
-import java.util.Deque;
-import java.util.List;
-import java.util.Map;
+
 
 public class TileRiftExtractor extends TileEntity implements ITickable, IAnimatable {
 
     private static final String TAUG_MODID = "thaumicaugmentation";
-    private static final String NBT_IMPETUS_NODE = "TAugImpetusNode";
     private static final int SLOT_CROWN = 0;
     private static final int SLOT_CORE = 1;
     private static final int TICKS_PER_STAGE = 40;
 
     private static final int TICKS_PER_SECOND = 20;
+    private static final int ESSENTIA_DRAIN_RANGE = 8;
+    private static final float ESSENTIA_FALLBACK_MULTIPLIER = 1.5F;
+    private static final float ELDRITCH_RATIO = 0.40F;
+    private static final float VOID_RATIO = 0.40F;
+    private static final float FLUX_RATIO = 0.20F;
 
     @Nullable
     private AnimVisualState lastSentAnim = null;
@@ -143,16 +137,18 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     private int ticksToNextStage;
     private boolean pausedByRedstone;
     private ItemStack cachedCoreRenderStack = ItemStack.EMPTY;
+    private int stageEssentiaTargetEldritch;
+    private int stageEssentiaTargetVoid;
+    private int stageEssentiaTargetFlux;
+    private int stageEssentiaSpentEldritch;
+    private int stageEssentiaSpentVoid;
+    private int stageEssentiaSpentFlux;
 
-    @Nullable
-    private IImpetusConsumer impetusConsumer;
-    @Nullable
-    private NBTTagCompound pendingImpetusTag;
 
     @Override
     public void update() {
         if (world == null || world.isRemote) return;
-        ensureImpetusNode();
+
 
         boolean powered = world.isBlockPowered(pos);
         if (powered) {
@@ -206,21 +202,39 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             return;
         }
 
-        // достаточно ли импетуса
-        if (consumeImpetus(recipe.getImpetusCost(), true) < recipe.getImpetusCost()) {
-            return;
-        }
+        long consumedImpetus = 0L;
+        if (Loader.isModLoaded(TAUG_MODID)) {
+            if (consumeImpetus(recipe.getImpetusCost(), true) < recipe.getImpetusCost()) {
+                return;
+            }
 
-        long consumed = consumeImpetus(recipe.getImpetusCost(), false);
-        if (consumed < recipe.getImpetusCost()) {
-            return;
+
+            consumedImpetus = consumeImpetus(recipe.getImpetusCost(), false);
+            if (consumedImpetus < recipe.getImpetusCost()) {
+                return;
+            }
+        } else {
+            prepareStageEssentiaCosts(recipe.getImpetusCost());
+            if (!consumeStageEssentiaUntilBlocked()) {
+                return;
+            }
         }
 
         stage = Math.min(stageMax, stage + 1);
         ticksToNextStage = 0;
 
-        ThaumicAttempts.LOGGER.debug("[RiftExtractor] Stage {}/{} at {}, consumed {} impetus",
-                stage, stageMax, pos, consumed);
+        if (Loader.isModLoaded(TAUG_MODID)) {
+            ThaumicAttempts.LOGGER.debug("[RiftExtractor] Stage {}/{} at {}, consumed {} impetus",
+                    stage, stageMax, pos, consumedImpetus);
+        } else {
+            ThaumicAttempts.LOGGER.debug(
+                    "[RiftExtractor] Stage {}/{} at {}, consumed fallback essentia: eldritch={}, void={}, flux={}",
+                    stage, stageMax, pos,
+                    stageEssentiaTargetEldritch, stageEssentiaTargetVoid, stageEssentiaTargetFlux
+            );
+        }
+
+        resetStageEssentiaProgress();
 
         // достигли финальной стадии -> кладём результат в core ОДИН раз
         if (stage >= stageMax) {
@@ -236,24 +250,24 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     @Override
     public void onLoad() {
         super.onLoad();
-        ensureImpetusNode();
+
     }
 
     @Override
     public void validate() {
         super.validate();
-        ensureImpetusNode();
+
     }
 
     @Override
     public void invalidate() {
-        unloadImpetusNode();
+
         super.invalidate();
     }
 
     @Override
     public void onChunkUnload() {
-        unloadImpetusNode();
+
         super.onChunkUnload();
     }
 
@@ -384,6 +398,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             stage = 0;
             ticksToNextStage = 0;
             stageMax = 0;
+            resetStageEssentiaProgress();
             ThaumicAttempts.LOGGER.debug("[RiftExtractor] Core extracted, reset at {}", pos);
             markDirtyAndSync();
         }
@@ -395,6 +410,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         if (!hadProgress) {
             stageMax = 0;
             cachedCoreRenderStack = ItemStack.EMPTY;
+            resetStageEssentiaProgress();
             return;
         }
 
@@ -402,6 +418,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         ticksToNextStage = 0;
         stageMax = 0;
         cachedCoreRenderStack = ItemStack.EMPTY;
+        resetStageEssentiaProgress();
 
         ThaumicAttempts.LOGGER.debug("[RiftExtractor] Progress reset at {} ({})", pos, reason);
         markDirtyAndSync();
@@ -411,6 +428,61 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     @Nullable
     private EldritchExtractorRecipe getRecipeForCrown(ItemStack crown) {
         return EldritchExtractorApi.findRecipe(crown);
+    }
+
+    private void prepareStageEssentiaCosts(long impetusCost) {
+        if (stageEssentiaTargetEldritch > 0 || stageEssentiaTargetVoid > 0 || stageEssentiaTargetFlux > 0) return;
+        int total = (int) Math.ceil(Math.max(0L, impetusCost) * ESSENTIA_FALLBACK_MULTIPLIER);
+        stageEssentiaTargetEldritch = (int) Math.ceil(total * ELDRITCH_RATIO);
+        stageEssentiaTargetVoid = (int) Math.ceil(total * VOID_RATIO);
+        stageEssentiaTargetFlux = (int) Math.ceil(total * FLUX_RATIO);
+    }
+
+    private boolean consumeStageEssentiaUntilBlocked() {
+        if (world == null) return false;
+        boolean progressed = true;
+        while (progressed) {
+            progressed = false;
+            progressed |= consumeSingleEssentiaUnit(Aspect.ELDRITCH, stageEssentiaTargetEldritch, true);
+            progressed |= consumeSingleEssentiaUnit(Aspect.VOID, stageEssentiaTargetVoid, false);
+            progressed |= consumeSingleEssentiaUnit(Aspect.FLUX, stageEssentiaTargetFlux, false);
+            if (isStageEssentiaComplete()) {
+                return true;
+            }
+        }
+        return isStageEssentiaComplete();
+    }
+
+    private boolean consumeSingleEssentiaUnit(Aspect aspect, int target, boolean eldritch) {
+        if (target <= 0 || aspect == null) return false;
+        int spent = eldritch ? stageEssentiaSpentEldritch : (aspect == Aspect.VOID ? stageEssentiaSpentVoid : stageEssentiaSpentFlux);
+        if (spent >= target) return false;
+        boolean ok = EssentiaHandler.drainEssentia(this, aspect, EnumFacing.UP, ESSENTIA_DRAIN_RANGE, 0);
+        if (!ok) return false;
+        if (eldritch) {
+            stageEssentiaSpentEldritch++;
+        } else if (aspect == Aspect.VOID) {
+            stageEssentiaSpentVoid++;
+        } else {
+            stageEssentiaSpentFlux++;
+        }
+        markDirty();
+        return true;
+    }
+
+    private boolean isStageEssentiaComplete() {
+        return stageEssentiaSpentEldritch >= stageEssentiaTargetEldritch
+                && stageEssentiaSpentVoid >= stageEssentiaTargetVoid
+                && stageEssentiaSpentFlux >= stageEssentiaTargetFlux;
+    }
+
+    private void resetStageEssentiaProgress() {
+        stageEssentiaTargetEldritch = 0;
+        stageEssentiaTargetVoid = 0;
+        stageEssentiaTargetFlux = 0;
+        stageEssentiaSpentEldritch = 0;
+        stageEssentiaSpentVoid = 0;
+        stageEssentiaSpentFlux = 0;
     }
 
     private void applyCrownUsage(EldritchExtractorRecipe recipe, ItemStack crown) {
@@ -474,18 +546,18 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         stage = compound.getInteger("Stage");
         ticksToNextStage = compound.getInteger("TicksToNextStage");
         stageMax = compound.getInteger("StageMax");
+        stageEssentiaTargetEldritch = compound.getInteger("StageEssTargetEldritch");
+        stageEssentiaTargetVoid = compound.getInteger("StageEssTargetVoid");
+        stageEssentiaTargetFlux = compound.getInteger("StageEssTargetFlux");
+        stageEssentiaSpentEldritch = compound.getInteger("StageEssSpentEldritch");
+        stageEssentiaSpentVoid = compound.getInteger("StageEssSpentVoid");
+        stageEssentiaSpentFlux = compound.getInteger("StageEssSpentFlux");
         if (compound.hasKey("CachedCoreRenderStack")) {
             cachedCoreRenderStack = new ItemStack(compound.getCompoundTag("CachedCoreRenderStack"));
         } else {
             cachedCoreRenderStack = ItemStack.EMPTY;
         }
-        if (compound.hasKey(NBT_IMPETUS_NODE)) {
-            pendingImpetusTag = compound.getCompoundTag(NBT_IMPETUS_NODE);
-            if (impetusConsumer instanceof INBTSerializable) {
-                ((INBTSerializable<NBTTagCompound>) impetusConsumer).deserializeNBT(pendingImpetusTag);
-                pendingImpetusTag = null;
-            }
-        }
+
     }
 
     @Override
@@ -495,11 +567,14 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         compound.setInteger("Stage", stage);
         compound.setInteger("TicksToNextStage", ticksToNextStage);
         compound.setInteger("StageMax", stageMax);
+        compound.setInteger("StageEssTargetEldritch", stageEssentiaTargetEldritch);
+        compound.setInteger("StageEssTargetVoid", stageEssentiaTargetVoid);
+        compound.setInteger("StageEssTargetFlux", stageEssentiaTargetFlux);
+        compound.setInteger("StageEssSpentEldritch", stageEssentiaSpentEldritch);
+        compound.setInteger("StageEssSpentVoid", stageEssentiaSpentVoid);
+        compound.setInteger("StageEssSpentFlux", stageEssentiaSpentFlux);
         if (!cachedCoreRenderStack.isEmpty()) {
             compound.setTag("CachedCoreRenderStack", cachedCoreRenderStack.serializeNBT());
-        }
-        if (impetusConsumer instanceof INBTSerializable) {
-            compound.setTag(NBT_IMPETUS_NODE, ((INBTSerializable<NBTTagCompound>) impetusConsumer).serializeNBT());
         }
         return compound;
     }
@@ -522,7 +597,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     @Override
     public boolean hasCapability(Capability<?> capability, @Nullable EnumFacing facing) {
         if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) return true;
-        if (capability == CapabilityImpetusNode.IMPETUS_NODE && Loader.isModLoaded(TAUG_MODID)) return true;
+        if (ImpetusCompat.isImpetusCapability(capability)) return true;
         return super.hasCapability(capability, facing);
     }
 
@@ -538,94 +613,19 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             }
             return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(crownHandler);
         }
-        if (capability == CapabilityImpetusNode.IMPETUS_NODE && Loader.isModLoaded(TAUG_MODID)) {
-            ensureImpetusNode();
-            if (impetusConsumer != null) {
-                return capability.cast((T) impetusConsumer);
-            }
+        if (ImpetusCompat.isImpetusCapability(capability)) {
+            T node = ImpetusCompat.getImpetusCapabilityInstance(capability, this);
+            if (node != null) return node;
         }
         return super.getCapability(capability, facing);
     }
 
-    private void ensureImpetusNode() {
-        if (world == null) return;
-        if (!Loader.isModLoaded(TAUG_MODID)) return;
-
-        if (impetusConsumer == null) {
-            DimensionalBlockPos loc = new DimensionalBlockPos(pos, world.provider.getDimension());
-            impetusConsumer = new SimpleImpetusConsumer(1, 0, loc);
-            impetusConsumer.init(world);
-
-            if (pendingImpetusTag != null && impetusConsumer instanceof INBTSerializable) {
-                ((INBTSerializable<NBTTagCompound>) impetusConsumer).deserializeNBT(pendingImpetusTag);
-                pendingImpetusTag = null;
-            }
-
-            if (world.isRemote) {
-                registerRenderableNodeClient();
-            } else {
-                NodeHelper.validate(impetusConsumer, world);
-                NodeHelper.tryConnectNewlyLoadedPeers(impetusConsumer, world);
-            }
-        } else if (impetusConsumer instanceof IImpetusNode) {
-            ((IImpetusNode) impetusConsumer).setLocation(
-                    new DimensionalBlockPos(pos, world.provider.getDimension())
-            );
-        }
-    }
-
-    @SideOnly(Side.CLIENT)
-    private void registerRenderableNodeClient() {
-        if (impetusConsumer instanceof IImpetusNode) {
-            ImpetusRenderingManager.registerRenderableNode((IImpetusNode) impetusConsumer);
-        }
-    }
-
-    @SideOnly(Side.CLIENT)
-    private void deregisterRenderableNodeClient() {
-        if (impetusConsumer instanceof IImpetusNode) {
-            ImpetusRenderingManager.deregisterRenderableNode((IImpetusNode) impetusConsumer);
-        }
-    }
-
-    private void unloadImpetusNode() {
-        if (world != null && world.isRemote) {
-            deregisterRenderableNodeClient();
-        }
-        if (impetusConsumer != null) {
-            impetusConsumer.unload();
-        }
-        impetusConsumer = null;
-    }
-
     private long consumeImpetus(long requested, boolean simulate) {
-        if (requested <= 0) return 0L;
-        ensureImpetusNode();
-        if (impetusConsumer == null) return 0L;
-
-        ConsumeResult result = NodeHelper.consumeImpetusFromConnectedProviders(requested, impetusConsumer, simulate);
-        long consumed = (result == null) ? 0L : result.energyConsumed;
-
-        if (!simulate && consumed > 0 && result != null && result.paths != null && !result.paths.isEmpty()) {
-            IImpetusNode selfNode = (impetusConsumer instanceof IImpetusNode) ? (IImpetusNode) impetusConsumer : null;
-
-            for (Map.Entry<Deque<IImpetusNode>, Long> entry : result.paths.entrySet()) {
-                Long amt = entry.getValue();
-                if (amt == null || amt <= 0) continue;
-
-                List<IImpetusNode> nodes = new ArrayList<>(entry.getKey());
-
-                if (selfNode != null) {
-                    if (nodes.isEmpty() || nodes.get(nodes.size() - 1) != selfNode) {
-                        nodes.add(selfNode);
-                    }
-                }
-
-                TAInternals.syncImpetusTransaction(nodes);
-            }
-        }
-
-        return consumed;
+        if (requested <= 0 || !Loader.isModLoaded(TAUG_MODID)) return 0L;
+        int req = requested > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) requested;
+        return simulate
+                ? (ImpetusCompat.canConsumeImpetus(this, req) ? req : 0L)
+                : (ImpetusCompat.consumeImpetus(this, req) ? req : 0L);
     }
 
     @Override

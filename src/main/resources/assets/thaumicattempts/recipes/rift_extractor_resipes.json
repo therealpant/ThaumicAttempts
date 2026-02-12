@@ -1,0 +1,112 @@
+{
+  "recipes": [
+    {
+      "crown_slot": {
+        "gem_id": "thaumicattempts:amber",
+        "tier": 1
+      },
+      "min_crown_damage": 1,
+      "max_crown_damage": 3,
+      "impetus_cost_per_stage": 10,
+      "stages": 10,
+      "output_item": "thaumicattempts:rift_flover",
+      "output_count": 1
+    },
+    {
+      "crown_slot": {
+        "gem_id": "thaumicattempts:amber",
+        "tier": 2
+      },
+      "min_crown_damage": 1,
+      "max_crown_damage": 3,
+      "impetus_cost_per_stage": 10,
+      "stages": 10,
+      "output_item": "thaumicattempts:rift_flover",
+      "output_count": 1
+    },
+    {
+      "crown_slot": {
+        "gem_id": "thaumicattempts:amber",
+        "tier": 3
+      },
+      "min_crown_damage": 1,
+      "max_crown_damage": 3,
+      "impetus_cost_per_stage": 10,
+      "stages": 10,
+      "output_item": "thaumicattempts:rift_flover",
+      "output_count": 1
+    },
+    {
+      "crown_slot": {
+        "gem_id": "thaumicattempts:amethyst",
+        "tier": 1
+      },
+      "min_crown_damage": 1,
+      "max_crown_damage": 3,
+      "impetus_cost_per_stage": 10,
+      "stages": 10,
+      "output_item": "thaumicattempts:rift_stone",
+      "output_count": 1
+    },
+    {
+      "crown_slot": {
+        "gem_id": "thaumicattempts:amethyst",
+        "tier": 2
+      },
+      "min_crown_damage": 1,
+      "max_crown_damage": 3,
+      "impetus_cost_per_stage": 10,
+      "stages": 10,
+      "output_item": "thaumicattempts:rift_stone",
+      "output_count": 1
+    },
+    {
+      "crown_slot": {
+        "gem_id": "thaumicattempts:amethyst",
+        "tier": 3
+      },
+      "min_crown_damage": 1,
+      "max_crown_damage": 3,
+      "impetus_cost_per_stage": 10,
+      "stages": 10,
+      "output_item": "thaumicattempts:rift_stone",
+      "output_count": 1
+    },
+    {
+      "crown_slot": {
+        "gem_id": "thaumicattempts:diamond",
+        "tier": 1
+      },
+      "min_crown_damage": 1,
+      "max_crown_damage": 3,
+      "impetus_cost_per_stage": 10,
+      "stages": 10,
+      "output_item": "thaumicattempts:rift_cristal",
+      "output_count": 1
+    },
+    {
+      "crown_slot": {
+        "gem_id": "thaumicattempts:diamond",
+        "tier": 2
+      },
+      "min_crown_damage": 1,
+      "max_crown_damage": 3,
+      "impetus_cost_per_stage": 10,
+      "stages": 10,
+      "output_item": "thaumicattempts:rift_cristal",
+      "output_count": 1
+    },
+    {
+      "crown_slot": {
+        "gem_id": "thaumicattempts:diamond",
+        "tier": 3
+      },
+      "min_crown_damage": 1,
+      "max_crown_damage": 3,
+      "impetus_cost_per_stage": 10,
+      "stages": 10,
+      "output_item": "thaumicattempts:rift_cristal",
+      "output_count": 1
+    }
+  ]
+}
