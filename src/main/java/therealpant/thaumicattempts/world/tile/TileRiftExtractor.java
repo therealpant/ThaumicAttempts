@@ -43,6 +43,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     private static final int SLOT_CROWN = 0;
     private static final int SLOT_CORE = 1;
     private static final int TICKS_PER_STAGE = 40;
+    private static final long IMPETUS_MIN_DRAW_PER_TICK = 8L;
 
     private static final int TICKS_PER_SECOND = 20;
     private static final int ESSENTIA_DRAIN_RANGE = 8;
@@ -155,6 +156,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     public void update() {
         if (world == null) return;
 
+
         // CLIENT: только таймер пульса (если он у тебя используется в рендере/моделе)
         if (world.isRemote) {
             if (impetusPulseTicks > 0) impetusPulseTicks--;
@@ -208,60 +210,100 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         }
 
         // ==========================
-        // СТАДИЯ: оплата + таймер
-        // ==========================
+// СТАДИЯ: 2 секунды + топливо
+// ==========================
 
-        // подготовка долга стадии (один раз на стадию)
+// инициализация стадии (один раз на стадию)
         if (stageImpetusNeed <= 0L) {
-            stageImpetusNeed = Math.max(0L, recipe.getImpetusCost());
+            stageImpetusNeed = Math.max(0L, recipe.getImpetusCost()); // стоимость ИМПЕТУСА за стадию
             stageImpetusPaid = 0L;
+            ticksToNextStage = 0;
+
+            // сброс прогресса эссенции на стадию (если вдруг раньше были в fallback)
+            resetStageEssentiaProgress();
         }
 
-        boolean canUseImpetus = Loader.isModLoaded(TAUG_MODID) && ImpetusCompat.isLoaded() && impetusNode != null;
+// решаем, чем питаемся: импетус, если TAUG есть и node создан; иначе — эссенция
+        boolean useImpetusFuel = Loader.isModLoaded(TAUG_MODID) && ImpetusCompat.isLoaded() && impetusNode != null;
 
-        if (canUseImpetus && stageImpetusNeed > 0L) {
-            // платим каждый тик маленькими порциями -> линия TAUG "оживает" и пульсирует
-            long perTick = Math.max(1L, (long) Math.ceil(stageImpetusNeed / (double) TICKS_PER_STAGE));
+// 1) ПЫТАЕМСЯ ОПЛАЧИВАТЬ ТОПЛИВО В ЭТОМ ТИКЕ (как “топливо”, порционно)
+        boolean fuelProgressedThisTick = false;
 
+        if (useImpetusFuel) {
             long remaining = stageImpetusNeed - stageImpetusPaid;
-            long want = Math.min(perTick, remaining);
+            if (remaining > 0L) {
+                // сколько осталось тиков у стадии (включая текущий), чтобы растянуть оплату равномерно
+                int ticksLeft = Math.max(1, TICKS_PER_STAGE - ticksToNextStage);
 
-            long got = consumeImpetus(want, false); // НЕ simulate, чтобы была реальная "струя"
+                // хотим оплатить примерно равномерно по оставшимся тикам
+                long want = (long) Math.ceil(remaining / (double) ticksLeft);
 
-            if (got > 0L) {
-                stageImpetusPaid += got;
+                // минимальная порция импетуса для “видимого” движения (и чтобы сеть не квантовала в 0)
+                want = Math.max(IMPETUS_MIN_DRAW_PER_TICK, want);
+                want = Math.min(want, remaining);
 
-                // сигнал на клиент для рендера (пульс 8-12 тиков обычно норм)
-                impetusPulseTicks = 10;
-                markDirtyAndSync();
+                long got = consumeImpetus(want, false);
+                if (got > 0L) {
+                    stageImpetusPaid += got;
+                    fuelProgressedThisTick = true;
+
+                    // пульс/синк (рендер)
+                    impetusPulseTicks = 10;
+                    markDirtyAndSync();
+                } else {
+                    // импетус не пришел — замораживаем стадию (таймер не тикает, проявление не растёт)
+                    return;
+                }
             } else {
-                // нет поступления импетуса -> стопорим стадию (не растим таймер)
-                return;
+                // уже оплатили всю стадию импетусом
+                fuelProgressedThisTick = true;
             }
-
-            // если импетус пришёл — можно крутить таймер стадии
-            if (ticksToNextStage < TICKS_PER_STAGE) {
-                ticksToNextStage++;
-                return;
-            }
-
-            // таймер дошёл до конца, но долг ещё не закрыт -> ждём доплаты (не завершаем стадию)
-            if (stageImpetusPaid < stageImpetusNeed) {
-                return;
-            }
-
         } else {
-            // Fallback на эссенцию (если TAUG нет или node не создан)
-            if (ticksToNextStage < TICKS_PER_STAGE) {
-                ticksToNextStage++;
+            // === FALLBACK НА ЭССЕНЦИЮ: тоже “как топливо”, в течение стадии ===
+            prepareStageEssentiaCosts(recipe.getImpetusCost());
+
+            // в тик пытаемся высосать немного эссенции (не пачкой)
+            // (можно 1..3 единицы за тик, чтобы реально успевало за 2 секунды на трубах)
+            int attempts = 3;
+            boolean pulledAny = false;
+
+            while (attempts-- > 0 && !isStageEssentiaComplete()) {
+                boolean progressed = false;
+                progressed |= consumeSingleEssentiaUnit(Aspect.ELDRITCH, stageEssentiaTargetEldritch, true);
+                progressed |= consumeSingleEssentiaUnit(Aspect.VOID, stageEssentiaTargetVoid, false);
+                progressed |= consumeSingleEssentiaUnit(Aspect.FLUX, stageEssentiaTargetFlux, false);
+                if (!progressed) break;
+                pulledAny = true;
+            }
+
+            if (!pulledAny && !isStageEssentiaComplete()) {
+                // нет эссенции — замораживаем стадию
                 return;
             }
 
-            prepareStageEssentiaCosts(recipe.getImpetusCost());
-            if (!consumeStageEssentiaUntilBlocked()) {
-                return;
-            }
+            fuelProgressedThisTick = true;
         }
+
+// 2) ТИК СТАДИИ (2 секунды)
+// Если в этом тике мы реально могли потреблять топливо или стадия уже оплачена — крутим таймер.
+        if (fuelProgressedThisTick && ticksToNextStage < TICKS_PER_STAGE) {
+            ticksToNextStage++;
+            // стадия ещё не длится 2 секунды — не завершаем
+            if (ticksToNextStage < TICKS_PER_STAGE) return;
+        }
+
+// 3) УСЛОВИЕ ЗАВЕРШЕНИЯ СТАДИИ: 2 секунды ПРОШЛО + топливо ПОЛНОСТЬЮ ОПЛАЧЕНО
+        boolean fuelPaid =
+                useImpetusFuel
+                        ? (stageImpetusPaid >= stageImpetusNeed)
+                        : isStageEssentiaComplete();
+
+        if (!fuelPaid) {
+            // прошли 2 секунды, но топлива не хватило — ждём дальше (таймер уже на 40, дальше не растёт)
+            return;
+        }
+
+
 
         // ==========================
         // СТАДИЯ ЗАВЕРШЕНА
@@ -276,7 +318,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
         resetStageEssentiaProgress();
 
-        if (canUseImpetus) {
+        if (useImpetusFuel) {
             ThaumicAttempts.LOGGER.debug("[RiftExtractor] Stage {}/{} at {}, impetus stage paid",
                     stage, stageMax, pos);
         } else {
@@ -720,17 +762,21 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         if (!ImpetusCompat.isLoaded() || requested <= 0) return 0L;
         if (impetusNode == null) return 0L;
 
-        long consumed = ImpetusCompat.consumeFromNode(impetusNode, requested, simulate);
+        // validate ВСЕГДА (и на simulate тоже), чтобы сеть/входы были актуальны
+        if (world != null) {
+            ImpetusCompat.validateNode(impetusNode, world);
+        }
+
+        long consumed = ImpetusCompat.consumeFromNode(impetusNode, world, requested, simulate);
+
 
         if (!simulate && consumed > 0 && world != null && !world.isRemote) {
-            // 8-12 тиков обычно выглядит “пульсом”
             impetusPulseTicks = 10;
-            markDirtyAndSync(); // отправит update packet
+            markDirtyAndSync();
         }
 
         return consumed;
     }
-
 
     @Override
     public void registerControllers(AnimationData data) {

@@ -7,6 +7,8 @@ import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.fml.common.Loader;
 
 import javax.annotation.Nullable;
+import java.util.Collection;
+import java.util.Map;
 import java.lang.reflect.Constructor;
 import java.lang.reflect.Field;
 import java.lang.reflect.Method;
@@ -22,6 +24,8 @@ public final class ImpetusCompat {
     private static final String CLS_DIM_POS    = "thecodex6824.thaumicaugmentation.api.util.DimensionalBlockPos";
     private static final String CLS_BUF_CONS   = "thecodex6824.thaumicaugmentation.api.impetus.node.prefab.BufferedImpetusConsumer";
     private static final String CLS_RESULT     = "thecodex6824.thaumicaugmentation.api.impetus.node.ConsumeResult";
+    private static final String CLS_NODE_HELPER = "thecodex6824.thaumicaugmentation.api.impetus.node.NodeHelper";
+    private static final String CLS_I_NODE = "thecodex6824.thaumicaugmentation.api.impetus.node.IImpetusNode";
 
     private static boolean inited = false;
     private static Capability<?> IMPETUS_NODE_CAP;
@@ -40,9 +44,17 @@ public final class ImpetusCompat {
     private static Method M_NODE_unload;
     private static Method M_NODE_destroy;
     private static Method M_NODE_setLocation_DimPos;
+    private static Method M_NODE_getNumInputs;
 
     private static Method M_CONS_consume_long_bool;
     private static Field  F_RESULT_energyConsumed;
+    private static Field  F_RESULT_paths;
+    private static Method M_HELPER_validate;
+    private static Method M_HELPER_syncAllTransactions;
+
+    private static Method M_HELPER_sync;
+    private static boolean SYNC_NEEDS_WORLD;
+    private static boolean SYNC_WORLD_FIRST;
 
     private ImpetusCompat() {}
 
@@ -82,6 +94,7 @@ public final class ImpetusCompat {
             M_NODE_unload = bufConsClz.getMethod("unload");
             M_NODE_destroy = bufConsClz.getMethod("destroy");
             M_NODE_setLocation_DimPos = bufConsClz.getMethod("setLocation", CLZ_DIMPOS);
+            M_NODE_getNumInputs = bufConsClz.getMethod("getNumInputs");
 
             // consumer consume()
             M_CONS_consume_long_bool = bufConsClz.getMethod("consume", long.class, boolean.class);
@@ -89,6 +102,47 @@ public final class ImpetusCompat {
             Class<?> resClz = Class.forName(CLS_RESULT);
             // в 2.1.14 это public final long energyConsumed;
             F_RESULT_energyConsumed = resClz.getField("energyConsumed");
+            F_RESULT_paths = resClz.getField("paths");
+
+            Class<?> helperClz = Class.forName(CLS_NODE_HELPER);
+            Class<?> iNodeClz = Class.forName(CLS_I_NODE);
+            M_HELPER_validate = helperClz.getMethod("validate", iNodeClz, World.class);
+            Method sync = null;
+            Method found = null;
+            boolean needsWorld = false;
+            boolean worldFirst = false;
+
+            for (Method m : helperClz.getMethods()) {
+                String n = m.getName();
+                if (!n.equals("syncAllImpetusTransactions") && !n.equals("syncAllTransactions")) continue;
+
+                Class<?>[] p = m.getParameterTypes();
+                if (p.length == 1 && Collection.class.isAssignableFrom(p[0])) {
+                    found = m; needsWorld = false; break;
+                }
+                if (p.length == 2) {
+                    boolean p0World = World.class.isAssignableFrom(p[0]);
+                    boolean p1World = World.class.isAssignableFrom(p[1]);
+                    boolean p0Col   = Collection.class.isAssignableFrom(p[0]);
+                    boolean p1Col   = Collection.class.isAssignableFrom(p[1]);
+
+                    if (p0World && p1Col) {
+                        found = m; needsWorld = true; worldFirst = true; break;
+                    }
+                    if (p0Col && p1World) {
+                        found = m; needsWorld = true; worldFirst = false; break;
+                    }
+                }
+            }
+
+            M_HELPER_sync = found;
+            SYNC_NEEDS_WORLD = needsWorld;
+            SYNC_WORLD_FIRST = worldFirst;
+
+            if (sync == null) {
+                try { sync = helperClz.getMethod("syncAllTransactions", Collection.class); } catch (Throwable ignored) {}
+            }
+            M_HELPER_syncAllTransactions = sync;
 
         } catch (Throwable t) {
             IMPETUS_NODE_CAP = null;
@@ -155,14 +209,84 @@ public final class ImpetusCompat {
         try { M_NODE_destroy.invoke(node); } catch (Throwable ignored) {}
     }
 
-    public static long consumeFromNode(@Nullable Object node, long amount, boolean simulate) {
+    public static long consumeFromNode(@Nullable Object node, @Nullable World world, long amount, boolean simulate) {
         if (node == null || amount <= 0) return 0L;
         init();
         try {
             Object res = M_CONS_consume_long_bool.invoke(node, amount, simulate);
-            return (long) F_RESULT_energyConsumed.get(res);
+            long consumed = (long) F_RESULT_energyConsumed.get(res);
+
+            if (!simulate && consumed > 0L && M_HELPER_sync != null && F_RESULT_paths != null) {
+                try {
+                    Object raw = F_RESULT_paths.get(res);
+
+                    Collection<?> tx = null;
+
+                    if (raw instanceof Map) {
+                        Map<?, ?> m = (Map<?, ?>) raw;
+                        if (!m.isEmpty()) {
+                            // пробуем и ключи и значения — какая-то из коллекций будет транзакциями
+                            if (m.keySet() instanceof Collection && !m.keySet().isEmpty()) tx = (Collection<?>) m.keySet();
+                            if ((tx == null || tx.isEmpty()) && m.values() instanceof Collection && !m.values().isEmpty()) tx = (Collection<?>) m.values();
+                        }
+                    } else if (raw instanceof Collection) {
+                        tx = (Collection<?>) raw;
+                    }
+
+                    if (M_HELPER_sync != null && world != null) {
+                        // попробуем синкнуть несколько “кандидатов”, пока какой-то не “зацепит” визуал
+                        trySync(world, tx);
+
+                        if (raw instanceof Map) {
+                            Map<?, ?> m = (Map<?, ?>) raw;
+                            trySync(world, (m.keySet() instanceof Collection) ? (Collection<?>) m.keySet() : null);
+                            trySync(world, (m.values() instanceof Collection) ? (Collection<?>) m.values() : null);
+                        } else if (raw instanceof Collection) {
+                            trySync(world, (Collection<?>) raw);
+                        }
+                    }
+                } catch (Throwable ignored) {}
+            }
+
+            return consumed;
         } catch (Throwable t) {
             return 0L;
         }
+    }
+
+    private static void trySync(World world, @Nullable Collection<?> c) {
+        if (c == null || c.isEmpty() || M_HELPER_sync == null) return;
+        try {
+            if (!SYNC_NEEDS_WORLD) {
+                M_HELPER_sync.invoke(null, c);
+            } else {
+                if (SYNC_WORLD_FIRST) M_HELPER_sync.invoke(null, world, c);
+                else                  M_HELPER_sync.invoke(null, c, world);
+            }
+        } catch (Throwable ignored) {}
+    }
+
+
+    public static void validateNode(@Nullable Object node, @Nullable World world) {
+        if (node == null || world == null) return;
+        init();
+        try {
+            M_HELPER_validate.invoke(null, node, world);
+        } catch (Throwable ignored) {}
+    }
+
+    public static boolean hasAnyInputConnection(@Nullable Object node, @Nullable World world) {
+        if (node == null) return false;
+        init();
+        if (world != null) {
+            validateNode(node, world);
+        }
+        try {
+            Object value = M_NODE_getNumInputs.invoke(node);
+            if (value instanceof Integer) {
+                return ((Integer) value) > 0;
+            }
+        } catch (Throwable ignored) {}
+        return false;
     }
 }

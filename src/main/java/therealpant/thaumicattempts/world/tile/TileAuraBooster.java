@@ -13,7 +13,6 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemStackHandler;
-import net.minecraftforge.fml.common.Loader;
 import software.bernie.geckolib3.core.IAnimatable;
 import software.bernie.geckolib3.core.PlayState;
 import software.bernie.geckolib3.core.builder.AnimationBuilder;
@@ -24,7 +23,6 @@ import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.IEssentiaTransport;
 import thaumcraft.api.aura.AuraHelper;
-import thaumcraft.common.lib.events.EssentiaHandler;
 import thaumcraft.common.lib.events.EssentiaHandler;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.config.TAConfig;
@@ -83,10 +81,6 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private int impetusCostCurrent = IMPETUS_BASE_COST;
 
     private long lastWorkTick;
-    // === TAUG импетус по-тиковая оплата (для "пульса" на линии) ===
-    private long stageImpetusNeed;     // сколько нужно оплатить за текущую стадию
-    private long stageImpetusPaid;     // сколько уже оплачено за текущую стадию
-    private boolean lastTickHadImpetusFlow; // для анимации/рендера (опционально)
 
     @Override
     public void update() {
@@ -526,17 +520,20 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         if (!ImpetusCompat.isLoaded() || requested <= 0) return 0L;
         if (impetusNode == null) return 0L;
 
-        long consumed = ImpetusCompat.consumeFromNode(impetusNode, requested, simulate);
+        // validate ВСЕГДА (и на simulate тоже), чтобы сеть/входы были актуальны
+        if (world != null) {
+            ImpetusCompat.validateNode(impetusNode, world);
+        }
+
+        long consumed = ImpetusCompat.consumeFromNode(impetusNode, world, requested, simulate);
 
         if (!simulate && consumed > 0 && world != null && !world.isRemote) {
-            // 8-12 тиков обычно выглядит “пульсом”
             impetusPulseTicks = 10;
-            markDirtyAndSync(); // отправит update packet
+            markDirtyAndSync();
         }
 
         return consumed;
     }
-
 
     @Override
     public void registerControllers(AnimationData data) {
