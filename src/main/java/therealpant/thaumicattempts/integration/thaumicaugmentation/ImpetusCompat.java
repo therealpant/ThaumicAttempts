@@ -5,6 +5,8 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.fml.common.Loader;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import javax.annotation.Nullable;
 import java.util.Collection;
@@ -14,6 +16,9 @@ import java.lang.reflect.Field;
 import java.lang.reflect.Method;
 
 public final class ImpetusCompat {
+
+    private static final Logger LOGGER = LogManager.getLogger("ThaumicAttempts-ImpetusCompat");
+    private static final boolean DEBUG_IMPETUS_SYNC = Boolean.getBoolean("thaumicattempts.debugImpetusSync");
 
     public static final String MODID = "thaumicaugmentation";
 
@@ -26,6 +31,7 @@ public final class ImpetusCompat {
     private static final String CLS_RESULT     = "thecodex6824.thaumicaugmentation.api.impetus.node.ConsumeResult";
     private static final String CLS_NODE_HELPER = "thecodex6824.thaumicaugmentation.api.impetus.node.NodeHelper";
     private static final String CLS_I_NODE = "thecodex6824.thaumicaugmentation.api.impetus.node.IImpetusNode";
+    private static final String CLS_RENDER_MANAGER = "thecodex6824.thaumicaugmentation.api.client.ImpetusRenderingManager";
 
     private static boolean inited = false;
     private static Capability<?> IMPETUS_NODE_CAP;
@@ -51,10 +57,15 @@ public final class ImpetusCompat {
     private static Field  F_RESULT_paths;
     private static Method M_HELPER_validate;
     private static Method M_HELPER_syncAllTransactions;
+    private static Method M_HELPER_syncNodeFully;
+    private static Method M_HELPER_syncDestroyed;
 
     private static Method M_HELPER_sync;
     private static boolean SYNC_NEEDS_WORLD;
     private static boolean SYNC_WORLD_FIRST;
+
+    private static Method M_RENDER_register;
+    private static Method M_RENDER_deregister;
 
     private ImpetusCompat() {}
 
@@ -107,6 +118,8 @@ public final class ImpetusCompat {
             Class<?> helperClz = Class.forName(CLS_NODE_HELPER);
             Class<?> iNodeClz = Class.forName(CLS_I_NODE);
             M_HELPER_validate = helperClz.getMethod("validate", iNodeClz, World.class);
+            M_HELPER_syncNodeFully = helperClz.getMethod("syncImpetusNodeFully", iNodeClz);
+            M_HELPER_syncDestroyed = helperClz.getMethod("syncDestroyedImpetusNode", iNodeClz);
             Method found = null;
             boolean needsWorld = false;
             boolean worldFirst = false;
@@ -153,6 +166,15 @@ public final class ImpetusCompat {
 
 // Это поле больше не нужно. Можно оставить null или удалить совсем:
             M_HELPER_syncAllTransactions = null;
+
+            try {
+                Class<?> renderClz = Class.forName(CLS_RENDER_MANAGER);
+                M_RENDER_register = renderClz.getMethod("registerRenderableNode", iNodeClz);
+                M_RENDER_deregister = renderClz.getMethod("deregisterRenderableNode", iNodeClz);
+            } catch (Throwable ignored) {
+                M_RENDER_register = null;
+                M_RENDER_deregister = null;
+            }
 
 
         } catch (Throwable t) {
@@ -220,6 +242,34 @@ public final class ImpetusCompat {
         try { M_NODE_destroy.invoke(node); } catch (Throwable ignored) {}
     }
 
+    public static void syncNodeFully(@Nullable Object node, @Nullable World world) {
+        if (node == null || world == null || world.isRemote) return;
+        init();
+        if (M_HELPER_syncNodeFully == null) return;
+        try { M_HELPER_syncNodeFully.invoke(null, node); } catch (Throwable ignored) {}
+    }
+
+    public static void syncDestroyedNode(@Nullable Object node, @Nullable World world) {
+        if (node == null || world == null || world.isRemote) return;
+        init();
+        if (M_HELPER_syncDestroyed == null) return;
+        try { M_HELPER_syncDestroyed.invoke(null, node); } catch (Throwable ignored) {}
+    }
+
+    public static void registerRenderableNode(@Nullable Object node, @Nullable World world) {
+        if (node == null || world == null || !world.isRemote) return;
+        init();
+        if (M_RENDER_register == null) return;
+        try { M_RENDER_register.invoke(null, node); } catch (Throwable ignored) {}
+    }
+
+    public static void deregisterRenderableNode(@Nullable Object node, @Nullable World world) {
+        if (node == null || world == null || !world.isRemote) return;
+        init();
+        if (M_RENDER_deregister == null) return;
+        try { M_RENDER_deregister.invoke(null, node); } catch (Throwable ignored) {}
+    }
+
     public static long consumeFromNode(@Nullable Object node, @Nullable World world, long amount, boolean simulate) {
         if (node == null || amount <= 0) return 0L;
         init();
@@ -239,6 +289,9 @@ public final class ImpetusCompat {
                         // ТРАНЗАКЦИИ = ключи (Deque), значения — просто числа
                         Collection<?> paths = m.keySet();
                         trySync(world, paths);
+                        if (DEBUG_IMPETUS_SYNC) {
+                            LOGGER.info("syncAllImpetusTransactions: {} path(s), worldDim={}", m.size(), world.provider.getDimension());
+                        }
                     }
                 }
             }

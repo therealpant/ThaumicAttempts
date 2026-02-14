@@ -38,6 +38,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     private final AnimationFactory factory = new AnimationFactory(this);
 
     private static final String TAUG_MODID = "thaumicaugmentation";
+    private static final boolean DEBUG_IMPETUS_SYNC = Boolean.getBoolean("thaumicattempts.debugImpetusSync");
     private static final int TICK_INTERVAL = 60;
     private static final int ESSENTIA_CAP = 40;
     private static final int ESSENTIA_SUCTION = 1024;
@@ -107,14 +108,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
         super.onLoad();
         if (!ImpetusCompat.isLoaded() || world == null) return;
 
-        if (impetusNode == null) {
-            impetusNode = ImpetusCompat.createBufferedConsumerNode(this, 4, 4, 200000L);
-        }
-
-        ImpetusCompat.updateNodeLocation(impetusNode, world, pos);
-
-        // ВАЖНО: init надо на ОБЕИХ сторонах
-        ImpetusCompat.initNode(impetusNode, world);
+        ensureImpetusNode(true);
     }
 
 
@@ -127,7 +121,10 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Override
     public void invalidate() {
         if (ImpetusCompat.isLoaded()) {
+            ImpetusCompat.syncDestroyedNode(impetusNode, world);
+            ImpetusCompat.deregisterRenderableNode(impetusNode, world);
             ImpetusCompat.unloadNode(impetusNode);
+            ImpetusCompat.destroyNode(impetusNode);
         }
         super.invalidate();
     }
@@ -135,6 +132,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Override
     public void onChunkUnload() {
         if (ImpetusCompat.isLoaded()) {
+            ImpetusCompat.deregisterRenderableNode(impetusNode, world);
             ImpetusCompat.unloadNode(impetusNode);
         }
         super.onChunkUnload();
@@ -440,11 +438,7 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     public <T> T getCapability(Capability<T> capability, @Nullable EnumFacing facing) {
         Capability<?> impCap = ImpetusCompat.getImpetusNodeCapability();
         if (impCap != null && capability == impCap) {
-            if (impetusNode == null && ImpetusCompat.isLoaded()) {
-                impetusNode = ImpetusCompat.createBufferedConsumerNode(this, 4, 4, 200000L);
-                ImpetusCompat.updateNodeLocation(impetusNode, world, pos);
-                ImpetusCompat.initNode(impetusNode, world);
-            }
+            ensureImpetusNode(false);
             @SuppressWarnings("unchecked")
             T cast = (T) impetusNode;
             return cast;
@@ -514,6 +508,25 @@ public class TileAuraBooster extends TileEntity implements ITickable, IEssentiaT
     @Override
     public int getMinimumSuction() {
         return 8;
+    }
+
+    private void ensureImpetusNode(boolean syncFully) {
+        if (!ImpetusCompat.isLoaded() || world == null) return;
+        if (impetusNode == null) {
+            impetusNode = ImpetusCompat.createBufferedConsumerNode(this, 4, 4, 200000L);
+            if (DEBUG_IMPETUS_SYNC) {
+                ThaumicAttempts.LOGGER.info("[AuraBooster] Created impetus node at {} side={}", pos, world.isRemote ? "CLIENT" : "SERVER");
+            }
+        }
+        ImpetusCompat.updateNodeLocation(impetusNode, world, pos);
+        ImpetusCompat.initNode(impetusNode, world);
+        ImpetusCompat.registerRenderableNode(impetusNode, world);
+        if (syncFully) {
+            ImpetusCompat.syncNodeFully(impetusNode, world);
+            if (DEBUG_IMPETUS_SYNC && !world.isRemote) {
+                ThaumicAttempts.LOGGER.info("[AuraBooster] syncImpetusNodeFully sent for {}", pos);
+            }
+        }
     }
 
     private long consumeImpetus(long requested, boolean simulate) {
