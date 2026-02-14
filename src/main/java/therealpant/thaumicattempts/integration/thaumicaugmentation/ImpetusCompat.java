@@ -107,7 +107,6 @@ public final class ImpetusCompat {
             Class<?> helperClz = Class.forName(CLS_NODE_HELPER);
             Class<?> iNodeClz = Class.forName(CLS_I_NODE);
             M_HELPER_validate = helperClz.getMethod("validate", iNodeClz, World.class);
-            Method sync = null;
             Method found = null;
             boolean needsWorld = false;
             boolean worldFirst = false;
@@ -117,9 +116,16 @@ public final class ImpetusCompat {
                 if (!n.equals("syncAllImpetusTransactions") && !n.equals("syncAllTransactions")) continue;
 
                 Class<?>[] p = m.getParameterTypes();
+
+                // TAUG 2.1.14: syncAllImpetusTransactions(Collection<Deque<IImpetusNode>>)
                 if (p.length == 1 && Collection.class.isAssignableFrom(p[0])) {
-                    found = m; needsWorld = false; break;
+                    found = m;
+                    needsWorld = false;
+                    worldFirst = false;
+                    break;
                 }
+
+                // на всякий (другие сборки): sync*(World, Collection) или sync*(Collection, World)
                 if (p.length == 2) {
                     boolean p0World = World.class.isAssignableFrom(p[0]);
                     boolean p1World = World.class.isAssignableFrom(p[1]);
@@ -127,10 +133,16 @@ public final class ImpetusCompat {
                     boolean p1Col   = Collection.class.isAssignableFrom(p[1]);
 
                     if (p0World && p1Col) {
-                        found = m; needsWorld = true; worldFirst = true; break;
+                        found = m;
+                        needsWorld = true;
+                        worldFirst = true;
+                        break;
                     }
                     if (p0Col && p1World) {
-                        found = m; needsWorld = true; worldFirst = false; break;
+                        found = m;
+                        needsWorld = true;
+                        worldFirst = false;
+                        break;
                     }
                 }
             }
@@ -139,10 +151,9 @@ public final class ImpetusCompat {
             SYNC_NEEDS_WORLD = needsWorld;
             SYNC_WORLD_FIRST = worldFirst;
 
-            if (sync == null) {
-                try { sync = helperClz.getMethod("syncAllTransactions", Collection.class); } catch (Throwable ignored) {}
-            }
-            M_HELPER_syncAllTransactions = sync;
+// Это поле больше не нужно. Можно оставить null или удалить совсем:
+            M_HELPER_syncAllTransactions = null;
+
 
         } catch (Throwable t) {
             IMPETUS_NODE_CAP = null;
@@ -212,40 +223,24 @@ public final class ImpetusCompat {
     public static long consumeFromNode(@Nullable Object node, @Nullable World world, long amount, boolean simulate) {
         if (node == null || amount <= 0) return 0L;
         init();
+
         try {
             Object res = M_CONS_consume_long_bool.invoke(node, amount, simulate);
             long consumed = (long) F_RESULT_energyConsumed.get(res);
 
-            if (!simulate && consumed > 0L && M_HELPER_sync != null && F_RESULT_paths != null) {
-                try {
-                    Object raw = F_RESULT_paths.get(res);
+            // Визуал (яркие лучи) должен приходить только на сервере и только при реальной транзакции
+            if (!simulate && consumed > 0L && world != null && !world.isRemote && M_HELPER_sync != null && F_RESULT_paths != null) {
+                Object raw = F_RESULT_paths.get(res);
 
-                    Collection<?> tx = null;
-
-                    if (raw instanceof Map) {
-                        Map<?, ?> m = (Map<?, ?>) raw;
-                        if (!m.isEmpty()) {
-                            // пробуем и ключи и значения — какая-то из коллекций будет транзакциями
-                            if (m.keySet() instanceof Collection && !m.keySet().isEmpty()) tx = (Collection<?>) m.keySet();
-                            if ((tx == null || tx.isEmpty()) && m.values() instanceof Collection && !m.values().isEmpty()) tx = (Collection<?>) m.values();
-                        }
-                    } else if (raw instanceof Collection) {
-                        tx = (Collection<?>) raw;
+                if (raw instanceof Map) {
+                    Map<?, ?> m = (Map<?, ?>) raw;
+                    if (!m.isEmpty()) {
+                        // TAUG: paths = Map<Deque<IImpetusNode>, Long>
+                        // ТРАНЗАКЦИИ = ключи (Deque), значения — просто числа
+                        Collection<?> paths = m.keySet();
+                        trySync(world, paths);
                     }
-
-                    if (M_HELPER_sync != null && world != null) {
-                        // попробуем синкнуть несколько “кандидатов”, пока какой-то не “зацепит” визуал
-                        trySync(world, tx);
-
-                        if (raw instanceof Map) {
-                            Map<?, ?> m = (Map<?, ?>) raw;
-                            trySync(world, (m.keySet() instanceof Collection) ? (Collection<?>) m.keySet() : null);
-                            trySync(world, (m.values() instanceof Collection) ? (Collection<?>) m.values() : null);
-                        } else if (raw instanceof Collection) {
-                            trySync(world, (Collection<?>) raw);
-                        }
-                    }
-                } catch (Throwable ignored) {}
+                }
             }
 
             return consumed;
