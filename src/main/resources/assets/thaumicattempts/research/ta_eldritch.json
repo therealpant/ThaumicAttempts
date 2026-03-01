@@ -1,0 +1,260 @@
+{
+  "entries": [
+    {
+      "key": "TA_BOTANY",
+      "name": "research.TA_BOTANY.title",
+      "icons": [
+        "thaumicattempts:ta_anomaly_seeds"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_ANOMALY"],
+      "siblings": [],
+      "location": [
+        0,
+        5
+      ],
+      "stages": [
+        {
+          "text": "research.TA_BOTANY.text.0",
+          "required_knowledge": [
+            "THEORY;ELDRITCH;2",
+            "THEORY;ALCHEMY;2"
+
+          ],
+          "required_item": [
+            "thaumicattempts:rift_flover",
+            "thaumcraft:void_seed",
+            "chorus_fruit"
+          ]
+        },
+        {
+          "text": "research.TA_BOTANY.text.1",
+          "recipes": [
+
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_ANOMALY",
+      "name": "research.TA_ANOMALY.title",
+      "icons": [
+        "thaumicattempts:rift_flover",
+        "thaumicattempts:rift_stone",
+        "thaumicattempts:rift_cristal"
+      ],
+      "category": "ELDRITCH",
+      "parents": [],
+      "siblings": [],
+      "location": [
+        3,
+        5
+      ],
+      "stages": [
+        {
+          "text": "research.TA_ANOMALY.text.0",
+          "required_knowledge": [
+            "THEORY;ELDRITCH;3"
+          ],
+          "required_item": [
+            "thaumicattempts:rift_flover",
+            "thaumicattempts:rift_stone",
+            "thaumicattempts:rift_cristal"
+          ]
+        },
+        {
+          "text": "research.TA_ANOMALY.text.1",
+          "recipes": [
+
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_ELDRITCH_CONSTRUCTION",
+      "name": "research.TA_ELDRITCH_CONSTRUCTION.title",
+      "icons": [
+        "thaumicattempts:rift_stone_base"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_ANOMALY","INFUSIONELDRITCH"],
+      "siblings": [],
+      "location": [
+        6,
+        5
+      ],
+      "stages": [
+        {
+          "text": "research.TA_ELDRITCH_CONSTRUCTION.text.0",
+          "required_knowledge": [
+            "THEORY;ELDRITCH;3",
+            "THEORY;ARTIFICE;3"
+          ],
+          "required_item": [
+            "thaumcraft:stone_eldritch_tile",
+            "thaumicattempts:rift_stone",
+            "obsidian"
+          ]
+        },
+        {
+          "text": "research.TA_ELDRITCH_CONSTRUCTION.text.1",
+          "recipes": [
+
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_AURA_BOOSTER",
+      "name": "research.TA_AURA_BOOSTER.title",
+      "icons": [
+        "thaumicattempts:ta_aura_booster"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_ELDRITCH_CONSTRUCTION"],
+      "siblings": [],
+      "location": [
+        8,
+        3
+      ],
+      "stages": [
+        {
+          "text": "research.TA_AURA_BOOSTER.text.0",
+          "required_knowledge": [
+            "THEORY;ELDRITCH;3",
+            "THEORY;ARTIFICE;1",
+            "THEORY;AUROMANCY;2"
+          ],
+          "required_item": [
+            "thaumcraft:vis_battery",
+            "thaumicattempts:rift_stone_base",
+            "thaumicattempts:rift_cristal"
+          ]
+        },
+        {
+          "text": "research.TA_AURA_BOOSTER.text.1",
+          "recipes": [
+
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_GEM",
+      "name": "research.TA_GEM.title",
+      "icons": [
+        "thaumicattempts:ta_gem;1;0",
+        "thaumicattempts:ta_gem;1;1",
+        "thaumicattempts:ta_gem;1;2",
+        "thaumicattempts:ta_gem;1;3",
+        "thaumicattempts:ta_gem;1;4",
+        "thaumicattempts:ta_gem;1;5",
+        "thaumicattempts:ta_gem;1;6",
+        "thaumicattempts:ta_gem;1;7",
+        "thaumicattempts:ta_gem;1;8"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_ANOMALY"],
+      "siblings": [],
+      "location": [
+        5,
+        7
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GEM.text.0",
+          "required_knowledge": [
+            "THEORY;ELDRITCH;2",
+            "THEORY;ARTIFICE;2",
+            "THEORY;AUROMANCY;2"
+          ],
+          "required_item": [
+            "thaumicattempts:rift_ember",
+            "thaumicattempts:rift_ametist",
+            "thaumicattempts:rift_briliant"
+          ]
+        },
+        {
+          "text": "research.TA_GEM.text.1",
+          "recipes": [
+            "thaumicattempts:ember_infusion",
+            "thaumicattempts:ametist_infusion",
+            "thaumicattempts:diamond_infusion"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_RIFT_EXTRACTOR",
+      "name": "research.TA_RIFT_EXTRACTOR.title",
+      "icons": [
+        "thaumicattempts:rift_extractor"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_ELDRITCH_CONSTRUCTION","TA_GEM"],
+      "siblings": [],
+      "location": [
+        9,
+        6
+      ],
+      "stages": [
+        {
+          "text": "research.TA_RIFT_EXTRACTOR.text.0",
+          "required_knowledge": [
+            "THEORY;ELDRITCH;3",
+            "THEORY;ARTIFICE;2",
+            "THEORY;ALCHEMY;1"
+          ],
+          "required_item": [
+            "thaumicattempts:rift_stone_base",
+            "thaumcraft:void_siphon"
+          ]
+        },
+        {
+          "text": "research.TA_RIFT_EXTRACTOR.text.1",
+          "recipes": [
+            "thaumicattempts:aura_booster_multiblock"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_RIFT_ENCHANTMENT",
+      "name": "research.TA_RIFT_ENCHANTMENT.title",
+      "icons": [
+        "thaumicattempts:rift_ember",
+        "thaumicattempts:rift_ametist",
+        "thaumicattempts:rift_briliant"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_GEM"],
+      "siblings": [],
+      "location": [
+        5,
+        10
+      ],
+      "stages": [
+        {
+          "text": "research.TA_RIFT_ENCHANTMENT.text.0",
+          "required_knowledge": [
+            "THEORY;ELDRITCH;3",
+            "THEORY;ARTIFICE;2",
+            "THEORY;INFUSION;3"
+          ],
+          "required_item": [
+            "thaumicattempts:ta_gem;1;2",
+            "thaumicattempts:ta_gem;1;5",
+            "thaumicattempts:ta_gem;1;8"
+
+          ]
+        },
+        {
+          "text": "research.TA_RIFT_ENCHANTMENT.text.1",
+          "recipes": [
+
+          ]
+        }
+      ]
+    }
+  ]
+}

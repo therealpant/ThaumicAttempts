@@ -98,7 +98,7 @@ public final class ModBlocksItems {
         TABlocks.ANOMALY_CROP = new BlockAnomalyCrop();
         TABlocks.AURA_BOOSTER = new BlockAuraBooster();
         TABlocks.AURA_BOOSTER_CORE = new BlockAuraBoosterCore();
-        TABlocks.RIST_CRISTAL_BLOCK = new BlockRistCristalBlock();
+        TABlocks.RIFT_CRISTAL_BLOCK = new BlockRistCristalBlock();
         TABlocks.RIFT_EXTRACTOR = new BlockRiftExtractor();
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -117,7 +117,7 @@ public final class ModBlocksItems {
                 TABlocks.ANOMALY_CROP,
                 TABlocks.AURA_BOOSTER,
                 TABlocks.AURA_BOOSTER_CORE,
-                TABlocks.RIST_CRISTAL_BLOCK,
+                TABlocks.RIFT_CRISTAL_BLOCK,
                 TABlocks.RIFT_EXTRACTOR
         );
 
@@ -268,8 +268,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.AURA_BOOSTER.getRegistryName());
         TABlocks.AURA_BOOSTER_CORE_ITEM = new ItemBlock(TABlocks.AURA_BOOSTER_CORE)
                 .setRegistryName(TABlocks.AURA_BOOSTER_CORE.getRegistryName());
-        TABlocks.RIST_CRISTAL_BLOCK_ITEM = new ItemBlock(TABlocks.RIST_CRISTAL_BLOCK)
-                .setRegistryName(TABlocks.RIST_CRISTAL_BLOCK.getRegistryName());
+        TABlocks.RIFT_CRISTAL_BLOCK_ITEM = new ItemBlock(TABlocks.RIFT_CRISTAL_BLOCK)
+                .setRegistryName(TABlocks.RIFT_CRISTAL_BLOCK.getRegistryName());
         TABlocks.RIFT_EXTRACTOR_ITEM = new ItemBlock(TABlocks.RIFT_EXTRACTOR)
                 .setRegistryName(TABlocks.RIFT_EXTRACTOR.getRegistryName());
 
@@ -289,7 +289,7 @@ public final class ModBlocksItems {
                 TABlocks.ANOMALY_BED_ITEM,
                 TABlocks.AURA_BOOSTER_ITEM,
                 TABlocks.AURA_BOOSTER_CORE_ITEM,
-                TABlocks.RIST_CRISTAL_BLOCK_ITEM,
+                TABlocks.RIFT_CRISTAL_BLOCK_ITEM,
                 TABlocks.RIFT_EXTRACTOR_ITEM
         );
     }

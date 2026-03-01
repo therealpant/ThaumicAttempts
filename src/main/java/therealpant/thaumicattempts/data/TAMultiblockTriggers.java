@@ -3,7 +3,6 @@ package therealpant.thaumicattempts.data;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 import thaumcraft.api.ThaumcraftApi;
-import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.api.crafting.IDustTrigger;
 import thaumcraft.api.crafting.Part;
 import thaumcraft.common.lib.crafting.DustTriggerMultiblock;
@@ -20,8 +19,10 @@ public final class TAMultiblockTriggers {
     public static final ResourceLocation AURA_BOOSTER_MB_ID =
             new ResourceLocation(ThaumicAttempts.MODID, "aura_booster_multiblock");
 
+    public static final ResourceLocation RIFT_EXTRACTOR_MB_ID =
+            new ResourceLocation(ThaumicAttempts.MODID, "aura_booster_multiblock");
+
     public static void register() {
-        try {
             // 1) Триггер мультиблока (Salis Mundus)
             DustTriggerMultiblock mirrorTrigger = new DustTriggerMultiblock(
                     "TA_GOLEM_MIRRORS",
@@ -35,14 +36,16 @@ public final class TAMultiblockTriggers {
             );
             IDustTrigger.registerDustTrigger(auraBoosterTrigger);
 
+            DustTriggerMultiblock riftExtractorTrigger = new DustTriggerMultiblock(
+                "TA_RIFT_EXTRACTOR",
+                buildRiftExtractorTriggerStructure()
+            );
+            IDustTrigger.registerDustTrigger(riftExtractorTrigger);
+
             // 2) Blueprint для Таумономикона (схема постройки)
             registerBlueprint();
             registerAuraBoosterBlueprint();
-
-            ThaumicAttempts.LOGGER.info("Registered multiblock dust triggers + blueprints.");
-        } catch (Throwable t) {
-            ThaumicAttempts.LOGGER.warn("Mirror manager multiblock registration failed.", t);
-        }
+            registerRiftExtractorBlueprint();
     }
 
 
@@ -61,9 +64,24 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildAuraBoosterTriggerStructure() {
-        Part topToAir = new Part(TABlocks.RIST_CRISTAL_BLOCK, "AIR");
+        Part topToAir = new Part(TABlocks.RIFT_CRISTAL_BLOCK, "AIR");
         Part middleToAir = new Part(TABlocks.AURA_BOOSTER_CORE, "AIR");
         Part baseToBooster = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.AURA_BOOSTER);
+
+        return new Part[][][] {
+                // Y = 0 (ВЕРХ)
+                { { topToAir } },
+                // Y = 1 (СЕРЕДИНА)
+                { { middleToAir } },
+                // Y = 2 (НИЗ, СЮДА КЛИКАЕМ ПЫЛЬЮ)
+                { { baseToBooster } }
+        };
+    }
+
+    private static Part[][][] buildRiftExtractorTriggerStructure() {
+        Part topToAir = new Part(TABlocks.ELDRITCH_CONSTRUCTION, "AIR");
+        Part middleToAir = new Part(TABlocks.ELDRITCH_CONSTRUCTION, "AIR");
+        Part baseToBooster = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.RIFT_EXTRACTOR);
 
         return new Part[][][] {
                 // Y = 0 (ВЕРХ)
@@ -103,7 +121,7 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildAuraBoosterBlueprintStructure() {
-        Part top = new Part(TABlocks.RIST_CRISTAL_BLOCK, TABlocks.RIST_CRISTAL_BLOCK);
+        Part top = new Part(TABlocks.RIFT_CRISTAL_BLOCK, TABlocks.RIFT_CRISTAL_BLOCK);
         Part middle = new Part(TABlocks.AURA_BOOSTER_CORE, TABlocks.AURA_BOOSTER_CORE);
         Part bottom = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.RIFT_STONE_BASE);
 
@@ -129,5 +147,30 @@ public final class TAMultiblockTriggers {
         ThaumcraftApi.addMultiblockRecipeToCatalog(AURA_BOOSTER_MB_ID, bp);
     }
 
+    private static Part[][][] buildRiftExtractorBlueprintStructure() {
+        Part top = new Part(TABlocks.ELDRITCH_CONSTRUCTION, TABlocks.ELDRITCH_CONSTRUCTION);
+        Part middle = new Part(TABlocks.ELDRITCH_CONSTRUCTION, TABlocks.ELDRITCH_CONSTRUCTION);
+        Part bottom = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.RIFT_STONE_BASE);
 
+        return new Part[][][] {
+                // Y = 0 (ВЕРХ)
+                { { top } },
+                // Y = 1 (СЕРЕДИНА)
+                { { middle } },
+                // Y = 2 (НИЗ)
+                { { bottom } }
+        };
+    }
+
+    private static void registerRiftExtractorBlueprint() {
+        Part[][][] parts = buildRiftExtractorBlueprintStructure();
+
+        ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
+                "TA_RIFT_EXTRACTOR",
+                new ItemStack(TABlocks.RIFT_EXTRACTOR),
+                parts
+        );
+
+        ThaumcraftApi.addMultiblockRecipeToCatalog(AURA_BOOSTER_MB_ID, bp);
+    }
 }

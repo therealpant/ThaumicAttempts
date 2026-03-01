@@ -1,0 +1,248 @@
+{
+  "entries": [
+    {
+      "key": "TA_GOLEM_MIRRORS",
+      "name": "research.TA_GOLEM_MIRRORS.title",
+      "icons": [
+        "thaumicattempts:mirror_manager"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "GOLEMLOGISTICS"
+      ],
+      "siblings": [],
+      "location": [
+        5,
+        2
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEM_MIRRORS.text.0",
+          "required_knowledge": [
+            "THEORY;GOLEMANCY;1",
+            "THEORY;ARTIFICE;2",
+            "THEORY;ELDRITCH;1"
+          ],
+          "required_item": [
+            "thaumcraft:mind;1;1",
+            "thaumcraft:stone_eldritch_tile",
+            "thaumcraft:mirror"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEM_MIRRORS.text.1",
+          "recipes": [
+            "thaumicattempts:order_terminal",
+            "thaumicattempts:mirror_manager_infusion",
+            "thaumicattempts:mirror_manager_multiblock",
+            "thaumicattempts:eldritch_construction_arcane",
+            "thaumicattempts:rift_stone_base_arcane",
+            "thaumicattempts:vischarge",
+            "thaumicattempts:rift_momentum",
+            "thaumicattempts:arcane_guard"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_GOLEM_INTEGRATION",
+      "name": "research.TA_GOLEM_INTEGRATION.title",
+      "icons": [
+        "thaumicattempts:mirror_stabilizer"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "TA_GOLEM_MIRRORS"
+      ],
+      "siblings": [],
+      "location": [
+        5,
+        0
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEM_INTEGRATION.text.0",
+          "required_knowledge": ["THEORY;GOLEMANCY;1", "THEORY;ARTIFICE;1", "THEORY;ELDRITCH;1"],
+          "required_item": [
+            "thaumcraft:brain_box",
+            "thaumcraft:plate;1;3",
+            "thaumcraft:mirrored_glass"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEM_INTEGRATION.text.1",
+          "recipes": [
+            "thaumicattempts:math_core_arcane",
+            "thaumicattempts:mirror_stabilizer_arcane",
+            "thaumicattempts:requester_infusion"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_GOLEMCRAFT_AD",
+      "name": "research.TA_GOLEMCRAFT_AD.title",
+      "icons": [
+        "thaumicattempts:arcane_crafter"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "TA_GOLEMCRAFT"
+      ],
+      "siblings": [],
+      "location": [
+        4,
+        7
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEMCRAFT_AD.text.intro",
+          "required_knowledge": ["THEORY;AUROMANCY;2", "THEORY;ARTIFICE;3"],
+          "required_item": [
+            "thaumicattempts:golem_crafter",
+            "thaumcraft:arcane_workbench"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEMCRAFT_AD.text.main",
+          "recipes": [
+            "thaumicattempts:pattern_arcane",
+            "thaumicattempts:arcane_crafter_infusion"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_GOLEMCRAFT",
+      "name": "research.TA_GOLEMCRAFT.title",
+      "icons": [
+        "thaumicattempts:golem_crafter"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "GOLEMLOGISTICS"
+      ],
+      "siblings": [],
+      "location": [
+        5,
+        5
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEMCRAFT.text.intro",
+          "required_knowledge": ["THEORY;GOLEMANCY;2", "THEORY;ARTIFICE;2"],
+          "required_item": [
+            "minecraft:crafting_table",
+            "thaumcraft:arcane_workbench"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEMCRAFT.text.main",
+          "recipes": [
+            "thaumicattempts:pattern_craft",
+            "thaumicattempts:golem_crafter_infusion"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_GOLEMINFUSION",
+      "name": "research.TA_GOLEMINFUSION.title",
+      "icons": [
+        "thaumicattempts:infusion_requester"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "TA_GOLEMCRAFT_AD",
+        "TA_GOLEMDELIVERY"
+      ],
+      "siblings": [],
+      "location": [
+        5,
+        9
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEMINFUSION.text.intro",
+          "required_knowledge": ["THEORY;GOLEMANCY;2", "THEORY;ARTIFICE;2", "THEORY;INFUSION;1"],
+          "required_item": [
+            "thaumicattempts:resource_requester",
+            "thaumcraft:infusion_matrix"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEMINFUSION.text.main",
+          "recipes": [
+            "thaumicattempts:pattern_infusion_arcane",
+            "thaumicattempts:infusion_requester_infusion"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_GOLEMDELIVERY",
+      "name": "research.TA_GOLEMDELIVERY.title",
+      "icons": [
+        "thaumicattempts:resource_requester"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "TA_GOLEMCRAFT"
+      ],
+      "siblings": [],
+      "location": [
+        6,
+        7
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEMDELIVERY.text.intro",
+          "required_knowledge": ["THEORY;GOLEMANCY;2", "THEORY;ARTIFICE;2"],
+          "required_item": [
+            "thaumcraft:seal;1;15",
+            "thaumcraft:hungry_chest"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEMDELIVERY.text.main",
+          "recipes": [
+            "thaumicattempts:resource_list_arcane",
+            "thaumicattempts:resource_requester_arcane"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_GOLEMCONTROLER",
+      "name": "research.TA_GOLEMCONTROLER.title",
+      "icons": [
+        "thaumicattempts:golem_dispatcher"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "TA_GOLEM_INTEGRATION"
+      ],
+      "siblings": [],
+      "location": [
+        5,
+        -2
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEMCONTROLER.text.intro",
+          "required_knowledge": ["THEORY;GOLEMANCY;2", "THEORY;ELDRITCH;1"],
+          "required_item": [
+            "thaumcraft:mind;1;1",
+            "thaumcraft:brain_box"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEMCONTROLER.text.main",
+          "recipes": [
+            "thaumicattempts:dispatcher_infusion"
+          ]
+        }
+      ]
+    }
+  ]
+}

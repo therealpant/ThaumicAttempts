@@ -32,13 +32,13 @@ public final class TAArcaneRecipes {
     public static void onRegisterRecipes(RegistryEvent.Register<IRecipe> e) {
 
         /* ---------- Improved Arcane Ear (как у тебя) ---------- */
-        try {
+        {
             ShapedArcaneRecipe ear = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "arcane_ear_band"),
                     "MINDCLOCKWORK",
                     25,
                     new AspectList().add(Aspect.AIR, 1).add(Aspect.ORDER, 1),
-                    new ItemStack(Item.getByNameOrId(ThaumicAttempts.MODID +":arcane_ear_band")),
+                    new ItemStack(Item.getByNameOrId(ThaumicAttempts.MODID + ":arcane_ear_band")),
                     " C ",
                     " E ",
                     " M ",
@@ -48,12 +48,10 @@ public final class TAArcaneRecipes {
             );
             ear.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "arcane_ear_band"));
             e.getRegistry().register(ear);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip arcane_ear_band: " + t);
         }
 
         /* ---------- Паттерны ---------- */
-        try {
+        {
             ShapedArcaneRecipe pat1 = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "patterns"),
                     "TA_GOLEMCRAFT",
@@ -66,15 +64,13 @@ public final class TAArcaneRecipes {
                     'A', Blocks.CRAFTING_TABLE,
                     'G', "ingotGold",
                     'B', net.minecraft.init.Items.BOOK,
-                    'S', new ItemStack(ItemsTC.seals, 1,15)
+                    'S', new ItemStack(ItemsTC.seals, 1, 15)
             );
             pat1.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "pattern_craft"));
             e.getRegistry().register(pat1);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip pattern_craft: " + t);
         }
         /* ---------- Паттерны Аркейн ---------- */
-        try {
+        {
             ShapedArcaneRecipe pat2 = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "patterns"),
                     "TA_GOLEMCRAFT",
@@ -87,16 +83,14 @@ public final class TAArcaneRecipes {
                     'A', new ItemStack(Item.getItemFromBlock(Block.getBlockFromName("thaumcraft:arcane_workbench"))),
                     'G', "ingotGold",
                     'B', net.minecraft.init.Items.BOOK,
-                    'S', new ItemStack(ItemsTC.seals, 1,15)
+                    'S', new ItemStack(ItemsTC.seals, 1, 15)
 
             );
             pat2.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "pattern_arcane"));
             e.getRegistry().register(pat2);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip pattern_arcane: " + t);
         }
         /* ---------- Паттерны Инфузия ---------- */
-        try {
+        {
             ShapedArcaneRecipe infusion_pattern = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "patterns"),
                     "TA_GOLEMINFUSION",
@@ -109,17 +103,15 @@ public final class TAArcaneRecipes {
                     'A', new ItemStack(Item.getItemFromBlock(Block.getBlockFromName("thaumcraft:infusion_matrix"))),
                     'G', "ingotGold",
                     'B', net.minecraft.init.Items.BOOK,
-                    'S', new ItemStack(ItemsTC.seals, 1,15)
+                    'S', new ItemStack(ItemsTC.seals, 1, 15)
 
             );
             infusion_pattern.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "pattern_infusion_arcane"));
             e.getRegistry().register(infusion_pattern);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip infusion_pattern: " + t);
         }
 
         /* ---------- Order Terminal (как у тебя) ---------- */
-        try {
+        {
             ShapedArcaneRecipe r = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "order_terminal"),
                     "TA_GOLEM_MIRRORS",
@@ -138,12 +130,10 @@ public final class TAArcaneRecipes {
             );
             r.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "order_terminal"));
             e.getRegistry().register(r);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip order_terminal: " + t);
         }
 
         /* ---------- Математическое ядро (Arcane Workbench, 500 vis; AER/FIRE/ORDO x3) ---------- */
-        try {
+        {
             ShapedArcaneRecipe mathCore = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "math_core_arcane"),
                     "TA_GOLEM_INTEGRATION",
@@ -161,12 +151,10 @@ public final class TAArcaneRecipes {
             );
             mathCore.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "math_core_arcane"));
             e.getRegistry().register(mathCore);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip math_core_arcane: " + t);
         }
 
         /* ---------- Стабилизатор зеркал (Arcane Workbench, 500 vis; AER/ENTROPY/ORDO x3) ---------- */
-        try {
+        {
             ShapedArcaneRecipe stabilizer = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "mirror_stabilizer_arcane"),
                     "TA_GOLEM_INTEGRATION",
@@ -184,11 +172,9 @@ public final class TAArcaneRecipes {
             );
             stabilizer.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "mirror_stabilizer_arcane"));
             e.getRegistry().register(stabilizer);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip mirror_stabilizer_arcane: " + t);
         }
         // --------- ELDRITCH_construction  (Arcane Workbench, 500 vis)
-        try {
+        {
             ShapedArcaneRecipe eld_con = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "eldritch_construction_arcane"),
                     "MINDCLOCKWORK",
@@ -204,12 +190,10 @@ public final class TAArcaneRecipes {
             );
             eld_con.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "eldritch_construction"));
             e.getRegistry().register(eld_con);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip eldritch_construction: " + t);
         }
 
         // --------- Rift stone base  (Arcane Workbench, 500 vis)
-        try {
+        {
             ShapedArcaneRecipe rif_base = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_base_arcane"),
                     "MINDCLOCKWORK",
@@ -227,12 +211,10 @@ public final class TAArcaneRecipes {
             );
             rif_base.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_base"));
             e.getRegistry().register(rif_base);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip eldritch_construction: " + t);
         }
 
         // --------- Великодревесная коробка (Arcane Workbench, 200 vis)
-        try {
+        {
             ShapedArcaneRecipe greatwood_box = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "resource_requester_arcane"),
                     "TA_GOLEMDELIVERY",
@@ -250,26 +232,39 @@ public final class TAArcaneRecipes {
             );
             greatwood_box.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "resource_requester_arcane"));
             e.getRegistry().register(greatwood_box);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip resource_requester: " + t);
         }
-        try{
+        // --------- Инстукция для наполнения (Arcane Workbench, 150 vis)
+        {
             ShapedArcaneRecipe item_list = new ShapedArcaneRecipe(
-                 new ResourceLocation(ThaumicAttempts.MODID, "resource_list_arcane"),
+                    new ResourceLocation(ThaumicAttempts.MODID, "resource_list_arcane"),
                     "TA_GOLEMDELIVERY",
                     150,
                     new AspectList().add(Aspect.ORDER, 2).add(Aspect.WATER, 2),
                     new ItemStack(ModBlocksItems.RESOURCE_LIST),
                     "GSG", "GBG", "GHG",
-                    'S', new ItemStack(ItemsTC.seals, 1,15),
+                    'S', new ItemStack(ItemsTC.seals, 1, 15),
                     'B', net.minecraft.init.Items.BOOK,
                     'G', "ingotGold",
                     'H', new ItemStack(Item.getItemFromBlock(hungryChest))
             );
             item_list.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "resource_list_arcane"));
             e.getRegistry().register(item_list);
-        } catch (Throwable t) {
-            System.out.println("[TA] Skip resource_list: " + t);
+        }
+        // --------- Кристалический Массив (Arcane Workbench, 350 vis)
+        {
+            ShapedArcaneRecipe item_list = new ShapedArcaneRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "cristal_mas_arcane"),
+                    "TA_AURA_BOOSTER",
+                    350,
+                    new AspectList().add(Aspect.ORDER, 2).add(Aspect.WATER, 2),
+                    new ItemStack(TABlocks.RIFT_CRISTAL_BLOCK),
+                    "GSG", "GBG", "GSG",
+                    'S', new ItemStack(ItemsTC.visResonator),
+                    'B', new ItemStack(ItemsTC.primordialPearl, 1, OreDictionary.WILDCARD_VALUE),
+                    'G',new ItemStack(ModBlocksItems.RIFT_CRISTAL)
+            );
+            item_list.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "cristal_mas_arcane"));
+            e.getRegistry().register(item_list);
         }
     }
 }

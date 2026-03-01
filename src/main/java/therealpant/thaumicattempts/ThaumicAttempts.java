@@ -141,13 +141,8 @@ public class ThaumicAttempts {
         TAGemRegistry.register(new DiamondGemDefinition());
 
         //Research
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemcraft_advanced"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemintegration"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golemmirrors"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_delivery"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_controling"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/golem_infusion"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/ta_golemansy"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/ta_eldritch"));
 
         proxy.init(e);
     }
