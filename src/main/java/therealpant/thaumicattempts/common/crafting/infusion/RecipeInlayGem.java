@@ -3,8 +3,8 @@ package therealpant.thaumicattempts.common.crafting.infusion;
 import java.util.List;
 
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
-import net.minecraft.item.crafting.Ingredient;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.World;
 import thaumcraft.api.aspects.AspectList;
@@ -19,21 +19,22 @@ import therealpant.thaumicattempts.util.TAGemInlayUtil;
  * Infusion recipe for inserting a gem into armor.
  */
 public class RecipeInlayGem extends InfusionRecipe {
-    private static final ItemStack VOID_ROBE_CHEST = new ItemStack(ItemsTC.voidRobeChest);
+    private static final ItemStack VOID_INGOT = new ItemStack(ItemsTC.ingots, 1, 1);
+    private static final ItemStack THAUMIUM_PLATE = new ItemStack(ItemsTC.plate, 1, 3);
 
     public RecipeInlayGem(String research, int instability, AspectList aspects, Object... components) {
         super(research, new ItemStack(ItemsTC.voidRobeChest), instability, aspects,
-                Ingredient.fromStacks(VOID_ROBE_CHEST), components);
+                new ItemStack(ItemsTC.voidRobeChest), components);
     }
 
     @Override
     public boolean matches(List<ItemStack> input, ItemStack central, World world, EntityPlayer player) {
         if (central == null || central.isEmpty()) return false;
-        if (central.getItem() != ItemsTC.voidRobeChest) return false;
+        if (!(central.getItem() instanceof ItemArmor)) return false;
         if (TAGemInlayUtil.hasGem(central)) return false;
+        if (!hasRequiredComponents(input)) return false;
         ItemStack gemStack = getSingleGem(input);
         if (gemStack.isEmpty()) return false;
-        if (!super.matches(input, central, world, player)) return false;
         ResourceLocation id = ItemTAGem.getGemIdFromStack(gemStack);
         if (id == null) return false;
         ITAGemDefinition def = TAGemRegistry.get(id);
@@ -56,6 +57,40 @@ public class RecipeInlayGem extends InfusionRecipe {
         if (def == null || tier < 1 || tier > def.getMaxTier()) return ItemStack.EMPTY;
         TAGemInlayUtil.setGem(out, id, tier, dmg);
         return out;
+    }
+
+    private static boolean hasRequiredComponents(List<ItemStack> input) {
+        if (input == null || input.isEmpty()) return false;
+
+        int needVoidIngots = 2;
+        int needPlates = 2;
+        int needPearl = 1;
+        boolean foundGem = false;
+
+        for (ItemStack stack : input) {
+            if (stack == null || stack.isEmpty()) continue;
+
+            if (ItemTAGem.isGem(stack)) {
+                if (foundGem) return false;
+                foundGem = true;
+                continue;
+            }
+            if (ItemStack.areItemsEqual(stack, VOID_INGOT)) {
+                needVoidIngots--;
+                continue;
+            }
+            if (ItemStack.areItemsEqual(stack, THAUMIUM_PLATE)) {
+                needPlates--;
+                continue;
+            }
+            if (stack.getItem() == ItemsTC.primordialPearl) {
+                needPearl--;
+                continue;
+            }
+            return false;
+        }
+
+        return foundGem && needVoidIngots == 0 && needPlates == 0 && needPearl == 0;
     }
 
     private static ItemStack getSingleGem(List<ItemStack> stacks) {

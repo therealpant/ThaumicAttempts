@@ -60,12 +60,12 @@ public final class TAInfusionRecipes {
                         new AspectList()
                                 .add(Aspect.VOID, 75)
                                 .add(Aspect.ELDRITCH, 75),
-                        new ItemStack(ItemsTC.voidRobeChest,1, OreDictionary.WILDCARD_VALUE),
-                        new ItemStack(ItemsTC.ingots,1, 1),
-                        new ItemStack(ItemsTC.plate, 1, 3),
                         new ItemStack(ItemsTC.salisMundus),
-                        new ItemStack(ItemsTC.plate, 1, 3),
-                        new ItemStack(ItemsTC.ingots,1, 1)
+                        new ItemStack(ItemsTC.visResonator),
+                        new ItemStack(ItemsTC.morphicResonator),
+                        new ItemStack(ItemsTC.salisMundus),
+                        new ItemStack(ItemsTC.morphicResonator),
+                        new ItemStack(ItemsTC.visResonator)
                 )
         );
         // ===== 1) GOLEM_CRAFTER из ванильного верстака =====

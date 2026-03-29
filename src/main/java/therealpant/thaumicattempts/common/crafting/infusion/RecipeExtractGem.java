@@ -26,20 +26,18 @@ public class RecipeExtractGem extends InfusionRecipe {
     private static final ItemStack SALIS_MUNDUS = new ItemStack(ItemsTC.salisMundus);
 
     public RecipeExtractGem(String research, int instability, AspectList aspects, Object... components) {
-        super(research, new ItemStack(ModBlocksItems.TA_GEM, 1, 0), instability, aspects,
-                Ingredient.fromStacks(VOID_INGOT), components);
+        super(research, new ItemStack(ItemsTC.voidRobeChest), instability, aspects,
+                new ItemStack(ItemsTC.voidRobeChest), components);
     }
 
     @Override
     public boolean matches(List<ItemStack> input, ItemStack central, World world, EntityPlayer player) {
-        if (central == null || central.isEmpty()) return false;
-        if (!ItemStack.areItemsEqual(VOID_INGOT, central)) return false;
+        if (!isArmorWithGem(central)) return false;
         if (input == null || input.isEmpty()) return false;
 
         int needVoidIngots = 2;
         int needPlates = 2;
         int needSalis = 1;
-        boolean foundArmorWithGem = false;
 
         for (ItemStack stack : input) {
             if (stack == null || stack.isEmpty()) continue;
@@ -57,53 +55,28 @@ public class RecipeExtractGem extends InfusionRecipe {
                 continue;
             }
 
-            if (isArmorWithGem(stack)) {
-                if (foundArmorWithGem) return false;
-                foundArmorWithGem = true;
-                continue;
-            }
-
             return false;
         }
 
-        if (needVoidIngots != 0 || needPlates != 0 || needSalis != 0 || !foundArmorWithGem) {
+        if (needVoidIngots != 0 || needPlates != 0 || needSalis != 0) {
             return false;
         }
 
-        ItemStack armorWithGem = getSingleArmorWithGem(input);
-        if (armorWithGem.isEmpty()) return false;
-        ResourceLocation id = TAGemInlayUtil.getGemId(armorWithGem);
+        ResourceLocation id = TAGemInlayUtil.getGemId(central);
         if (id == null) return false;
         ITAGemDefinition def = TAGemRegistry.get(id);
         if (def == null) return false;
-        int tier = TAGemInlayUtil.getTier(armorWithGem);
+        int tier = TAGemInlayUtil.getTier(central);
         return tier >= 1 && tier <= def.getMaxTier();
     }
 
     @Override
     public ItemStack  getRecipeOutput(EntityPlayer player, ItemStack central, List<ItemStack> comps) {
-        ItemStack armorWithGem = getSingleArmorWithGem(comps);
-        if (armorWithGem.isEmpty()) return ItemStack.EMPTY;
-
-        ResourceLocation id = TAGemInlayUtil.getGemId(armorWithGem);
-        if (id == null) return ItemStack.EMPTY;
-        ITAGemDefinition def = TAGemRegistry.get(id);
-        if (def == null) return ItemStack.EMPTY;
-        int tier = TAGemInlayUtil.getTier(armorWithGem);
-        if (tier < 1 || tier > def.getMaxTier()) return ItemStack.EMPTY;
-        int dmg = TAGemInlayUtil.getDamage(armorWithGem);
-        return ItemTAGem.makeGem(id, tier, dmg);
-    }
-
-    private static ItemStack getSingleArmorWithGem(List<ItemStack> input) {
-        if (input == null || input.isEmpty()) return ItemStack.EMPTY;
-        ItemStack found = ItemStack.EMPTY;
-        for (ItemStack stack : input) {
-            if (!isArmorWithGem(stack)) continue;
-            if (!found.isEmpty()) return ItemStack.EMPTY;
-            found = stack;
-            }
-        return found;
+        if (!isArmorWithGem(central)) return ItemStack.EMPTY;
+        ItemStack cleaned = central.copy();
+        cleaned.setCount(1);
+        TAGemInlayUtil.removeGem(cleaned);
+        return cleaned;
     }
 
     private static boolean isArmorWithGem(ItemStack stack) {

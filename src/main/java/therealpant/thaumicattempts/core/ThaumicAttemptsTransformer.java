@@ -59,8 +59,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchFocusEngine(basicClass);
                 case "thaumcraft.client.gui.plugins.GuiFocusSettingSpinnerButton":
                     return patchGuiFocusSettingSpinnerButton(basicClass);
-                case "thaumcraft.common.tiles.crafting.TilePedestal":
-                    return patchTilePedestal(basicClass);
                 default:
                     return basicClass;
             }
@@ -927,47 +925,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         cn.accept(cw);
 
         System.out.println("[ThaumicAttempts] Patched thaumcraft.common.golems.tasks.TaskHandler");
-        return cw.toByteArray();
-    }
-
-    private byte[] patchTilePedestal(byte[] basicClass) {
-        ClassReader cr = new ClassReader(basicClass);
-        ClassNode cn = new ClassNode(ASM5);
-        cr.accept(cn, 0);
-
-        boolean patched = false;
-        for (MethodNode m : cn.methods) {
-            if (!"(II)Lnet/minecraft/item/ItemStack;".equals(m.desc)) continue;
-            if (!"decrStackSize".equals(m.name) && !"func_70298_a".equals(m.name)) continue;
-
-            InsnList hook = new InsnList();
-            hook.add(new VarInsnNode(ALOAD, 0));
-            hook.add(new VarInsnNode(ILOAD, 1));
-            hook.add(new VarInsnNode(ILOAD, 2));
-            hook.add(new MethodInsnNode(INVOKESTATIC,
-                    HOOKS,
-                    "onPedestalDecrStackSize",
-                    "(Ljava/lang/Object;II)Lnet/minecraft/item/ItemStack;",
-                    false));
-            hook.add(new VarInsnNode(ASTORE, 3));
-            LabelNode passthrough = new LabelNode();
-            hook.add(new VarInsnNode(ALOAD, 3));
-            hook.add(new JumpInsnNode(IFNULL, passthrough));
-            hook.add(new VarInsnNode(ALOAD, 3));
-            hook.add(new InsnNode(ARETURN));
-            hook.add(passthrough);
-            m.instructions.insert(hook);
-            patched = true;
-            break;
-        }
-
-        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
-        cn.accept(cw);
-        if (patched) {
-            System.out.println("[ThaumicAttempts] Patched thaumcraft.common.tiles.crafting.TilePedestal");
-        } else {
-            System.out.println("[ThaumicAttempts] TilePedestal patch skipped (decrStackSize not found)");
-        }
         return cw.toByteArray();
     }
 }
