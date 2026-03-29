@@ -60,7 +60,7 @@ public final class TAInfusionRecipes {
                         new AspectList()
                                 .add(Aspect.VOID, 75)
                                 .add(Aspect.ELDRITCH, 75),
-                        new ItemStack(ItemsTC.salisMundus),
+                        new ItemStack(ItemsTC.voidRobeChest),
                         new ItemStack(ItemsTC.ingots,1, 1),
                         new ItemStack(ItemsTC.plate, 1, 3),
                         new ItemStack(ItemsTC.salisMundus),

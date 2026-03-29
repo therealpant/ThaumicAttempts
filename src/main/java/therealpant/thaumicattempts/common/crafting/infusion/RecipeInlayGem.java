@@ -21,19 +21,19 @@ import therealpant.thaumicattempts.util.TAGemInlayUtil;
  * Infusion recipe for inserting a gem into armor.
  */
 public class RecipeInlayGem extends InfusionRecipe {
-    private static final ItemStack DUMMY_CENTRAL = new ItemStack(ItemsTC.ingots,1,1);
+    private static final ItemStack VOID_ROBE_CHEST = new ItemStack(ItemsTC.voidRobeChest);
 
     public RecipeInlayGem(String research, int instability, AspectList aspects, Object... components) {
         super(research, new ItemStack(ItemsTC.voidRobeChest), instability, aspects,
-                Ingredient.fromStacks(DUMMY_CENTRAL), components);
+                Ingredient.fromStacks(VOID_ROBE_CHEST), components);
     }
 
     @Override
     public boolean matches(List<ItemStack> input, ItemStack central, World world, EntityPlayer player) {
-        if (central == null || central.isEmpty()) return false;
+        if (central.getItem() != ItemsTC.voidRobeChest) return false;
         if (!(central.getItem() instanceof ItemArmor)) return false;
         if (TAGemInlayUtil.hasGem(central)) return false;
-        if (!super.matches(input, DUMMY_CENTRAL, world, player)) return false;
+        if (!super.matches(input, central, world, player)) return false;
         ItemStack gemStack = findGem(input);
         if (gemStack.isEmpty()) return false;
         ResourceLocation id = ItemTAGem.getGemIdFromStack(gemStack);
