@@ -21,44 +21,51 @@ import therealpant.thaumicattempts.util.TAGemInlayUtil;
  * Infusion recipe for extracting a gem from armor.
  */
 public class RecipeExtractGem extends InfusionRecipe {
-    private static final ItemStack VOID_INGOT = new ItemStack(ItemsTC.ingots, 1, 1);
-    private static final ItemStack THAUMIUM_PLATE = new ItemStack(ItemsTC.plate, 1, 3);
     private static final ItemStack SALIS_MUNDUS = new ItemStack(ItemsTC.salisMundus);
+    private static final ItemStack VIS_RESONATOR = new ItemStack(ItemsTC.visResonator);
+    private static final ItemStack MORPHIC_RESONATOR = new ItemStack(ItemsTC.morphicResonator);
+    private static final int PREVIEW_GEM_META = 0;
 
     public RecipeExtractGem(String research, int instability, AspectList aspects, Object... components) {
-        super(research, new ItemStack(ItemsTC.voidRobeChest), instability, aspects,
-                new ItemStack(ItemsTC.voidRobeChest), components);
+        super(
+                research,
+                new ItemStack(ItemsTC.voidRobeChest),
+                instability,
+                aspects,
+                Ingredient.fromStacks(makeInlaidRobePreview()),
+                components
+        );
     }
 
     @Override
     public boolean matches(List<ItemStack> input, ItemStack central, World world, EntityPlayer player) {
-        if (!isArmorWithGem(central)) return false;
+        if (!hasGemInlay(central)) return false;
         if (input == null || input.isEmpty()) return false;
 
-        int needVoidIngots = 2;
-        int needPlates = 2;
-        int needSalis = 1;
+        int needSalis = 2;
+        int needVisResonator = 2;
+        int needMorphicResonator = 2;
 
         for (ItemStack stack : input) {
             if (stack == null || stack.isEmpty()) continue;
 
-            if (ItemStack.areItemsEqual(stack, VOID_INGOT)) {
-                needVoidIngots--;
-                continue;
-            }
-            if (ItemStack.areItemsEqual(stack, THAUMIUM_PLATE)) {
-                needPlates--;
-                continue;
-            }
             if (ItemStack.areItemsEqual(stack, SALIS_MUNDUS)) {
                 needSalis--;
+                continue;
+            }
+            if (ItemStack.areItemsEqual(stack, VIS_RESONATOR)) {
+                needVisResonator--;
+                continue;
+            }
+            if (ItemStack.areItemsEqual(stack, MORPHIC_RESONATOR)) {
+                needMorphicResonator--;
                 continue;
             }
 
             return false;
         }
 
-        if (needVoidIngots != 0 || needPlates != 0 || needSalis != 0) {
+        if (needSalis != 0 || needVisResonator != 0 || needMorphicResonator != 0) {
             return false;
         }
 
@@ -72,14 +79,26 @@ public class RecipeExtractGem extends InfusionRecipe {
 
     @Override
     public ItemStack  getRecipeOutput(EntityPlayer player, ItemStack central, List<ItemStack> comps) {
-        if (!isArmorWithGem(central)) return ItemStack.EMPTY;
+        if (!hasGemInlay(central)) return ItemStack.EMPTY;
         ItemStack cleaned = central.copy();
         cleaned.setCount(1);
         TAGemInlayUtil.removeGem(cleaned);
         return cleaned;
     }
 
-    private static boolean isArmorWithGem(ItemStack stack) {
-        return stack != null && !stack.isEmpty() && stack.getItem() instanceof ItemArmor && TAGemInlayUtil.hasGem(stack);
+    private static boolean hasGemInlay(ItemStack stack) {
+        return stack != null && !stack.isEmpty() && TAGemInlayUtil.hasGem(stack);
+    }
+
+    private static ItemStack makeInlaidRobePreview() {
+        ItemStack robe = new ItemStack(ItemsTC.voidRobeChest);
+        ItemStack gem = new ItemStack(ModBlocksItems.TA_GEM, 1, PREVIEW_GEM_META);
+        ResourceLocation id = ItemTAGem.getGemIdFromStack(gem);
+        int tier = ItemTAGem.getTierFromStack(gem);
+        int dmg = ItemTAGem.getGemDamage(gem);
+        if (id != null) {
+            TAGemInlayUtil.setGem(robe, id, tier, dmg);
+        }
+        return robe;
     }
 }

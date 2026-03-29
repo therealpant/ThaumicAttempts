@@ -44,6 +44,23 @@ public final class TAInfusionRecipes {
                                 .add(Aspect.MAGIC, 50)
                                 .add(Aspect.ELDRITCH, 75)
                                 .add(Aspect.ORDER, 50),
+                        new ItemStack(ModBlocksItems.TA_GEM, 1, 0),
+                        new ItemStack(ItemsTC.ingots,1, 1),
+                        new ItemStack(ItemsTC.plate, 1, 3),
+                        new ItemStack(ItemsTC.primordialPearl, 1, OreDictionary.WILDCARD_VALUE),
+                        new ItemStack(ItemsTC.plate, 1, 3),
+                        new ItemStack(ItemsTC.ingots,1, 1)
+                )
+        );
+        ThaumcraftApi.addInfusionCraftingRecipe(
+                new ResourceLocation(ThaumicAttempts.MODID, "inlay_gem_v"),
+                new RecipeInlayGem(
+                        "TA_GEM",
+                        6,
+                        new AspectList()
+                                .add(Aspect.MAGIC, 50)
+                                .add(Aspect.ELDRITCH, 75)
+                                .add(Aspect.ORDER, 50),
                         new ItemStack(ModBlocksItems.TA_GEM, 1, OreDictionary.WILDCARD_VALUE),
                         new ItemStack(ItemsTC.ingots,1, 1),
                         new ItemStack(ItemsTC.plate, 1, 3),

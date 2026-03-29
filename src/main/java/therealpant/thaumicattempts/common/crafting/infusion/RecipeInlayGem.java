@@ -5,6 +5,7 @@ import java.util.List;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
+import net.minecraft.item.crafting.Ingredient;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.World;
 import thaumcraft.api.aspects.AspectList;
@@ -12,6 +13,7 @@ import thaumcraft.api.crafting.InfusionRecipe;
 import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.api.gems.ITAGemDefinition;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
+import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.items.ItemTAGem;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
 
@@ -21,10 +23,17 @@ import therealpant.thaumicattempts.util.TAGemInlayUtil;
 public class RecipeInlayGem extends InfusionRecipe {
     private static final ItemStack VOID_INGOT = new ItemStack(ItemsTC.ingots, 1, 1);
     private static final ItemStack THAUMIUM_PLATE = new ItemStack(ItemsTC.plate, 1, 3);
+    private static final int PREVIEW_GEM_META = 0;
 
     public RecipeInlayGem(String research, int instability, AspectList aspects, Object... components) {
-        super(research, new ItemStack(ItemsTC.voidRobeChest), instability, aspects,
-                new ItemStack(ItemsTC.voidRobeChest), components);
+        super(
+                research,
+                makeInlaidRobePreview(),
+                instability,
+                aspects,
+                Ingredient.fromStacks(new ItemStack(ItemsTC.voidRobeChest)),
+                components
+        );
     }
 
     @Override
@@ -104,4 +113,15 @@ public class RecipeInlayGem extends InfusionRecipe {
         return found;
     }
 
+    private static ItemStack makeInlaidRobePreview() {
+        ItemStack robe = new ItemStack(ItemsTC.voidRobeChest);
+        ItemStack gem = new ItemStack(ModBlocksItems.TA_GEM, 1, PREVIEW_GEM_META);
+        ResourceLocation id = ItemTAGem.getGemIdFromStack(gem);
+        int tier = ItemTAGem.getTierFromStack(gem);
+        int dmg = ItemTAGem.getGemDamage(gem);
+        if (id != null) {
+            TAGemInlayUtil.setGem(robe, id, tier, dmg);
+        }
+        return robe;
+    }
 }
