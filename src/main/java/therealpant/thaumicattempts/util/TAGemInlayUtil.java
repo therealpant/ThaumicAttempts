@@ -78,6 +78,15 @@ public final class TAGemInlayUtil {
     }
 
     /**
+     * Alias for clearGem to keep intent explicit at call sites.
+     *
+     * @param armor armor stack
+     */
+    public static void removeGem(ItemStack armor) {
+        clearGem(armor);
+    }
+
+    /**
      * Read gem id from armor inlay.
      *
      * @param armor armor stack

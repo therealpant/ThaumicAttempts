@@ -3,6 +3,7 @@ package therealpant.thaumicattempts.core;
 import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.inventory.IInventory;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
@@ -21,11 +22,14 @@ import thaumcraft.common.items.casters.CasterManager;
 import thaumcraft.common.items.casters.ItemCaster;
 import thaumcraft.common.items.casters.ItemFocus;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
+import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.effects.AmberEffects;
+import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.TAGemCountCache;
+import therealpant.thaumicattempts.util.TAGemInlayUtil;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
@@ -182,6 +186,72 @@ public final class TAHooks {
                 it.remove();
             }
         }
+    }
+
+    /**
+     * Special pedestal-consume hook for extract_gem infusion:
+     * keep the robe on the pedestal, strip gem NBT, and still report a consumed stack.
+     *
+     * @param pedestal pedestal tile entity (TilePedestal)
+     * @param index slot index
+     * @param count amount requested by decrStackSize
+     * @return non-null stack to short-circuit vanilla consumption; null to continue default logic
+     */
+    public static ItemStack onPedestalDecrStackSize(Object pedestal, int index, int count) {
+        if (!(pedestal instanceof TileEntity) || !(pedestal instanceof IInventory) || index != 0 || count <= 0) {
+            return null;
+        }
+        IInventory inv = (IInventory) pedestal;
+        ItemStack current = inv.getStackInSlot(index);
+        if (current.isEmpty() || current.getItem() != thaumcraft.api.items.ItemsTC.voidRobeChest || !TAGemInlayUtil.hasGem(current)) {
+            return null;
+        }
+        TileEntity te = (TileEntity) pedestal;
+        if (te.getWorld() == null || te.getWorld().isRemote || !isExtractGemMatrixCraftingNearby(te)) {
+            return null;
+        }
+
+        ItemStack consumed = current.copy();
+        consumed.setCount(Math.min(count, consumed.getCount()));
+
+        ItemStack cleaned = current.copy();
+        TAGemInlayUtil.removeGem(cleaned);
+        inv.setInventorySlotContents(index, cleaned);
+        inv.markDirty();
+        te.markDirty();
+        return consumed;
+    }
+
+    private static boolean isExtractGemMatrixCraftingNearby(TileEntity pedestal) {
+        BlockPos center = pedestal.getPos();
+        World world = pedestal.getWorld();
+        final int radius = 8;
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dy = -2; dy <= 5; dy++) {
+                for (int dz = -radius; dz <= radius; dz++) {
+                    TileEntity te = world.getTileEntity(center.add(dx, dy, dz));
+                    if (!(te instanceof TileInfusionMatrix)) continue;
+                    TileInfusionMatrix matrix = (TileInfusionMatrix) te;
+                    if (!matrix.crafting && !matrix.active) continue;
+                    if (isExtractGemMatrixRecipe(matrix)) return true;
+                }
+            }
+        }
+        return false;
+    }
+
+    private static boolean isExtractGemMatrixRecipe(TileInfusionMatrix matrix) {
+        try {
+            for (Field f : matrix.getClass().getDeclaredFields()) {
+                if (f.getType() != ItemStack.class) continue;
+                f.setAccessible(true);
+                ItemStack output = (ItemStack) f.get(matrix);
+                if (output != null && !output.isEmpty() && output.getItem() == ModBlocksItems.TA_GEM) {
+                    return true;
+                }
+            }
+        } catch (Throwable ignored) {}
+        return false;
     }
 
     /* ===================== Focus cast hooks ===================== */

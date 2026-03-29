@@ -3,8 +3,6 @@ package therealpant.thaumicattempts.common.crafting.infusion;
 import java.util.List;
 
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.init.Items;
-import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.crafting.Ingredient;
 import net.minecraft.util.ResourceLocation;
@@ -13,6 +11,8 @@ import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.crafting.InfusionRecipe;
 import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.api.gems.ITAGemDefinition;
+import therealpant.thaumicattempts.api.gems.TAGemRegistry;
 import therealpant.thaumicattempts.items.ItemTAGem;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
 
@@ -33,30 +33,39 @@ public class RecipeExtractGem extends InfusionRecipe {
         if (!ItemStack.areItemsEqual(VOID_INGOT, central)) return false;
         if (!super.matches(input, central, world, player)) return false;
 
-        ItemStack armorWithGem = findArmorWithGem(input);
+        ItemStack armorWithGem = getSingleArmorWithGem(input);
         if (armorWithGem.isEmpty()) return false;
-        return TAGemInlayUtil.getGemId(armorWithGem) != null;
+        ResourceLocation id = TAGemInlayUtil.getGemId(armorWithGem);
+        if (id == null) return false;
+        ITAGemDefinition def = TAGemRegistry.get(id);
+        if (def == null) return false;
+        int tier = TAGemInlayUtil.getTier(armorWithGem);
+        return tier >= 1 && tier <= def.getMaxTier();
     }
 
     @Override
     public ItemStack  getRecipeOutput(EntityPlayer player, ItemStack central, List<ItemStack> comps) {
-        ItemStack armorWithGem = findArmorWithGem(comps);
+        ItemStack armorWithGem = getSingleArmorWithGem(comps);
         if (armorWithGem.isEmpty()) return ItemStack.EMPTY;
 
         ResourceLocation id = TAGemInlayUtil.getGemId(armorWithGem);
         if (id == null) return ItemStack.EMPTY;
+        ITAGemDefinition def = TAGemRegistry.get(id);
+        if (def == null) return ItemStack.EMPTY;
         int tier = TAGemInlayUtil.getTier(armorWithGem);
+        if (tier < 1 || tier > def.getMaxTier()) return ItemStack.EMPTY;
         int dmg = TAGemInlayUtil.getDamage(armorWithGem);
         return ItemTAGem.makeGem(id, tier, dmg);
     }
 
-    private static ItemStack findArmorWithGem(List<ItemStack> input) {
+    private static ItemStack getSingleArmorWithGem(List<ItemStack> input) {
         if (input == null || input.isEmpty()) return ItemStack.EMPTY;
+        ItemStack found = ItemStack.EMPTY;
         for (ItemStack stack : input) {
-            if (!stack.isEmpty() && stack.getItem() == ItemsTC.voidRobeChest && TAGemInlayUtil.hasGem(stack)) {
-                return stack;
+            if (stack.isEmpty() || stack.getItem() != ItemsTC.voidRobeChest || !TAGemInlayUtil.hasGem(stack)) continue;
+            if (!found.isEmpty()) return ItemStack.EMPTY;
+            found = stack;
             }
-        }
-        return ItemStack.EMPTY;
+        return found;
     }
 }
