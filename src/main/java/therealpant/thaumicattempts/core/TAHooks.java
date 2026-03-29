@@ -4,6 +4,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.inventory.IInventory;
+import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
@@ -203,7 +204,7 @@ public final class TAHooks {
         }
         IInventory inv = (IInventory) pedestal;
         ItemStack current = inv.getStackInSlot(index);
-        if (current.isEmpty() || current.getItem() != thaumcraft.api.items.ItemsTC.voidRobeChest || !TAGemInlayUtil.hasGem(current)) {
+        if (current.isEmpty() || !(current.getItem() instanceof ItemArmor) || !TAGemInlayUtil.hasGem(current)) {
             return null;
         }
         TileEntity te = (TileEntity) pedestal;
