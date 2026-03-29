@@ -28,7 +28,7 @@ public class BlockMirrorManager extends Block {
     public BlockMirrorManager() {
         super(Material.ROCK);
         setLightOpacity(0);
-        setHardness(2.0F);
+        setHardness(40.0F);
         setResistance(10.0F);
         setTranslationKey(ThaumicAttempts.MODID + ".mirror_manager");
         setRegistryName(ThaumicAttempts.MODID, "mirror_manager");

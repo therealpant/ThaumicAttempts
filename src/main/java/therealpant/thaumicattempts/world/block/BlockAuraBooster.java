@@ -27,7 +27,7 @@ public class BlockAuraBooster extends Block {
     public BlockAuraBooster() {
         super(Material.ROCK);
         setLightOpacity(0);
-        setHardness(3.0F);
+        setHardness(40.0F);
         setResistance(10.0F);
         setTranslationKey(ThaumicAttempts.MODID + ".ta_aura_booster");
         setRegistryName(ThaumicAttempts.MODID, "ta_aura_booster");

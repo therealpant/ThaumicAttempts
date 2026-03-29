@@ -20,7 +20,7 @@ public final class TAMultiblockTriggers {
             new ResourceLocation(ThaumicAttempts.MODID, "aura_booster_multiblock");
 
     public static final ResourceLocation RIFT_EXTRACTOR_MB_ID =
-            new ResourceLocation(ThaumicAttempts.MODID, "aura_booster_multiblock");
+            new ResourceLocation(ThaumicAttempts.MODID, "rift_extractor_multiblock");
 
     public static void register() {
             // 1) Триггер мультиблока (Salis Mundus)
@@ -171,6 +171,6 @@ public final class TAMultiblockTriggers {
                 parts
         );
 
-        ThaumcraftApi.addMultiblockRecipeToCatalog(AURA_BOOSTER_MB_ID, bp);
+        ThaumcraftApi.addMultiblockRecipeToCatalog(RIFT_EXTRACTOR_MB_ID, bp);
     }
 }

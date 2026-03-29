@@ -24,6 +24,7 @@ import therealpant.thaumicattempts.golemnet.tile.*;
 import therealpant.thaumicattempts.world.tile.TileRiftBush;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
+import therealpant.thaumicattempts.items.ItemStorageBell;
 import therealpant.thaumicattempts.items.ItemTAGem;
 
 import therealpant.thaumicattempts.init.TABlocks;
@@ -61,6 +62,7 @@ public final class ModBlocksItems {
     public static Item TAINTED_MIND_FRUIT;
     public static Item MIND_POTION;
     public static Item TA_GEM;
+    public static Item STORAGE_BELL;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -205,6 +207,7 @@ public final class ModBlocksItems {
         MIND_POTION = new ItemMindPotion();
         TA_GEM = new ItemTAGem()
                 .setRegistryName(ThaumicAttempts.MODID, "ta_gem");
+        STORAGE_BELL = new ItemStorageBell();
 
         e.getRegistry().registerAll(
                 CRAFT_PATTERN,
@@ -222,7 +225,8 @@ public final class ModBlocksItems {
                 MATURE_MIND_FRUIT,
                 TAINTED_MIND_FRUIT,
                 MIND_POTION,
-                TA_GEM
+                TA_GEM,
+                STORAGE_BELL
         );
 
         // ItemBlock'и

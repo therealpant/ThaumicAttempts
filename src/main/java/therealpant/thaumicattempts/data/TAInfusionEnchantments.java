@@ -33,16 +33,14 @@ public final class TAInfusionEnchantments {
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(MODID, "vischarge_lvl1"),
                 new InfusionVisChargeLevelRecipe(
-                        "TA_GOLEM_MIRRORS",
+                        "TA_RIFT_ENCHANTMENT",
                         4,
                         new AspectList().add(Aspect.AURA, 50).add(Aspect.ENERGY, 30).add(Aspect.MAGIC, 40),
                         display,
                         1,
                         amuletOrStone,
-                        new ItemStack(ItemsTC.plate, 1, 3),
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767),
-                        new ItemStack(ModBlocksItems.RIFT_EMBER),
-                        new ItemStack(ItemsTC.plate, 1, 3)
+                        new ItemStack(ModBlocksItems.RIFT_EMBER)
                 )
         );
 
@@ -50,17 +48,15 @@ public final class TAInfusionEnchantments {
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(MODID, "vischarge_lvl2"),
                 new InfusionVisChargeLevelRecipe(
-                        "TA_GOLEM_MIRRORS",
+                        "TA_RIFT_ENCHANTMENT",
                         6,
                         new AspectList().add(Aspect.AURA, 80).add(Aspect.ENERGY, 50).add(Aspect.MAGIC, 60),
                         display,
                         2,
-                        new ItemStack(ItemsTC.primordialPearl, 1, 32767),
-                        new ItemStack(ItemsTC.plate, 1, 3),
+                        amuletOrStone,
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767),
                         new ItemStack(ModBlocksItems.RIFT_EMBER),
-                        new ItemStack(ModBlocksItems.RIFT_EMBER),
-                        new ItemStack(ItemsTC.plate, 1, 3)
+                        new ItemStack(ModBlocksItems.RIFT_EMBER)
                 )
         );
 
@@ -68,18 +64,16 @@ public final class TAInfusionEnchantments {
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(MODID, "vischarge_lvl3"),
                 new InfusionVisChargeLevelRecipe(
-                        "TA_GOLEM_MIRRORS",
+                        "TA_RIFT_ENCHANTMENT",
                         8,
                         new AspectList().add(Aspect.AURA, 110).add(Aspect.ENERGY, 80).add(Aspect.MAGIC, 90),
                         display,
                         3,
+                        amuletOrStone,
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767),
-                        new ItemStack(ItemsTC.plate, 1, 3),
-                        new ItemStack(ItemsTC.primordialPearl, 1, 32767),
                         new ItemStack(ModBlocksItems.RIFT_EMBER),
                         new ItemStack(ModBlocksItems.RIFT_EMBER),
-                        new ItemStack(ModBlocksItems.RIFT_EMBER),
-                        new ItemStack(ItemsTC.plate, 1, 3)
+                        new ItemStack(ModBlocksItems.RIFT_EMBER)
                 )
         );
 
@@ -95,39 +89,36 @@ public final class TAInfusionEnchantments {
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(MODID, "rift_momentum_lvl1"),
                 new InfusionRiftMomentumLevelRecipe(
-                        "TA_GOLEM_MIRRORS",
+                        "TA_RIFT_ENCHANTMENT",
                         4,
                         new AspectList().add(Aspect.MOTION, 40).add(Aspect.ENERGY, 30).add(Aspect.MAGIC, 30),
                         displayMomentum,
                         1,
                         new ItemStack(ModBlocksItems.RIFT_BRILIANT),
-                        new ItemStack(ItemsTC.plate, 1, 3),
-                        new ItemStack(ModBlocksItems.RIFT_EMBER),
-                        new ItemStack(ItemsTC.visResonator)
+                        new ItemStack(ItemsTC.voidSeed),
+                        new ItemStack(ItemsTC.primordialPearl, 1, 32767)
                 )
         );
 
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(MODID, "rift_momentum_lvl2"),
                 new InfusionRiftMomentumLevelRecipe(
-                        "TA_GOLEM_MIRRORS",
+                        "TA_RIFT_ENCHANTMENT",
                         6,
                         new AspectList().add(Aspect.MOTION, 70).add(Aspect.ENERGY, 55).add(Aspect.MAGIC, 55),
                         displayMomentum,
                         2,
                         new ItemStack(ModBlocksItems.RIFT_BRILIANT),
                         new ItemStack(ModBlocksItems.RIFT_BRILIANT),
-                        new ItemStack(ItemsTC.plate, 1, 3),
-                        new ItemStack(ModBlocksItems.RIFT_EMBER),
-                        new ItemStack(ItemsTC.visResonator),
-                        new ItemStack(ItemsTC.voidSeed)
+                        new ItemStack(ItemsTC.voidSeed),
+                        new ItemStack(ItemsTC.primordialPearl, 1, 32767)
                 )
         );
 
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(MODID, "rift_momentum_lvl3"),
                 new InfusionRiftMomentumLevelRecipe(
-                        "TA_GOLEM_MIRRORS",
+                        "TA_RIFT_ENCHANTMENT",
                         8,
                         new AspectList().add(Aspect.MOTION, 100).add(Aspect.ENERGY, 80).add(Aspect.MAGIC, 80),
                         displayMomentum,
@@ -135,9 +126,6 @@ public final class TAInfusionEnchantments {
                         new ItemStack(ModBlocksItems.RIFT_BRILIANT),
                         new ItemStack(ModBlocksItems.RIFT_BRILIANT),
                         new ItemStack(ModBlocksItems.RIFT_BRILIANT),
-                        new ItemStack(ItemsTC.plate, 1, 3),
-                        new ItemStack(ModBlocksItems.RIFT_EMBER),
-                        new ItemStack(ItemsTC.visResonator),
                         new ItemStack(ItemsTC.voidSeed),
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767)
                 )
@@ -156,7 +144,7 @@ public final class TAInfusionEnchantments {
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(MODID, "arcane_guard_lvl1"),
                 new InfusionArcaneGuardLevelRecipe(
-                        "TA_GOLEM_MIRRORS",
+                        "TA_RIFT_ENCHANTMENT",
                         4,
                         new AspectList().add(Aspect.PROTECT, 45).add(Aspect.MAGIC, 35).add(Aspect.CRYSTAL, 20),
                         displayArcaneGuard,
@@ -164,14 +152,14 @@ public final class TAInfusionEnchantments {
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
                         new ItemStack(ItemsTC.voidSeed),
                         new ItemStack(ItemsTC.visResonator),
-                        new ItemStack(ItemsTC.plate, 1, 3)
+                        new ItemStack(ItemsTC.primordialPearl, 1, 32767)
                 )
         );
 
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(MODID, "arcane_guard_lvl2"),
                 new InfusionArcaneGuardLevelRecipe(
-                        "TA_GOLEM_MIRRORS",
+                        "TA_RIFT_ENCHANTMENT",
                         6,
                         new AspectList().add(Aspect.PROTECT, 75).add(Aspect.MAGIC, 60).add(Aspect.CRYSTAL, 35),
                         displayArcaneGuard,
@@ -179,16 +167,15 @@ public final class TAInfusionEnchantments {
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
                         new ItemStack(ItemsTC.voidSeed),
-                        new ItemStack(ItemsTC.voidSeed),
                         new ItemStack(ItemsTC.visResonator),
-                        new ItemStack(ItemsTC.plate, 1, 3)
+                        new ItemStack(ItemsTC.primordialPearl, 1, 32767)
                 )
         );
 
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(MODID, "arcane_guard_lvl3"),
                 new InfusionArcaneGuardLevelRecipe(
-                        "TA_GOLEM_MIRRORS",
+                        "TA_RIFT_ENCHANTMENT",
                         8,
                         new AspectList().add(Aspect.PROTECT, 110).add(Aspect.MAGIC, 90).add(Aspect.CRYSTAL, 50),
                         displayArcaneGuard,
@@ -197,10 +184,8 @@ public final class TAInfusionEnchantments {
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
                         new ItemStack(ItemsTC.voidSeed),
-                        new ItemStack(ItemsTC.voidSeed),
-                        new ItemStack(ItemsTC.voidSeed),
                         new ItemStack(ItemsTC.visResonator),
-                        new ItemStack(ItemsTC.plate, 1, 3)
+                        new ItemStack(ItemsTC.primordialPearl, 1, 32767)
                 )
         );
 

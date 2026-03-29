@@ -74,36 +74,22 @@
       "stages": [
         {
           "text": "research.TA_ANOMALY.text.0",
-          "required_knowledge": [
-            "THEORY;ELDRITCH;3"
-          ],
-          "required_item": [
-            "thaumicattempts:rift_flover",
-            "thaumicattempts:rift_stone",
-            "thaumicattempts:rift_cristal"
-          ]
+          "required_knowledge": ["THEORY;ELDRITCH;3"],
+          "required_item": ["thaumicattempts:rift_flover", "thaumicattempts:rift_stone", "thaumicattempts:rift_cristal"]
         },
         {
           "text": "research.TA_ANOMALY.text.1",
-          "recipes": [
-            "thaumicattempts:rift_ember_infusion",
-            "thaumicattempts:rift_ametist_infusion",
-            "thaumicattempts:rift_briliant_infusion"
-          ],
-          "required_knowledge": [
-            "THEORY;ELDRITCH;1",
-            "THEORY;ALCHEMY;2"
-          ],
+          "required_knowledge": ["THEORY;ELDRITCH;1", "THEORY;ALCHEMY;2"],
+          "recipes": ["thaumicattempts:rift_ember_infusion", "thaumicattempts:rift_ametist_infusion", "thaumicattempts:rift_briliant_infusion"],
           "required_item": [
-            "thaumicattempts:rift_flover,5",
-            "thaumicattempts:rift_stone,5",
-            "thaumicattempts:rift_cristal,5"
+            "thaumicattempts:rift_flover;5",
+            "thaumicattempts:rift_stone;5",
+            "thaumicattempts:rift_cristal;5"
           ]
         },
         {
           "text": "research.TA_ANOMALY.text.2",
-          "recipes": [
-            "thaumicattempts:rift_ember_infusion",
+          "recipes": ["thaumicattempts:rift_ember_infusion",
             "thaumicattempts:rift_ametist_infusion",
             "thaumicattempts:rift_briliant_infusion",
             "thaumicattempts:flover_from_curio",
@@ -176,7 +162,7 @@
           ]
         },
         {
-          "text": "research.TA_AURA_BOOSTER.text.1",
+          "text": "research.TA_AURA_BOOSTER.text.2",
           "recipes": [
             "thaumicattempts:aura_booster_multiblock",
             "thaumicattempts:cristal_mas_arcane",
@@ -257,7 +243,7 @@
           ]
         },
         {
-          "text": "research.TA_RIFT_EXTRACTOR.text.1",
+          "text": "research.TA_RIFT_EXTRACTOR.text.2",
           "recipes": [
             "thaumicattempts:rift_extractor_multiblock"
           ]

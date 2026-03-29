@@ -177,13 +177,13 @@ public final class TAArcaneRecipes {
         {
             ShapedArcaneRecipe eld_con = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "eldritch_construction_arcane"),
-                    "MINDCLOCKWORK",
+                    "TA_ELDRITCH_CONSTRUCTION",
                     500,
                     new AspectList().add(Aspect.AIR, 1).add(Aspect.ORDER, 1).add(Aspect.ENTROPY, 3),
                     new ItemStack(Item.getItemFromBlock(TABlocks.ELDRITCH_CONSTRUCTION)),
-                    " E ",
+                    "EEE",
                     "ROR",
-                    " E ",
+                    "EEE",
                     'E', new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
                     'O', Blocks.OBSIDIAN,
                     'R', new ItemStack(ModBlocksItems.RIFT_STONE)
@@ -196,7 +196,7 @@ public final class TAArcaneRecipes {
         {
             ShapedArcaneRecipe rif_base = new ShapedArcaneRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_base_arcane"),
-                    "MINDCLOCKWORK",
+                    "TA_ELDRITCH_CONSTRUCTION",
                     500,
                     new AspectList().add(Aspect.AIR, 1).add(Aspect.ORDER, 1).add(Aspect.ENTROPY, 3),
                     new ItemStack(Item.getItemFromBlock(TABlocks.RIFT_STONE_BASE)),
@@ -259,7 +259,7 @@ public final class TAArcaneRecipes {
                     new AspectList().add(Aspect.ORDER, 2).add(Aspect.WATER, 2),
                     new ItemStack(TABlocks.RIFT_CRISTAL_BLOCK),
                     "GSG", "GBG", "GSG",
-                    'S', new ItemStack(ItemsTC.visResonator),
+                    'S', new ItemStack(ModBlocksItems.RIFT_AMETIST),
                     'B', new ItemStack(ItemsTC.primordialPearl, 1, OreDictionary.WILDCARD_VALUE),
                     'G',new ItemStack(ModBlocksItems.RIFT_CRISTAL)
             );

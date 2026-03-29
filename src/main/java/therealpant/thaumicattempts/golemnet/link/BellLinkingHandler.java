@@ -10,7 +10,6 @@ import net.minecraft.nbt.NBTTagList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumActionResult;
 import net.minecraft.util.EnumHand;
-import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextComponentString;
 import net.minecraft.world.World;
@@ -21,6 +20,7 @@ import net.minecraftforge.fml.common.eventhandler.Event;
 import net.minecraftforge.fml.common.eventhandler.EventPriority;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
@@ -30,17 +30,10 @@ import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 
 import javax.annotation.Nullable;
-import java.util.Arrays;
-import java.util.HashSet;
-import java.util.Set;
+
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public class BellLinkingHandler {
-
-    private static final Set<ResourceLocation> BELL_IDS = new HashSet<>(Arrays.asList(
-            new ResourceLocation("thaumcraft", "golembell"),
-            new ResourceLocation("thaumcraft", "golem_bell")
-    ));
 
     private static final String TAG_ROOT  = "thaumicattempts";
     private static final String TAG_LINK  = "bell_link_mgr";
@@ -49,14 +42,10 @@ public class BellLinkingHandler {
 
     /* -------------------- Утилиты -------------------- */
 
-    private static boolean isGolemBell(@Nullable ItemStack stack) {
+    private static boolean isStorageBell(@Nullable ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         Item item = stack.getItem();
-        if (item == null) return false;
-        ResourceLocation id = item.getRegistryName();
-        if (id != null && BELL_IDS.contains(id)) return true;
-        String key = item.getTranslationKey();
-        return key != null && key.toLowerCase().contains("golem") && key.toLowerCase().contains("bell");
+        return item != null && item == ModBlocksItems.STORAGE_BELL;
     }
 
     private static void msgChat(EntityPlayer p, String text) {
@@ -165,7 +154,7 @@ public class BellLinkingHandler {
     @SubscribeEvent(priority = EventPriority.HIGHEST)
     public static void onRightClickItem(PlayerInteractEvent.RightClickItem e) {
         ItemStack held = e.getItemStack();
-        if (!isGolemBell(held)) return;
+        if (!isStorageBell(held)) return;
 
         // считаем «по воздуху», если луч не попал в блок
         net.minecraft.util.math.RayTraceResult rt = e.getEntityPlayer().rayTrace(5.0D, 1.0F);
@@ -184,7 +173,7 @@ public class BellLinkingHandler {
     @SubscribeEvent
     public static void onRightClickEmpty(PlayerInteractEvent.RightClickEmpty e) {
         ItemStack held = e.getItemStack();
-        if (!isGolemBell(held)) return;
+        if (!isStorageBell(held)) return;
         if (getLinkedPos(held) != null || hasBellGlint(held)) {
             if (!e.getWorld().isRemote) {
                 clearLink(held);
@@ -203,7 +192,7 @@ public class BellLinkingHandler {
         EntityPlayer player = e.getEntityPlayer();
         World world = e.getWorld();
         ItemStack held = e.getItemStack();
-        boolean bellInHand = isGolemBell(held);
+        boolean bellInHand = isStorageBell(held);
         boolean sneaking = player.isSneaking();
 
         TileEntity te = world.getTileEntity(e.getPos());
@@ -639,7 +628,7 @@ public class BellLinkingHandler {
         if (e.getHand() != EnumHand.MAIN_HAND) return;
 
         ItemStack held = e.getItemStack();
-        if (!isGolemBell(held)) return;
+        if (!isStorageBell(held)) return;
 
         EntityPlayer player = e.getEntityPlayer();
         World world = e.getWorld();

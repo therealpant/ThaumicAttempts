@@ -45,7 +45,7 @@ public class BlockRiftExtractor extends Block {
     public BlockRiftExtractor() {
         super(Material.ROCK);
         setLightOpacity(0);
-        setHardness(3.0F);
+        setHardness(40.0F);
         setResistance(10.0F);
         setTranslationKey(ThaumicAttempts.MODID + ".rift_extractor");
         setRegistryName(ThaumicAttempts.MODID, "rift_extractor");

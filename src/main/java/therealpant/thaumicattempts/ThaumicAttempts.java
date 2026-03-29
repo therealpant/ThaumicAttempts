@@ -4,6 +4,7 @@ import net.minecraft.creativetab.CreativeTabs;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.common.MinecraftForge;
+import net.minecraftforge.fml.common.Loader;
 import net.minecraftforge.fml.common.Mod;
 import net.minecraftforge.fml.common.SidedProxy;
 import net.minecraftforge.fml.common.event.FMLInitializationEvent;
@@ -59,6 +60,7 @@ import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 public class ThaumicAttempts {
 
     public static final String MODID = "thaumicattempts";
+    private static final String THAUMIC_AUGMENTATION_MODID = "thaumicaugmentation";
     public static final Logger LOGGER = LogManager.getLogger(MODID);
 
     public static final SimpleNetworkWrapper NET =
@@ -142,7 +144,10 @@ public class ThaumicAttempts {
 
         //Research
         ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/ta_golemansy"));
-        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/ta_eldritch"));
+        String eldritchResearch = Loader.isModLoaded(THAUMIC_AUGMENTATION_MODID)
+                ? "research/ta_eldritch_ta"
+                : "research/ta_eldritch";
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, eldritchResearch));
 
         proxy.init(e);
     }

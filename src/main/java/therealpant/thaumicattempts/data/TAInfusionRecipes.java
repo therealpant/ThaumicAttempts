@@ -255,7 +255,7 @@ public final class TAInfusionRecipes {
             ThaumcraftApi.addInfusionCraftingRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "rift_ember_infusion"),
                     new InfusionRecipe(
-                            "TA_ANOMALY",
+                            "TA_ANOMALY@2",
                             new ItemStack(ModBlocksItems.RIFT_EMBER),
                             8,
                             new AspectList()
@@ -281,7 +281,7 @@ public final class TAInfusionRecipes {
             ThaumcraftApi.addInfusionCraftingRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "rift_ametist_infusion"),
                     new InfusionRecipe(
-                            "TA_ANOMALY",
+                            "TA_ANOMALY@2",
                             new ItemStack(ModBlocksItems.RIFT_AMETIST),
                             9,
                             new AspectList()
@@ -307,7 +307,7 @@ public final class TAInfusionRecipes {
             ThaumcraftApi.addInfusionCraftingRecipe(
                     new ResourceLocation(ThaumicAttempts.MODID, "rift_briliant_infusion"),
                     new InfusionRecipe(
-                            "TA_ANOMALY",
+                            "TA_ANOMALY@2",
                             new ItemStack(ModBlocksItems.RIFT_BRILIANT),
                             10,
                             new AspectList()
@@ -577,6 +577,55 @@ public final class TAInfusionRecipes {
                         new ResourceLocation(MODID, "diamond_III_infusion")
                 )
         );
+        // ------------ Инкрустация: Аномальное Семя ------------ \\
+        {
+            ThaumcraftApi.addInfusionCraftingRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "anomaly_seed_infusion"),
+                    new InfusionRecipe(
+                            "TA_BOTANY@2",
+                            new ItemStack(ModBlocksItems.ANOMALY_SEEDS,1),
+                            9,
+                            new AspectList()
+                                    .add(Aspect.LIFE, 125)
+                                    .add(Aspect.ELDRITCH, 150)
+                                    .add(Aspect.CRYSTAL, 75)
+                                    .add(Aspect.AURA, 50)
+                                    .add(Aspect.FLUX, 50),
+
+                            new ItemStack(ModBlocksItems.RIFT_FLOWER),
+                            new ItemStack(ItemsTC.amber),
+                            new ItemStack(ItemsTC.salisMundus),
+                            new ItemStack(ItemsTC.amber),
+                            new ItemStack(ItemsTC.voidSeed),
+                            new ItemStack(ItemsTC.amber),
+                            new ItemStack(ItemsTC.salisMundus),
+                            new ItemStack(ItemsTC.amber),
+                            new ItemStack(ItemsTC.voidSeed)
+
+                    )
+            );
+        }
+        // ------------ Инкрустация: Складской Колокольчик ------------ \\
+        {
+            ThaumcraftApi.addInfusionCraftingRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "store_bell_infusion"),
+                    new InfusionRecipe(
+                            "TA_GOLEM_MIRRORS",
+                            new ItemStack(ModBlocksItems.STORAGE_BELL,1),
+                            7,
+                            new AspectList()
+                                    .add(Aspect.MECHANISM, 125)
+                                    .add(Aspect.ORDER, 150)
+                                    .add(Aspect.MIND, 75),
+
+                            new ItemStack(ItemsTC.golemBell),
+                            new ItemStack(ItemsTC.ingots,1,1),
+                            new ItemStack(ItemsTC.plate,1,3),
+                            new ItemStack(ItemsTC.ingots,1,1),
+                            new ItemStack(ItemsTC.plate,1,3)
+                    )
+            );
+        }
     }
 }
 

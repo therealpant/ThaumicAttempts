@@ -18,7 +18,10 @@ tile.thaumicattempts.anomaly_bed.name=Experimental Soil
 tile.thaumicattempts.anomaly_crop.name=Sprout of Another World
 tile.thaumicattempts.rift_bush.name=Rift Bush
 tile.thaumicattempts.rift_geod.name=Rift Geode
-
+tile.thaumicattempts.ta_aura_booster.name=Pilon of Emptiness
+tile.thaumicattempts.aura_booster_core.name=Resonating Core
+tile.thaumicattempts.rist_cristal_block.name=Crystalline Array
+tile.thaumicattempts.rift_extractor.name=Rift Extractor
 
 item.thaumicattempts.craft_pattern.name=Crafting Note
 item.thaumicattempts.infusion_pattern.name=Infusion Note
@@ -27,6 +30,10 @@ item.thaumicattempts.resource_list.name=Resource List
 item.thaumicattempts.rift_flover.name=Rift Flower
 item.thaumicattempts.rift_stone.name=Rift Stone
 item.thaumicattempts.rift_cristal.name=Rift Crystal
+item.thaumicattempts.rift_ember.name=Rift Amber
+item.thaumicattempts.rift_ametist.name=Rift Amethyst
+item.thaumicattempts.rift_briliant.name=Rift Diamond
+item.thaumicattempts.mind_potion.name=Pure Mind Potion
 item.thaumicattempts.anomaly_stone.name=Anomaly Stone
 item.thaumicattempts.rift_bush.name=Rift Bush
 item.thaumicattempts.rift_geod.name=Rift Geode
@@ -35,8 +42,11 @@ item.thaumicattempts.ta_anomaly_seeds.name=Anomaly Seeds
 item.thaumicattempts.mind_fruit.name=Pure Mind Fruit
 item.thaumicattempts.tainted_mind_fruit.name=Tainted Fruit
 item.thaumicattempts.mature_mind_fruit.name=Mature Pure Mind Fruit
+item.thaumicattempts.storage_bell.name=Storage Bell
 
 enchantment.infusion.VISBATTERY=Vis Charge
+enchantment.thaumicattempts.rift_momentum=Rift Momentum
+enchantment.thaumicattempts.arcane_guard=Arcane Guard
 
 container.golem_crafter=Crafter
 container.arcane_crafter=Arcane Crafter
@@ -85,15 +95,15 @@ research.TA_GOLEMINFUSION.text.intro=Infusion at the matrix takes a great deal o
 research.TA_GOLEMINFUSION.text.main=The §lInfusion Supplier§r is a block capable of performing Infusion Matrix operations without my direct involvement, simply by inserting §lInfusion Notes§r into it.<BR>The Supplier must be linked to the pedestals and the Runic Matrix it will operate with. Shift+RMB the Supplier to begin linking; RMB to bind pedestals — the §lcentral pedestal§r must be linked first — and Shift+RMB to bind the matrix.<BR>Each item placement onto a pedestal consumes §lAlienis§r essentia.<BR>The ritual can be started via a redstone signal.
 
 # Gem items
-item.thaumicattempts.gem.amber.tier1=Amber I
-item.thaumicattempts.gem.amber.tier2=Amber II
-item.thaumicattempts.gem.amber.tier3=Amber III
-item.thaumicattempts.gem.amethyst.tier1=Amethyst I
-item.thaumicattempts.gem.amethyst.tier2=Amethyst II
-item.thaumicattempts.gem.amethyst.tier3=Amethyst III
-item.thaumicattempts.gem.diamond.tier1=Diamond I
-item.thaumicattempts.gem.diamond.tier2=Diamond II
-item.thaumicattempts.gem.diamond.tier3=Diamond III
+item.thaumicattempts.gem.amber.tier1.name=Amber I
+item.thaumicattempts.gem.amber.tier2.name=Amber II
+item.thaumicattempts.gem.amber.tier3.name=Amber III
+item.thaumicattempts.gem.amethyst.tier1.name=Amethyst I
+item.thaumicattempts.gem.amethyst.tier2.name=Amethyst II
+item.thaumicattempts.gem.amethyst.tier3.name=Amethyst III
+item.thaumicattempts.gem.diamond.tier1.name=Diamond I
+item.thaumicattempts.gem.diamond.tier2.name=Diamond II
+item.thaumicattempts.gem.diamond.tier3.name=Diamond III
 
 tooltip.thaumicattempts.inlay=Inlay: %s %s
 tooltip.thaumicattempts.passive=Passive: %s

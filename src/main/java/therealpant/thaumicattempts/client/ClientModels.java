@@ -135,6 +135,10 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.TA_GEM, 8,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":gem_diamond_3", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.STORAGE_BELL, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":storage_bell", "inventory")
+        );
 
         // ItemBlock'и наших блоков (иконки!)
         registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER, ThaumicAttempts.MODID + ":golem_crafter");
