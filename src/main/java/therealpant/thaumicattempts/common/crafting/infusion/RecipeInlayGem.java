@@ -21,7 +21,7 @@ import therealpant.thaumicattempts.util.TAGemInlayUtil;
  * Infusion recipe for inserting a gem into armor.
  */
 public class RecipeInlayGem extends InfusionRecipe {
-    private static final ItemStack DUMMY_CENTRAL = new ItemStack(ItemsTC.ingots,1,2);
+    private static final ItemStack DUMMY_CENTRAL = new ItemStack(ItemsTC.ingots,1,1);
 
     public RecipeInlayGem(String research, int instability, AspectList aspects, Object... components) {
         super(research, new ItemStack(ItemsTC.voidRobeChest), instability, aspects,

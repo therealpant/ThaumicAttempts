@@ -38,19 +38,34 @@ public final class TAInfusionRecipes {
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(ThaumicAttempts.MODID, "inlay_gem"),
                 new RecipeInlayGem(
-                        "TA_GOLEMCRAFT",
-                        1,
-                        new AspectList().add(Aspect.MAGIC, 1),
-                        new ItemStack(ModBlocksItems.TA_GEM, 1, OreDictionary.WILDCARD_VALUE)
+                        "TA_GEM",
+                        6,
+                        new AspectList()
+                                .add(Aspect.MAGIC, 50)
+                                .add(Aspect.ELDRITCH, 75)
+                                .add(Aspect.ORDER, 50),
+                        new ItemStack(ModBlocksItems.TA_GEM, 1, OreDictionary.WILDCARD_VALUE),
+                        new ItemStack(ItemsTC.ingots,1, 1),
+                        new ItemStack(ItemsTC.plate, 1, 3),
+                        new ItemStack(ItemsTC.primordialPearl, 1, OreDictionary.WILDCARD_VALUE),
+                        new ItemStack(ItemsTC.plate, 1, 3),
+                        new ItemStack(ItemsTC.ingots,1, 1)
                 )
         );
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(ThaumicAttempts.MODID, "extract_gem"),
                 new RecipeExtractGem(
-                        "TA_GOLEMCRAFT",
-                        1,
-                        new AspectList().add(Aspect.MAGIC, 1),
-                        new ItemStack(ItemsTC.salisMundus)
+                        "TA_GEM",
+                        6,
+                        new AspectList()
+                                .add(Aspect.VOID, 75)
+                                .add(Aspect.ELDRITCH, 75),
+                        new ItemStack(ItemsTC.salisMundus),
+                        new ItemStack(ItemsTC.ingots,1, 1),
+                        new ItemStack(ItemsTC.plate, 1, 3),
+                        new ItemStack(ItemsTC.salisMundus),
+                        new ItemStack(ItemsTC.plate, 1, 3),
+                        new ItemStack(ItemsTC.ingots,1, 1)
                 )
         );
         // ===== 1) GOLEM_CRAFTER из ванильного верстака =====

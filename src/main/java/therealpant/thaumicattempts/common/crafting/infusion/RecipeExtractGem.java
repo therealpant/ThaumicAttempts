@@ -19,7 +19,7 @@ import therealpant.thaumicattempts.util.TAGemInlayUtil;
  * Infusion recipe for extracting a gem from armor.
  */
 public class RecipeExtractGem extends InfusionRecipe {
-    private static final ItemStack DUMMY_CENTRAL = new ItemStack(ItemsTC.ingots,1,2);
+    private static final ItemStack DUMMY_CENTRAL = new ItemStack(ItemsTC.ingots,1,1);
 
     public RecipeExtractGem(String research, int instability, AspectList aspects, Object... components) {
         super(research, new ItemStack(ItemsTC.voidRobeChest), instability, aspects,

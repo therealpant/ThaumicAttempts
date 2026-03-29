@@ -223,6 +223,8 @@
         {
           "text": "research.TA_GEM.text.1",
           "recipes": [
+            "thaumicattempts:inlay_gem",
+            "thaumicattempts:extract_gem",
             "thaumicattempts:ember_infusion",
             "thaumicattempts:ametist_infusion",
             "thaumicattempts:diamond_infusion"
