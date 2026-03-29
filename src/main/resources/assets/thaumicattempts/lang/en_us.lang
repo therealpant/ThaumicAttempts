@@ -1,109 +1,131 @@
-
-tile.thaumicattempts.golem_crafter.name=Crafter
-tile.thaumicattempts.arcane_ear_band.name=Arcane Ear (Band)
-tile.thaumicattempts.arcane_crafter.name=Arcane Crafter
-tile.thaumicattempts.mirror_manager.name=Mirror Manager
-tile.thaumicattempts.mirror_manager_core.name=Mirror Manager Core
-tile.thaumicattempts.rift_stone_base.name=Rift Stone Base
-tile.thaumicattempts.eldritch_constarction.name=Eldritch Constarction
-tile.thaumicattempts.order_terminal.name=Librarian Repository
-tile.thaumicattempts.pattern_requester.name=Mirror Link
-tile.thaumicattempts.math_core.name=Math Core
+tile.thaumicattempts.golem_crafter.name=Golem Workbench
+tile.thaumicattempts.arcane_ear_band.name=Arcane Ear (Calibrated)
+tile.thaumicattempts.arcane_crafter.name=Arcane Golem Workbench
+tile.thaumicattempts.mirror_manager.name=Mirror Manipulator
+tile.thaumicattempts.rift_stone_base.name=Dark Jasper Base
+tile.thaumicattempts.mirror_manager_core.name=Mirror Manipulator Core
+tile.thaumicattempts.eldritch_constarction.name=Dark Jasper Block
+tile.thaumicattempts.order_terminal.name=Warehouse Librarian
+tile.thaumicattempts.pattern_requester.name=Mirror Beacon
+tile.thaumicattempts.math_core.name=Computing Core
 tile.thaumicattempts.mirror_stabilizer.name=Mirror Stabilizer
-tile.thaumicattempts.resource_requester.name=Greatwood Box
+tile.thaumicattempts.resource_requester.name=Greatwood Crate
 tile.thaumicattempts.golem_dispatcher.name=Task Distributor
-tile.thaumicattempts.infusion_requester.name=Infusion Supplier
-tile.thaumicattempts.anomaly_stone.name=Anomaly Stone
+tile.thaumicattempts.infusion_requester.name=Infusion Controller
+tile.thaumicattempts.anomaly_stone.name=Anomalous Ore
 tile.thaumicattempts.anomaly_bed.name=Experimental Soil
 tile.thaumicattempts.anomaly_crop.name=Sprout of Another World
-tile.thaumicattempts.rift_bush.name=Rift Bush
-tile.thaumicattempts.rift_geod.name=Rift Geode
-tile.thaumicattempts.ta_aura_booster.name=Pilon of Emptiness
+tile.thaumicattempts.rift_bush.name=Abyssbloom Bush
+tile.thaumicattempts.rift_geod.name=Abyssalite Geode
+tile.thaumicattempts.ta_aura_booster.name=Void Pylon
 tile.thaumicattempts.aura_booster_core.name=Resonating Core
-tile.thaumicattempts.rist_cristal_block.name=Crystalline Array
-tile.thaumicattempts.rift_extractor.name=Rift Extractor
+tile.thaumicattempts.rist_cristal_block.name=Crystal Array
+tile.thaumicattempts.rift_extractor.name=Void Extractor
 
-item.thaumicattempts.craft_pattern.name=Crafting Note
-item.thaumicattempts.infusion_pattern.name=Infusion Note
-item.thaumicattempts.arcane_pattern.name=Arcane Note
-item.thaumicattempts.resource_list.name=Resource List
-item.thaumicattempts.rift_flover.name=Rift Flower
-item.thaumicattempts.rift_stone.name=Rift Stone
-item.thaumicattempts.rift_cristal.name=Rift Crystal
-item.thaumicattempts.rift_ember.name=Rift Amber
-item.thaumicattempts.rift_ametist.name=Rift Amethyst
-item.thaumicattempts.rift_briliant.name=Rift Diamond
-item.thaumicattempts.mind_potion.name=Pure Mind Potion
-item.thaumicattempts.anomaly_stone.name=Anomaly Stone
-item.thaumicattempts.rift_bush.name=Rift Bush
-item.thaumicattempts.rift_geod.name=Rift Geode
-item.thaumicattempts.anomaly_seeds.name=Twisted Seed
-item.thaumicattempts.ta_anomaly_seeds.name=Anomaly Seeds
-item.thaumicattempts.mind_fruit.name=Pure Mind Fruit
-item.thaumicattempts.tainted_mind_fruit.name=Tainted Fruit
-item.thaumicattempts.mature_mind_fruit.name=Mature Pure Mind Fruit
-item.thaumicattempts.storage_bell.name=Storage Bell
+item.thaumicattempts.craft_pattern.name=Crafting Instructions
+item.thaumicattempts.infusion_pattern.name=Infusion Instructions
+item.thaumicattempts.arcane_pattern.name=Arcane Instructions
+item.thaumicattempts.resource_list.name=Delivery Order
+item.thaumicattempts.rift_flover.name=Abyssbloom
+item.thaumicattempts.rift_stone.name=Otherworld Quartz
+item.thaumicattempts.rift_cristal.name=Abyssalite Crystal
+item.thaumicattempts.rift_ember.name=Void Amber
+item.thaumicattempts.rift_ametist.name=Void Amethyst
+item.thaumicattempts.rift_briliant.name=Void Diamond
+item.thaumicattempts.mind_potion.name=Tincture of Pure Mind
+item.thaumicattempts.anomaly_stone.name=Anomalous Ore
+item.thaumicattempts.rift_bush.name=Abyssbloom Bush
+item.thaumicattempts.rift_geod.name=Abyssalite Geode
+item.thaumicattempts.anomaly_seeds.name=Mutable Seed
+item.thaumicattempts.ta_anomaly_seeds.name=Mutable Seed
+item.thaumicattempts.mind_fruit.name=Fruit of Pure Mind
+item.thaumicattempts.tainted_mind_fruit.name=Taint-Soaked Fruit
+item.thaumicattempts.mature_mind_fruit.name=Ripe Fruit of Pure Mind
+item.thaumicattempts.storage_bell.name=Warehouse Bell
 
-enchantment.infusion.VISBATTERY=Vis Charge
-enchantment.thaumicattempts.rift_momentum=Rift Momentum
+enchantment.infusion.VISBATTERY=Charging Runes
+enchantment.thaumicattempts.rift_momentum=Otherworldly Lightness
 enchantment.thaumicattempts.arcane_guard=Arcane Guard
 
-container.golem_crafter=Crafter
-container.arcane_crafter=Arcane Crafter
-
+container.golem_crafter=Golem Workbench
+container.arcane_crafter=Arcane Golem Workbench
 
 mod.thaumicattempts.name=ThaumicAttempts
 itemGroup.thaumicattempts=Thaumic Attempts
 
+research.ARCANEEAR.ta_addendum_ear_band=Experiments with the Clockwork Mind have borne fruit. The calibrated Arcane Ear is now capable of hearing an entire range of notes. And the higher the note, the stronger the signal I was able to obtain.
+research.BASEELDRITCH.ta_addendum_voidtile_from_seed=The seeds are highly volatile and malleable. By selecting the proper essentia, I was able to transform them into a полноценный строительный материал.
 
-research.ARCANEEAR.ta_addendum_ear_band=Experiments with the Clockwork Mind have borne fruit. The calibrated Arcane Ear can now hear an entire range of notes—and the higher the note, the stronger the signal I was able to obtain.
-research.BASEELDRITCH.ta_addendum_voidtile_from_seed=The seeds are highly volatile and malleable; by infusing them with the right essence, I was able to transform them into a fully fledged building material.
+research.TA_GOLEMCRAFT.title=Golem Craftsmen
+research.TA_GOLEMCRAFT.text.intro=Research consumes nearly all my attention. And how irritating it is when, in the middle of the process, I have to run back to a workbench just to make yet another trinket. Fortunately, my latest studies in golemancy may solve this once and for all.
+research.TA_GOLEMCRAFT.text.main=Excellent. I have managed to create a mechanism upon which all crafting tasks can be successfully delegated. The improved workbench is capable of requesting the necessary materials from the warehouse on its own. One only needs to place the proper instructions inside. The workbench is sensitive to redstone signal strength, and this determines which instructions it will follow. It still requires a supply of Fabrico essentia to function, and the more complex the task, the more of it will be needed.
 
+research.TA_GOLEMDELIVERY.title=Order Ready for Delivery
+research.TA_GOLEMDELIVERY.text.intro=The Stock Seal handles some of the work adequately, but it is time to think of something more functional.
+research.TA_GOLEMDELIVERY.text.main=After studying the Hungry Chest and the Stock Seal more closely, I assembled a Greatwood Crate. Its principle is quite simple: I can place several Delivery Orders into the crate, and by supplying a redstone signal of a certain strength, the golems will execute the corresponding order. <BR>Once the order is fulfilled, the crate will move all items into adjacent storage while preserving the order specified in the request. If no storage is nearby, it will simply place them beneath itself.
 
-research.TA_GOLEMCRAFT.title=Golemcraft
-research.TA_GOLEMCRAFT.text.intro=My research consumes nearly all my attention, and it’s maddening when, in the middle of it, I have to run back to the workbenches to craft yet another trinket. Fortunately, my recent work in golemcraft may solve this once and for all.
-research.TA_GOLEMCRAFT.text.main=Excellent I have built a mechanism that can shoulder all mundane crafting. The improved workbench can automatically request the materials it needs from the warehouse. It’s enough to load it with the necessary instructions. The workbench is sensitive to redstone signal strength, which tells it which instructions to follow. It still requires a supply of Fabrico essentia, and the more complex the task, the more of it will be needed.
-
-
-research.TA_GOLEMCRAFT_AD.title=Arcane Golemcraft
-research.TA_GOLEMCRAFT_AD.text.intro=The Crafter has proven highly productive and reliable. It’s time to find a way to adapt this mechanism for arcane transformations as well.
-research.TA_GOLEMCRAFT_AD.text.main=With a few components to control vis and a swap from fuel to Auram essentia, the crafter can transmute raw materials into complex thaumaturgical devices.
-
-
-research.TA_GOLEMDELIVERY.title=Golem's Delivery
-research.TA_GOLEMDELIVERY.text.intro=The Stock Seal handles part of the task adequately, but it’s time to think of something more functional.
-research.TA_GOLEMDELIVERY.text.main=After studying the Hungry Chest and the Stock Seal in more detail, I assembled the Greatwood Box. Its principle of operation is simple: I can place several Delivery Orders inside, and by supplying a redstone signal of a specific strength, golems will execute the corresponding order.<BR>Once the order is completed, the box will deposit the items into an adjacent storage, preserving their order. If no storage is nearby, it will drop the items beneath itself.
-
+research.TA_GOLEMCRAFT_AD.title=Arcane Upgrade
+research.TA_GOLEMCRAFT_AD.text.intro=The Golem Workbench has proven itself productive and reliable. It is time to find a way to adapt this mechanism for arcane transformations as well.
+research.TA_GOLEMCRAFT_AD.text.main=With a few components for vis control and by replacing the fuel with Auram essentia, the workbench becomes capable of transforming raw materials into complex thaumaturgical devices.
 
 research.TA_GOLEM_MIRRORS.title=Golems and Mirrors
-research.TA_GOLEM_MIRRORS.text.0= Golems are great at finding and delivering items, but there is always room for improvement. To restock, I still have to walk to the warehouse and wait while golems rummage through the chests for me—but I have an idea how to fix this.
-research.TA_GOLEM_MIRRORS.text.1= I did it! The solution was so simple — Mirrors! I managed to create a device that can serve as the backbone of an entire logistics network. The Mirror Manager works in tandem with the Librarian Repository: Shift+RMB the Mirror Manager, then RMB the Librarian Repository, and they will be linked. The Librarian records all items from nearby storages with Provide seals; just specify the item and the quantity, and the order will move into fulfillment. Golems will bring everything to the Mirror Manager, and it will send the items to the requester. However, the Mirror Manager must hold a mirror through which items are delivered to the Librarian Repository.<BR>Yet the Manager’s work is not without a price: it destabilizes the local aura. Keeping a nearby source of §lOrdo§r essentia allows this disturbance to be suppressed.
+research.TA_GOLEM_MIRRORS.text.0=Golems are excellent at finding and delivering items, but there is no limit to perfection. To restock supplies, I still have to walk to the warehouse and wait while the golems rummage through chests on my behalf. Yet I have an idea how this might be improved.
+research.TA_GOLEM_MIRRORS.text.1=I did it! The solution was so simple—Mirrors. I managed to create a device that can serve as the basis for an entire logistics network. <BR>The §lMirror Manipulator§r works in tandem with the §lWarehouse Librarian§r. Shift-right-click the Manipulator and then right-click the Librarian, and they will know of one another. The Librarian records all items from nearby storages marked with Provision Seals; simply specify the desired item and quantity, and the order will be put into action. Golems will bring everything needed to the Manipulator, and it will send the items onward to the requester. However, the Manipulator must contain a mirror through which the items pass to the Librarian. <BR>The Manipulator destabilizes itself while operating, which has a negative effect upon the surrounding aura. But if a source of Ordo essentia is kept nearby, this side effect can be avoided.
 
-
-research.TA_GOLEM_INTEGRATION.title=Advanced Logistics
-research.TA_GOLEM_INTEGRATION.text.0=Field tests showed that the Mirror Manager cannot keep links to multiple consumers at once. A core powered by a Primordial Pearl simply isn’t strong enough to maintain the levitation of more than one mirror.
-research.TA_GOLEM_INTEGRATION.text.1=I not only solved the limited-mirror problem, but also expanded the Manager’s functionality. <BR>The §lMirror Stabilizer§r reduces the levitation load on the core and scales well—each stabilizer can support up to two additional mirrors. <BR>The §lMirror Link§r is a new tool for building supply channels: place it above a Crafter and link it to a §lMirror Manager§r whose structure includes a Math Core. <BR>§lMath Cores§r let the Manager fulfill raw-material requests for Crafters; each core supports two links. <BR>Important: due to their design, the Manager’s upgrade blocks must be connected in an alternating sequence—Core, then Stabilizer, then Core, and so on.
-
+research.TA_GOLEM_INTEGRATION.title=Advanced Transportation
+research.TA_GOLEM_INTEGRATION.text.0=Experience has shown that the Manipulator is incapable of maintaining a connection with several consumers at once. A core powered by a primordial pearl is simply not strong enough to sustain the levitation of more than one mirror.
+research.TA_GOLEM_INTEGRATION.text.1=I not only managed to solve the issue of a limited number of mirrors, but also developed additional functionality for the Manipulator. The Mirror Stabilizer is a device that reduces the load levitating mirrors places upon the core, and it scales quite well—each stabilizer can support up to two additional mirrors. The Mirror Beacon is a new tool for creating supply channels. To function, it must be placed above a Golem Workbench and linked to a Manipulator whose structure contains a Computing Core. Computing Cores allow the Manipulator to fulfill raw material orders for Golem Workbenches, and each one supports two beacons. One important note: due to their construction, the Manipulator’s upgrade blocks must be connected in alternating order—Core, then Stabilizer, then Core, and so on.
 
 research.TA_GOLEMCONTROLER.title=Proper Management
-research.TA_GOLEMCONTROLER.text.intro=Chaos often reigns in the warehouse. I need a device capable of organizing how golems interact with resources.
-research.TA_GOLEMCONTROLER.text.main=Success! The Task Distributor is complete!<BR>Now the Mirror Manager can not only process multiple orders in parallel, but also understand how many golems are assigned to it. First, link the Distributor to the Manager, then Shift+RMB the Distributor and RMB the golem. From now on, only that golem will work for the Manager.<BR>The Distributor consumes one Math Core unit from the Manager for each assigned golem.
-
+research.TA_GOLEMCONTROLER.text.intro=There is often utter chaos in the warehouse. I need a device capable of organizing the way golems work with resources.
+research.TA_GOLEMCONTROLER.text.main=Success! The Task Distributor is ready! <BR>Now the Mirror Manipulator is capable not only of processing orders in parallel, but of understanding exactly how many golems are assigned to it. First, connect the Distributor to the Manipulator, then Shift-right-click the Distributor and right-click a Golem. From then on, only that Golem will work for the Manipulator. <BR>The Distributor consumes one mathematical slot of the Manipulator for each Golem assigned to it.
 
 research.TA_GOLEMINFUSION.title=Remote Infusion
-research.TA_GOLEMINFUSION.text.intro=Infusion at the matrix takes a great deal of time and requires constant supervision. I began to wonder whether this process could be automated.
-research.TA_GOLEMINFUSION.text.main=The §lInfusion Supplier§r is a block capable of performing Infusion Matrix operations without my direct involvement, simply by inserting §lInfusion Notes§r into it.<BR>The Supplier must be linked to the pedestals and the Runic Matrix it will operate with. Shift+RMB the Supplier to begin linking; RMB to bind pedestals — the §lcentral pedestal§r must be linked first — and Shift+RMB to bind the matrix.<BR>Each item placement onto a pedestal consumes §lAlienis§r essentia.<BR>The ritual can be started via a redstone signal.
+research.TA_GOLEMINFUSION.text.intro=Infusion at the matrix takes a great deal of time and demands constant supervision. Yet I have begun to wonder whether this process might be automated.
+research.TA_GOLEMINFUSION.text.main=The §lInfusion Controller§r is a block capable of performing operations with the Infusion Matrix without my direct involvement, provided it is supplied with §lInfusion Instructions§r.<BR>The Controller must be bound to the pedestals and the runic matrix it is meant to operate. Shift-right-clicking the Controller begins the linking process, right-click is used to bind pedestals—the §lcentral pedestal§r must be linked first—and Shift-right-click is used to bind the matrix. <BR>Each placement of an item upon a pedestal consumes Alienis essentia. <BR>The ritual may be started by a redstone signal.
+
+research.TA_BOTANY.title=Otherworld Agriculture
+research.TA_BOTANY.text.0=Abyssblooms—flowers found in surface anomalies—lead me to believe that alchemy and infusion may help transform them into a new and useful form of crop. All that remains is to determine how.
+research.TA_BOTANY.text.1=Chorus Fruits turned out to be excellent vessels for the mutable nature of Abyssblooms. The resulting Mutable Seeds cannot take root in ordinary soil, but I managed to create Experimental Soil specifically for this botanical marvel. Water also proved useless as irrigation. Yet Purifying Salts Solution and Liquid Death both gave positive results. Depending on irrigation and the state of the surrounding aura, the seeds produce different fruits.
+research.TA_BOTANY.text.2=After gathering the harvest, I returned to the laboratory. Feeding the plants with Purifying Salts Solution produced two results: Fruits of Pure Mind. They can ripen fully if the surrounding aura is rich in vis, or remain unripe if the aura is poor. Feeding them with Liquid Death always produces fruits saturated with Flux. I have managed to find a use for every harvest, and the fruits of Mutable Seeds are themselves valuable alchemical ingredients.
+
+research.TA_ANOMALY.title=Distortion Anomalies
+research.TA_ANOMALY.text.0=I have begun to notice strange disturbances in the aura, as though my research is leaving an irreparable scar upon this world. It seems I have underestimated the influence of Flux upon the aura, and the consequences may become irreversible. <BR>No anomalies are visible in the lands where I currently reside, but what lurks in the far corners of this world and its dark caves remains to be discovered.
+research.TA_ANOMALY.text.1=My fears were justified. The Flux I create slowly but surely distorts the aura of this world; the process is so severe that it affects everything from the deepest caverns to the very surface. Materials extracted from anomalies are unique and highly suited to alchemy and infusion. But my samples have run out, and I have managed to develop only purification methods. I must find more.
+research.TA_ANOMALY.text.2=Anomalies have firmly taken root in this world. They appear chaotically whenever several distorted currents of aura collide. After conducting further experiments, I have developed transformation formulas for all of these materials.
+
+research.TA_ELDRITCH_CONSTRUCTION.title=Otherworld Mechanisms
+research.TA_ELDRITCH_CONSTRUCTION.text.0=Otherworld Quartz is a unique material, and in its raw state serves as an excellent catalyst for many alchemical transformations. I have an idea that goes beyond alchemy. It must be tested.
+research.TA_ELDRITCH_CONSTRUCTION.text.1=After further experimentation with proportions, I managed to create a promising new material—Dark Jasper. It controls the flow of all magical manifestations admirably, both vis and essentia alike. <BR>To begin with, I developed the Dark Jasper Base. By itself it has no direct application, but it can ensure the stable operation of my future inventions.
+
+research.TA_AURA_BOOSTER.title=Void Pylon
+research.TA_AURA_BOOSTER.text.0=Otherworld Quartz and Abyssalite Crystals, when stored together, begin to emit a faint magical glow. There may be potential in this.
+research.TA_AURA_BOOSTER.text.1=Abyssalite interacts with essentia in a fascinating way, especially Auram essentia, but when I passed essentia through a cluster of crystals I nearly blew myself sky-high. In its pure state Abyssalite is unstable; Dark Jasper and Rift Amethyst helped solve this problem by stabilizing the vis flow emitted by the Abyssalite. <BR>The result of my research is the Void Pylon. This structure safely enriches the aura with additional vis. The pylon requires Auram essentia to function—simply place a jar nearby. Its efficiency can be improved further by installing a Primordial Pearl into its base.
+research.TA_AURA_BOOSTER.text.2=Abyssalite interacts with essentia in a fascinating way, especially Auram essentia, but when I passed essentia through a cluster of crystals I nearly blew myself sky-high. In its pure state Abyssalite is unstable; Dark Jasper and Rift Amethyst helped solve this problem by stabilizing the vis flow emitted by the Abyssalite. <BR>The result of my research is the Void Pylon. This structure safely enriches the aura with additional vis. The pylon requires Auram essentia to function—simply place a jar nearby. Its efficiency can be improved further by installing a Primordial Pearl into its base. <BR>If Impetus is directed through it instead of essentia, its efficiency grows even greater.
+
+research.TA_GEM.title=Void Charms
+research.TA_GEM.text.0=The gems of the Void already contain a power little weaker than that of a primordial pearl. I need only devise a means to release it.
+research.TA_GEM.text.1=I succeeded in setting these gems into frames of void metal. I have named this marvel of jewelry the Void Charms. Depending on the stone set into the charm, I can strengthen my armor. The more similar stones are gathered upon my armor, the stronger the effect of the charms becomes.<BR> §lAmber§r stabilizes the streams of vis passing through gauntlets, greatly increasing spell damage, allowing one to cast more often, though at the cost of draining vis from the aura more aggressively. <BR>§lAmethyst§r is a defensive gem. A runic shield bearing such a charm becomes far stronger, and in moments of danger may even regenerate it in an emergency, provided one presses shift. <BR>§lDiamonds§r, on the other hand, are focused upon melee combat, making weapons lighter. Each strike stores a measure of vis from the aura inside the weapon, empowering every blow before releasing it in a burst of energy. <BR>The effect is not eternal, and eventually the charms will lose their power—but new ones can always be crafted.
+
+research.TA_RIFT_EXTRACTOR.title=Void Extractor
+research.TA_RIFT_EXTRACTOR.text.0=Abyssblooms, Otherworld Quartz, and Abyssalite all appear capable of self-restoration. I wonder whether this knowledge can be put to practical use.
+research.TA_RIFT_EXTRACTOR.text.1=Thanks to Dark Jasper, I succeeded in assembling a device capable of “growing” anomalous resources. Earlier I created Void Charms; by releasing a fraction of their power, the Extractor can slowly restore the resource from which the Charm was originally made. The Charm must be installed into the upper section of the Extractor. <BR>This process requires a great quantity of Alienis, Vacuos, and Vitium essentia. One need only place jars nearby.
+research.TA_RIFT_EXTRACTOR.text.2=Thanks to Dark Jasper, I succeeded in assembling a device capable of “growing” anomalous resources. Earlier I created Void Charms; by releasing a fraction of their power, the Extractor can slowly restore the resource from which the Charm was originally made. The Charm must be installed into the upper section of the Extractor. <BR>The process requires a great quantity of Impetus.
+
+research.TA_RIFT_ENCHANTMENT.title=Otherworld Enchantments
+research.TA_RIFT_ENCHANTMENT.text.0=The Charms have shown that Void Gems are quite useful. Yet perhaps there is an alternative to Void Charms.
+research.TA_RIFT_ENCHANTMENT.text.1=An alternative has indeed been found—Otherworld Enchantments! The process resembles brewing through infusion. <BR> §lCharging Runes§r—an enchantment based on Rift Amber—allows the vis charge of an item to restore itself slowly. <BR> §lArcane Guard§r—this enchantment follows principles similar to the effect of the Void Charm: Amethyst. <BR> §lOtherworldly Lightness§r—can be applied to weapons or tools, making them lighter and more efficient.
 
 # Gem items
-item.thaumicattempts.gem.amber.tier1.name=Amber I
-item.thaumicattempts.gem.amber.tier2.name=Amber II
-item.thaumicattempts.gem.amber.tier3.name=Amber III
-item.thaumicattempts.gem.amethyst.tier1.name=Amethyst I
-item.thaumicattempts.gem.amethyst.tier2.name=Amethyst II
-item.thaumicattempts.gem.amethyst.tier3.name=Amethyst III
-item.thaumicattempts.gem.diamond.tier1.name=Diamond I
-item.thaumicattempts.gem.diamond.tier2.name=Diamond II
-item.thaumicattempts.gem.diamond.tier3.name=Diamond III
+item.thaumicattempts.gem.amber.tier1.name=Void Charm: Simple Amber
+item.thaumicattempts.gem.amber.tier2.name=Void Charm: Exquisite Amber
+item.thaumicattempts.gem.amber.tier3.name=Void Charm: Flawless Amber
+item.thaumicattempts.gem.amethyst.tier1.name=Void Charm: Simple Amethyst
+item.thaumicattempts.gem.amethyst.tier2.name=Void Charm: Exquisite Amethyst
+item.thaumicattempts.gem.amethyst.tier3.name=Void Charm: Flawless Amethyst
+item.thaumicattempts.gem.diamond.tier1.name=Void Charm: Simple Diamond
+item.thaumicattempts.gem.diamond.tier2.name=Void Charm: Exquisite Diamond
+item.thaumicattempts.gem.diamond.tier3.name=Void Charm: Flawless Diamond
 
 tooltip.thaumicattempts.inlay=Inlay: %s %s
 tooltip.thaumicattempts.passive=Passive: %s

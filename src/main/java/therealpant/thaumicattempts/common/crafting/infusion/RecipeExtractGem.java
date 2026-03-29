@@ -11,6 +11,7 @@ import net.minecraft.util.ResourceLocation;
 import net.minecraft.world.World;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.crafting.InfusionRecipe;
+import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.items.ItemTAGem;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
 
@@ -18,10 +19,10 @@ import therealpant.thaumicattempts.util.TAGemInlayUtil;
  * Infusion recipe for extracting a gem from armor.
  */
 public class RecipeExtractGem extends InfusionRecipe {
-    private static final ItemStack DUMMY_CENTRAL = new ItemStack(Items.BOOK);
+    private static final ItemStack DUMMY_CENTRAL = new ItemStack(ItemsTC.ingots,1,2);
 
     public RecipeExtractGem(String research, int instability, AspectList aspects, Object... components) {
-        super(research, new ItemStack(Items.IRON_CHESTPLATE), instability, aspects,
+        super(research, new ItemStack(ItemsTC.voidRobeChest), instability, aspects,
                 Ingredient.fromStacks(DUMMY_CENTRAL), components);
     }
 

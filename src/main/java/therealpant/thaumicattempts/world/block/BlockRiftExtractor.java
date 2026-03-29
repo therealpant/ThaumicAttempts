@@ -12,11 +12,7 @@ import net.minecraft.init.Blocks;
 import net.minecraft.inventory.InventoryHelper;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
-import net.minecraft.util.BlockRenderLayer;
-import net.minecraft.util.EnumBlockRenderType;
-import net.minecraft.util.EnumFacing;
-import net.minecraft.util.EnumHand;
-import net.minecraft.util.IStringSerializable;
+import net.minecraft.util.*;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.RayTraceResult;
@@ -25,6 +21,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileRiftExtractor;
 
 import javax.annotation.Nullable;
@@ -220,6 +217,16 @@ public class BlockRiftExtractor extends Block {
         if (part == Part.MID) return pos.down();
         if (part == Part.TOP) return pos.down(2);
         return pos;
+    }
+
+    @Override
+    public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
+        if (state.getValue(PART) != Part.LOW) {
+            return;
+        }
+        drops.add(new ItemStack(TABlocks.RIFT_STONE_BASE));
+        drops.add(new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION));
+        drops.add(new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION));
     }
 
     // ---------- interaction ----------
