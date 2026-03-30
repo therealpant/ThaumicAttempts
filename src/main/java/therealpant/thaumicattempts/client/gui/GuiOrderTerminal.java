@@ -1006,23 +1006,40 @@ public class GuiOrderTerminal extends GuiContainer {
 
 
 
-    @Override public void drawScreen(int mouseX, int mouseY, float partialTicks) {
+    @Override
+    public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         this.drawDefaultBackground();
         super.drawScreen(mouseX, mouseY, partialTicks);
-        drawHoveredCatalogTooltip(mouseX, mouseY);
-        if (!drawTerminalItemTooltip(mouseX, mouseY)) {
-            this.renderHoveredToolTip(mouseX, mouseY);
-        }
+
+        if (drawTerminalItemTooltip(mouseX, mouseY)) return;
+        if (drawHoveredCatalogTooltip(mouseX, mouseY)) return;
+
+        this.renderHoveredToolTip(mouseX, mouseY);
     }
 
     private static final float PAGE_TOOLTIP_SCALE = 0.72f;
 
-    private void drawHoveredCatalogTooltip(int mouseX, int mouseY) {
+    private boolean  drawHoveredCatalogTooltip(int mouseX, int mouseY) {
         HoveredPageItem hovered = findHoveredPageItem(mouseX, mouseY);
-        if (hovered == null || hovered.stack == null || hovered.stack.isEmpty()) return;
-        List<String> lines = this.getItemToolTip(hovered.stack);
-        if (lines == null || lines.isEmpty()) return;
-        drawScaledHoveringText(lines, mouseX, mouseY, PAGE_TOOLTIP_SCALE);
+        if (hovered == null || hovered.stack == null || hovered.stack.isEmpty()) return false;
+        drawScaledItemTooltip(hovered.stack, mouseX, mouseY, PAGE_TOOLTIP_SCALE);
+        return true;
+    }
+
+    private void drawScaledItemTooltip(ItemStack stack, int mouseX, int mouseY, float scale) {
+        if (stack == null || stack.isEmpty()) return;
+
+        float safeScale = Math.max(0.5f, Math.min(1.0f, scale));
+
+        GlStateManager.pushMatrix();
+        GlStateManager.scale(safeScale, safeScale, 1.0f);
+
+        int sx = Math.round(mouseX / safeScale);
+        int sy = Math.round(mouseY / safeScale);
+
+        this.renderToolTip(stack, sx, sy);
+
+        GlStateManager.popMatrix();
     }
 
     private static final class HoveredPageItem {
@@ -1835,19 +1852,9 @@ public class GuiOrderTerminal extends GuiContainer {
 
     private boolean drawTerminalItemTooltip(int mouseX, int mouseY) {
         ItemStack hovered = getHoveredTerminalStack(mouseX, mouseY);
-        if (hovered == null || hovered.isEmpty() || this.mc.player == null) return false;
+        if (hovered == null || hovered.isEmpty()) return false;
 
-        ITooltipFlag.TooltipFlags flag = this.mc.gameSettings.advancedItemTooltips
-                ? ITooltipFlag.TooltipFlags.ADVANCED
-                : ITooltipFlag.TooltipFlags.NORMAL;
-        List<String> lines = hovered.getTooltip(this.mc.player, flag);
-        if (lines == null || lines.isEmpty()) return false;
-
-        for (int i = 1; i < lines.size(); i++) {
-            lines.set(i, TextFormatting.GRAY + lines.get(i));
-        }
-
-        drawScaledHoveringText(lines, mouseX, mouseY, 0.75f);
+        drawScaledItemTooltip(hovered, mouseX, mouseY, 0.75f);
         return true;
     }
 
@@ -1891,22 +1898,6 @@ public class GuiOrderTerminal extends GuiContainer {
         if (snap == null || snap.items == null || idx >= snap.items.size()) return null;
         ItemStack st = snap.items.get(idx);
         return (st == null || st.isEmpty()) ? null : st;
-    }
-
-    private void drawScaledHoveringText(List<String> lines, int mouseX, int mouseY, float scale) {
-        if (lines == null || lines.isEmpty()) return;
-        float safeScale = Math.max(0.5f, Math.min(1.0f, scale));
-
-        GlStateManager.pushMatrix();
-        GlStateManager.scale(safeScale, safeScale, 1.0f);
-
-        int sx = Math.round(mouseX / safeScale);
-        int sy = Math.round(mouseY / safeScale);
-        int sw = Math.round(this.width / safeScale);
-        int sh = Math.round(this.height / safeScale);
-        GuiUtils.drawHoveringText(lines, sx, sy, sw, sh, -1, this.fontRenderer);
-
-        GlStateManager.popMatrix();
     }
 
     private void layoutDraftPaper() {

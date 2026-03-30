@@ -3246,6 +3246,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return (al != null && al.size() == 1) ? al.getAspects()[0] : null;
     }
 
+    @Override
+    public net.minecraft.util.math.AxisAlignedBB getRenderBoundingBox() {
+        return new net.minecraft.util.math.AxisAlignedBB(pos).grow(3.5D, 4.5D, 3.5D);
+    }
+
+    @Override
+    public double getMaxRenderDistanceSquared() {
+        return 65536.0D;
+    }
+
     private static boolean crystalSame(ItemStack a, ItemStack b) {
         if (!isCrystal(a) || !isCrystal(b)) return false;
         thaumcraft.api.aspects.Aspect ax = aspectOf(a);

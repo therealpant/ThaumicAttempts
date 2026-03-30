@@ -82,28 +82,40 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
 
         GlStateManager.pushMatrix();
         try {
-            // та же позиция, что и базовая модель, но чуть выше по Y
-            GlStateManager.translate(x + 0.5, y + EMISSIVE_Y_OFFSET, z +0.5);
+            GlStateManager.translate(x + 0.5, y + EMISSIVE_Y_OFFSET, z + 0.5);
 
             OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
 
             GlStateManager.disableLighting();
             GlStateManager.enableBlend();
-            GlStateManager.blendFunc(
-                    GlStateManager.SourceFactor.SRC_ALPHA,
-                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA
-            );
+            GlStateManager.enableAlpha();
+            GlStateManager.enableTexture2D();
+            GlStateManager.depthMask(true);
             GlStateManager.color(1F, 1F, 1F, 1F);
 
-            Minecraft.getMinecraft().getTextureManager().bindTexture(TEX_EMISSIVE);
+            GlStateManager.tryBlendFuncSeparate(
+                    GlStateManager.SourceFactor.SRC_ALPHA,
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO
+            );
 
+            Minecraft.getMinecraft().getTextureManager().bindTexture(TEX_EMISSIVE);
             this.render(model, te, partialTicks, 1f, 1f, 1f, 1f);
 
-            GlStateManager.disableBlend();
-            GlStateManager.depthMask(true);
-            GlStateManager.enableLighting();
         } finally {
+            OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+            GlStateManager.disableTexture2D();
             OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
+
+            OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+            GlStateManager.enableTexture2D();
+
+            GlStateManager.color(1F, 1F, 1F, 1F);
+            GlStateManager.disableBlend();
+            GlStateManager.enableAlpha();
+            GlStateManager.enableLighting();
+            GlStateManager.depthMask(true);
             GlStateManager.popMatrix();
         }
     }
@@ -122,26 +134,28 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
         float prevY = OpenGlHelper.lastBrightnessY;
 
         try {
-            GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
+
             pushedAttrib = true;
 
-            // 1) базовая гео-модель с обычным освещением
+            // 1) базовая гео-модель
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
 
-            // 2) эмисс-проход: те же вершины, но TEX_EMISSIVE и фуллбрайт
+            // 2) эмисс-проход
             renderEmissiveLayer(te, x, y, z, partialTicks);
 
-            // 3) дальше — твой старый код (зеркала, летающие предметы)
+            // 3) зеркала и летающие предметы
             GlStateManager.pushMatrix();
             GlStateManager.translate(x + 0.5, y, z + 0.5);
             GlStateManager.color(1F, 1F, 1F, 1F);
             GlStateManager.enableBlend();
+            GlStateManager.enableAlpha();
             GlStateManager.tryBlendFuncSeparate(
                     GlStateManager.SourceFactor.SRC_ALPHA,
                     GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
                     GlStateManager.SourceFactor.ONE,
                     GlStateManager.DestFactor.ZERO
             );
+            GlStateManager.depthMask(true);
 
             long t = te.getWorld().getTotalWorldTime();
 
@@ -188,6 +202,7 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                 if (!delivering) {
                     float spinStep = SPIN_BASE * speedMul * dir;
                     m.idleSpin = (m.idleSpin + spinStep * dt) % 360f;
+                    m.lastSpinStep = spinStep;
                 }
 
                 float zeroYaw = computeZeroYaw(px, pz);
@@ -220,13 +235,13 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                 RenderHelper.enableStandardItemLighting();
                 Minecraft.getMinecraft().getRenderItem()
                         .renderItem(renderMirror, ItemCameraTransforms.TransformType.FIXED);
-                RenderHelper.disableStandardItemLighting();
+                resetAfterItemRender(prevX, prevY);
 
                 GlStateManager.popMatrix();
             }
 
             // === 2) ПОДВЕШЕННЫЕ К ВЫБРОСУ ЗЕРКАЛА ===
-            List<int[]> pend = te.getPendingEjectVisuals(); // {ring,slot,age,ttl}
+            List<int[]> pend = te.getPendingEjectVisuals();
             int ttl = te.getEjectHoverTicks();
             for (int[] v : pend) {
                 int ring = v[0], slot = v[1], age = v[2];
@@ -266,7 +281,12 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                 Minecraft.getMinecraft().getRenderItem()
                         .renderItem(renderMirror, ItemCameraTransforms.TransformType.FIXED);
                 RenderHelper.disableStandardItemLighting();
+
                 GlStateManager.color(1F, 1F, 1F, 1F);
+                GlStateManager.disableBlend();
+                GlStateManager.enableBlend();
+                GlStateManager.enableAlpha();
+                GlStateManager.depthMask(true);
 
                 GlStateManager.popMatrix();
             }
@@ -281,18 +301,14 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                 if (f.ring == 1 || f.ring == 3) base += RING_SHIFT_YAW;
                 double ang = Math.toRadians(base);
 
-                // Конечная точка у зеркала
                 Vec3d P2 = new Vec3d(
                         Math.cos(ang) * RADIUS,
                         BASE_Y + f.ring * Y_STEP,
                         Math.sin(ang) * RADIUS
                 );
 
-                // Стартовая точка над менеджером
                 Vec3d P0 = new Vec3d(0.0, BASE_Y + 0.15, 0.0);
 
-                // Горизонтальный радиальный вектор от центра к зеркалу
-                // Промежуточная точка на плоскости старта в сторону зеркала
                 Vec3d dir = new Vec3d(P2.x - P0.x, 0.0, P2.z - P0.z);
                 if (dir.lengthSquared() < 1.0e-6) {
                     dir = new Vec3d(0, 0, 1);
@@ -300,7 +316,6 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                     dir = dir.normalize();
                 }
                 Vec3d P1 = P0.add(dir.scale(0.72));
-                // Вычисляем контрольную точку квадратичной Безье, чтобы кривая проходила через P1 при t=0.5
                 Vec3d control = P1.scale(2.0)
                         .subtract(P0.scale(0.5))
                         .subtract(P2.scale(0.5));
@@ -308,12 +323,10 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                 float tt2 = (t + partialTicks) - f.start;
                 float p = MathHelper.clamp(tt2 / (float) f.duration, 0f, 1f);
 
-                // плавный ease-in-out
                 float ease = (p < 0.5f)
                         ? (2f * p * p)
                         : (1f - (float) Math.pow(-2f * p + 2f, 2) / 2f);
 
-                // обрезаем хвост (чтоб не влетал внутрь зеркала)
                 float cut = 0.88f;
                 if (ease >= cut) continue;
                 float tail = 0.06f;
@@ -352,7 +365,12 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                 Minecraft.getMinecraft().getRenderItem()
                         .renderItem(f.stack, ItemCameraTransforms.TransformType.FIXED);
                 RenderHelper.disableStandardItemLighting();
+
                 GlStateManager.color(1F, 1F, 1F, 1F);
+                GlStateManager.disableBlend();
+                GlStateManager.enableBlend();
+                GlStateManager.enableAlpha();
+                GlStateManager.depthMask(true);
 
                 GlStateManager.popMatrix();
             }
@@ -362,11 +380,9 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             GlStateManager.depthMask(true);
             GlStateManager.color(1F, 1F, 1F, 1F);
             GlStateManager.popMatrix();
+
         } finally {
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
-            if (pushedAttrib) {
-                GL11.glPopAttrib();
-            }
+            restoreVanillaRenderState(prevX, prevY);
         }
     }
 
@@ -387,4 +403,55 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
         return current + delta;
     }
 
+    private static void restoreVanillaRenderState(float prevLightX, float prevLightY) {
+        // Вернуть обе texture units в норму
+        OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+        GlStateManager.disableTexture2D();
+
+        OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        GlStateManager.enableTexture2D();
+
+        // Вернуть lightmap координаты
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevLightX, prevLightY);
+
+        // Базовое состояние
+        GlStateManager.color(1F, 1F, 1F, 1F);
+
+        GlStateManager.enableLighting();
+        GlStateManager.disableBlend();
+        GlStateManager.enableAlpha();
+        GlStateManager.enableCull();
+        GlStateManager.disableNormalize();
+        GlStateManager.disableRescaleNormal();
+
+        GlStateManager.depthMask(true);
+        GlStateManager.enableDepth();
+        GlStateManager.depthFunc(GL11.GL_LEQUAL);
+
+        // Дефолтный blend func
+        GlStateManager.tryBlendFuncSeparate(
+                GlStateManager.SourceFactor.SRC_ALPHA,
+                GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                GlStateManager.SourceFactor.ONE,
+                GlStateManager.DestFactor.ZERO
+        );
+
+        RenderHelper.disableStandardItemLighting();
+    }
+
+    private void resetAfterItemRender(float prevLightX, float prevLightY) {
+        RenderHelper.disableStandardItemLighting();
+
+        OpenGlHelper.setActiveTexture(OpenGlHelper.lightmapTexUnit);
+        GlStateManager.disableTexture2D();
+        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevLightX, prevLightY);
+
+        OpenGlHelper.setActiveTexture(OpenGlHelper.defaultTexUnit);
+        GlStateManager.enableTexture2D();
+
+        GlStateManager.color(1F, 1F, 1F, 1F);
+        GlStateManager.disableBlend();
+        GlStateManager.enableAlpha();
+        GlStateManager.depthMask(true);
+    }
 }
