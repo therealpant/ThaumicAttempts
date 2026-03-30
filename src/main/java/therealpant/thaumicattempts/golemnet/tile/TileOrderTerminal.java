@@ -18,6 +18,7 @@ import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
+import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.util.ItemKey;
@@ -33,6 +34,127 @@ import java.util.*;
  * - Отдаёт GUI-снапшоты каталога постранично (5×7) по новому протоколу: snapshotId + pageIndex0.
  */
 public class TileOrderTerminal extends TileEntity implements ITickable {
+    private static final Map<String, String> ASPECT_ALIASES = buildAspectAliases();
+
+    private static Map<String, String> buildAspectAliases() {
+        Map<String, String> map = new HashMap<>();
+
+        try {
+            // 1) Все зарегистрированные аспекты Thaumcraft
+            for (Aspect aspect : getAllRegisteredAspects()) {
+                if (aspect == null) continue;
+
+                String tag = safeLower(aspect.getTag());
+                if (tag == null || tag.isEmpty()) continue;
+
+                // Сам internal id аспекта: aer, ignis, ordo...
+                map.put(tag, tag);
+
+                // Попытка добавить "имя" аспекта, если доступно
+                String name = safeAspectName(aspect);
+                if (name != null && !name.isEmpty()) {
+                    map.put(name, tag);
+
+                    // нормализованный вариант без пробелов/дефисов
+                    String compact = normalizeAspectSearchToken(name);
+                    if (!compact.equals(name)) {
+                        map.put(compact, tag);
+                    }
+                }
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // 2) Надёжные английские алиасы для примальных аспектов
+        // Их можно оставить как fallback, но уже не держать весь справочник вручную
+        putIfAbsent(map, "air", "aer");
+        putIfAbsent(map, "earth", "terra");
+        putIfAbsent(map, "fire", "ignis");
+        putIfAbsent(map, "water", "aqua");
+        putIfAbsent(map, "order", "ordo");
+        putIfAbsent(map, "entropy", "perditio");
+
+        // 3) Доп. синонимы, если хочешь
+        putIfAbsent(map, "void", "vacuos");
+        putIfAbsent(map, "life", "victus");
+        putIfAbsent(map, "death", "mortuus");
+        putIfAbsent(map, "energy", "potentia");
+        putIfAbsent(map, "magic", "praecantatio");
+        putIfAbsent(map, "flux", "vitium");
+
+        return map;
+    }
+
+    private static void putIfAbsent(Map<String, String> map, String key, String value) {
+        if (key == null || value == null) return;
+        map.putIfAbsent(key.toLowerCase(Locale.ROOT), value.toLowerCase(Locale.ROOT));
+    }
+
+    private static String safeLower(String s) {
+        return s == null ? null : s.trim().toLowerCase(Locale.ROOT);
+    }
+
+    private static String normalizeAspectSearchToken(String s) {
+        if (s == null) return "";
+        return s.trim()
+                .toLowerCase(Locale.ROOT)
+                .replace('ё', 'е')
+                .replace(" ", "")
+                .replace("-", "")
+                .replace("_", "");
+    }
+
+    private static String safeAspectName(Aspect aspect) {
+        try {
+            // В TC6 обычно getName() возвращает читаемое имя аспекта
+            String name = aspect.getName();
+            if (name != null && !name.trim().isEmpty()) {
+                return normalizeAspectSearchToken(name);
+            }
+        } catch (Throwable ignored) {
+        }
+
+        try {
+            // fallback на локализованный description/tag, если getName() не подходит
+            String tag = aspect.getTag();
+            return normalizeAspectSearchToken(tag);
+        } catch (Throwable ignored) {
+        }
+
+        return null;
+    }
+
+    @SuppressWarnings("unchecked")
+    private static Collection<Aspect> getAllRegisteredAspects() {
+        try {
+            // В TC6 у Aspect обычно есть статическая коллекция/карта аспектов
+            java.lang.reflect.Field f = Aspect.class.getDeclaredField("aspects");
+            f.setAccessible(true);
+            Object val = f.get(null);
+
+            if (val instanceof Map) {
+                return ((Map<?, Aspect>) val).values();
+            }
+            if (val instanceof Collection) {
+                return (Collection<Aspect>) val;
+            }
+        } catch (Throwable ignored) {
+        }
+
+        // fallback: хотя бы 6 базовых аспектов
+        List<Aspect> fallback = new ArrayList<>();
+        addIfNotNull(fallback, Aspect.getAspect("aer"));
+        addIfNotNull(fallback, Aspect.getAspect("terra"));
+        addIfNotNull(fallback, Aspect.getAspect("ignis"));
+        addIfNotNull(fallback, Aspect.getAspect("aqua"));
+        addIfNotNull(fallback, Aspect.getAspect("ordo"));
+        addIfNotNull(fallback, Aspect.getAspect("perditio"));
+        return fallback;
+    }
+
+    private static void addIfNotNull(List<Aspect> list, Aspect aspect) {
+        if (aspect != null) list.add(aspect);
+    }
 
     /* ===== Клиентская анимация книги ===== */
     @net.minecraftforge.fml.relauncher.SideOnly(net.minecraftforge.fml.relauncher.Side.CLIENT) public int tickCount;
@@ -716,6 +838,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         if (pageIndex0 < 0) pageIndex0 = 0;
         if (search == null) search = "";
         final String q = search.trim().toLowerCase(java.util.Locale.ROOT);
+        final Aspect aspectQuery = parseAspectSearch(q);
 
         // --- 1) Создать/зафиксировать snapshotId и ОБЯЗАТЕЛЬНО выслать его клиенту при создании
         final long sid;
@@ -766,8 +889,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             java.util.List<Integer> perCraft  = new java.util.ArrayList<Integer>();
             for (ItemStack s : all) {
                 if (s == null || s.isEmpty()) continue;
-                String name = s.getDisplayName();
-                if (!q.isEmpty() && (name == null || !name.toLowerCase(java.util.Locale.ROOT).contains(q))) continue;
+                if (!matchesSearch(s, q, aspectQuery)) continue;
                 filtered.add(s);
                 perCraft.add(Math.max(1, s.getCount()));
             }
@@ -816,8 +938,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             for (java.util.Map.Entry<ItemKey,Integer> e : entries) {
                 ItemStack s = e.getKey().toStack(1);
                 if (s == null || s.isEmpty()) continue;
-                String name = s.getDisplayName();
-                if (!q.isEmpty() && (name == null || !name.toLowerCase(java.util.Locale.ROOT).contains(q))) continue;
+                if (!matchesSearch(s, q, aspectQuery)) continue;
                 filtered.add(s);
                 counts.add(Math.max(1, e.getValue()));
             }
@@ -853,7 +974,57 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         sendDraftSnapshotTo(player, true);
     }
 
+    @Nullable
+    private static Aspect parseAspectSearch(String q) {
+        if (q == null) return null;
 
+        String search = q.trim();
+        if (!search.startsWith("!")) return null;
+
+        String raw = normalizeAspectSearchToken(search.substring(1));
+        if (raw.isEmpty()) return null;
+
+        String normalized = ASPECT_ALIASES.getOrDefault(raw, raw);
+        return Aspect.getAspect(normalized);
+    }
+
+    private static boolean matchesSearch(ItemStack stack, String q, @Nullable Aspect aspectQuery) {
+        if (stack == null || stack.isEmpty()) return false;
+
+        String trimmed = (q == null) ? "" : q.trim();
+        if (trimmed.isEmpty()) return true;
+
+        if (trimmed.startsWith("!")) {
+            if (aspectQuery == null) return false;
+            return hasAspect(stack, aspectQuery);
+        }
+
+        String name = stack.getDisplayName();
+        return name != null && name.toLowerCase(java.util.Locale.ROOT).contains(trimmed);
+    }
+
+    private static boolean hasAspect(ItemStack stack, Aspect wanted) {
+        AspectList al = null;
+        if (stack.getItem() instanceof ItemTCEssentiaContainer) {
+            al = ((ItemTCEssentiaContainer) stack.getItem()).getAspects(stack);
+        }
+        if (al == null || al.size() == 0) {
+            al = reflectObjectAspects(stack);
+        }
+        return al != null && al.getAmount(wanted) > 0;
+    }
+
+    @Nullable
+    private static AspectList reflectObjectAspects(ItemStack stack) {
+        try {
+            Class<?> helper = Class.forName("thaumcraft.api.aspects.AspectHelper");
+            java.lang.reflect.Method m = helper.getMethod("getObjectAspects", ItemStack.class);
+            Object out = m.invoke(null, stack);
+            return (out instanceof AspectList) ? (AspectList) out : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
+    }
 
     private int countInBufferLike(ItemStack like) {
         if (like == null || like.isEmpty()) return 0;

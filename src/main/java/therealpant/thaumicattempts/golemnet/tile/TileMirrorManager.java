@@ -363,37 +363,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
-    /**
-     * Выбрать свободное зеркало для нового потребителя.
-     * Берём один из activeMirrors, который ещё никому не принадлежит.
-     */
-    @Nullable
-    private MirrorKey assignMirrorForConsumer(BlockPos consumerPos) {
-        if (consumerPos == null) return null;
-        // уже есть – возвращаем существующее
-        MirrorKey existing = consumerMirrors.get(consumerPos);
-        if (existing != null && findMirrorSlot(existing) != null) {
-            return existing;
-        }
-
-        // ищем свободный слот среди активных зеркал
-        for (MirrorSlot m : activeMirrors) {
-            if (!isMirrorTakenByConsumer(m.ring, m.slot)) {
-                MirrorKey mk = new MirrorKey(m.ring, m.slot);
-                consumerMirrors.put(consumerPos.toImmutable(), mk);
-                return mk;
-            }
-        }
-        // не нашли свободного – значит, по идее, зеркал просто не хватает
-        return null;
-    }
-
-    /**
-     * Получить или назначить зеркало для данного ресурса (ItemKey).
-     * Всегда старается вернуть существующее зеркало. Если привязанное
-     * зеркало исчезло – выбирает новое.
-     */
-
     // Подвешенные к выбросу (занимают слот до дропа)
     private static final int EJECT_HOVER_TICKS = 40; // ~2с
 
@@ -504,15 +473,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     // Возвращает остаток, который не влез.
     public ItemStack acceptProvisionResult(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return ItemStack.EMPTY;
-        // Используем уже существующую тихую вставку в buffer,
-        // которая триггерит onItemAccepted/onArrivedToBuffer и корректно обновляет inflight.
-        try {
-            // если есть suppressAcceptAnim — можно включить, чтобы не спамить лишними эффектами
-            return silentInsertToBuffer(stack);
-        } catch (Throwable ignored) {
-            // на всякий пожарный — чтобы не крашило мир
-            return stack;
-        }
+        return silentInsertToBuffer(stack);
     }
 
     /**
@@ -803,17 +764,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private final ItemStackHandler buffer = new ItemStackHandler(18) {
         @Override
         public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
-            ItemStack before = stack.copy();
-            ItemStack res = super.insertItem(slot, stack, simulate);
-            if (!simulate) {
-                int accepted = before.getCount() - (res.isEmpty() ? 0 : res.getCount());
-                if (accepted > 0 && !suppressAcceptAnim) {
-                    ItemStack one = before.copy();
-                    one.setCount(1);
-                    onItemAccepted(one);
-                }
-            }
-            return res;
+            return super.insertItem(slot, stack, simulate);
         }
 
         @Override
@@ -855,13 +806,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
         return upTo - left;
     }
-
-
-    // сервер: выбранное зеркало + рассылка клиентам для анимации «полетело в корону»
-    // сервер: выбранное зеркало + рассылка клиентам для анимации «полетело в корону»
-    private void onItemAccepted(ItemStack stack) {
-    }
-
 
     /**
      * Внешняя обёртка — подхватывает приход и продвигает текущий батч.

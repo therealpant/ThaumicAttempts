@@ -50,6 +50,18 @@ public final class ItemKey {
         return new ItemKey(it, meta, tag);
     }
 
+    /**
+     * Строгий ключ для каталожного отображения:
+     * item + raw metadata + полный NBT.
+     * Нужен, чтобы не склеивать визуально разные варианты (NBT/meta-зависимые).
+     */
+    public static ItemKey ofCatalog(ItemStack s) {
+        if (s == null || s.isEmpty()) return EMPTY;
+        final Item it = s.getItem();
+        int meta = s.getMetadata();
+        NBTTagCompound tag = s.hasTagCompound() ? s.getTagCompound().copy() : null;
+        return new ItemKey(it, meta, tag);
+    }
 
 
     public ItemStack toStack(int count) {

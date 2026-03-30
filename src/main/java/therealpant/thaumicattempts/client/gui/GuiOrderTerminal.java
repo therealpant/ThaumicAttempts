@@ -5,9 +5,12 @@ import net.minecraft.client.gui.inventory.GuiContainer;
 import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.entity.player.InventoryPlayer;
+import net.minecraft.client.util.ITooltipFlag;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.text.TextFormatting;
+import net.minecraftforge.fml.client.config.GuiUtils;
 import org.lwjgl.opengl.GL11;
 import thaumcraft.client.gui.plugins.GuiImageButton;
 import therealpant.thaumicattempts.ThaumicAttempts;
@@ -1006,7 +1009,101 @@ public class GuiOrderTerminal extends GuiContainer {
     @Override public void drawScreen(int mouseX, int mouseY, float partialTicks) {
         this.drawDefaultBackground();
         super.drawScreen(mouseX, mouseY, partialTicks);
-        this.renderHoveredToolTip(mouseX, mouseY);
+        drawHoveredCatalogTooltip(mouseX, mouseY);
+        if (!drawTerminalItemTooltip(mouseX, mouseY)) {
+            this.renderHoveredToolTip(mouseX, mouseY);
+        }
+    }
+
+    private static final float PAGE_TOOLTIP_SCALE = 0.72f;
+
+    private void drawHoveredCatalogTooltip(int mouseX, int mouseY) {
+        HoveredPageItem hovered = findHoveredPageItem(mouseX, mouseY);
+        if (hovered == null || hovered.stack == null || hovered.stack.isEmpty()) return;
+        List<String> lines = this.getItemToolTip(hovered.stack);
+        if (lines == null || lines.isEmpty()) return;
+        drawScaledHoveringText(lines, mouseX, mouseY, PAGE_TOOLTIP_SCALE);
+    }
+
+    private static final class HoveredPageItem {
+        final ItemStack stack;
+        HoveredPageItem(ItemStack stack) { this.stack = stack; }
+    }
+
+    @Nullable
+    private HoveredPageItem findHoveredPageItem(int mouseX, int mouseY) {
+        // Сначала активная центральная страница.
+        int idx = activeGridIndexAt(mouseX, mouseY);
+        if (idx >= 0) {
+            ItemStack s = stackAtPageIndex(takenPageNo, idx);
+            if (!s.isEmpty()) return new HoveredPageItem(s);
+        }
+
+        // Затем стопки (осевой hitbox; без учёта поворота, но достаточно надёжно).
+        if (pageCache.isEmpty()) return null;
+        final float sStack = PAGE_SCALE;
+        final int centerYLineStack = this.guiTop + 49;
+        final int stackGridH       = Math.round(visibleHeight() * sStack);
+        final int baseY            = centerYLineStack - stackGridH / 2;
+        final int leftCenterX      = this.guiLeft + 128;
+        final int rightCenterX     = this.guiLeft + 210;
+        final int leftBaseX        = leftCenterX  - Math.round(visibleWidth() * sStack) / 2;
+        final int rightBaseX       = rightCenterX - Math.round(visibleWidth() * sStack) / 2;
+        final int max              = maxPageToDraw();
+        if (max <= 0) return null;
+
+        for (int pageNo = baseStackOffset + 1; pageNo <= max; pageNo++) {
+            if (pageNo == takenPageNo &&
+                    (animState == AnimState.TO_CENTER || animState == AnimState.CENTERED ||
+                            animState == AnimState.TO_LEFT || animState == AnimState.TO_RIGHT)) continue;
+            int gy = rightStackYForPage(pageNo, baseY);
+            int hit = gridIndexAt(mouseX, mouseY, rightBaseX, gy, sStack);
+            if (hit >= 0) {
+                ItemStack st = stackAtPageIndex(pageNo, hit);
+                if (!st.isEmpty()) return new HoveredPageItem(st);
+            }
+        }
+        for (int pageNo = baseStackOffset; pageNo >= 1; pageNo--) {
+            if (pageNo == hiddenLeftTop) continue;
+            if (pageNo == takenPageNo &&
+                    (animState == AnimState.TO_CENTER || animState == AnimState.CENTERED ||
+                            animState == AnimState.TO_LEFT || animState == AnimState.TO_RIGHT)) continue;
+            int gy = leftStackYForPage(pageNo, baseY);
+            int hit = gridIndexAt(mouseX, mouseY, leftBaseX, gy, sStack);
+            if (hit >= 0) {
+                ItemStack st = stackAtPageIndex(pageNo, hit);
+                if (!st.isEmpty()) return new HoveredPageItem(st);
+            }
+        }
+        return null;
+    }
+
+    private int gridIndexAt(int mouseX, int mouseY, int gridX, int gridY, float pageScale) {
+        float fullW = visibleWidth() * pageScale;
+        float fullH = visibleHeight() * pageScale;
+        float gridWf = fullW * PAGE_GRID_SCALE;
+        float gridHf = fullH * PAGE_GRID_SCALE;
+        float offX = (fullW - gridWf) / 2.0f;
+        float offY = (fullH - gridHf) / 2.0f;
+        int gx = gridX + Math.round(offX);
+        int gy = gridY + Math.round(offY);
+        int gridW = Math.round(gridWf);
+        int gridH = Math.round(gridHf);
+        if (mouseX < gx || mouseX >= gx + gridW || mouseY < gy || mouseY >= gy + gridH) return -1;
+        int cellW = Math.round(cell * pageScale * PAGE_GRID_SCALE);
+        int cellH = Math.round(cell * pageScale * PAGE_GRID_SCALE);
+        int col = (mouseX - gx) / Math.max(1, cellW);
+        int row = (mouseY - gy) / Math.max(1, cellH);
+        if (col < 0 || col >= VISIBLE_COLS_COUNT || row < 0 || row >= VISIBLE_ROWS_COUNT) return -1;
+        return row * VISIBLE_COLS_COUNT + col;
+    }
+
+    private ItemStack stackAtPageIndex(int pageNo, int idx) {
+        if (pageNo < 1 || idx < 0 || idx >= WINDOW_SIZE) return ItemStack.EMPTY;
+        PageSnap p = pageCache.get(pageNo);
+        if (p == null || p.items == null || idx >= p.items.size()) return ItemStack.EMPTY;
+        ItemStack s = p.items.get(idx);
+        return (s == null) ? ItemStack.EMPTY : s;
     }
 
     @Override protected void drawGuiContainerBackgroundLayer(float partialTicks, int mouseX, int mouseY) {
@@ -1573,6 +1670,8 @@ public class GuiOrderTerminal extends GuiContainer {
 
         float prevZ = this.itemRender.zLevel;
         this.itemRender.zLevel = 0.0F;
+        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+        GlStateManager.depthFunc(GL11.GL_LEQUAL);
 
         int shown = Math.min(p.items.size(), WINDOW_SIZE);
         for (int i = 0; i < shown; i++) {
@@ -1622,6 +1721,7 @@ public class GuiOrderTerminal extends GuiContainer {
             }
         }
 
+        GlStateManager.depthFunc(prevDepthFunc);
         this.itemRender.zLevel = prevZ;
         RenderHelper.disableStandardItemLighting();
         GlStateManager.popMatrix();
@@ -1683,6 +1783,8 @@ public class GuiOrderTerminal extends GuiContainer {
         if (nine == null) return;
 
         RenderHelper.enableGUIStandardItemLighting();
+        int prevDepthFunc = GL11.glGetInteger(GL11.GL_DEPTH_FUNC);
+        GlStateManager.depthFunc(GL11.GL_LEQUAL);
 
         final int icon = DRAFT_ICON_SIZE;                    // 12
         final int step = DRAFT_ICON_SIZE + DRAFT_ICON_GAP;   // 12 + 4 = 16
@@ -1727,7 +1829,84 @@ public class GuiOrderTerminal extends GuiContainer {
             }
         }
 
+        GlStateManager.depthFunc(prevDepthFunc);
         RenderHelper.disableStandardItemLighting();
+    }
+
+    private boolean drawTerminalItemTooltip(int mouseX, int mouseY) {
+        ItemStack hovered = getHoveredTerminalStack(mouseX, mouseY);
+        if (hovered == null || hovered.isEmpty() || this.mc.player == null) return false;
+
+        ITooltipFlag.TooltipFlags flag = this.mc.gameSettings.advancedItemTooltips
+                ? ITooltipFlag.TooltipFlags.ADVANCED
+                : ITooltipFlag.TooltipFlags.NORMAL;
+        List<String> lines = hovered.getTooltip(this.mc.player, flag);
+        if (lines == null || lines.isEmpty()) return false;
+
+        for (int i = 1; i < lines.size(); i++) {
+            lines.set(i, TextFormatting.GRAY + lines.get(i));
+        }
+
+        drawScaledHoveringText(lines, mouseX, mouseY, 0.75f);
+        return true;
+    }
+
+    @Nullable
+    private ItemStack getHoveredTerminalStack(int mouseX, int mouseY) {
+        ItemStack draftStack = getHoveredDraftStack(mouseX, mouseY);
+        if (draftStack != null && !draftStack.isEmpty()) return draftStack;
+        return getHoveredActivePageStack(mouseX, mouseY);
+    }
+
+    @Nullable
+    private ItemStack getHoveredDraftStack(int mouseX, int mouseY) {
+        int[] r = new int[4];
+        getDraftGridDrawXY(r);
+        int gx = r[0], gy = r[1], gw = r[2], gh = r[3];
+        int step = DRAFT_ICON_SIZE + DRAFT_ICON_GAP;
+
+        if (mouseX < gx || mouseX >= gx + gw || mouseY < gy || mouseY >= gy + gh) return null;
+
+        int cx = (mouseX - gx) / step;
+        int cy = (mouseY - gy) / step;
+        if (cx < 0 || cx >= 3 || cy < 0 || cy >= 3) return null;
+
+        int localX = mouseX - (gx + cx * step);
+        int localY = mouseY - (gy + cy * step);
+        if (localX >= DRAFT_ICON_SIZE || localY >= DRAFT_ICON_SIZE) return null;
+
+        final boolean craft = isCraftMode();
+        List<ItemStack> order = isFrozen() ? ClientCatalogCache.getPending(craft) : ClientCatalogCache.getDraft(craft);
+        int idx = cy * 3 + cx;
+        if (order == null || idx < 0 || idx >= order.size()) return null;
+        ItemStack st = order.get(idx);
+        return (st == null || st.isEmpty()) ? null : st;
+    }
+
+    @Nullable
+    private ItemStack getHoveredActivePageStack(int mouseX, int mouseY) {
+        int idx = activeGridIndexAt(mouseX, mouseY);
+        if (idx < 0 || takenPageNo < 1) return null;
+        PageSnap snap = pageCache.get(takenPageNo);
+        if (snap == null || snap.items == null || idx >= snap.items.size()) return null;
+        ItemStack st = snap.items.get(idx);
+        return (st == null || st.isEmpty()) ? null : st;
+    }
+
+    private void drawScaledHoveringText(List<String> lines, int mouseX, int mouseY, float scale) {
+        if (lines == null || lines.isEmpty()) return;
+        float safeScale = Math.max(0.5f, Math.min(1.0f, scale));
+
+        GlStateManager.pushMatrix();
+        GlStateManager.scale(safeScale, safeScale, 1.0f);
+
+        int sx = Math.round(mouseX / safeScale);
+        int sy = Math.round(mouseY / safeScale);
+        int sw = Math.round(this.width / safeScale);
+        int sh = Math.round(this.height / safeScale);
+        GuiUtils.drawHoveringText(lines, sx, sy, sw, sh, -1, this.fontRenderer);
+
+        GlStateManager.popMatrix();
     }
 
     private void layoutDraftPaper() {
