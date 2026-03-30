@@ -27,7 +27,6 @@ import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
-import thaumcraft.api.ThaumcraftInvHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aura.AuraHelper;
 import thaumcraft.api.golems.GolemHelper;
@@ -42,19 +41,15 @@ import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
-import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 
 import therealpant.thaumicattempts.util.ItemKey;
+import therealpant.thaumicattempts.util.ResourceIdentity;
 
 import javax.annotation.Nullable;
 import java.util.*;
-import java.util.concurrent.ConcurrentHashMap;
 
-import net.minecraft.entity.Entity;
-import thaumcraft.common.golems.EntityThaumcraftGolem;
-import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 
 import java.util.UUID;
 
@@ -970,7 +965,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         for (Map.Entry<ItemKey, Integer> e : inflight.entrySet()) {
             if (e.getValue() <= 0) continue;
-            if (ItemHandlerHelper.canItemStacksStackRelaxed(e.getKey().toStack(1), arrived)) {
+            if (ResourceIdentity.sameResource(e.getKey().toStack(1), arrived)) {
                 int left = Math.max(0, e.getValue() - count);
                 e.setValue(left);
                 return true;
@@ -1023,7 +1018,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     } else if (isCrystal(s) || isCrystal(ln.wanted1)) {
                         match = isCrystal(s) && isCrystal(ln.wanted1) && crystalSame(s, ln.wanted1);
                     } else {
-                        match = ItemHandlerHelper.canItemStacksStackRelaxed(ln.wanted1, s);
+                        match = ResourceIdentity.sameResource(ln.wanted1, s);
                     }
                     if (match) return true;
                 }
@@ -1569,7 +1564,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             } else {
                 match = (like.getMaxStackSize() == 1)
                         ? matchesForDelivery(peek, like)
-                        : ItemHandlerHelper.canItemStacksStackRelaxed(peek, like);
+                        : ResourceIdentity.sameResource(peek, like);
             }
             if (!match) continue;
 
@@ -1611,7 +1606,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                                 ? matchesForDelivery(ln.wanted1, like1)
                                 : (isCrystal(like1)
                                 ? (isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like1))
-                                : ItemHandlerHelper.canItemStacksStackRelaxed(ln.wanted1, like1));
+                                : ResourceIdentity.sameResource(ln.wanted1, like1));
                         if (same) itL.remove();
                     }
                     if (b.lines.isEmpty()) itB.remove();
@@ -1859,7 +1854,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
             boolean match = isCrystal(like)
                     ? (isCrystal(s) && crystalSame(s, like))
-                    : ItemHandlerHelper.canItemStacksStackRelaxed(s, like);
+                    : ResourceIdentity.sameResource(s, like);
             if (!match) continue;
 
             int take = Math.min(left, s.getCount());
@@ -2074,7 +2069,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                         match = matchesForDelivery(cur, need);
                     } else {
                         // стакаемые — relaxed
-                        match = ItemHandlerHelper.canItemStacksStackRelaxed(cur, need);
+                        match = ResourceIdentity.sameResource(cur, need);
                     }
 
                     if (match) have += cur.getCount();
@@ -2793,7 +2788,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             } else if (isCrystal(like)) {
                 match = isCrystal(s) && crystalSame(s, like);
             } else {
-                match = ItemHandlerHelper.canItemStacksStackRelaxed(s, like);
+                match = ResourceIdentity.sameResource(s, like);
             }
             if (match) total += s.getCount();
         }
@@ -2801,16 +2796,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     private static ItemStack normalizeForProvision(ItemStack like, int amount) {
-        if (isCrystal(like)) {
-            thaumcraft.api.aspects.Aspect a = aspectOf(like);
-            if (a != null) return thaumcraft.api.ThaumcraftApiHelper.makeCrystal(a, Math.max(1, amount));
-        }
-        if (like.getMaxStackSize() == 1) {
-            return new ItemStack(like.getItem(), Math.max(1, amount), like.getMetadata()); // без NBT
-        }
-        ItemStack r = like.copy();
-        r.setCount(Math.max(1, amount));
-        return r;
+        return ResourceIdentity.stackForRequest(like, amount);
     }
 
 
@@ -2830,7 +2816,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
                         match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
                     } else {
-                        match = ItemHandlerHelper.canItemStacksStackRelaxed(ln.wanted1, like);
+                        match = ResourceIdentity.sameResource(ln.wanted1, like);
                     }
 
                     if (match) total += Math.max(0, ln.remaining);
@@ -2857,7 +2843,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
                         match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
                     } else {
-                        match = ItemHandlerHelper.canItemStacksStackRelaxed(ln.wanted1, like);
+                        match = ResourceIdentity.sameResource(ln.wanted1, like);
                     }
 
                     if (!match) continue;
@@ -3324,34 +3310,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     private static ItemKey normKeyForCatalog(ItemStack s) {
-        if (isCrystal(s)) {
-            thaumcraft.api.aspects.Aspect a = aspectOf(s);
-            if (a != null) {
-                ItemStack like = thaumcraft.api.ThaumcraftApiHelper.makeCrystal(a, 1);
-                return ItemKey.of(like);
-            }
-        }
-        // Нестакаемые — item+meta без NBT (как было)
-        if (!s.isEmpty() && s.getMaxStackSize() == 1) {
-            return ItemKey.of(new ItemStack(s.getItem(), 1, s.getMetadata()));
-        }
-        // NEW: для стакаемых с сабтипами различаем meta (NBT оставляем, если есть)
-        if (s.getHasSubtypes()) {
-            ItemStack k = new ItemStack(s.getItem(), 1, s.getMetadata());
-            if (s.hasTagCompound()) k.setTagCompound(s.getTagCompound().copy());
-            return ItemKey.of(k);
-        }
-        // обычные стакаемые — как есть
-        return ItemKey.of(s);
+        return ResourceIdentity.keyOf(s);
     }
 
 
     private static boolean matchesForDelivery(ItemStack a, ItemStack like) {
-        if (a == null || like == null || a.isEmpty() || like.isEmpty()) return false;
-        if (a.getItem() != like.getItem()) return false;
-        if (a.getHasSubtypes() && a.getMetadata() != like.getMetadata()) return false;
-        if (a.getMaxStackSize() == 1) return true;
-        return ItemStack.areItemStackTagsEqual(a, like);
+        return ResourceIdentity.sameResource(a, like);
     }
 
     private int countAtDestLike(BlockPos destPos, int destSide, ItemStack like) {
@@ -3368,7 +3332,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             } else if (isCrystal(like)) {
                 if (isCrystal(s) && crystalSame(s, like)) total += s.getCount();
             } else {
-                if (ItemHandlerHelper.canItemStacksStackRelaxed(s, like)) total += s.getCount();
+                if (matchesForDelivery(s, like)) total += s.getCount();
             }
         }
         return total;
@@ -3547,15 +3511,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
      *  - иначе — relaxed stack
      */
     private static boolean sameResultForCatalog(ItemStack a, ItemStack b) {
-        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
-
-        // если хочешь — можешь заюзать ту же crystal-логику, что в крафтере/терминале
-        if (a.getMaxStackSize() == 1 || b.getMaxStackSize() == 1) {
-            if (a.getItem() != b.getItem()) return false;
-            if (a.getHasSubtypes() && a.getMetadata() != b.getMetadata()) return false;
-            return true;
-        }
-        return ItemHandlerHelper.canItemStacksStackRelaxed(a, b);
+        return ResourceIdentity.sameResource(a, b);
     }
 
     /* ===================== Реквестеры (крафтеры) ===================== */
@@ -3591,10 +3547,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             for (ItemStack out : ((TilePatternRequester) te).listCraftableResults()) {
                 if (out == null || out.isEmpty()) continue;
                 ItemStack like = key.toStack(1);
-                boolean same = (like.getMaxStackSize() == 1)
-                        ? (out.getItem() == like.getItem()
-                        && (!out.getHasSubtypes() || out.getMetadata() == like.getMetadata()))
-                        : ItemHandlerHelper.canItemStacksStackRelaxed(out, like);
+                boolean same = ResourceIdentity.sameResource(out, like);
                 if (same) return rp;
             }
         }
@@ -3610,13 +3563,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             return isCrystal(a) && isCrystal(b) && crystalSame(a, b);
         }
 
-        if (a.getItem() != b.getItem()) return false;
-
-        // Если есть сабтипы — мету учитываем обязательно
-        if ((a.getHasSubtypes() || b.getHasSubtypes()) && a.getMetadata() != b.getMetadata()) return false;
-
-        // Для стакаемых учитываем NBT, чтобы не склеивать варианты
-        return ItemStack.areItemStackTagsEqual(a, b);
+        return ResourceIdentity.sameResource(a, b);
     }
 
 

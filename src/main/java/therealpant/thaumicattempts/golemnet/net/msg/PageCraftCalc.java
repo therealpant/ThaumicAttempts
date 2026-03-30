@@ -3,11 +3,11 @@ package therealpant.thaumicattempts.golemnet.net.msg;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
-import net.minecraftforge.items.ItemHandlerHelper;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.util.ItemKey;
+import therealpant.thaumicattempts.util.ResourceIdentity;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -170,25 +170,6 @@ public final class PageCraftCalc {
         return want - left;
     }
 
-    /* === правила совпадения ИДЕНТИЧНЫ крафтеру === */
-
-    private static boolean isCrystal(ItemStack s) {
-        return s != null && !s.isEmpty()
-                && s.getItem() == thaumcraft.api.items.ItemsTC.crystalEssence;
-    }
-    private static boolean crystalSame(ItemStack a, ItemStack b) {
-        thaumcraft.api.aspects.Aspect x = aspectOf(a), y = aspectOf(b);
-        return x != null && x == y;
-    }
-    @Nullable
-    private static thaumcraft.api.aspects.Aspect aspectOf(ItemStack s) {
-        if (!isCrystal(s)) return null;
-        thaumcraft.api.aspects.AspectList al =
-                ((thaumcraft.common.items.ItemTCEssentiaContainer) thaumcraft.api.items.ItemsTC.crystalEssence)
-                        .getAspects(s);
-        return (al != null && al.size() == 1) ? al.getAspects()[0] : null;
-    }
-
     /**
      * Тот же самый матчинг, что у TileEntityGolemCrafter.sameForGrid():
      *  - кристаллы по аспекту,
@@ -196,15 +177,6 @@ public final class PageCraftCalc {
      *  - стакаемые — relaxed.
      */
     private static boolean matchForRecipe(ItemStack a, ItemStack b) {
-        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
-        if (isCrystal(a) || isCrystal(b)) {
-            return isCrystal(a) && isCrystal(b) && crystalSame(a, b);
-        }
-        if (a.getMaxStackSize() == 1 || b.getMaxStackSize() == 1) {
-            if (a.getItem() != b.getItem()) return false;
-            if (a.getHasSubtypes() && a.getMetadata() != b.getMetadata()) return false;
-            return true; // NBT игнорируем
-        }
-        return ItemHandlerHelper.canItemStacksStackRelaxed(a, b);
+        return ResourceIdentity.sameResource(a, b);
     }
 }

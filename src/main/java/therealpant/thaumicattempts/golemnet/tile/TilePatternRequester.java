@@ -8,7 +8,6 @@ import net.minecraft.item.crafting.CraftingManager;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.tileentity.TileEntity;
-import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.NonNullList;
 import net.minecraft.util.math.BlockPos;
@@ -24,6 +23,7 @@ import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
+import therealpant.thaumicattempts.util.ResourceIdentity;
 
 import software.bernie.geckolib3.core.IAnimatable;
 import software.bernie.geckolib3.core.PlayState;
@@ -358,47 +358,17 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
 
     /** Тот же ключ, что использует крафтер для «входов сетки». */
     private static ItemStack key1ForGrid(ItemStack s) {
-        if (s == null || s.isEmpty()) return ItemStack.EMPTY;
-        if (isTcCrystal(s)) {
-            Aspect a = crystalAspect(s);
-            return (a == null) ? ItemStack.EMPTY : thaumcraft.api.ThaumcraftApiHelper.makeCrystal(a, 1);
-        }
-        if (s.getMaxStackSize() == 1) { // без NBT
-            return new ItemStack(s.getItem(), 1, s.getMetadata());
-        }
-        ItemStack k = s.copy(); k.setCount(1); return k;
+        return ResourceIdentity.normalizeForKey(s);
     }
 
     /** Совпадение «как у крафтера» для входов. */
     private static boolean sameForGrid(ItemStack a, ItemStack b) {
-        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
-
-        if (isTcCrystal(a) || isTcCrystal(b)) {
-            Aspect ax = crystalAspect(a), bx = crystalAspect(b);
-            return ax != null && ax == bx;
-        }
-        if (a.getMaxStackSize() == 1 || b.getMaxStackSize() == 1) {
-            if (a.getItem() != b.getItem()) return false;
-            if (a.getHasSubtypes() && a.getMetadata() != b.getMetadata()) return false;
-            return true; // NBT игнорируем
-        }
-        return ItemHandlerHelper.canItemStacksStackRelaxed(a, b);
+        return ResourceIdentity.sameResource(a, b);
     }
 
     /** Совпадение результата (послабленное для стакаемых, строгое для нестакуемых/кристаллов). */
     private static boolean matchForRecipeRelaxed(ItemStack a, ItemStack b) {
-        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
-
-        if (isTcCrystal(a) || isTcCrystal(b)) {
-            Aspect ax = crystalAspect(a), bx = crystalAspect(b);
-            return ax != null && ax == bx;
-        }
-        if (a.getMaxStackSize() == 1 || b.getMaxStackSize() == 1) {
-            if (a.getItem() != b.getItem()) return false;
-            if (a.getHasSubtypes() && a.getMetadata() != b.getMetadata()) return false;
-            return true;
-        }
-        return ItemHandlerHelper.canItemStacksStackRelaxed(a, b);
+        return ResourceIdentity.sameResource(a, b);
     }
 
     /* ====== NBT ====== */

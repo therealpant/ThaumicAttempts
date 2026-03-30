@@ -11,7 +11,6 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraftforge.common.capabilities.Capability;
 
-import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
@@ -19,11 +18,10 @@ import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
-import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.util.ItemKey;
-import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
+import therealpant.thaumicattempts.util.ResourceIdentity;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -179,27 +177,9 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         if (cat == null || cat.isEmpty() || like == null || like.isEmpty()) return 0;
         int sum = 0;
 
-        if (isCrystal(like)) {
-            thaumcraft.api.aspects.Aspect a = aspectOf(like);
-            if (a == null) return 0;
-            for (Map.Entry<ItemKey,Integer> e : cat.entrySet()) {
-                ItemStack one = e.getKey().toStack(1);
-                if (isCrystal(one) && a.equals(aspectOf(one))) sum += Math.max(1, e.getValue());
-            }
-            return sum;
-        }
-
-        if (like.getMaxStackSize() == 1) {
-            for (Map.Entry<ItemKey,Integer> e : cat.entrySet()) {
-                ItemStack one = e.getKey().toStack(1);
-                if (!one.isEmpty() && one.getItem() == like.getItem()) sum += Math.max(1, e.getValue());
-            }
-            return sum;
-        }
-
         for (Map.Entry<ItemKey,Integer> e : cat.entrySet()) {
             ItemStack one = e.getKey().toStack(1);
-            if (!one.isEmpty() && ItemHandlerHelper.canItemStacksStackRelaxed(one, like)) sum += Math.max(1, e.getValue());
+            if (!one.isEmpty() && ResourceIdentity.sameResource(one, like)) sum += Math.max(1, e.getValue());
         }
         return sum;
     }
@@ -392,10 +372,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
             for (ItemStack out : outs) {
                 if (out == null || out.isEmpty()) continue;
-                boolean same = (result.getMaxStackSize() == 1)
-                        ? (out.getItem() == result.getItem()
-                        && (!out.getHasSubtypes() || out.getMetadata() == result.getMetadata()))
-                        : ItemHandlerHelper.canItemStacksStackRelaxed(out, result);
+                boolean same = ResourceIdentity.sameResource(out, result);
                 if (same) return rp;
             }
         }
@@ -410,15 +387,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         for (ItemKey k : map.keySet()) {
             ItemStack one = k.toStack(1);
-            boolean match;
-            if (isCrystal(one) || isCrystal(like)) {
-                match = isCrystal(one) && isCrystal(like) && crystalSame(one, like);
-            } else {
-                match = (one.getMaxStackSize() == 1)
-                        ? (one.getItem() == like.getItem())
-                        : ItemHandlerHelper.canItemStacksStackRelaxed(one, like);
-            }
-            if (match) return k;
+            if (ResourceIdentity.sameResource(one, like)) return k;
         }
         return null;
     }
@@ -893,16 +862,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             ItemStack s = buffer.getStackInSlot(i);
             if (s.isEmpty()) continue;
 
-            if (isCrystal(like)) {
-                if (isCrystal(s) && crystalSame(s, like)) total += s.getCount();
-            } else if (like.getMaxStackSize() == 1) {
-                if (s.getItem() == like.getItem()
-                        && (!like.getHasSubtypes() || s.getMetadata() == like.getMetadata())) {
-                    total += s.getCount();
-                }
-            } else {
-                if (ItemHandlerHelper.canItemStacksStackRelaxed(s, like)) total += s.getCount();
-            }
+            if (ResourceIdentity.sameResource(s, like)) total += s.getCount();
         }
         return total;
     }

@@ -32,6 +32,7 @@ import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.util.ItemKey;
+import therealpant.thaumicattempts.util.ResourceIdentity;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 
 
@@ -154,18 +155,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
      *  - стакаемые — relaxed
      */
     private static boolean sameForGrid(ItemStack a, ItemStack b) {
-        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
-
-        if (isTcCrystal(a) || isTcCrystal(b)) {
-            Aspect ax = crystalAspect(a), bx = crystalAspect(b);
-            return ax != null && ax == bx;
-        }
-        if (a.getMaxStackSize() == 1 || b.getMaxStackSize() == 1) {
-            if (a.getItem() != b.getItem()) return false;
-            if (a.getHasSubtypes() && a.getMetadata() != b.getMetadata()) return false;
-            return true;
-        }
-        return net.minecraftforge.items.ItemHandlerHelper.canItemStacksStackRelaxed(a, b);
+        return ResourceIdentity.sameResource(a, b);
     }
 
     private ItemStackHandler output = makeOutputHandler(OUTPUT_SLOTS);

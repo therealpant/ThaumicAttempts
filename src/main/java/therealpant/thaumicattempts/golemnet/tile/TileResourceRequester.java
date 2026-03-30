@@ -7,7 +7,6 @@ import net.minecraft.nbt.NBTTagList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ITickable;
-import net.minecraft.util.NonNullList;
 import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.common.util.Constants;
@@ -21,12 +20,9 @@ import software.bernie.geckolib3.core.builder.Animation;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.golems.GolemHelper;
-import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.api.IPatternedWorksite;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
-import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
-import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.util.ItemKey;
@@ -34,14 +30,13 @@ import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.items.ItemsTC;
-import thaumcraft.common.items.ItemTCEssentiaContainer;
-import software.bernie.geckolib3.core.IAnimatable;
+import therealpant.thaumicattempts.util.ResourceIdentity;
+import thaumcraft.common.items.ItemTCEssentiaContainer;;
 import software.bernie.geckolib3.core.PlayState;
 import software.bernie.geckolib3.core.builder.AnimationBuilder;
 import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
-import software.bernie.geckolib3.core.manager.AnimationData;
-import software.bernie.geckolib3.core.manager.AnimationFactory;
+
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -169,7 +164,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         for (int i = 0; i < patterns.getSlots(); i++) {
             ItemStack pattern = patterns.getStackInSlot(i);
             if (pattern.isEmpty()) continue;
-            if (ItemStack.areItemsEqual(pattern, resultLike) && ItemStack.areItemStackTagsEqual(pattern, resultLike)) {
+            if (ResourceIdentity.sameResource(pattern, resultLike)) {
                 return enqueueFromPatternRequester(i, times);
             }
         }
@@ -460,11 +455,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     }
 
     private boolean matchesForDelivery(ItemStack stack, ItemStack like) {
-        if (stack == null || like == null || stack.isEmpty() || like.isEmpty()) return false;
-        if (stack.getItem() != like.getItem()) return false;
-        if (stack.getHasSubtypes() && stack.getMetadata() != like.getMetadata()) return false;
-        if (stack.getMaxStackSize() == 1) return true;
-        return ItemStack.areItemStackTagsEqual(stack, like);
+        return ResourceIdentity.sameResource(stack, like);
     }
 
     private int countInBufferLike(ItemStack like) {
@@ -651,22 +642,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     }
 
     private static ItemStack normalizeForProvision(ItemStack like, int amount) {
-        if (like == null || like.isEmpty()) return ItemStack.EMPTY;
-
-        if (isCrystal(like)) {
-            Aspect aspect = aspectOf(like);
-            if (aspect != null) {
-                return ThaumcraftApiHelper.makeCrystal(aspect, Math.max(1, amount));
-            }
-        }
-
-        if (like.getMaxStackSize() == 1) {
-            return new ItemStack(like.getItem(), Math.max(1, amount), like.getMetadata());
-        }
-
-        ItemStack copy = like.copy();
-        copy.setCount(Math.max(1, amount));
-        return copy;
+        return ResourceIdentity.stackForRequest(like, amount);
     }
 
     private void resetProvisionQueueFromPending() {

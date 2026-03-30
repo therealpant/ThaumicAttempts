@@ -48,6 +48,7 @@ import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
 import therealpant.thaumicattempts.util.ItemKey;
+import therealpant.thaumicattempts.util.ResourceIdentity;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -689,21 +690,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemStack preview = TerminalOrderApi.stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
             if (preview.isEmpty()) continue;
 
-            boolean match = (preview.getMaxStackSize() == 1)
-                    ? (preview.getItem() == like.getItem() && (!preview.getHasSubtypes() || preview.getMetadata() == like.getMetadata()))
-                    : ItemHandlerHelper.canItemStacksStackRelaxed(preview, like);
-            if (match) return i;
+            if (ResourceIdentity.sameResource(preview, like)) return i;
         }
         return -1;
     }
 
     private boolean matchesOrder(ItemStack preview, ItemStack like) {
-        if (preview == null || like == null || preview.isEmpty() || like.isEmpty()) return false;
-        if (preview.getMaxStackSize() == 1 || like.getMaxStackSize() == 1) {
-            if (preview.getItem() != like.getItem()) return false;
-            return !preview.getHasSubtypes() || preview.getMetadata() == like.getMetadata();
-        }
-        return ItemHandlerHelper.canItemStacksStackRelaxed(preview, like);
+        return ResourceIdentity.sameResource(preview, like);
     }
 
     // ========================= DELIVERY OUT (results -> destinations) =========================
@@ -995,7 +988,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         for (int i = 0; i < input.getSlots(); i++) {
             ItemStack slot = input.getStackInSlot(i);
             if (slot.isEmpty()) continue;
-            if (ItemHandlerHelper.canItemStacksStackRelaxed(slot, like)) total += slot.getCount();
+            if (ResourceIdentity.sameResource(slot, like)) total += slot.getCount();
         }
         return total;
     }
@@ -1032,10 +1025,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     }
 
     private static ItemStack normalizeForProvision(ItemStack like, int amount) {
-        if (like == null || like.isEmpty()) return ItemStack.EMPTY;
-        ItemStack copy = like.copy();
-        copy.setCount(Math.max(1, amount));
-        return copy;
+        return ResourceIdentity.stackForRequest(like, amount);
     }
 
     private void requestProvisionToRequester(Map<ItemKey, Integer> needs) {
@@ -1102,7 +1092,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         for (int i = 0; i < input.getSlots() && maxAmount > 0; i++) {
             ItemStack slot = input.getStackInSlot(i);
             if (slot.isEmpty()) continue;
-            if (!ItemHandlerHelper.canItemStacksStackRelaxed(slot, like)) continue;
+            if (!ResourceIdentity.sameResource(slot, like)) continue;
 
             int extract = Math.min(maxAmount, slot.getCount());
             ItemStack toInsert = input.extractItem(i, extract, true);

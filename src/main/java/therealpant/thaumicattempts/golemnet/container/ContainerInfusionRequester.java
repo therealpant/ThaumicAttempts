@@ -14,8 +14,8 @@ import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 public class ContainerInfusionRequester extends Container {
 
     public static final int CELL = 18;
-    public static final int PATTERN_COLS = 5;
-    public static final int PATTERN_ROWS = 3;
+    public static final int PATTERN_COLS = 3;
+    public static final int PATTERN_ROWS = 5;
 
     public static final int PATTERN_LEFT = 62;
     public static final int PATTERN_TOP = 28;

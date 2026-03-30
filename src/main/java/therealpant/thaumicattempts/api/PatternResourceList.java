@@ -1,10 +1,8 @@
 package therealpant.thaumicattempts.api;
 
 import net.minecraft.item.ItemStack;
-import thaumcraft.api.ThaumcraftApiHelper;
-import thaumcraft.api.aspects.Aspect;
-import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.util.ItemKey;
+import therealpant.thaumicattempts.util.ResourceIdentity;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
@@ -96,29 +94,6 @@ public final class PatternResourceList {
 
     /** Normalize stacks so that NBT/metadata rules match crafter matching logic. */
     public static ItemStack normalizeForKey(@Nullable ItemStack source) {
-        if (source == null || source.isEmpty()) return ItemStack.EMPTY;
-        if (isCrystal(source)) {
-            Aspect aspect = crystalAspect(source);
-            return aspect == null ? ItemStack.EMPTY : ThaumcraftApiHelper.makeCrystal(aspect, 1);
-        }
-        if (source.getMaxStackSize() == 1) {
-            return new ItemStack(source.getItem(), 1, source.getMetadata());
-        }
-        ItemStack copy = source.copy();
-        copy.setCount(1);
-        return copy;
-    }
-
-    private static boolean isCrystal(ItemStack stack) {
-        return stack != null && !stack.isEmpty() && stack.getItem() == ItemsTC.crystalEssence;
-    }
-
-    @Nullable
-    private static Aspect crystalAspect(ItemStack stack) {
-        if (stack == null || stack.isEmpty() || stack.getItem() != ItemsTC.crystalEssence) return null;
-        thaumcraft.api.aspects.AspectList al = ((thaumcraft.common.items.ItemTCEssentiaContainer) ItemsTC.crystalEssence)
-                .getAspects(stack);
-        if (al != null && al.size() == 1) return al.getAspects()[0];
-        return null;
+        return ResourceIdentity.normalizeForKey(source);
     }
 }
