@@ -91,6 +91,7 @@ public final class ModBlocksItems {
         TABlocks.RESOURCE_REQUESTER = new BlockResourceRequester();
         TABlocks.GOLEM_DISPATCHER = new BlockGolemDispatcher();
         TABlocks.INFUSION_REQUESTER = new BlockInfusionRequester();
+        TABlocks.SEQUENTIAL_CRAFT_PLANNER = new BlockSequentialCraftPlanner();
         TABlocks.ANOMALY_STONE = new BlockAnomalyStone();
         TABlocks.RIFT_BUSH = new BlockRiftBush();
         TABlocks.RIFT_GEOD = new BlockRiftGeod();
@@ -111,6 +112,7 @@ public final class ModBlocksItems {
                 TABlocks.GOLEM_DISPATCHER,
                 TABlocks.INFUSION_REQUESTER,
                 TABlocks.ANOMALY_STONE,
+                TABlocks.SEQUENTIAL_CRAFT_PLANNER,
                 TABlocks.RIFT_BUSH,
                 TABlocks.RIFT_GEOD,
                 TABlocks.RIFT_STONE_BASE,
@@ -140,6 +142,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "golem_dispatcher"));
         GameRegistry.registerTileEntity(TileInfusionRequester.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "infusion_requester"));
+        GameRegistry.registerTileEntity(TileSequentialCraftPlanner.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "sequential_craft_planner"));
         GameRegistry.registerTileEntity(TileAnomalyStone.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "anomaly_stone"));
         GameRegistry.registerTileEntity(TileRiftBush.class,
@@ -258,6 +262,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.INFUSION_REQUESTER.getRegistryName());
         TABlocks.ANOMALY_STONE_ITEM = new ItemBlock(TABlocks.ANOMALY_STONE)
                 .setRegistryName(TABlocks.ANOMALY_STONE.getRegistryName());
+        TABlocks.SEQUENTIAL_CRAFT_PLANNER_ITEM = new ItemBlock(TABlocks.SEQUENTIAL_CRAFT_PLANNER)
+                .setRegistryName(TABlocks.SEQUENTIAL_CRAFT_PLANNER.getRegistryName());
         TABlocks.RIFT_BUSH_ITEM = new ItemBlock(TABlocks.RIFT_BUSH)
                 .setRegistryName(TABlocks.RIFT_BUSH.getRegistryName());
         TABlocks.RIFT_GEOD_ITEM = new ItemBlock(TABlocks.RIFT_GEOD)
@@ -285,6 +291,7 @@ public final class ModBlocksItems {
                 TABlocks.RESOURCE_REQUESTER_ITEM,
                 TABlocks.GOLEM_DISPATCHER_ITEM,
                 TABlocks.INFUSION_REQUESTER_ITEM,
+                TABlocks.SEQUENTIAL_CRAFT_PLANNER_ITEM,
                 TABlocks.ANOMALY_STONE_ITEM,
                 TABlocks.RIFT_BUSH_ITEM,
                 TABlocks.RIFT_GEOD_ITEM,
