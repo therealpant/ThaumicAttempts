@@ -97,6 +97,11 @@ public final class NetworkOperationAdapters {
         }
 
         @Override
+        public boolean hasOutstandingWorkFor(ItemKey key) {
+            return tile.hasActiveOrQueuedWork();
+        }
+
+        @Override
         public ProviderType getType() {
             return ProviderType.RESOURCE_REQUESTER;
         }
@@ -144,6 +149,11 @@ public final class NetworkOperationAdapters {
         }
 
         @Override
+        public boolean hasOutstandingWorkFor(ItemKey key) {
+            return tile.hasActiveOrQueued();
+        }
+
+        @Override
         public ProviderType getType() {
             return ProviderType.INFUSION_REQUESTER;
         }
@@ -188,6 +198,11 @@ public final class NetworkOperationAdapters {
         public boolean enqueueExecution(ItemKey key, int times) {
             tile.enqueueCraft(key.toStack(1), Math.max(1, times));
             return true;
+        }
+
+        @Override
+        public boolean hasOutstandingWorkFor(ItemKey key) {
+            return tile.hasActiveOrQueued();
         }
 
         @Override

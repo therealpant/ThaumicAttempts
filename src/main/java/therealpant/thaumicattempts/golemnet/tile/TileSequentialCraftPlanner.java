@@ -94,8 +94,11 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
     private SequentialOperationPlan currentPlan = null;
     @Nullable private PlannerRequest planningRequest = null;
     @Nullable private PlannerRequest runningRequest = null;
+    @Nullable private INetworkOperationSource runningRootSource = null;
     private int runningTargetAtDest = 0;
     private int runningTicks = 0;
+    private int runningBaselineAtDest = 0;
+    private int runningRequiredDelta = 0;
     private static final int MAX_RUNNING_TICKS = 20 * 60;
 
     @Nullable
@@ -131,17 +134,30 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
 
     public boolean enqueueRequest(ItemStack like, int amount, BlockPos dest, int destSide, @Nullable String caller) {
         if (like == null || like.isEmpty() || amount <= 0 || dest == null) return false;
+
         PlannerRequest incoming = new PlannerRequest(ItemKey.of(like), amount, dest.toImmutable(), destSide);
         String callerTag = caller == null ? "unknown" : caller;
+
         LOG.info("[Planner {}] enqueue incoming root={} amount={} dest={} side={} caller={}",
                 pos, like, amount, dest, destSide, callerTag);
+
         if (isRequestInFlight(incoming.dedupeKey)) {
-            LOG.info("[Planner {}] enqueue skipped as duplicate root={} caller={}", pos, incoming.dedupeKey, callerTag);
+            LOG.info("[Planner {}] enqueue skipped as duplicate root={} caller={}",
+                    pos, incoming.dedupeKey, callerTag);
             return true;
         }
+
         queue.addLast(incoming);
         queuedRequestKeys.add(incoming.dedupeKey);
-        LOG.info("[Planner {}] enqueue accepted root={} caller={}", pos, incoming.dedupeKey, callerTag);
+
+        if (currentPlan != null || status != PlannerStatus.IDLE) {
+            LOG.info("[Planner {}] enqueue accepted (queued behind active plan) root={} caller={}",
+                    pos, incoming.dedupeKey, callerTag);
+        } else {
+            LOG.info("[Planner {}] enqueue accepted (will start immediately) root={} caller={}",
+                    pos, incoming.dedupeKey, callerTag);
+        }
+
         markDirty();
         return true;
     }
@@ -171,6 +187,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             currentPlan = null;
             planningRequest = null;
             runningRequest = null;
+            runningRootSource = null;
             runningTicks = 0;
             return;
         }
@@ -252,11 +269,13 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         status = PlannerStatus.RUNNING;
         planningRequest = null;
         runningRequest = req;
-        int currentAtDest = countAtDestination(req.dest, req.destSide, req.key.toStack(1));
-        runningTargetAtDest = Math.max(currentAtDest, 0) + Math.max(1, req.amount);
         runningTicks = 0;
-        LOG.info("[Planner {}] dispatch done root={} amount={} dest={} current={} target={}",
-                pos, req.key, req.amount, req.dest, currentAtDest, runningTargetAtDest);
+        LOG.info("[Planner {}] dispatch done root={} amount={} dest={} rootSource={}",
+                pos,
+                req.key,
+                req.amount,
+                req.dest,
+                plan.getRoot() == null || plan.getRoot().source == null ? "?" : plan.getRoot().source.getDebugName());
         markDirty();
     }
 
@@ -264,12 +283,19 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         PlannerRequest finished = runningRequest;
         currentPlan = null;
         runningRequest = null;
+        runningRootSource = null;
         planningRequest = null;
         runningTargetAtDest = 0;
+        runningBaselineAtDest = 0;
+        runningRequiredDelta = 0;
         runningTicks = 0;
+
         if (finished != null) {
             LOG.info("[Planner {}] request {} root={} reason={}",
-                    pos, success ? "completed" : "failed", finished.dedupeKey, reason);
+                    pos,
+                    success ? "completed" : "failed",
+                    finished.dedupeKey,
+                    reason);
         }
     }
 
@@ -358,12 +384,21 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
     }
 
     private boolean isRunningRequestSatisfied() {
-        if (runningRequest == null) return false;
-        int current = countAtDestination(runningRequest.dest, runningRequest.destSide, runningRequest.key.toStack(1));
-        boolean ok = current >= runningTargetAtDest;
-        LOG.debug("[Planner {}] waiting root={} dest={} current={} target={} status={}",
-                pos, runningRequest.key, runningRequest.dest, current, runningTargetAtDest, status);
-        return ok;
+        if (runningRequest == null || currentPlan == null) return false;
+
+        boolean settled = runningTicks > 2 && isCurrentPlanSettled();
+        String outstanding = settled ? null : findFirstOutstanding(currentPlan.getRoot());
+
+        LOG.debug("[Planner {}] waiting root={} dest={} settled={} outstanding={} status={} ticks={}",
+                pos,
+                runningRequest.key,
+                runningRequest.dest,
+                settled,
+                outstanding == null ? "-" : outstanding,
+                status,
+                runningTicks);
+
+        return settled;
     }
 
     private int countAtDestination(BlockPos dest, int destSide, ItemStack like) {
@@ -465,5 +500,25 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             queue.addLast(req);
             queuedRequestKeys.add(req.dedupeKey);
         }
+    }
+
+    @Nullable
+    private String findFirstOutstanding(@Nullable PlannedOperationNode node) {
+        if (node == null) return null;
+
+        if (node.source != null && node.source.hasOutstandingWorkFor(node.requested)) {
+            return node.source.getDebugName() + " -> " + node.requested;
+        }
+
+        return null;
+    }
+
+    private boolean isCurrentPlanSettled() {
+        if (currentPlan == null || currentPlan.getRoot() == null) return true;
+
+        PlannedOperationNode root = currentPlan.getRoot();
+        if (root.source == null) return true;
+
+        return !root.source.hasOutstandingWorkFor(root.requested);
     }
 }

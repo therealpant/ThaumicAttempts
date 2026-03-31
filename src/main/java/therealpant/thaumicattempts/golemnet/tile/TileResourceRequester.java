@@ -983,6 +983,10 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         return false;
     }
 
+    public boolean hasActiveOrQueuedWork() {
+        return hasAnyWaitingWork();
+    }
+
     @Override
     public NBTTagCompound getUpdateTag() {
         return writeToNBT(new NBTTagCompound());
