@@ -3003,7 +3003,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         for (Map.Entry<ItemKey, Integer> entry : missing.entrySet()) {
             ItemKey key = entry.getKey();
             int amount = Math.max(1, entry.getValue());
-            boolean ok = planner.enqueueRequest(key.toStack(1), amount, dest, destSide);
+            ItemStack like = key.toStack(1);
+            if (planner.hasActiveRequest(like, amount, dest, destSide)) {
+                plannerAcceptedAny = true;
+                LOG.debug("[PlannerBridge] manager={} reason={} request already in-flight root={} amount={} planner={} dest={} side={}",
+                        this.pos, reason, key, amount, planner.getPos(), dest, destSide);
+                continue;
+            }
+            boolean ok = planner.enqueueRequest(like, amount, dest, destSide, reason);
             LOG.debug("[PlannerBridge] manager={} reason={} root={} amount={} planner={} accepted={}",
                     this.pos, reason, key, amount, planner.getPos(), ok);
             if (ok) plannerAcceptedAny = true;
