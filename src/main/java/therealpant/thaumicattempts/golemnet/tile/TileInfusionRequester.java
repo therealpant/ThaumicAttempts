@@ -426,6 +426,12 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         if (managerPos != null && this.managerPos == null) setManagerPos(managerPos, true);
         markDirtyAndSync();
+        if (managerPos != null && world != null && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
+            TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
+            Map<ItemKey, Integer> root = new LinkedHashMap<>();
+            root.put(ItemKey.of(resultLike), totalOut);
+            mgr.requestPlannedOperation(dest, destSide, root, 0, "infusion_enqueue_crafter_order");
+        }
 
         logDebug("enqueueCrafterOrder dest={} side={} like={} items={} crafts={} accepted={} totalOut={}",
                 dest, destSide, resultLike, items, crafts, accepted, totalOut);
@@ -725,7 +731,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 if (moved > 0) {
                     Map<ItemKey, Integer> need = new LinkedHashMap<>();
                     need.put(ItemKey.of(order.like1), moved);
-                    manager.ensureDeliveryForExact(order.dest, need, 0);
+                    manager.requestPlannedOperation(order.dest, order.destSide, need, 0, "infusion_deliver_pending_result");
                 }
             } else {
                 moved = CraftOrderApi.insertIntoDestination(world, order.dest, order.destSide, attempt);
@@ -1059,7 +1065,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         if (useManagerForProvision() && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
-            mgr.ensureDeliveryForExact(pos, new LinkedHashMap<>(pendingToRequester), 0);
+            mgr.requestPlannedOperation(pos, -1, new LinkedHashMap<>(pendingToRequester), 0, "infusion_pending_to_requester");
             needsEnsure = false;
             lastEnsureTick = tickCounter;
             logDebug("ensurePendingToRequester via manager={} needs={}", managerPos, pendingToRequester);

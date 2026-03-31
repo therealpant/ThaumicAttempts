@@ -353,7 +353,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
 
         Map<ItemKey, Integer> copy = new LinkedHashMap<>(pending);
         if (!copy.isEmpty()) {
-            mgr.ensureDeliveryForExact(this.pos, copy, 0);
+            mgr.requestPlannedOperation(this.pos, -1, copy, 0, "resource_requester_pending");
             lastEnsureTick = tickCounter;
             needEnsure = false;
         }

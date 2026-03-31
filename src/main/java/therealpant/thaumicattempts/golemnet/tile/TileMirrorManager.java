@@ -44,6 +44,8 @@ import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileSequentialCraftPlanner;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
@@ -58,6 +60,7 @@ import java.util.UUID;
  * Менеджер: батчи + единая «корона» зеркал (активные/подвешенные), без дюпа.
  */
 public class TileMirrorManager extends TileEntity implements ITickable, IAnimatable {
+    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/MirrorManager");
     private final AnimationFactory factory = new AnimationFactory(this);
     /* ===================== Базовые лимиты и апгрейды ===================== */
     private int dispatcherRoundRobinIndex = 0;
@@ -2946,6 +2949,73 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             enqueueBatchDelivery(dest, -1, q, miss);
             activeQueue = q;
         }
+    }
+
+    @Nullable
+    public TileSequentialCraftPlanner findActivePlanner() {
+        if (world == null || world.isRemote) return null;
+        for (BlockPos plannerPos : new ArrayList<>(boundPlanners)) {
+            TileEntity te = world.getTileEntity(plannerPos);
+            if (!(te instanceof TileSequentialCraftPlanner)) continue;
+            TileSequentialCraftPlanner planner = (TileSequentialCraftPlanner) te;
+            BlockPos plannerManager = planner.getManagerPos();
+            if (plannerManager != null && plannerManager.equals(this.pos) && !planner.isInvalid()) {
+                LOG.debug("[PlannerSelect] manager={} selected planner={} status={} active={}",
+                        this.pos, plannerPos, planner.getStatus(), planner.isActivePlanner());
+                return planner;
+            }
+        }
+        LOG.debug("[PlannerSelect] manager={} no active planner in boundPlanners={}", this.pos, boundPlanners.size());
+        return null;
+    }
+
+    public boolean requestPlannedOperation(BlockPos dest, int destSide, Map<ItemKey, Integer> needs, int queueId, String reason) {
+        if (world == null || world.isRemote || dest == null || needs == null || needs.isEmpty()) return false;
+
+        TileSequentialCraftPlanner planner = findActivePlanner();
+        if (planner == null) {
+            LOG.debug("[PlannerBridge] manager={} reason={} planner missing/inactive, fallback ensureDeliveryForExact needs={}",
+                    this.pos, reason, needs);
+            ensureDeliveryForExact(dest, needs, queueId);
+            return false;
+        }
+
+        LinkedHashMap<ItemKey, Integer> existing = new LinkedHashMap<>();
+        LinkedHashMap<ItemKey, Integer> missing = new LinkedHashMap<>();
+        Map<ItemKey, Integer> catalog = getReachableCatalog();
+
+        for (Map.Entry<ItemKey, Integer> entry : needs.entrySet()) {
+            ItemKey key = entry.getKey();
+            int amount = Math.max(1, entry.getValue());
+            int have = Math.max(0, catalog.getOrDefault(key, 0));
+            if (have > 0) existing.put(key, amount);
+            else missing.put(key, amount);
+        }
+
+        if (!existing.isEmpty()) {
+            LOG.debug("[PlannerBridge] manager={} reason={} existing resources -> ensureDeliveryForExact {}",
+                    this.pos, reason, existing);
+            ensureDeliveryForExact(dest, existing, queueId);
+        }
+
+        boolean plannerAcceptedAny = false;
+        LinkedHashMap<ItemKey, Integer> plannerRejected = new LinkedHashMap<>();
+        for (Map.Entry<ItemKey, Integer> entry : missing.entrySet()) {
+            ItemKey key = entry.getKey();
+            int amount = Math.max(1, entry.getValue());
+            boolean ok = planner.enqueueRequest(key.toStack(1), amount, dest, destSide);
+            LOG.debug("[PlannerBridge] manager={} reason={} root={} amount={} planner={} accepted={}",
+                    this.pos, reason, key, amount, planner.getPos(), ok);
+            if (ok) plannerAcceptedAny = true;
+            else plannerRejected.put(key, amount);
+        }
+
+        if (!plannerRejected.isEmpty()) {
+            LOG.debug("[PlannerBridge] manager={} reason={} planner rejected {}, fallback ensureDeliveryForExact",
+                    this.pos, reason, plannerRejected);
+            ensureDeliveryForExact(dest, plannerRejected, queueId);
+        }
+        return plannerAcceptedAny;
     }
 
     private void tickStabilityAndFlux() {

@@ -616,7 +616,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
         TileEntity te = world.getTileEntity(managerPos);
         if (te instanceof TileMirrorManager) {
-            ((TileMirrorManager) te).ensureDeliveryForExact(this.pos, miss, 0);
+            ((TileMirrorManager) te).requestPlannedOperation(this.pos, -1, miss, 0, "golem_crafter_missing_inputs");
             lastEnsureWorldTime = now;
             needEnsureWithManager = false;
         } else {

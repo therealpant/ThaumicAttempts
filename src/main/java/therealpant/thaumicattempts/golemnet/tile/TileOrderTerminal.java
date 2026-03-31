@@ -453,7 +453,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             if (!craftTab) {
                 mgr.enqueueBatchDelivery(this.pos, -1, QUEUE_ID, moved);
                 if (!pendingDelivery.isEmpty()) {
-                    mgr.ensureDeliveryFor(this.pos, new LinkedHashMap<>(pendingDelivery));
+                    mgr.requestPlannedOperation(this.pos, -1, new LinkedHashMap<>(pendingDelivery), 0, "order_terminal_submit_delivery");
                 }
             } else {
                 // CRAFT вкладка, единая логика
@@ -627,7 +627,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         TileMirrorManager mgr = (TileMirrorManager) te;
         if (!pendingDelivery.isEmpty()) {
-            mgr.ensureDeliveryForExact(this.pos, new LinkedHashMap<>(pendingDelivery), 0);
+            mgr.requestPlannedOperation(this.pos, -1, new LinkedHashMap<>(pendingDelivery), 0, "order_terminal_pending_delivery");
         }
 
         lastEnsureTick = tickCounter;

@@ -64,7 +64,15 @@ public final class NetworkOperationAdapters {
 
         @Override
         public int getOutputCountFor(ItemKey key) {
-            return key == null ? 0 : Math.max(1, key.toStack(1).getCount());
+            ItemStack like = key == null ? ItemStack.EMPTY : key.toStack(1);
+            if (like.isEmpty()) return 0;
+            IItemHandler patt = tile.getPatternHandler();
+            int idx = findPatternIndexByResult(patt, like);
+            if (idx < 0) return 0;
+            ItemStack pattern = patt.getStackInSlot(idx);
+            ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
+            if (preview.isEmpty()) return 0;
+            return Math.max(1, preview.getCount());
         }
 
         @Override

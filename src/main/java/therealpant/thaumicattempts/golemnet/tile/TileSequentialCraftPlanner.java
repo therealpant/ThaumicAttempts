@@ -54,6 +54,8 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
 
     private final Deque<PlannerRequest> queue = new ArrayDeque<>();
     private SequentialOperationPlan currentPlan = null;
+    @Nullable private PlannerRequest runningRequest = null;
+    private int runningTargetAtDest = 0;
 
     @Nullable
     public BlockPos getManagerPos() {
@@ -84,6 +86,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
 
     public boolean enqueueRequest(ItemStack like, int amount, BlockPos dest, int destSide) {
         if (like == null || like.isEmpty() || amount <= 0 || dest == null) return false;
+        LOG.info("[Planner {}] enqueue incoming root={} amount={} dest={} side={}", pos, like, amount, dest, destSide);
         queue.addLast(new PlannerRequest(ItemKey.of(like), amount, dest.toImmutable(), destSide));
         markDirty();
         return true;
@@ -105,9 +108,35 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         }
 
         if (currentPlan != null && status == PlannerStatus.RUNNING) {
-            status = PlannerStatus.COMPLETED;
-            currentPlan = null;
-            markDirty();
+            if (isRunningRequestSatisfied()) {
+                LOG.info("[Planner {}] completed root={} amount={} dest={} reachedTarget={}",
+                        pos,
+                        runningRequest == null ? "?" : runningRequest.key,
+                        runningRequest == null ? 0 : runningRequest.amount,
+                        runningRequest == null ? "?" : runningRequest.dest,
+                        runningTargetAtDest);
+                status = PlannerStatus.COMPLETED;
+                currentPlan = null;
+                runningRequest = null;
+                runningTargetAtDest = 0;
+                markDirty();
+            } else {
+                status = PlannerStatus.WAITING_DEPENDENCIES;
+            }
+            return;
+        }
+
+        if (currentPlan != null && status == PlannerStatus.WAITING_DEPENDENCIES) {
+            if (isRunningRequestSatisfied()) {
+                LOG.info("[Planner {}] dependencies finished for root={}", pos, runningRequest == null ? "?" : runningRequest.key);
+                status = PlannerStatus.COMPLETED;
+                currentPlan = null;
+                runningRequest = null;
+                runningTargetAtDest = 0;
+                markDirty();
+            } else {
+                status = PlannerStatus.RUNNING;
+            }
             return;
         }
 
@@ -147,6 +176,11 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         manager.ensureDeliveryFor(req.dest, deliver, 0);
 
         status = PlannerStatus.RUNNING;
+        runningRequest = req;
+        int currentAtDest = countAtDestination(req.dest, req.destSide, req.key.toStack(1));
+        runningTargetAtDest = Math.max(currentAtDest, 0) + Math.max(1, req.amount);
+        LOG.info("[Planner {}] dispatch done root={} amount={} dest={} current={} target={}",
+                pos, req.key, req.amount, req.dest, currentAtDest, runningTargetAtDest);
         markDirty();
     }
 
@@ -204,6 +238,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
 
         INetworkOperationSource source = findSourceFor(key, sources);
         if (source == null) {
+            LOG.info("[Planner {}] no recursive source for {} -> planner cannot build chain, fallback expected", pos, key);
             return PlanResult.fail(PlannerFailureReason.NO_PROVIDER, "no source for " + key);
         }
 
@@ -231,6 +266,41 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         LOG.info("[Planner {}] source={} type={} for={} missing={} ops={}",
                 pos, source.getDebugName(), source.getType(), key, missing, operations);
         return PlanResult.ok(node);
+    }
+
+    private boolean isRunningRequestSatisfied() {
+        if (runningRequest == null) return false;
+        int current = countAtDestination(runningRequest.dest, runningRequest.destSide, runningRequest.key.toStack(1));
+        boolean ok = current >= runningTargetAtDest;
+        LOG.debug("[Planner {}] waiting root={} dest={} current={} target={} status={}",
+                pos, runningRequest.key, runningRequest.dest, current, runningTargetAtDest, status);
+        return ok;
+    }
+
+    private int countAtDestination(BlockPos dest, int destSide, ItemStack like) {
+        if (world == null || dest == null || like == null || like.isEmpty()) return 0;
+        TileEntity te = world.getTileEntity(dest);
+        if (te == null) return 0;
+
+        net.minecraftforge.items.IItemHandler handler = null;
+        if (destSide >= 0 && destSide < 6) {
+            handler = te.getCapability(net.minecraftforge.items.CapabilityItemHandler.ITEM_HANDLER_CAPABILITY,
+                    net.minecraft.util.EnumFacing.VALUES[destSide]);
+        }
+        if (handler == null) {
+            handler = te.getCapability(net.minecraftforge.items.CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, null);
+        }
+        if (handler == null) return 0;
+
+        int total = 0;
+        for (int i = 0; i < handler.getSlots(); i++) {
+            ItemStack in = handler.getStackInSlot(i);
+            if (in.isEmpty()) continue;
+            if (therealpant.thaumicattempts.util.ResourceIdentity.sameResource(in, like)) {
+                total += in.getCount();
+            }
+        }
+        return total;
     }
 
     @Nullable
