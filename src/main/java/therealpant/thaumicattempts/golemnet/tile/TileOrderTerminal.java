@@ -454,37 +454,78 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         markDirty();
 
         TileEntity mte = (managerPos == null) ? null : world.getTileEntity(managerPos);
-        if (mte instanceof TileMirrorManager) {
-            TileMirrorManager mgr = (TileMirrorManager) mte;
-            final int QUEUE_ID = craftTab ? 1 : 0;
+        if (!(mte instanceof TileMirrorManager)) {
+            LOG.info("[ShortageTrace][OrderTerminal] manager missing while submit source={} manager={} craftTab={} moved={}",
+                    this.pos, managerPos, craftTab, moved);
+            for (Map.Entry<ItemKey, Integer> e : moved) {
+                ItemKey key = e.getKey();
+                int amount = Math.max(1, e.getValue());
+                addToMap(pend, key, -amount);
+                addToMap(draft, key, amount);
+            }
+            markDirty();
+            sendSnapshotToViewers(craftTab);
+            return;
+        }
 
-            if (!craftTab) {
-                mgr.enqueueBatchDelivery(this.pos, -1, QUEUE_ID, moved);
-                if (!pendingDelivery.isEmpty()) {
-                    LOG.info("[ShortageTrace][OrderTerminal] requestPlannedOperation call source={} dest={} needs={} manager={}",
-                            this.pos, this.pos, pendingDelivery, managerPos);
-                    mgr.requestPlannedOperation(this.pos, -1, new LinkedHashMap<>(pendingDelivery), 0, "order_terminal_submit_delivery");
-                }
-            } else {
-                // CRAFT вкладка, единая логика
-                List<Map.Entry<ItemKey,Integer>> toManager = new ArrayList<>();
+        TileMirrorManager mgr = (TileMirrorManager) mte;
+        final int QUEUE_ID = craftTab ? 1 : 0;
 
-                for (Map.Entry<ItemKey,Integer> e : moved) {
-                    ItemKey key = e.getKey();
-                    int n = Math.max(1, e.getValue());
-                    toManager.add(new AbstractMap.SimpleEntry<>(key, n));
+        if (!craftTab) {
+            mgr.enqueueBatchDelivery(this.pos, -1, QUEUE_ID, moved);
+            if (!pendingDelivery.isEmpty()) {
+                LOG.info("[ShortageTrace][OrderTerminal] requestPlannedOperation call source={} dest={} needs={} manager={}",
+                        this.pos, this.pos, pendingDelivery, managerPos);
+                mgr.requestPlannedOperation(this.pos, -1, new LinkedHashMap<>(pendingDelivery), 0, "order_terminal_submit_delivery");
+            }
+        } else {
+            List<Map.Entry<ItemKey, Integer>> directCraft = new ArrayList<>();
+            Map<ItemKey, BlockPos> craftEndpoints = new HashMap<>();
+            Map<ItemKey, Integer> catalog = mgr.getReachableCatalog();
+
+            for (Map.Entry<ItemKey, Integer> e : moved) {
+                ItemKey key = e.getKey();
+                int amount = Math.max(1, e.getValue());
+                ItemStack stack = key.toStack(1);
+                if (stack == null || stack.isEmpty()) {
+                    LOG.info("[ShortageTrace][OrderTerminal] skip empty draft stack key={} amount={} source={} dest={}",
+                            key, amount, this.pos, this.pos);
+                    continue;
+                }
+                BlockPos rp = findCraftEndpointFor(mgr, stack);
+                if (rp == null) {
+                    LinkedHashMap<ItemKey, Integer> need = new LinkedHashMap<>();
+                    need.put(key, amount);
+                    LOG.info("[ShortageTrace][OrderTerminal] no craft endpoint -> planner/fallback key={} amount={} source={} dest={} manager={}",
+                            key, amount, this.pos, this.pos, managerPos);
+                    mgr.requestPlannedOperation(this.pos, -1, need, QUEUE_ID, "order_terminal_submit_craft_no_endpoint");
+                    continue;
                 }
 
-                if (!toManager.isEmpty()) {
-                    mgr.enqueueBatchCraft(
-                            this.pos, -1, QUEUE_ID, moved,
-                            key -> findCraftEndpointFor(mgr, key.toStack(1))  // ищет любой ICraftEndpoint
-                    );
+                int available = Math.max(0, catalog.getOrDefault(key, 0));
+                int missing = Math.max(0, amount - available);
+                LOG.info("[ShortageTrace][OrderTerminal] craft endpoint decision key={} amount={} source={} dest={} endpoint={} available={} missing={} enough={}",
+                        key, amount, this.pos, this.pos, rp, available, missing, missing <= 0);
+
+                if (missing > 0) {
+                    LinkedHashMap<ItemKey, Integer> need = new LinkedHashMap<>();
+                    need.put(key, missing);
+                    mgr.requestPlannedOperation(this.pos, -1, need, QUEUE_ID, "order_terminal_submit_craft_missing");
+                    continue;
                 }
+                directCraft.add(new AbstractMap.SimpleEntry<>(key, amount));
+                craftEndpoints.put(key, rp);
+            }
+
+            if (!directCraft.isEmpty()) {
+                mgr.enqueueBatchCraft(
+                        this.pos, -1, QUEUE_ID, directCraft,
+                        craftEndpoints::get
+                );
             }
         }
 
-            sendSnapshotToViewers(craftTab);
+        sendSnapshotToViewers(craftTab);
     }
 
     @Nullable
