@@ -36,7 +36,8 @@ import software.bernie.geckolib3.core.PlayState;
 import software.bernie.geckolib3.core.builder.AnimationBuilder;
 import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -44,6 +45,7 @@ import therealpant.thaumicattempts.api.PatternResourceList;
 
 public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable, IPatternedWorksite,
         therealpant.thaumicattempts.api.ITerminalOrderAcceptor, therealpant.thaumicattempts.api.ITerminalOrderIconProvider {
+    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/ResourceRequester");
     private static final int PATTERN_SLOT_COUNT = 15;
     private static final int REQUEST_STALE_TICKS = 100;
     private static final int REQUEST_RETRY_TICKS = 200;
@@ -188,6 +190,8 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             if (signal > 0) {
                 int idx = patternIndexFromSignal(signal);
                 if (idx >= 0) {
+                    LOG.info("[ShortageTrace][ResourceRequester] redstone-trigger entry signal={} slot={} source={} dest={}",
+                            signal, idx, this.pos, this.pos);
                     enqueueTrigger(idx, 1);
                     tryStartQueuedJob();
                     if (jobActive && !useManagerForProvision()) {
@@ -248,6 +252,8 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             ItemKey key = entry.getKey();
             pending.put(key, pending.getOrDefault(key, 0) + entry.getCount());
         }
+        LOG.info("[ShortageTrace][ResourceRequester] terminal entry slot={} source={} dest={} requested={}",
+                slot, this.pos, this.pos, pending);
 
         if (pending.isEmpty()) {
             sequence.clear();
@@ -263,6 +269,8 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             baselines.put(e.getKey(), take);
             int left = e.getValue() - take;
             if (left <= 0) {
+                LOG.info("[ShortageTrace][ResourceRequester] decision key={} amount={} source={} dest={} existing={} missing={} enough={}",
+                        e.getKey(), e.getValue(), this.pos, this.pos, take, Math.max(0, left), left <= 0);
                 it.remove();
             } else {
                 e.setValue(left);
@@ -353,6 +361,8 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
 
         Map<ItemKey, Integer> copy = new LinkedHashMap<>(pending);
         if (!copy.isEmpty()) {
+            LOG.info("[ShortageTrace][ResourceRequester] requestPlannedOperation call source={} dest={} needs={} manager={} fallbackUsed={}",
+                    this.pos, this.pos, copy, managerPos, false);
             mgr.requestPlannedOperation(this.pos, -1, copy, 0, "resource_requester_pending");
             lastEnsureTick = tickCounter;
             needEnsure = false;

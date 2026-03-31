@@ -34,7 +34,8 @@ import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
-
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -47,6 +48,7 @@ import java.util.*;
  - Стоимость эссенции: 2 * число уникальных типов входов. Эссенция: CRAFT, приём снизу/с боков.
  */
 public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite {
+    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/GolemCrafter");
 
     // ===== Константы =====
     public static final int PATTERN_SLOTS = 15;
@@ -613,13 +615,18 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             needEnsureWithManager = false;
             return;
         }
+        LOG.info("[ShortageTrace][GolemCrafter] insufficient detected source={} dest={} missing={}", this.pos, this.pos, miss);
 
         TileEntity te = world.getTileEntity(managerPos);
         if (te instanceof TileMirrorManager) {
+            LOG.info("[ShortageTrace][GolemCrafter] requestPlannedOperation call source={} dest={} needs={} manager={}",
+                    this.pos, this.pos, miss, managerPos);
             ((TileMirrorManager) te).requestPlannedOperation(this.pos, -1, miss, 0, "golem_crafter_missing_inputs");
             lastEnsureWorldTime = now;
             needEnsureWithManager = false;
         } else {
+            LOG.info("[ShortageTrace][GolemCrafter] planner path unavailable source={} manager={} activeManager={}",
+                    this.pos, managerPos, false);
             needEnsureWithManager = true; // попробуем позже
         }
     }
@@ -668,6 +675,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (!jobActive && requesterQueue.isEmpty() && lastSignal == 0 && signal > 0) {
             int idx = choosePatternIndexForSignal(signal);
             if (idx >= 0) {
+                LOG.info("[ShortageTrace][GolemCrafter] redstone-trigger entry signal={} slot={} source={} dest={}",
+                        signal, idx, this.pos, this.pos);
                 ItemStack pat = patterns.getStackInSlot(idx);
                 int repeats = getPatternRepeatCount(pat);
                 boolean managerMode = useManagerForProvision();

@@ -23,6 +23,8 @@ import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -34,6 +36,7 @@ import java.util.*;
  * - Отдаёт GUI-снапшоты каталога постранично (5×7) по новому протоколу: snapshotId + pageIndex0.
  */
 public class TileOrderTerminal extends TileEntity implements ITickable {
+    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/OrderTerminal");
     private static final Map<String, String> ASPECT_ALIASES = buildAspectAliases();
 
     private static Map<String, String> buildAspectAliases() {
@@ -329,6 +332,8 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     public void submitDraft(boolean craftTab) {
         Map<ItemKey, Integer> draft = craftTab ? draftCraft : draftDelivery;
         Map<ItemKey, Integer> pend  = craftTab ? pendingCraft : pendingDelivery;
+        LOG.info("[ShortageTrace][OrderTerminal] terminal entry source={} dest={} craftTab={} draft={} pending={}",
+                this.pos, this.pos, craftTab, draft, pend);
         if (draft.isEmpty()) { sendSnapshotToViewers(craftTab); return; }
 
         int freeDistinct = Math.max(0, 9 - pend.size());
@@ -363,6 +368,9 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 int havePend  = pendingDelivery.getOrDefault(key, 0);
                 int room = Math.max(0, available - havePend);
                 toMove = Math.min(toMove, room);
+                int missing = Math.max(0, amt - toMove);
+                LOG.info("[ShortageTrace][OrderTerminal] decision key={} amount={} source={} dest={} available={} alreadyPending={} existing={} missing={} enough={}",
+                        key, amt, this.pos, this.pos, available, havePend, toMove, missing, missing <= 0);
             }
             if (toMove <= 0) continue;
 
@@ -453,6 +461,8 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             if (!craftTab) {
                 mgr.enqueueBatchDelivery(this.pos, -1, QUEUE_ID, moved);
                 if (!pendingDelivery.isEmpty()) {
+                    LOG.info("[ShortageTrace][OrderTerminal] requestPlannedOperation call source={} dest={} needs={} manager={}",
+                            this.pos, this.pos, pendingDelivery, managerPos);
                     mgr.requestPlannedOperation(this.pos, -1, new LinkedHashMap<>(pendingDelivery), 0, "order_terminal_submit_delivery");
                 }
             } else {
@@ -627,6 +637,8 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         TileMirrorManager mgr = (TileMirrorManager) te;
         if (!pendingDelivery.isEmpty()) {
+            LOG.info("[ShortageTrace][OrderTerminal] requestPlannedOperation ensure source={} dest={} needs={} manager={}",
+                    this.pos, this.pos, pendingDelivery, managerPos);
             mgr.requestPlannedOperation(this.pos, -1, new LinkedHashMap<>(pendingDelivery), 0, "order_terminal_pending_delivery");
         }
 

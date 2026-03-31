@@ -430,6 +430,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
             Map<ItemKey, Integer> root = new LinkedHashMap<>();
             root.put(ItemKey.of(resultLike), totalOut);
+            LOG.info("[ShortageTrace][InfusionRequester] requestPlannedOperation call source={} dest={} item={} amount={} manager={} reason={}",
+                    this.pos, dest, ItemKey.of(resultLike), totalOut, managerPos, "infusion_enqueue_crafter_order");
             mgr.requestPlannedOperation(dest, destSide, root, 0, "infusion_enqueue_crafter_order");
         }
 
@@ -493,6 +495,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (signal > 0) {
                 int slot = patternIndexFromSignal(signal);
                 if (slot >= 0) {
+                    LOG.info("[ShortageTrace][InfusionRequester] redstone-trigger entry signal={} slot={} source={} dest={}",
+                            signal, slot, this.pos, this.pos);
                     enqueueTrigger(slot, 1, true);
                     tryStartNextJob();
                 }
@@ -731,6 +735,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 if (moved > 0) {
                     Map<ItemKey, Integer> need = new LinkedHashMap<>();
                     need.put(ItemKey.of(order.like1), moved);
+                    LOG.info("[ShortageTrace][InfusionRequester] requestPlannedOperation call source={} dest={} item={} amount={} manager={} reason={}",
+                            this.pos, order.dest, ItemKey.of(order.like1), moved, order.manager, "infusion_deliver_pending_result");
                     manager.requestPlannedOperation(order.dest, order.destSide, need, 0, "infusion_deliver_pending_result");
                 }
             } else {
@@ -1065,6 +1071,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         if (useManagerForProvision() && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
+            LOG.info("[ShortageTrace][InfusionRequester] requestPlannedOperation call source={} dest={} needs={} manager={} reason={}",
+                    this.pos, this.pos, pendingToRequester, managerPos, "infusion_pending_to_requester");
             mgr.requestPlannedOperation(pos, -1, new LinkedHashMap<>(pendingToRequester), 0, "infusion_pending_to_requester");
             needsEnsure = false;
             lastEnsureTick = tickCounter;
