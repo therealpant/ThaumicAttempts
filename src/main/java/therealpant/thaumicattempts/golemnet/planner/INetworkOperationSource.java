@@ -9,7 +9,6 @@ public interface INetworkOperationSource {
     int getOutputCountFor(ItemKey key);
     List<RequiredInput> getRequiredInputsFor(ItemKey key, int times);
     boolean enqueueExecution(ItemKey key, int times);
-    default boolean hasOutstandingWorkFor(ItemKey key) { return false; }
     ProviderType getType();
     String getDebugName();
 }

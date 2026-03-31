@@ -64,15 +64,7 @@ public final class NetworkOperationAdapters {
 
         @Override
         public int getOutputCountFor(ItemKey key) {
-            ItemStack like = key == null ? ItemStack.EMPTY : key.toStack(1);
-            if (like.isEmpty()) return 0;
-            IItemHandler patt = tile.getPatternHandler();
-            int idx = findPatternIndexByResult(patt, like);
-            if (idx < 0) return 0;
-            ItemStack pattern = patt.getStackInSlot(idx);
-            ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
-            if (preview.isEmpty()) return 0;
-            return Math.max(1, preview.getCount());
+            return key == null ? 0 : Math.max(1, key.toStack(1).getCount());
         }
 
         @Override
@@ -94,11 +86,6 @@ public final class NetworkOperationAdapters {
         @Override
         public boolean enqueueExecution(ItemKey key, int times) {
             return tile.enqueueFromPatternRequester(key.toStack(1), Math.max(1, times)) > 0;
-        }
-
-        @Override
-        public boolean hasOutstandingWorkFor(ItemKey key) {
-            return tile.hasActiveOrQueuedWork();
         }
 
         @Override
@@ -149,11 +136,6 @@ public final class NetworkOperationAdapters {
         }
 
         @Override
-        public boolean hasOutstandingWorkFor(ItemKey key) {
-            return tile.hasActiveOrQueued();
-        }
-
-        @Override
         public ProviderType getType() {
             return ProviderType.INFUSION_REQUESTER;
         }
@@ -198,11 +180,6 @@ public final class NetworkOperationAdapters {
         public boolean enqueueExecution(ItemKey key, int times) {
             tile.enqueueCraft(key.toStack(1), Math.max(1, times));
             return true;
-        }
-
-        @Override
-        public boolean hasOutstandingWorkFor(ItemKey key) {
-            return tile.hasActiveOrQueued();
         }
 
         @Override

@@ -44,8 +44,6 @@ import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileSequentialCraftPlanner;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
@@ -60,7 +58,6 @@ import java.util.UUID;
  * Менеджер: батчи + единая «корона» зеркал (активные/подвешенные), без дюпа.
  */
 public class TileMirrorManager extends TileEntity implements ITickable, IAnimatable {
-    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/MirrorManager");
     private final AnimationFactory factory = new AnimationFactory(this);
     /* ===================== Базовые лимиты и апгрейды ===================== */
     private int dispatcherRoundRobinIndex = 0;
@@ -2949,105 +2946,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             enqueueBatchDelivery(dest, -1, q, miss);
             activeQueue = q;
         }
-    }
-
-    @Nullable
-    public TileSequentialCraftPlanner findActivePlanner() {
-        if (world == null || world.isRemote) return null;
-        LOG.info("[ShortageTrace][Manager] planner lookup manager={} boundPlanners={}", this.pos, boundPlanners.size());
-        for (BlockPos plannerPos : new ArrayList<>(boundPlanners)) {
-            TileEntity te = world.getTileEntity(plannerPos);
-            if (!(te instanceof TileSequentialCraftPlanner)) continue;
-            TileSequentialCraftPlanner planner = (TileSequentialCraftPlanner) te;
-            BlockPos plannerManager = planner.getManagerPos();
-            LOG.info("[ShortageTrace][Manager] planner candidate manager={} planner={} plannerManager={} active={} invalid={}",
-                    this.pos, plannerPos, plannerManager, planner.isActivePlanner(), planner.isInvalid());
-            if (plannerManager != null && plannerManager.equals(this.pos) && !planner.isInvalid()) {
-                LOG.debug("[PlannerSelect] manager={} selected planner={} status={} active={}",
-                        this.pos, plannerPos, planner.getStatus(), planner.isActivePlanner());
-                LOG.info("[ShortageTrace][Manager] planner found manager={} planner={} active={}", this.pos, plannerPos, planner.isActivePlanner());
-                return planner;
-            }
-        }
-        LOG.debug("[PlannerSelect] manager={} no active planner in boundPlanners={}", this.pos, boundPlanners.size());
-        LOG.info("[ShortageTrace][Manager] planner missing/inactive manager={} boundPlanners={}", this.pos, boundPlanners.size());
-        return null;
-    }
-
-    public boolean requestPlannedOperation(BlockPos dest, int destSide, Map<ItemKey, Integer> needs, int queueId, String reason) {
-        if (world == null || world.isRemote || dest == null || needs == null || needs.isEmpty()) return false;
-        LOG.info("[ShortageTrace][Manager] requestPlannedOperation called manager={} reason={} source={} dest={} side={} needs={}",
-                this.pos, reason, this.pos, dest, destSide, needs);
-
-        TileSequentialCraftPlanner planner = findActivePlanner();
-        if (planner == null) {
-            LOG.debug("[PlannerBridge] manager={} reason={} planner missing/inactive, fallback ensureDeliveryForExact needs={}",
-                    this.pos, reason, needs);
-            LOG.info("[ShortageTrace][Manager] fallback old direct delivery reason={} manager={} dest={} plannerFound={} plannerActive={} fallbackUsed={}",
-                    reason, this.pos, dest, false, false, true);
-            ensureDeliveryForExact(dest, needs, queueId);
-            return false;
-        }
-
-        LinkedHashMap<ItemKey, Integer> existing = new LinkedHashMap<>();
-        LinkedHashMap<ItemKey, Integer> missing = new LinkedHashMap<>();
-        Map<ItemKey, Integer> catalog = getReachableCatalog();
-
-        for (Map.Entry<ItemKey, Integer> entry : needs.entrySet()) {
-            ItemKey key = entry.getKey();
-            int amount = Math.max(1, entry.getValue());
-            int have = Math.max(0, catalog.getOrDefault(key, 0));
-            int existingAmount = Math.min(amount, have);
-            int missingAmount = Math.max(0, amount - existingAmount);
-            if (existingAmount > 0) existing.put(key, existingAmount);
-            if (missingAmount > 0) missing.put(key, missingAmount);
-            LOG.info("[ShortageTrace][Manager] decision reason={} key={} amount={} source={} dest={} catalogHave={} existing={} missing={} enough={}",
-                    reason, key, amount, this.pos, dest, have, existingAmount, missingAmount, missingAmount <= 0);
-        }
-        LOG.info("[ShortageTrace][Manager] split reason={} manager={} dest={} existing={} missing={}",
-                reason, this.pos, dest, existing, missing);
-
-        if (!existing.isEmpty()) {
-            LOG.debug("[PlannerBridge] manager={} reason={} existing resources -> ensureDeliveryForExact {}",
-                    this.pos, reason, existing);
-            LOG.info("[ShortageTrace][Manager] existing delivery path reason={} manager={} dest={} fallbackUsed={}",
-                    reason, this.pos, dest, true);
-            ensureDeliveryForExact(dest, existing, queueId);
-        }
-
-        boolean plannerAcceptedAny = false;
-        LinkedHashMap<ItemKey, Integer> plannerRejected = new LinkedHashMap<>();
-        for (Map.Entry<ItemKey, Integer> entry : missing.entrySet()) {
-            ItemKey key = entry.getKey();
-            int amount = Math.max(1, entry.getValue());
-            ItemStack like = key.toStack(1);
-            if (planner.hasActiveRequest(like, amount, dest, destSide)) {
-                plannerAcceptedAny = true;
-                LOG.debug("[PlannerBridge] manager={} reason={} request already in-flight root={} amount={} planner={} dest={} side={}",
-                        this.pos, reason, key, amount, planner.getPos(), dest, destSide);
-                LOG.info("[ShortageTrace][Manager] planner request already active reason={} key={} amount={} planner={} dest={}",
-                        reason, key, amount, planner.getPos(), dest);
-                continue;
-            }
-            LOG.info("[ShortageTrace][Manager] planner.enqueueRequest call reason={} key={} amount={} planner={} source={} dest={} side={}",
-                    reason, key, amount, planner.getPos(), this.pos, dest, destSide);
-            boolean ok = planner.enqueueRequest(like, amount, dest, destSide, reason);
-            LOG.debug("[PlannerBridge] manager={} reason={} root={} amount={} planner={} accepted={}",
-                    this.pos, reason, key, amount, planner.getPos(), ok);
-            LOG.info("[ShortageTrace][Manager] planner.enqueueRequest result reason={} key={} amount={} planner={} accepted={}",
-                    reason, key, amount, planner.getPos(), ok);
-            if (ok) plannerAcceptedAny = true;
-            else plannerRejected.put(key, amount);
-        }
-
-        if (!plannerRejected.isEmpty()) {
-            LOG.debug("[PlannerBridge] manager={} reason={} planner rejected {}, fallback ensureDeliveryForExact",
-                    this.pos, reason, plannerRejected);
-            LOG.info("[ShortageTrace][Manager] planner rejected -> fallback reason={} manager={} dest={} rejected={} fallbackUsed={}",
-                    reason, this.pos, dest, plannerRejected, true);
-            ensureDeliveryForExact(dest, plannerRejected, queueId);
-        }
-        return plannerAcceptedAny;
     }
 
     private void tickStabilityAndFlux() {

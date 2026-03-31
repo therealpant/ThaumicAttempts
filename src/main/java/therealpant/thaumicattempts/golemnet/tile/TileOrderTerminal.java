@@ -23,8 +23,6 @@ import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -36,7 +34,6 @@ import java.util.*;
  * - Отдаёт GUI-снапшоты каталога постранично (5×7) по новому протоколу: snapshotId + pageIndex0.
  */
 public class TileOrderTerminal extends TileEntity implements ITickable {
-    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/OrderTerminal");
     private static final Map<String, String> ASPECT_ALIASES = buildAspectAliases();
 
     private static Map<String, String> buildAspectAliases() {
@@ -332,8 +329,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     public void submitDraft(boolean craftTab) {
         Map<ItemKey, Integer> draft = craftTab ? draftCraft : draftDelivery;
         Map<ItemKey, Integer> pend  = craftTab ? pendingCraft : pendingDelivery;
-        LOG.info("[ShortageTrace][OrderTerminal] terminal entry source={} dest={} craftTab={} draft={} pending={}",
-                this.pos, this.pos, craftTab, draft, pend);
         if (draft.isEmpty()) { sendSnapshotToViewers(craftTab); return; }
 
         int freeDistinct = Math.max(0, 9 - pend.size());
@@ -368,9 +363,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 int havePend  = pendingDelivery.getOrDefault(key, 0);
                 int room = Math.max(0, available - havePend);
                 toMove = Math.min(toMove, room);
-                int missing = Math.max(0, amt - toMove);
-                LOG.info("[ShortageTrace][OrderTerminal] decision key={} amount={} source={} dest={} available={} alreadyPending={} existing={} missing={} enough={}",
-                        key, amt, this.pos, this.pos, available, havePend, toMove, missing, missing <= 0);
             }
             if (toMove <= 0) continue;
 
@@ -454,78 +446,35 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         markDirty();
 
         TileEntity mte = (managerPos == null) ? null : world.getTileEntity(managerPos);
-        if (!(mte instanceof TileMirrorManager)) {
-            LOG.info("[ShortageTrace][OrderTerminal] manager missing while submit source={} manager={} craftTab={} moved={}",
-                    this.pos, managerPos, craftTab, moved);
-            for (Map.Entry<ItemKey, Integer> e : moved) {
-                ItemKey key = e.getKey();
-                int amount = Math.max(1, e.getValue());
-                addToMap(pend, key, -amount);
-                addToMap(draft, key, amount);
+        if (mte instanceof TileMirrorManager) {
+            TileMirrorManager mgr = (TileMirrorManager) mte;
+            final int QUEUE_ID = craftTab ? 1 : 0;
+
+            if (!craftTab) {
+                mgr.enqueueBatchDelivery(this.pos, -1, QUEUE_ID, moved);
+                if (!pendingDelivery.isEmpty()) {
+                    mgr.ensureDeliveryFor(this.pos, new LinkedHashMap<>(pendingDelivery));
+                }
+            } else {
+                // CRAFT вкладка, единая логика
+                List<Map.Entry<ItemKey,Integer>> toManager = new ArrayList<>();
+
+                for (Map.Entry<ItemKey,Integer> e : moved) {
+                    ItemKey key = e.getKey();
+                    int n = Math.max(1, e.getValue());
+                    toManager.add(new AbstractMap.SimpleEntry<>(key, n));
+                }
+
+                if (!toManager.isEmpty()) {
+                    mgr.enqueueBatchCraft(
+                            this.pos, -1, QUEUE_ID, moved,
+                            key -> findCraftEndpointFor(mgr, key.toStack(1))  // ищет любой ICraftEndpoint
+                    );
+                }
             }
-            markDirty();
+        }
+
             sendSnapshotToViewers(craftTab);
-            return;
-        }
-
-        TileMirrorManager mgr = (TileMirrorManager) mte;
-        final int QUEUE_ID = craftTab ? 1 : 0;
-
-        if (!craftTab) {
-            mgr.enqueueBatchDelivery(this.pos, -1, QUEUE_ID, moved);
-            if (!pendingDelivery.isEmpty()) {
-                LOG.info("[ShortageTrace][OrderTerminal] requestPlannedOperation call source={} dest={} needs={} manager={}",
-                        this.pos, this.pos, pendingDelivery, managerPos);
-                mgr.requestPlannedOperation(this.pos, -1, new LinkedHashMap<>(pendingDelivery), 0, "order_terminal_submit_delivery");
-            }
-        } else {
-            List<Map.Entry<ItemKey, Integer>> directCraft = new ArrayList<>();
-            Map<ItemKey, BlockPos> craftEndpoints = new HashMap<>();
-            Map<ItemKey, Integer> catalog = mgr.getReachableCatalog();
-
-            for (Map.Entry<ItemKey, Integer> e : moved) {
-                ItemKey key = e.getKey();
-                int amount = Math.max(1, e.getValue());
-                ItemStack stack = key.toStack(1);
-                if (stack == null || stack.isEmpty()) {
-                    LOG.info("[ShortageTrace][OrderTerminal] skip empty draft stack key={} amount={} source={} dest={}",
-                            key, amount, this.pos, this.pos);
-                    continue;
-                }
-                BlockPos rp = findCraftEndpointFor(mgr, stack);
-                if (rp == null) {
-                    LinkedHashMap<ItemKey, Integer> need = new LinkedHashMap<>();
-                    need.put(key, amount);
-                    LOG.info("[ShortageTrace][OrderTerminal] no craft endpoint -> planner/fallback key={} amount={} source={} dest={} manager={}",
-                            key, amount, this.pos, this.pos, managerPos);
-                    mgr.requestPlannedOperation(this.pos, -1, need, QUEUE_ID, "order_terminal_submit_craft_no_endpoint");
-                    continue;
-                }
-
-                int available = Math.max(0, catalog.getOrDefault(key, 0));
-                int missing = Math.max(0, amount - available);
-                LOG.info("[ShortageTrace][OrderTerminal] craft endpoint decision key={} amount={} source={} dest={} endpoint={} available={} missing={} enough={}",
-                        key, amount, this.pos, this.pos, rp, available, missing, missing <= 0);
-
-                if (missing > 0) {
-                    LinkedHashMap<ItemKey, Integer> need = new LinkedHashMap<>();
-                    need.put(key, missing);
-                    mgr.requestPlannedOperation(this.pos, -1, need, QUEUE_ID, "order_terminal_submit_craft_missing");
-                    continue;
-                }
-                directCraft.add(new AbstractMap.SimpleEntry<>(key, amount));
-                craftEndpoints.put(key, rp);
-            }
-
-            if (!directCraft.isEmpty()) {
-                mgr.enqueueBatchCraft(
-                        this.pos, -1, QUEUE_ID, directCraft,
-                        craftEndpoints::get
-                );
-            }
-        }
-
-        sendSnapshotToViewers(craftTab);
     }
 
     @Nullable
@@ -678,9 +627,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         TileMirrorManager mgr = (TileMirrorManager) te;
         if (!pendingDelivery.isEmpty()) {
-            LOG.info("[ShortageTrace][OrderTerminal] requestPlannedOperation ensure source={} dest={} needs={} manager={}",
-                    this.pos, this.pos, pendingDelivery, managerPos);
-            mgr.requestPlannedOperation(this.pos, -1, new LinkedHashMap<>(pendingDelivery), 0, "order_terminal_pending_delivery");
+            mgr.ensureDeliveryForExact(this.pos, new LinkedHashMap<>(pendingDelivery), 0);
         }
 
         lastEnsureTick = tickCounter;
