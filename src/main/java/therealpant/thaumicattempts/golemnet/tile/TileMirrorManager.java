@@ -2124,10 +2124,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 pos, ln.wanted1, miss);
 
         if (!miss.isEmpty()) {
-            LOG.info("[Manager {}] processOneCraftLine planner expansion call wanted={} miss={} crafterPos={} queueId={} finalDest={}",
-                    pos, ln.wanted1, miss, crafterPos, b.queueId, b.dest);
-
-            expandShortageWithPlanners(miss, crafterPos, -1, b.queueId, ItemKey.of(ln.wanted1), b.dest);
 
             for (Map.Entry<ItemKey, Integer> e : miss.entrySet()) {
                 if (e.getValue() <= 0) continue;
@@ -2231,69 +2227,108 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return false;
     }
 
-    private void expandShortageWithPlanners(Map<ItemKey, Integer> miss,
-                                            BlockPos shortageDest,
-                                            int shortageDestSide,
-                                            int queueId,
-                                            @Nullable ItemKey rootOrder,
-                                            @Nullable BlockPos rootDestination) {
-        if (world == null || world.isRemote || miss == null || miss.isEmpty()) {
-            LOG.warn("[Manager {}] planner expansion aborted world={} remote={} miss={} shortageDest={} rootOrder={} rootDestination={}",
-                    pos, world, world != null && world.isRemote, miss, shortageDest, rootOrder, rootDestination);
-            return;
+    public int allocatePlannerQueue(int rootQueueId) {
+        int root = Math.max(0, Math.min(5, rootQueueId));
+
+        // 1) сначала ищем полностью пустую очередь, кроме корневой
+        for (int i = 0; i < batchQueues.size(); i++) {
+            if (i == root) continue;
+            Deque<Batch> q = batchQueues.get(i);
+            if (q == null || q.isEmpty()) {
+                LOG.info("[Manager {}] allocatePlannerQueue rootQueue={} -> emptyQueue={}", pos, root, i);
+                return i;
+            }
         }
 
-        LOG.info("[Manager {}] planner expansion request miss={} shortageDest={} shortageDestSide={} queueId={} rootOrder={} rootDestination={} boundPlanners={}",
-                pos, miss, shortageDest, shortageDestSide, queueId, rootOrder, rootDestination, boundPlanners.size());
+        // 2) если пустых нет — ищем наименее загруженную, кроме корневой
+        int bestQueue = -1;
+        int bestScore = Integer.MAX_VALUE;
 
-        if (boundPlanners.isEmpty()) {
-            LOG.info("[Manager {}] planner expansion skipped: no bound planners miss={} shortageDest={} rootOrder={} rootDestination={}",
-                    pos, miss, shortageDest, rootOrder, rootDestination);
-            return;
+        for (int i = 0; i < batchQueues.size(); i++) {
+            if (i == root) continue;
+            Deque<Batch> q = batchQueues.get(i);
+            int score = 0;
+
+            if (q != null) {
+                score += q.size() * 1000;
+                for (Batch b : q) {
+                    if (b != null) {
+                        score += b.lines.size();
+                    }
+                }
+            }
+
+            if (score < bestScore) {
+                bestScore = score;
+                bestQueue = i;
+            }
         }
 
+        if (bestQueue >= 0) {
+            LOG.info("[Manager {}] allocatePlannerQueue rootQueue={} -> bestQueue={} score={}",
+                    pos, root, bestQueue, bestScore);
+            return bestQueue;
+        }
+
+        // 3) крайний случай — оставляем старую очередь
+        LOG.warn("[Manager {}] allocatePlannerQueue fallback to rootQueue={}", pos, root);
+        return root;
+    }
+
+    public static final class PlannerCraftObservation {
+        public final ItemKey wanted;
+        public final int remaining;
+        public final BlockPos requester;
+        public final BlockPos crafter;
+        public final BlockPos destination;
+        public final int queueId;
+
+        public PlannerCraftObservation(ItemKey wanted,
+                                       int remaining,
+                                       BlockPos requester,
+                                       BlockPos crafter,
+                                       BlockPos destination,
+                                       int queueId) {
+            this.wanted = wanted;
+            this.remaining = Math.max(0, remaining);
+            this.requester = requester == null ? BlockPos.ORIGIN : requester.toImmutable();
+            this.crafter = crafter == null ? BlockPos.ORIGIN : crafter.toImmutable();
+            this.destination = destination == null ? BlockPos.ORIGIN : destination.toImmutable();
+            this.queueId = queueId;
+        }
+    }
         boolean anyAccepted = false;
 
-        for (BlockPos pp : new ArrayList<>(boundPlanners)) {
-            TileEntity te = world.getTileEntity(pp);
-            if (!(te instanceof TileSequentialCraftPlanner) || te.isInvalid()) {
-                LOG.warn("[Manager {}] planner expansion skip invalid planner pos={} te={}",
-                        pos, pp, te == null ? "null" : te.getClass().getName());
-                continue;
-            }
+    public List<PlannerCraftObservation> getActiveCraftObservations() {
+        List<PlannerCraftObservation> out = new ArrayList<>();
+        if (world == null || world.isRemote) return out;
 
-            TileSequentialCraftPlanner planner = (TileSequentialCraftPlanner) te;
-            BlockPos mp = planner.getManagerPos();
-            if (mp == null || !mp.equals(this.pos)) {
-                LOG.warn("[Manager {}] planner expansion skip foreign planner pos={} plannerManager={} self={}",
-                        pos, pp, mp, this.pos);
-                continue;
-            }
+        for (Deque<Batch> q : batchQueues) {
+            for (Batch b : q) {
+                if (b.kind != Batch.Kind.CRAFT) continue;
+                if (b.lines == null || b.lines.isEmpty()) continue;
 
-            boolean accepted = planner.expandShortages(
-                    miss,
-                    shortageDest,
-                    shortageDestSide,
-                    rootOrder,
-                    rootDestination,
-                    queueId
-            );
-
-            LOG.info("[Manager {}] planner expansion attempt: planner={} accepted={} miss={} shortageDest={} rootOrder={} rootDestination={}",
-                    pos, pp, accepted, miss, shortageDest, rootOrder, rootDestination);
-
-            if (accepted) {
-                anyAccepted = true;
+                int start = Math.max(0, Math.min(b.index, b.lines.size() - 1));
+                for (int i = start; i < b.lines.size(); i++) {
+                    Line ln = b.lines.get(i);
+                    if (ln == null || ln.remaining <= 0 || ln.requester == null || ln.wanted1 == null || ln.wanted1.isEmpty()) {
+                        continue;
+                    }
+                    out.add(new PlannerCraftObservation(
+                            ItemKey.of(ln.wanted1),
+                            ln.remaining,
+                            ln.requester,
+                            ln.requester.down(),
+                            b.dest,
+                            b.queueId
+                    ));
+                }
             }
         }
-
-        if (!anyAccepted) {
-            LOG.warn("[Manager {}] planner expansion produced no suborders: miss={} shortageDest={} rootOrder={} rootDestination={}",
-                    pos, miss, shortageDest, rootOrder, rootDestination);
-        } else {
-            LOG.info("[Manager {}] planner expansion accepted at least one planner: miss={} shortageDest={} rootOrder={}",
-                    pos, miss, shortageDest, rootOrder);
-        }
+        return out;
+    }
+    public int getServerTickCounter() {
+        return tickCounter;
     }
 
     private void processBatchHead(Batch b) {
