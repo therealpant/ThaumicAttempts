@@ -17,6 +17,11 @@ public interface ICraftEndpoint {
     int getPerCraftOutputCountFor(ItemStack like);
 
     /**
+     * Полный список входов для результата "как этот" на заданное число циклов.
+     */
+    List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times);
+
+    /**
      * Поставить в очередь крафт результата, "как этот", на указанное количество циклов.
      * Реализация сама объединяет с существующей очередью.
      */

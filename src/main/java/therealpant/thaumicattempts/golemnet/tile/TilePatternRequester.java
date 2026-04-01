@@ -210,6 +210,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
      *  - нестакуемые — item+meta (NBT игнорируется);
      *  - стакаемые — relaxed.
      */
+    @Override
     public List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times) {
         if (resultLike == null || resultLike.isEmpty() || times <= 0) return Collections.emptyList();
 

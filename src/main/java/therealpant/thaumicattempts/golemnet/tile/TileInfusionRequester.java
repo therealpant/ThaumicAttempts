@@ -665,6 +665,27 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     }
 
     @Override
+    public List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times) {
+        if (world == null || resultLike == null || resultLike.isEmpty() || times <= 0) return Collections.emptyList();
+
+        int slot = findPatternSlotFor(resultLike);
+        if (slot < 0) return Collections.emptyList();
+
+        List<PatternResourceList.Entry> resources = getResourcesForSlot(slot);
+        if (resources == null || resources.isEmpty()) return Collections.emptyList();
+
+        List<ItemStack> out = new ArrayList<>();
+        int mul = Math.max(1, times);
+        for (PatternResourceList.Entry e : resources) {
+            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+            int count = Math.max(1, e.getCount()) * mul;
+            ItemStack stack = e.getKey().toStack(count);
+            if (!stack.isEmpty()) out.add(stack);
+        }
+        return out;
+    }
+
+    @Override
     public void enqueueCraft(ItemStack resultLike, int crafts) {
         enqueueFromPatternRequester(resultLike, crafts);
     }

@@ -1635,8 +1635,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             Line ln = new Line(like1, amount);
             ln.requester = rp;
 
-            if (rte instanceof TilePatternRequester) {
-                TilePatternRequester rq = (TilePatternRequester) rte;
+            if (rte instanceof ICraftEndpoint) {
+                ICraftEndpoint rq = (ICraftEndpoint) rte;
 
                 int outPerCraft = Math.max(1, rq.getPerCraftOutputCountFor(like1));
                 int craftsCount = (amount + outPerCraft - 1) / outPerCraft;
@@ -2090,8 +2090,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         List<ItemStack> needList = Collections.emptyList();
-        if (rte instanceof TilePatternRequester) {
-            needList = ((TilePatternRequester) rte).getRecipeInputsFor(ln.wanted1, craftsNeeded);
+        if (rte instanceof ICraftEndpoint) {
+            needList = ((ICraftEndpoint) rte).getRecipeInputsFor(ln.wanted1, craftsNeeded);
         }
 
         LOG.info("[Manager {}] processOneCraftLine recipe inputs wanted={} craftsNeeded={} needList={}",
