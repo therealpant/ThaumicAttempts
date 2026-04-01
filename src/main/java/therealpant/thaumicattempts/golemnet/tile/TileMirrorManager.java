@@ -879,14 +879,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             for (Iterator<BlockPos> it = requesters.iterator(); it.hasNext(); ) {
                 BlockPos rp = it.next();
                 TileEntity te = world.getTileEntity(rp);
-                if (!(te instanceof TilePatternRequester) && !(te instanceof TileInfusionRequester)) {
+                if (!(te instanceof ICraftEndpoint)) {
                     it.remove();
                     changed = true;
                 }
             }
             for (BlockPos rp : boundRequesters) {
                 TileEntity te = world.getTileEntity(rp);
-                if ((te instanceof TilePatternRequester || te instanceof TileInfusionRequester) && !requesters.contains(rp)) {
+                if ((te instanceof ICraftEndpoint) && !requesters.contains(rp)) {
                     requesters.add(rp.toImmutable());
                     changed = true;
                 }
@@ -1561,6 +1561,36 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return moved;
     }
 
+
+    private int harvestLikeToBufferFromHandler(BlockPos sourcePos, int sourceSide, ItemStack like, int upTo) {
+        if (world == null || sourcePos == null || like == null || like.isEmpty() || upTo <= 0) return 0;
+        IItemHandler src = getDestHandler(sourcePos, sourceSide);
+        if (src == null) return 0;
+        int moved = 0;
+        for (int s = 0; s < src.getSlots() && moved < upTo; s++) {
+            ItemStack peek = src.extractItem(s, Math.min(64, upTo - moved), true);
+            if (peek.isEmpty()) continue;
+            boolean match = (like.getMaxStackSize() == 1)
+                    ? matchesForDelivery(peek, like)
+                    : (isCrystal(like)
+                    ? (isCrystal(peek) && crystalSame(peek, like))
+                    : ResourceIdentity.sameResource(peek, like));
+            if (!match) continue;
+            int want = Math.min(upTo - moved, peek.getCount());
+            ItemStack taken = src.extractItem(s, want, false);
+            if (taken.isEmpty()) continue;
+            ItemStack rest = ItemHandlerHelper.insertItem(buffer, taken, false);
+            int accepted = taken.getCount() - (rest.isEmpty() ? 0 : rest.getCount());
+            moved += accepted;
+            if (!rest.isEmpty()) {
+                src.insertItem(s, rest, false);
+                break;
+            }
+        }
+        if (moved > 0) markDirty();
+        return moved;
+    }
+
     public void enqueueBatchCraft(BlockPos dest, int destSide, int queueId,
                                   List<Map.Entry<ItemKey, Integer>> moved, RequesterFinder finder) {
         if (world == null || dest == null || moved == null || moved.isEmpty()) return;
@@ -1609,76 +1639,77 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             dropDupDelivery.accept(dest, like1);
 
             TileEntity rte = world.getTileEntity(rp);
-            LOG.info("[Manager {}] enqueueBatchCraft suborder accepted key={} amount={} requester={} requesterType={} dest={} queue={}",
-                    pos,
-                    e.getKey(),
-                    amount,
-                    rp,
-                    rte == null ? "null" : rte.getClass().getSimpleName(),
-                    dest,
-                    q);
-
-            if (rte instanceof ICraftEndpoint && CraftOrderApi.isCrafter((ICraftEndpoint) rte)
-                    && rte instanceof TileInfusionRequester) {
-                TileInfusionRequester inf = (TileInfusionRequester) rte;
-
-                int accepted = inf.enqueueCrafterOrder(this.pos, dest, destSide, like1, amount);
-                if (accepted > 0) {
-                    LOG.info("[Manager {}] enqueueBatchCraft suborder dispatched to infusion requester={} key={} accepted={} dest={} queue={}",
-                            pos, rp, e.getKey(), accepted, dest, q);
-                    dropDupDelivery.accept(dest, like1);
-                }
+            if (!(rte instanceof ICraftEndpoint)) {
+                LOG.warn("[Manager {}] enqueueBatchCraft skip line: requester is not ICraftEndpoint key={} amount={} requester={} requesterType={} dest={} queue={}",
+                        pos, e.getKey(), amount, rp, rte == null ? "null" : rte.getClass().getName(), dest, q);
                 continue;
             }
 
-            // === 2) Обычный PatternRequester + GolemCrafter как было раньше ===
+            ICraftEndpoint endpoint = (ICraftEndpoint) rte;
+            if (!CraftOrderApi.isCrafter(endpoint)) {
+                LOG.warn("[Manager {}] enqueueBatchCraft skip line: endpoint lacks crafter tag key={} amount={} requester={} endpointClass={} dest={} queue={}",
+                        pos, e.getKey(), amount, rp, rte.getClass().getName(), dest, q);
+                continue;
+            }
+
+            LOG.info("[Manager {}] terminal craft request submitted key={} amount={} endpointPos={} endpointClass={} dest={} queue={}",
+                    pos, e.getKey(), amount, rp, rte.getClass().getSimpleName(), dest, q);
+
+
             Line ln = new Line(like1, amount);
             ln.requester = rp;
 
-            if (rte instanceof ICraftEndpoint) {
-                ICraftEndpoint rq = (ICraftEndpoint) rte;
+            int outPerCraft = Math.max(1, endpoint.getPerCraftOutputCountFor(like1));
+            int craftsCount = (amount + outPerCraft - 1) / outPerCraft;
+            ln.craftsExpected = craftsCount;
+            ln.perCraftOut = outPerCraft;
 
-                int outPerCraft = Math.max(1, rq.getPerCraftOutputCountFor(like1));
-                int craftsCount = (amount + outPerCraft - 1) / outPerCraft;
+            List<ItemStack> needList = endpoint.getRecipeInputsFor(like1, craftsCount);
+            LOG.info("[Manager {}] craft endpoint found manager={} endpoint={} endpointClass={} key={} requested={} crafts={} perCraft={} inputs={}",
+                    pos, pos, rp, rte.getClass().getSimpleName(), e.getKey(), amount, craftsCount, outPerCraft, needList);
 
-                List<ItemStack> needList = rq.getRecipeInputsFor(like1, craftsCount);
-                if (needList != null && !needList.isEmpty()) {
-                    BlockPos crafterPos = rp.down();
-                    LinkedHashMap<ItemKey, Integer> needs = provisioning.computeIfAbsent(
-                            crafterPos, x -> new LinkedHashMap<>());
-                    Map<ItemKey, Integer> available = availablePerCrafter.computeIfAbsent(
-                            crafterPos, x -> new HashMap<>());
+            if (needList != null && !needList.isEmpty()) {
+                LinkedHashMap<ItemKey, Integer> needs = provisioning.computeIfAbsent(
+                        rp, x -> new LinkedHashMap<>());
+                Map<ItemKey, Integer> available = availablePerCrafter.computeIfAbsent(
+                        rp, x -> new HashMap<>());
 
-                    for (ItemStack need : needList) {
-                        if (need == null || need.isEmpty()) continue;
-                        ItemKey key = ItemKey.of(need);
-                        ItemStack likeNeed = key.toStack(1);
+                for (ItemStack need : needList) {
+                    if (need == null || need.isEmpty()) continue;
+                    ItemKey key = ItemKey.of(need);
+                    ItemStack likeNeed = key.toStack(1);
 
-                        int have = available.computeIfAbsent(key, k ->
-                                countAtDestLike(crafterPos, -1, likeNeed)
-                                        + countQueuedFor(crafterPos, likeNeed)
-                                        + countInBufferLike(likeNeed));
+                    int have = available.computeIfAbsent(key, k ->
+                            countAtDestLike(rp, -1, likeNeed)
+                                    + countQueuedFor(rp, likeNeed)
+                                    + countInBufferLike(likeNeed));
 
-                        int missing = Math.max(0, need.getCount() - have);
-                        if (missing > 0) {
-                            needs.merge(key, missing, Integer::sum);
-                        }
-
-                        int leftover = Math.max(0, have - need.getCount());
-                        available.put(key, leftover);
+                    int missing = Math.max(0, need.getCount() - have);
+                    if (missing > 0) {
+                        needs.merge(key, missing, Integer::sum);
                     }
+                    int leftover = Math.max(0, have - need.getCount());
+                    available.put(key, leftover);
                 }
-
-                ln.craftsExpected = craftsCount;
-                ln.perCraftOut = outPerCraft;
+                LOG.info("[Manager {}] provisioning scheduled manager={} endpoint={} endpointClass={} key={} crafts={} needs={} queue={}",
+                        pos, pos, rp, rte.getClass().getSimpleName(), e.getKey(), craftsCount, needs, q);
+            }
+            int acceptedAmount = endpoint.enqueueCraftOrder(this.pos, dest, destSide, like1, amount);
+            int acceptedCrafts = (outPerCraft > 0) ? ((acceptedAmount + outPerCraft - 1) / outPerCraft) : 0;
+            if (acceptedAmount <= 0 || acceptedCrafts <= 0) {
+                LOG.warn("[Manager {}] craft order rejected manager={} endpoint={} endpointClass={} key={} requested={} crafts={} acceptedAmount={} dest={} queue={}",
+                        pos, pos, rp, rte.getClass().getSimpleName(), e.getKey(), amount, craftsCount, acceptedAmount, dest, q);
+                continue;
             }
 
-            // сам крафт-батч (только для обычных крафтеров)
+            ln.craftsExpected = acceptedCrafts;
+            ln.remaining = Math.min(amount, acceptedAmount);
+            LOG.info("[Manager {}] craft order accepted manager={} endpoint={} endpointClass={} key={} requested={} crafts={} acceptedAmount={} acceptedCrafts={} dest={} queue={}",
+                    pos, pos, rp, rte.getClass().getSimpleName(), e.getKey(), amount, craftsCount, acceptedAmount, acceptedCrafts, dest, q);
+
             Batch b = new Batch(Batch.Kind.CRAFT, dest, destSide, q);
             b.lines.add(ln);
             craftBatches.add(b);
-            LOG.info("[Manager {}] enqueueBatchCraft craft batch line queued key={} amount={} requester={} dest={} queue={}",
-                    pos, e.getKey(), amount, rp, dest, q);
         }
 
         // обеспечиваем доставку сырья ДЛЯ КРАФТЕРОВ (инфузия тут не участвует)
@@ -1790,7 +1821,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             TileEntity te = world.getTileEntity(destPos);
             if (te != null) te.markDirty();
             this.markDirty();
-            if (te instanceof TileOrderTerminal) ((TileOrderTerminal) te).onDelivered(like, moved);
+            if (te instanceof TileOrderTerminal) {
+                LOG.info("[Manager {}] craft output delivered to terminal terminal={} like={} moved={}",
+                        pos, destPos, like, moved);
+                ((TileOrderTerminal) te).onDelivered(like, moved);
+            }
         }
         return moved;
     }
@@ -2012,26 +2047,27 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         final BlockPos rp = ln.requester;
         harvestAnyFromCrafterOutput(rp);
-        final BlockPos crafterPos = rp.down();
         final TileEntity rte = world.getTileEntity(rp);
-        final TileEntity cte = world.getTileEntity(crafterPos);
+        final BlockPos ioPos = (rte instanceof TilePatternRequester) ? rp.down() : rp;
+        final TileEntity cte = world.getTileEntity(ioPos);
 
         LOG.info("[Manager {}] processOneCraftLine tiles requesterPos={} requesterTe={} crafterPos={} crafterTe={}",
                 pos,
                 rp,
                 rte == null ? "null" : rte.getClass().getName(),
-                crafterPos,
+                ioPos,
                 cte == null ? "null" : cte.getClass().getName());
 
-        if (!(cte instanceof TileEntityGolemCrafter)) {
-            LOG.warn("[Manager {}] processOneCraftLine abort: crafter tile invalid at {} for wanted={}",
-                    pos, crafterPos, ln.wanted1);
+        if (!(rte instanceof ICraftEndpoint)) {
+            LOG.warn("[Manager {}] processOneCraftLine abort: endpoint invalid at {} for wanted={}",
+                    pos, rp, ln.wanted1);
             return true;
         }
+        ICraftEndpoint endpoint = (ICraftEndpoint) rte;
 
         int perCraft = (ln.perCraftOut > 0) ? ln.perCraftOut : 1;
-        if (perCraft <= 0 && rte instanceof TilePatternRequester) {
-            perCraft = Math.max(1, ((TilePatternRequester) rte).getPerCraftOutputCountFor(ln.wanted1));
+        if (perCraft <= 0) {
+            perCraft = Math.max(1, endpoint.getPerCraftOutputCountFor(ln.wanted1));
             ln.perCraftOut = perCraft;
         }
 
@@ -2039,6 +2075,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 pos, ln.wanted1, perCraft);
 
         int movedFromCrafter = harvestLikeToBufferFromRequester(rp, ln.wanted1, ln.remaining);
+        if (movedFromCrafter <= 0 && !(rte instanceof TilePatternRequester)) {
+            movedFromCrafter = harvestLikeToBufferFromHandler(ioPos, -1, ln.wanted1, ln.remaining);
+        }
         if (movedFromCrafter > 0) {
             LOG.info("[Manager {}] processOneCraftLine harvested output wanted={} movedFromCrafter={}",
                     pos, ln.wanted1, movedFromCrafter);
@@ -2089,16 +2128,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             return false;
         }
 
-        List<ItemStack> needList = Collections.emptyList();
-        if (rte instanceof ICraftEndpoint) {
-            needList = ((ICraftEndpoint) rte).getRecipeInputsFor(ln.wanted1, craftsNeeded);
-        }
+        List<ItemStack> needList = endpoint.getRecipeInputsFor(ln.wanted1, craftsNeeded);
 
         LOG.info("[Manager {}] processOneCraftLine recipe inputs wanted={} craftsNeeded={} needList={}",
                 pos, ln.wanted1, craftsNeeded, needList);
 
         Map<ItemKey, Integer> miss = new LinkedHashMap<>();
-        IItemHandler in = ((TileEntityGolemCrafter) cte).getInputHandler();
+        IItemHandler in = getDestHandler(ioPos, -1);
+        if (in == null) in = exposedBuffer;
         if (needList != null) {
             for (ItemStack need : needList) {
                 if (need == null || need.isEmpty()) continue;
@@ -2132,7 +2169,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
             for (Map.Entry<ItemKey, Integer> e : miss.entrySet()) {
                 if (e.getValue() <= 0) continue;
-                int pushed = pushFromBufferTo(crafterPos, -1, e.getKey().toStack(1), e.getValue());
+                int pushed = pushFromBufferTo(ioPos, -1, e.getKey().toStack(1), e.getValue());
                 if (pushed > 0) {
                     e.setValue(Math.max(0, e.getValue() - pushed));
                 }
@@ -2143,12 +2180,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         if (!miss.isEmpty()) {
             LOG.info("[Manager {}] processOneCraftLine waiting intermediates wanted={} miss={} crafterPos={} rootDest={}",
-                    pos, ln.wanted1, miss, crafterPos, b.dest);
+                    pos, ln.wanted1, miss, ioPos, b.dest);
             int qDelivery = (b.queueId + 1) % 6;
             LOG.info("[Manager {}] processOneCraftLine ensureDeliveryForExact wanted={} miss={} crafterPos={} deliveryQueue={}",
-                    pos, ln.wanted1, miss, crafterPos, qDelivery);
+                    pos, ln.wanted1, miss, ioPos, qDelivery);
 
-            ensureDeliveryForExact(crafterPos, miss, qDelivery);
+            ensureDeliveryForExact(ioPos, miss, qDelivery);
             activeQueue = qDelivery;
         }
 
@@ -2168,8 +2205,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
 
-        TileEntityGolemCrafter cr = (TileEntityGolemCrafter) cte;
-
         boolean allReady = true;
         for (Map.Entry<ItemKey, Integer> e : miss.entrySet()) {
             if (e.getValue() > 0) {
@@ -2180,38 +2215,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         LOG.info("[Manager {}] processOneCraftLine readiness wanted={} allReady={} miss={}",
                 pos, ln.wanted1, allReady, miss);
-
-        if (allReady && rte instanceof TilePatternRequester) {
-            TilePatternRequester rq = (TilePatternRequester) rte;
-
-            final int outPerCraft = Math.max(1, ln.perCraftOut > 0 ? ln.perCraftOut : rq.getPerCraftOutputCountFor(ln.wanted1));
-            ln.perCraftOut = outPerCraft;
-
-            int bufferedOut2 = countInBufferLike(ln.wanted1);
-            int remainingAfterBuffer2 = Math.max(0, ln.remaining - bufferedOut2);
-
-            int craftsNeedNow = (remainingAfterBuffer2 + outPerCraft - 1) / outPerCraft;
-            if (ln.craftsExpected > 0) {
-                int craftsLeft = Math.max(0, ln.craftsExpected - ln.craftsCompleted);
-                craftsNeedNow = Math.max(craftsNeedNow, craftsLeft);
-            }
-
-            int craftsDelta = Math.max(0, craftsNeedNow - ln.craftsScheduled);
-
-            LOG.info("[Manager {}] processOneCraftLine craft scheduling wanted={} outPerCraft={} bufferedOut2={} remainingAfterBuffer2={} craftsNeedNow={} craftsScheduled={} craftsDelta={}",
-                    pos, ln.wanted1, outPerCraft, bufferedOut2, remainingAfterBuffer2, craftsNeedNow, ln.craftsScheduled, craftsDelta);
-
-            if (craftsDelta > 0) {
-                if (cte instanceof TileEntityGolemCrafter) {
-                    ((TileEntityGolemCrafter) cte).enqueueCraftsByRequesterLike(ln.wanted1, craftsDelta);
-                    ln.craftsScheduled += craftsDelta;
-                    lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
-
-                    LOG.info("[Manager {}] processOneCraftLine enqueueCraftsByRequesterLike wanted={} craftsDelta={} crafterPos={}",
-                            pos, ln.wanted1, craftsDelta, crafterPos);
-                }
-            }
-        }
 
         int pushed2 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
         LOG.info("[Manager {}] processOneCraftLine final push wanted={} pushed2={} dest={} remainingBefore={}",
@@ -3494,7 +3497,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             // восстановим его из boundRequesters (фильтруя по типу тайла).
             for (BlockPos rp : boundRequesters) {
                 TileEntity te = world != null ? world.getTileEntity(rp) : null;
-                if (te instanceof TilePatternRequester || te instanceof TileInfusionRequester) {
+                if (te instanceof ICraftEndpoint) {
                     requesters.add(rp.toImmutable());
                 }
             }
@@ -3834,12 +3837,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     @Nullable
     private BlockPos findRequesterForKey(ItemKey key) {
         if (world == null) return null;
+        ItemStack like = key.toStack(1);
         for (BlockPos rp : requesters) {
             TileEntity te = world.getTileEntity(rp);
-            if (!(te instanceof TilePatternRequester)) continue;
-            for (ItemStack out : ((TilePatternRequester) te).listCraftableResults()) {
+            if (!(te instanceof ICraftEndpoint)) continue;
+            ICraftEndpoint endpoint = (ICraftEndpoint) te;
+            if (!CraftOrderApi.isCrafter(endpoint)) continue;
+            for (ItemStack out : endpoint.listCraftableResults()) {
                 if (out == null || out.isEmpty()) continue;
-                ItemStack like = key.toStack(1);
                 boolean same = ResourceIdentity.sameResource(out, like);
                 if (same) return rp;
             }

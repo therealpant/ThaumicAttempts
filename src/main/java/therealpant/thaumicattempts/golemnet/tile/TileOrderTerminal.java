@@ -14,6 +14,8 @@ import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
@@ -35,6 +37,7 @@ import java.util.*;
  * - Отдаёт GUI-снапшоты каталога постранично (5×7) по новому протоколу: snapshotId + pageIndex0.
  */
 public class TileOrderTerminal extends TileEntity implements ITickable {
+    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/OrderTerminal");
     private static final Map<String, String> ASPECT_ALIASES = buildAspectAliases();
 
     private static Map<String, String> buildAspectAliases() {
@@ -527,6 +530,8 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 if (have > 0) {
                     int take = Math.min(have, left);
                     addToMap(pendingCraft, keyCr, -take);
+                    LOG.info("[OrderTerminal {}] pendingCraft decremented like={} take={} before={} after={}",
+                            pos, like, take, have, Math.max(0, have - take));
                     left -= take;
                 }
             }

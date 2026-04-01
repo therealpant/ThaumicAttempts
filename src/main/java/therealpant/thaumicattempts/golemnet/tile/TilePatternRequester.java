@@ -203,6 +203,16 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         // тонкая обёртка над твоей текущей логикой
         queueCraft(resultLike, crafts);
     }
+
+    @Override
+    public int enqueueCraftOrder(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
+        if (resultLike == null || resultLike.isEmpty() || amount <= 0) return 0;
+        int perCraft = Math.max(1, getPerCraftOutputCountFor(resultLike));
+        int crafts = (amount + perCraft - 1) / perCraft;
+        if (crafts <= 0) return 0;
+        queueCraft(resultLike, crafts);
+        return crafts * perCraft;
+    }
     /**
      * Полный список входов, необходимых для `times` крафтов (агрегирован по «ключу сетки»).
      * Ключ и сравнение в точности как у крафтера:

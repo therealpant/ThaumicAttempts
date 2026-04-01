@@ -691,6 +691,11 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     }
 
     @Override
+    public int enqueueCraftOrder(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
+        return enqueueCrafterOrder(managerPos, returnDest, returnSide, resultLike, amount);
+    }
+
+    @Override
     public boolean hasActiveOrQueued() {
         return jobActive || !queuedTriggers.isEmpty();
     }

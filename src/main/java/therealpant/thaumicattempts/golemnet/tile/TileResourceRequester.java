@@ -22,6 +22,8 @@ import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.golems.GolemHelper;
 import therealpant.thaumicattempts.api.IPatternedWorksite;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
+import therealpant.thaumicattempts.api.ICraftEndpoint;
+import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
@@ -43,7 +45,8 @@ import java.util.*;
 import therealpant.thaumicattempts.api.PatternResourceList;
 
 public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable, IPatternedWorksite,
-        therealpant.thaumicattempts.api.ITerminalOrderAcceptor, therealpant.thaumicattempts.api.ITerminalOrderIconProvider {
+        therealpant.thaumicattempts.api.ITerminalOrderAcceptor, therealpant.thaumicattempts.api.ITerminalOrderIconProvider,
+        ICraftEndpoint, CraftOrderApi.TagProvider {
     private static final int PATTERN_SLOT_COUNT = 15;
     private static final int REQUEST_STALE_TICKS = 100;
     private static final int REQUEST_RETRY_TICKS = 200;
@@ -164,11 +167,95 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         for (int i = 0; i < patterns.getSlots(); i++) {
             ItemStack pattern = patterns.getStackInSlot(i);
             if (pattern.isEmpty()) continue;
-            if (ResourceIdentity.sameResource(pattern, resultLike)) {
+            ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
+            if (!preview.isEmpty() && ResourceIdentity.sameResource(preview, resultLike)) {
                 return enqueueFromPatternRequester(i, times);
             }
         }
         return 0;
+    }
+
+    @Override
+    public List<ItemStack> listCraftableResults() {
+        ArrayList<ItemStack> out = new ArrayList<>();
+        for (int i = 0; i < patterns.getSlots(); i++) {
+            ItemStack pattern = patterns.getStackInSlot(i);
+            if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) continue;
+            ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
+            if (preview.isEmpty()) continue;
+            ItemStack one = preview.copy();
+            one.setCount(Math.max(1, one.getCount()));
+            out.add(one);
+        }
+        return out;
+    }
+
+    @Override
+    public int getPerCraftOutputCountFor(ItemStack resultLike) {
+        if (resultLike == null || resultLike.isEmpty()) return 0;
+        int slot = findPatternSlotForResult(resultLike);
+        if (slot < 0) return 0;
+        ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(patterns.getStackInSlot(slot));
+        return preview.isEmpty() ? 0 : Math.max(1, preview.getCount());
+    }
+
+    @Override
+    public List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times) {
+        if (resultLike == null || resultLike.isEmpty() || times <= 0) return Collections.emptyList();
+        int slot = findPatternSlotForResult(resultLike);
+        if (slot < 0) return Collections.emptyList();
+        ItemStack pattern = patterns.getStackInSlot(slot);
+        if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) return Collections.emptyList();
+
+        List<PatternResourceList.Entry> entries = PatternResourceList.build(pattern);
+        if (entries == null || entries.isEmpty()) return Collections.emptyList();
+        List<ItemStack> out = new ArrayList<>();
+        int mul = Math.max(1, times);
+        for (PatternResourceList.Entry e : entries) {
+            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+            ItemStack stack = e.getKey().toStack(Math.max(1, e.getCount()) * mul);
+            if (!stack.isEmpty()) out.add(stack);
+        }
+        return out;
+    }
+
+    @Override
+    public void enqueueCraft(ItemStack resultLike, int crafts) {
+        enqueueFromPatternRequester(resultLike, crafts);
+    }
+
+    @Override
+    public int enqueueCraftOrder(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
+        if (resultLike == null || resultLike.isEmpty() || amount <= 0) return 0;
+        int perCraft = Math.max(1, getPerCraftOutputCountFor(resultLike));
+        int crafts = (amount + perCraft - 1) / perCraft;
+        int acceptedCrafts = enqueueFromPatternRequester(resultLike, crafts);
+        if (acceptedCrafts <= 0) return 0;
+        if (managerPos != null) setManagerPos(managerPos, true);
+        return acceptedCrafts * perCraft;
+    }
+
+    @Override
+    public boolean hasActiveOrQueued() {
+        return hasAnyWaitingWork();
+    }
+
+    @Override
+    public Set<String> getCraftOrderTags() {
+        return CraftOrderApi.singletonTag(CraftOrderApi.TAG_CRAFTER);
+    }
+
+    private int findPatternSlotForResult(ItemStack like) {
+        if (like == null || like.isEmpty()) return -1;
+        for (int i = 0; i < patterns.getSlots(); i++) {
+            ItemStack pattern = patterns.getStackInSlot(i);
+            if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) continue;
+            ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
+            if (!preview.isEmpty() && ResourceIdentity.sameResource(preview, like)) {
+                return i;
+            }
+        }
+        return -1;
     }
 
     @Override
@@ -531,7 +618,8 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         if (!(te instanceof TileMirrorManager)) return;
         TileMirrorManager mgr = (TileMirrorManager) te;
         if (!mgr.isConsumerBound(this.pos)) {
-            mgr.tryBindTerminal(this.pos);
+            mgr.tryBindRequester(this.pos);
+            mgr.registerRequester(this.pos);
         }
     }
 
