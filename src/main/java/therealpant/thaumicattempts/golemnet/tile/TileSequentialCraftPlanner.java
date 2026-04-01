@@ -120,6 +120,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
 
         final BlockPos rootDest = (rootDestination == null ? destination : rootDestination).toImmutable();
         List<Map.Entry<ItemKey, Integer>> suborders = new ArrayList<>();
+        final Map<ItemKey, BlockPos> resolvedEndpoints = new HashMap<>();
 
         LOG.info("[Planner {}] expandShortages start rootOrder={} destination={} rootDest={} queueId={} shortages={}",
                 pos, rootOrder, destination, rootDest, queueId, shortages);
@@ -152,6 +153,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
 
             trackedShortages.add(dedupeKey);
             suborders.add(new AbstractMap.SimpleImmutableEntry<>(key, amount));
+            resolvedEndpoints.put(key, endpoint);
 
             LOG.info("[Planner {}] expandShortages accepted key={} amount={} endpoint={} rootOrder={}",
                     pos, key, amount, endpoint, rootOrder);
@@ -173,7 +175,11 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
                 destinationSide,
                 queueId,
                 suborders,
-                key -> findCraftEndpointFor(manager, key.toStack(1))
+                key -> {
+                    BlockPos resolved = resolvedEndpoints.get(key);
+                    if (resolved != null) return resolved;
+                    return findCraftEndpointFor(manager, key.toStack(1));
+                }
         );
 
         LOG.info("[Planner {}] expandShortages submitted rootOrder={} destination={} queueId={} subordersCount={}",

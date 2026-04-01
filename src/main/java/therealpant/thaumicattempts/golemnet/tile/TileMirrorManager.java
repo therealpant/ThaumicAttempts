@@ -1594,11 +1594,24 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
             // находим реквестер
             BlockPos rp = (finder != null) ? finder.find(e.getKey()) : findRequesterForKey(e.getKey());
-            if (rp == null) continue;
+            if (rp == null) {
+                LOG.warn("[Manager {}] enqueueBatchCraft skip line: no requester found key={} amount={} dest={} queue={}",
+                        pos, e.getKey(), amount, dest, q);
+                continue;
+            }
+
 
             dropDupDelivery.accept(dest, like1);
 
             TileEntity rte = world.getTileEntity(rp);
+            LOG.info("[Manager {}] enqueueBatchCraft suborder accepted key={} amount={} requester={} requesterType={} dest={} queue={}",
+                    pos,
+                    e.getKey(),
+                    amount,
+                    rp,
+                    rte == null ? "null" : rte.getClass().getSimpleName(),
+                    dest,
+                    q);
 
             if (rte instanceof ICraftEndpoint && CraftOrderApi.isCrafter((ICraftEndpoint) rte)
                     && rte instanceof TileInfusionRequester) {
@@ -1606,6 +1619,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
                 int accepted = inf.enqueueCrafterOrder(this.pos, dest, destSide, like1, amount);
                 if (accepted > 0) {
+                    LOG.info("[Manager {}] enqueueBatchCraft suborder dispatched to infusion requester={} key={} accepted={} dest={} queue={}",
+                            pos, rp, e.getKey(), accepted, dest, q);
                     dropDupDelivery.accept(dest, like1);
                 }
                 continue;
@@ -1657,6 +1672,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             Batch b = new Batch(Batch.Kind.CRAFT, dest, destSide, q);
             b.lines.add(ln);
             craftBatches.add(b);
+            LOG.info("[Manager {}] enqueueBatchCraft craft batch line queued key={} amount={} requester={} dest={} queue={}",
+                    pos, e.getKey(), amount, rp, dest, q);
         }
 
         // обеспечиваем доставку сырья ДЛЯ КРАФТЕРОВ (инфузия тут не участвует)
@@ -2124,6 +2141,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         if (!miss.isEmpty()) {
+            LOG.info("[Manager {}] processOneCraftLine waiting intermediates wanted={} miss={} crafterPos={} rootDest={}",
+                    pos, ln.wanted1, miss, crafterPos, b.dest);
             int qDelivery = (b.queueId + 1) % 6;
             LOG.info("[Manager {}] processOneCraftLine ensureDeliveryForExact wanted={} miss={} crafterPos={} deliveryQueue={}",
                     pos, ln.wanted1, miss, crafterPos, qDelivery);
