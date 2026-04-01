@@ -1,12 +1,10 @@
 package therealpant.thaumicattempts.golemnet.logistics;
 
 public enum OrderStatus {
-    PLACED,
+    NEW,
     PLANNING,
-    WAITING_RESOURCES,
-    IN_PROGRESS,
-    BLOCKED,
-    FAILED,
+    RUNNING,
     DONE,
-    CANCELLED
+    FAILED,
+    CANCELED
 }

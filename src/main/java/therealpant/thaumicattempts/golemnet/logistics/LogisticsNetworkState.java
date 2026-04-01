@@ -18,15 +18,18 @@ import javax.annotation.Nullable;
 import java.util.*;
 
 public class LogisticsNetworkState {
-    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/LogisticsNetworkState");
+    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/LogisticsHandler");
     private static final int MAX_SUBORDER_DEPTH = 8;
 
     private final LinkedHashMap<UUID, NetworkOrder> orders = new LinkedHashMap<UUID, NetworkOrder>();
-    private final LinkedHashMap<UUID, LogisticsTask> tasks = new LinkedHashMap<UUID, LogisticsTask>();
+    private final LinkedHashMap<UUID, RuntimeTask> runtimeTasks = new LinkedHashMap<UUID, RuntimeTask>();
     private final LinkedHashMap<String, UUID> activeTaskDedup = new LinkedHashMap<String, UUID>();
     private final LinkedHashMap<String, UUID> activeOrderDedup = new LinkedHashMap<String, UUID>();
     private final LinkedHashMap<ItemKey, List<RecipeNode>> recipesByResult = new LinkedHashMap<ItemKey, List<RecipeNode>>();
     private final ResourceReservationBook reservationBook = new ResourceReservationBook();
+
+    private final ManagerExecutor managerExecutor = new ManagerExecutor();
+    private final CrafterExecutor crafterExecutor = new CrafterExecutor();
 
     public UUID submitOrder(TileMirrorManager manager,
                             ItemKey key,
@@ -41,7 +44,6 @@ public class LogisticsNetworkState {
         String dedupeKey = sourceType.name() + "|" + sourcePos.toLong() + "|" + key.hashCode() + "|" + amount + "|" + (parentOrderId == null ? "root" : parentOrderId.toString());
         UUID existing = activeOrderDedup.get(dedupeKey);
         if (existing != null && orders.containsKey(existing)) {
-            LOG.info("[Logistics {}] dedupe skipped duplicate order={} key={} amount={} reason={}", manager.getPos(), existing, key, amount, reason);
             return existing;
         }
 
@@ -55,19 +57,17 @@ public class LogisticsNetworkState {
         order.requestedKey = key;
         order.requestedAmount = Math.max(1, amount);
         order.completedAmount = 0;
-        order.status = OrderStatus.PLACED;
+        order.status = OrderStatus.NEW;
         order.createdTick = now;
         order.updatedTick = now;
         order.debugReason = reason == null ? "" : reason;
         orders.put(order.orderId, order);
         activeOrderDedup.put(dedupeKey, order.orderId);
-        LOG.info("[Logistics {}] order created id={} parent={} source={} key={} amount={} return={} reason={}",
-                manager.getPos(), order.orderId, order.parentOrderId, order.sourceType, key, amount, returnDestination, reason);
+        LOG.info("[Logistics {}] request accepted order={} source={} key={} amount={} reason={}", manager.getPos(), order.orderId, sourceType, key, amount, reason);
 
         if (parentOrderId != null) {
             NetworkOrder parent = orders.get(parentOrderId);
             if (parent != null) parent.childOrderIds.add(order.orderId);
-            LOG.info("[Logistics {}] sub-order created parent={} child={} key={} amount={}", manager.getPos(), parentOrderId, order.orderId, key, amount);
         }
 
         planOrder(manager, order, depth);
@@ -84,98 +84,130 @@ public class LogisticsNetworkState {
         int need = Math.max(0, order.requestedAmount - available);
 
         if (available > 0) {
-            LogisticsTask direct = createTask(manager, order.orderId, TaskType.DIRECT_DELIVERY, order.sourcePos, manager.getPos(), order.returnDestination != null ? order.returnDestination : order.sourcePos, order.requestedKey, Math.min(order.requestedAmount, available), null, "direct-stock");
-            direct.status = TaskStatus.RESERVED;
-            direct.reservedAmount = reservationBook.reserveStock(manager.getPos(), order.requestedKey, direct.amount, order.orderId, direct.taskId);
-            LOG.info("[Logistics {}] task reserved id={} key={} amount={}", manager.getPos(), direct.taskId, direct.key, direct.reservedAmount);
+            TransferTask direct = createTransferTask(manager, order.orderId,
+                    EndpointRef.of(manager.getPos()),
+                    EndpointRef.of(order.returnDestination != null ? order.returnDestination : order.sourcePos),
+                    order.requestedKey,
+                    Math.min(order.requestedAmount, available),
+                    null,
+                    "direct-stock");
+            direct.status = TaskStatus.READY;
+            direct.reservedAmount = reservationBook.reserveStock(manager.getPos(), order.requestedKey, (int) direct.amount, order.orderId, direct.taskId);
         }
 
-        if (need <= 0) {
-            order.status = OrderStatus.IN_PROGRESS;
-            return;
-        }
-
-        RecipeNode recipe = pickRecipe(order.requestedKey);
-        if (recipe == null) {
-            order.status = OrderStatus.BLOCKED;
-            order.lastError = "No recipe for " + order.requestedKey;
-            LOG.warn("[Logistics {}] task blocked order={} key={} amount={} reason=no_recipe", manager.getPos(), order.orderId, order.requestedKey, need);
-            return;
-        }
-
-        if (depth >= MAX_SUBORDER_DEPTH) {
-            order.status = OrderStatus.FAILED;
-            order.lastError = "max sub-order depth reached";
-            LOG.warn("[Logistics {}] task failed order={} key={} amount={} reason=max_depth", manager.getPos(), order.orderId, order.requestedKey, need);
-            return;
-        }
-
-        int cycles = (need + recipe.outputPerCycle - 1) / recipe.outputPerCycle;
-        List<UUID> inputTasks = new ArrayList<UUID>();
-        for (Map.Entry<ItemKey, Integer> in : recipe.inputs.entrySet()) {
-            int inputNeed = Math.max(1, in.getValue()) * cycles;
-            UUID subOrderId = submitOrder(manager, in.getKey(), inputNeed, OrderSourceType.INTERNAL_SUBORDER, recipe.source, null, order.orderId, depth + 1, "input-for-" + order.requestedKey);
-            if (subOrderId != null) {
-                NetworkOrder child = orders.get(subOrderId);
-                if (child != null && !child.taskIds.isEmpty()) inputTasks.addAll(child.taskIds);
+        if (need > 0) {
+            RecipeNode recipe = pickRecipe(order.requestedKey);
+            if (recipe == null) {
+                order.status = OrderStatus.FAILED;
+                order.lastError = "No recipe for " + order.requestedKey;
+                LOG.warn("[Logistics {}] order failed={} reason={}", manager.getPos(), order.orderId, order.lastError);
+                return;
             }
+            if (depth >= MAX_SUBORDER_DEPTH) {
+                order.status = OrderStatus.FAILED;
+                order.lastError = "max sub-order depth reached";
+                return;
+            }
+
+            int cycles = (need + recipe.outputPerCycle - 1) / recipe.outputPerCycle;
+            List<UUID> inputDeliveries = new ArrayList<UUID>();
+            for (Map.Entry<ItemKey, Integer> in : recipe.inputs.entrySet()) {
+                int inputNeed = Math.max(1, in.getValue()) * cycles;
+                UUID subOrderId = submitOrder(manager, in.getKey(), inputNeed, OrderSourceType.INTERNAL_SUBORDER, recipe.source, null, order.orderId, depth + 1, "input-for-" + order.requestedKey);
+                if (subOrderId != null) {
+                    NetworkOrder child = orders.get(subOrderId);
+                    if (child != null) inputDeliveries.addAll(child.taskIds);
+                }
+            }
+            TransferTask supplyInputs = createTransferTask(manager, order.orderId,
+                    EndpointRef.of(manager.getPos()), EndpointRef.of(recipe.source), order.requestedKey, 0, inputDeliveries, "inputs-ready-marker");
+            supplyInputs.status = inputDeliveries.isEmpty() ? TaskStatus.READY : TaskStatus.WAITING_DEPENDENCY;
+
+            CraftTask craft = createCraftTask(manager, order.orderId, EndpointRef.of(recipe.source), order.requestedKey,
+                    cycles * recipe.outputPerCycle, recipe.inputs, Collections.singletonList(supplyInputs.taskId), "execute-craft");
+            craft.status = supplyInputs.status == TaskStatus.READY ? TaskStatus.READY : TaskStatus.WAITING_DEPENDENCY;
+
+            TransferTask pickup = createTransferTask(manager, order.orderId,
+                    EndpointRef.of(recipe.source), EndpointRef.of(manager.getPos()), order.requestedKey, need,
+                    Collections.singletonList(craft.taskId), "pickup-output");
+            TransferTask deliver = createTransferTask(manager, order.orderId,
+                    EndpointRef.of(manager.getPos()),
+                    EndpointRef.of(order.returnDestination != null ? order.returnDestination : order.sourcePos),
+                    order.requestedKey,
+                    need,
+                    Collections.singletonList(pickup.taskId),
+                    "deliver-output");
+            reservationBook.claimExpectedOutput(recipe.source, order.requestedKey, need, order.orderId, pickup.taskId);
+            if (deliver != null) { /* keep */ }
         }
 
-        LogisticsTask execute = createTask(manager, order.orderId, TaskType.EXECUTE_CRAFT, recipe.source, null, recipe.source, order.requestedKey, cycles * recipe.outputPerCycle, inputTasks, "execute-craft");
-        execute.executorPos = recipe.source;
-        execute.status = inputTasks.isEmpty() ? TaskStatus.PLACED : TaskStatus.WAITING_DEPENDENCY;
-
-        LogisticsTask pickup = createTask(manager, order.orderId, TaskType.PICKUP_OUTPUT, recipe.source, recipe.source, recipe.source, order.requestedKey, need, Collections.singletonList(execute.taskId), "pickup");
-        LogisticsTask deliver = createTask(manager, order.orderId, TaskType.DELIVER_OUTPUT, recipe.source, recipe.source,
-                order.returnDestination != null ? order.returnDestination : order.sourcePos,
-                order.requestedKey,
-                need,
-                Collections.singletonList(pickup.taskId),
-                "deliver-output");
-
-        reservationBook.claimExpectedOutput(recipe.source, order.requestedKey, need, order.orderId, pickup.taskId);
-        order.status = OrderStatus.WAITING_RESOURCES;
-        LOG.info("[Logistics {}] expected output claimed order={} task={} key={} amount={}", manager.getPos(), order.orderId, pickup.taskId, order.requestedKey, need);
+        order.status = OrderStatus.RUNNING;
+        LOG.info("[Logistics {}] order planned={} key={} amount={}", manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount);
     }
 
-    private LogisticsTask createTask(TileMirrorManager manager,
-                                     UUID orderId,
-                                     TaskType type,
-                                     @Nullable BlockPos executor,
-                                     @Nullable BlockPos src,
-                                     @Nullable BlockPos dst,
-                                     ItemKey key,
-                                     int amount,
-                                     @Nullable List<UUID> dependsOn,
-                                     String purpose) {
-        String dedupe = (dst == null ? "-" : Long.toString(dst.toLong())) + "|" + key.hashCode() + "|" + purpose + "|" + orderId;
+    private TransferTask createTransferTask(TileMirrorManager manager,
+                                            UUID orderId,
+                                            EndpointRef source,
+                                            EndpointRef target,
+                                            ItemKey key,
+                                            long amount,
+                                            @Nullable List<UUID> dependsOn,
+                                            String purpose) {
+        String dedupe = "T|" + orderId + "|" + source.pos.toLong() + "|" + target.pos.toLong() + "|" + key.hashCode() + "|" + purpose;
         UUID existing = activeTaskDedup.get(dedupe);
-        if (existing != null && tasks.containsKey(existing)) {
-            LOG.info("[Logistics {}] dedupe skipped duplicate task={} key={} amount={} purpose={}", manager.getPos(), existing, key, amount, purpose);
-            return tasks.get(existing);
+        if (existing != null && runtimeTasks.containsKey(existing) && runtimeTasks.get(existing) instanceof TransferTask) {
+            return (TransferTask) runtimeTasks.get(existing);
         }
 
-        LogisticsTask task = new LogisticsTask();
+        TransferTask task = new TransferTask();
+
         task.taskId = UUID.randomUUID();
         task.orderId = orderId;
-        task.type = type;
-        task.status = TaskStatus.PLACED;
-        task.executorPos = executor == null ? null : executor.toImmutable();
-        task.sourcePos = src == null ? null : src.toImmutable();
-        task.destinationPos = dst == null ? null : dst.toImmutable();
-        task.key = key;
-        task.amount = Math.max(1, amount);
+        task.itemKey = key;
+        task.amount = Math.max(0, amount);
+        task.source = source;
+        task.target = target;
+        task.status = TaskStatus.NEW;
         task.createdTick = manager.getServerTickCounter();
         task.updatedTick = task.createdTick;
         if (dependsOn != null) task.dependsOn.addAll(dependsOn);
-        task.meta.put("purpose", purpose);
-        tasks.put(task.taskId, task);
+        task.metaPurpose = purpose;
+        runtimeTasks.put(task.taskId, task);
         activeTaskDedup.put(dedupe, task.taskId);
 
         NetworkOrder order = orders.get(orderId);
         if (order != null) order.taskIds.add(task.taskId);
-        LOG.info("[Logistics {}] task created id={} order={} type={} key={} amount={} src={} dst={} exec={}",
-                manager.getPos(), task.taskId, orderId, type, key, task.amount, src, dst, executor);
+        LOG.info("[Logistics {}] runtime task created transfer={} order={} key={} amount={} src={} dst={}",
+                manager.getPos(), task.taskId, orderId, key, task.amount, source.pos, target.pos);
+        return task;
+    }
+
+    private CraftTask createCraftTask(TileMirrorManager manager,
+                                      UUID orderId,
+                                      EndpointRef crafter,
+                                      ItemKey key,
+                                      long amount,
+                                      Map<ItemKey, Integer> requiredInputs,
+                                      @Nullable List<UUID> dependsOn,
+                                      String purpose) {
+        CraftTask task = new CraftTask();
+        task.taskId = UUID.randomUUID();
+        task.orderId = orderId;
+        task.crafter = crafter;
+        task.outputEndpoint = crafter;
+        task.recipeKey = key;
+        task.amount = Math.max(1, amount);
+        task.requiredInputs.putAll(requiredInputs);
+        task.status = TaskStatus.NEW;
+        task.createdTick = manager.getServerTickCounter();
+        task.updatedTick = task.createdTick;
+        if (dependsOn != null) task.dependsOn.addAll(dependsOn);
+        task.metaPurpose = purpose;
+        runtimeTasks.put(task.taskId, task);
+        NetworkOrder order = orders.get(orderId);
+        if (order != null) order.taskIds.add(task.taskId);
+        LOG.info("[Logistics {}] runtime task created craft={} order={} key={} amount={} crafter={}",
+                manager.getPos(), task.taskId, orderId, key, amount, crafter.pos);
         return task;
     }
 
@@ -228,22 +260,81 @@ public class LogisticsNetworkState {
     }
 
     public void tick(TileMirrorManager manager) {
-        for (LogisticsTask task : tasks.values()) {
-            if (task.status == TaskStatus.WAITING_DEPENDENCY) {
-                boolean ok = true;
-                for (UUID dep : task.dependsOn) {
-                    LogisticsTask depTask = tasks.get(dep);
-                    if (depTask == null || depTask.status != TaskStatus.DONE) {
-                        ok = false;
-                        break;
-                    }
-                }
-                if (ok) {
-                    task.status = TaskStatus.PLACED;
-                    task.updatedTick = manager.getServerTickCounter();
-                    LOG.info("[Logistics {}] task started id={} type={} key={} amount={} reason=deps_done", manager.getPos(), task.taskId, task.type, task.key, task.amount);
-                }
+        managerExecutor.bind(manager);
+        crafterExecutor.bind(manager);
+
+        for (RuntimeTask task : runtimeTasks.values()) {
+            if (task.status == TaskStatus.NEW) task.status = TaskStatus.WAITING_DEPENDENCY;
+            if (task.status == TaskStatus.WAITING_DEPENDENCY && depsDone(task)) {
+                task.status = TaskStatus.READY;
+                task.updatedTick = manager.getServerTickCounter();
             }
+            if (task.status != TaskStatus.READY) continue;
+            boolean accepted = false;
+            if (task instanceof TransferTask) {
+                accepted = managerExecutor.canAccept((TransferTask) task) && managerExecutor.submit((TransferTask) task);
+            } else if (task instanceof CraftTask) {
+                accepted = crafterExecutor.canAccept((CraftTask) task) && crafterExecutor.submit((CraftTask) task);
+            }
+            if (accepted) {
+                task.status = TaskStatus.DISPATCHED;
+                LOG.info("[Logistics {}] task dispatched id={} type={}", manager.getPos(), task.taskId, task.getTaskType());
+            }
+        }
+
+        managerExecutor.tick();
+        crafterExecutor.tick();
+
+        collectSnapshot(manager, managerExecutor);
+        collectSnapshot(manager, crafterExecutor);
+        updateOrders(manager);
+    }
+
+    private <T extends RuntimeTask> void collectSnapshot(TileMirrorManager manager, ILogisticsExecutor<T> executor) {
+        for (RuntimeTask task : runtimeTasks.values()) {
+            if (!executor.accepts(task)) continue;
+            TaskExecutionSnapshot snapshot = executor.getSnapshot(task.taskId);
+            if (snapshot == null) continue;
+            task.status = snapshot.status;
+            task.completedAmount = snapshot.completedAmount;
+            task.updatedTick = manager.getServerTickCounter();
+        }
+    }
+
+    private boolean depsDone(RuntimeTask task) {
+        for (UUID dep : task.dependsOn) {
+            RuntimeTask depTask = runtimeTasks.get(dep);
+            if (depTask == null || depTask.status != TaskStatus.DONE) {
+                return false;
+            }
+        }
+        return true;
+    }
+
+    private void updateOrders(TileMirrorManager manager) {
+        for (NetworkOrder order : orders.values()) {
+            if (order.status == OrderStatus.DONE || order.status == OrderStatus.FAILED || order.status == OrderStatus.CANCELED) continue;
+            boolean allDone = true;
+            for (UUID tid : order.taskIds) {
+                RuntimeTask t = runtimeTasks.get(tid);
+                if (t == null) continue;
+                if (t.status == TaskStatus.FAILED || t.status == TaskStatus.BLOCKED || t.status == TaskStatus.CANCELED) {
+                    order.status = OrderStatus.FAILED;
+                    order.lastError = "task-failed:" + tid;
+                    LOG.warn("[Logistics {}] order failed={} task={} status={}", manager.getPos(), order.orderId, tid, t.status);
+                    allDone = false;
+                    break;
+                }
+                if (t.status != TaskStatus.DONE) allDone = false;
+            }
+            if (allDone) {
+                order.status = OrderStatus.DONE;
+                order.completedAmount = order.requestedAmount;
+                LOG.info("[Logistics {}] order done={} key={} amount={}", manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount);
+            } else if (order.status == OrderStatus.PLANNING || order.status == OrderStatus.NEW) {
+                order.status = OrderStatus.RUNNING;
+            }
+            order.updatedTick = manager.getServerTickCounter();
         }
     }
 
@@ -252,9 +343,10 @@ public class LogisticsNetworkState {
         for (NetworkOrder o : orders.values()) ord.appendTag(o.writeToNbt());
         tag.setTag("orders", ord);
 
-        NBTTagList t = new NBTTagList();
-        for (LogisticsTask task : tasks.values()) t.appendTag(task.writeToNbt());
-        tag.setTag("tasks", t);
+        NBTTagList rt = new NBTTagList();
+        for (RuntimeTask task : runtimeTasks.values()) rt.appendTag(task.writeToNbt());
+        tag.setTag("runtimeTasks", rt);
+
 
         NBTTagList recipes = new NBTTagList();
         for (List<RecipeNode> list : recipesByResult.values()) {
@@ -266,7 +358,7 @@ public class LogisticsNetworkState {
 
     public void readFromNbt(NBTTagCompound tag) {
         orders.clear();
-        tasks.clear();
+        runtimeTasks.clear();
         recipesByResult.clear();
         activeOrderDedup.clear();
         activeTaskDedup.clear();
@@ -277,10 +369,10 @@ public class LogisticsNetworkState {
             orders.put(o.orderId, o);
         }
 
-        NBTTagList tt = tag.getTagList("tasks", Constants.NBT.TAG_COMPOUND);
-        for (int i = 0; i < tt.tagCount(); i++) {
-            LogisticsTask task = LogisticsTask.readFromNbt(tt.getCompoundTagAt(i));
-            tasks.put(task.taskId, task);
+        NBTTagList rt = tag.getTagList("runtimeTasks", Constants.NBT.TAG_COMPOUND);
+        for (int i = 0; i < rt.tagCount(); i++) {
+            RuntimeTask task = RuntimeTask.readFromNbt(rt.getCompoundTagAt(i));
+            runtimeTasks.put(task.taskId, task);
         }
 
         NBTTagList recipes = tag.getTagList("recipes", Constants.NBT.TAG_COMPOUND);

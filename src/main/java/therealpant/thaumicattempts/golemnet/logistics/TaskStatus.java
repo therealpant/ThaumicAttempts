@@ -1,12 +1,14 @@
 package therealpant.thaumicattempts.golemnet.logistics;
 
 public enum TaskStatus {
-    PLACED,
-    RESERVED,
-    IN_PROGRESS,
+    NEW,
     WAITING_DEPENDENCY,
-    BLOCKED,
-    FAILED,
+    READY,
+    DISPATCHED,
+    ACCEPTED,
+    IN_PROGRESS,
     DONE,
-    CANCELLED
+    FAILED,
+    BLOCKED,
+    CANCELED
 }

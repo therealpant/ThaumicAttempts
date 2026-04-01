@@ -31,7 +31,7 @@ public class LogisticsTask {
     public final LinkedHashMap<String, String> meta = new LinkedHashMap<String, String>();
 
     public boolean isFinished() {
-        return status == TaskStatus.DONE || status == TaskStatus.CANCELLED || status == TaskStatus.FAILED;
+        return status == TaskStatus.DONE || status == TaskStatus.CANCELED || status == TaskStatus.FAILED;
     }
 
     public NBTTagCompound writeToNbt() {

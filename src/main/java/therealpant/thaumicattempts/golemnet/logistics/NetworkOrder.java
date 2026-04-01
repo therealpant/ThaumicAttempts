@@ -82,7 +82,7 @@ public class NetworkOrder {
         try {
             o.status = OrderStatus.valueOf(tag.getString("status"));
         } catch (Exception ignored) {
-            o.status = OrderStatus.PLACED;
+            o.status = OrderStatus.NEW;
         }
         o.createdTick = tag.getLong("created");
         o.updatedTick = tag.getLong("updated");

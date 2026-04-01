@@ -2347,6 +2347,55 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return id;
     }
 
+    public int executeTransferTask(ItemKey key, int amount, BlockPos source, BlockPos target) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0 || source == null || target == null) return 0;
+        ItemStack like = key.toStack(1);
+        if (!source.equals(this.pos)) {
+            harvestLikeToBufferFromHandler(source, -1, like, amount);
+        } else {
+            pullLikeFromProvideSetToBuffer(like, amount);
+        }
+        return pushFromBufferTo(target, -1, like, amount);
+    }
+
+    public boolean startCraftTask(BlockPos crafterPos, ItemKey key, int amount) {
+        if (world == null || world.isRemote || crafterPos == null || key == null || key == ItemKey.EMPTY || amount <= 0) return false;
+        TileEntity te = world.getTileEntity(crafterPos);
+        if (!(te instanceof ICraftEndpoint)) return false;
+        ICraftEndpoint endpoint = (ICraftEndpoint) te;
+        int accepted = endpoint.enqueueCraftOrder(this.pos, crafterPos, -1, key.toStack(1), amount);
+        return accepted > 0;
+    }
+
+    public int countItemAt(BlockPos pos, ItemKey key) {
+        if (pos == null || key == null || key == ItemKey.EMPTY) return 0;
+        return countAtDestLike(pos, -1, key.toStack(1));
+    }
+
+    private int pullLikeFromProvideSetToBuffer(ItemStack like, int upTo) {
+        if (world == null || world.isRemote || like == null || like.isEmpty() || upTo <= 0) return 0;
+        int moved = 0;
+        rebuildProvideSetFromSeals();
+        for (TrackedInv ti : provideSet) {
+            if (moved >= upTo) break;
+            EnumFacing face = (ti.side >= 0 && ti.side < 6) ? EnumFacing.byIndex(ti.side) : null;
+            IItemHandler ih = getSealExactInventory(world, ti.pos, face);
+            if (ih == null) continue;
+            for (int s = 0; s < ih.getSlots() && moved < upTo; s++) {
+                ItemStack peek = ih.extractItem(s, Math.min(64, upTo - moved), true);
+                if (peek.isEmpty() || !matchesForDelivery(peek, like)) continue;
+                ItemStack taken = ih.extractItem(s, Math.min(peek.getCount(), upTo - moved), false);
+                if (taken.isEmpty()) continue;
+                ItemStack rest = ItemHandlerHelper.insertItem(buffer, taken, false);
+                int accepted = taken.getCount() - (rest.isEmpty() ? 0 : rest.getCount());
+                moved += accepted;
+                if (!rest.isEmpty()) ih.insertItem(s, rest, false);
+            }
+        }
+        if (moved > 0) markDirty();
+        return moved;
+    }
+
     private void processBatchHead(Batch b) {
         if (b == null) {
             LOG.warn("[Manager {}] processBatchHead called with null batch", pos);
