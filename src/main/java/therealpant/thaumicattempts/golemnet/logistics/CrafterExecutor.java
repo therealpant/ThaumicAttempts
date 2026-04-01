@@ -10,6 +10,7 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
     private TileMirrorManager manager;
     private final LinkedHashMap<UUID, CraftTask> running = new LinkedHashMap<UUID, CraftTask>();
     private final LinkedHashMap<UUID, TaskExecutionSnapshot> snapshots = new LinkedHashMap<UUID, TaskExecutionSnapshot>();
+    private final LinkedHashMap<UUID, Boolean> started = new LinkedHashMap<UUID, Boolean>();
 
     public void bind(TileMirrorManager manager) { this.manager = manager; }
 
@@ -19,11 +20,15 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
     @Override
     public boolean submit(CraftTask task) {
         if (!canAccept(task)) return false;
-        boolean accepted = manager.startCraftTask(task.crafter.pos, task.recipeKey, (int) task.amount);
-        task.status = accepted ? TaskStatus.ACCEPTED : TaskStatus.FAILED;
+        if (running.containsKey(task.taskId)) return true;
+        task.status = TaskStatus.ACCEPTED;
         running.put(task.taskId, task);
+        started.put(task.taskId, false);
+        org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
+                .info("[CrafterExecutor {}] task={} craft accepted crafter={} key={} amount={}",
+                        manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, task.amount);
         snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-        return accepted;
+        return true;
     }
 
     @Override
@@ -32,14 +37,60 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
     @Override
     public void tick() {
         if (manager == null) return;
-        for (Map.Entry<UUID, CraftTask> e : running.entrySet()) {
+        java.util.Iterator<Map.Entry<UUID, CraftTask>> it = running.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, CraftTask> e = it.next();
             CraftTask task = e.getValue();
-            if (task.status == TaskStatus.FAILED || task.status == TaskStatus.DONE) continue;
+            if (task.status == TaskStatus.FAILED || task.status == TaskStatus.CANCELED || task.status == TaskStatus.DONE) {
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                it.remove();
+                started.remove(task.taskId);
+                continue;
+            }
+
+            boolean isStarted = started.getOrDefault(task.taskId, false);
+            if (!isStarted) {
+                boolean inputsReady = true;
+                for (Map.Entry<therealpant.thaumicattempts.util.ItemKey, Integer> in : task.requiredInputs.entrySet()) {
+                    int have = manager.countItemAtEndpoint(task.crafter, in.getKey());
+                    if (have < in.getValue()) {
+                        inputsReady = false;
+                        break;
+                    }
+                }
+                if (!inputsReady) {
+                    task.status = TaskStatus.BLOCKED;
+                    org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
+                            .info("[CrafterExecutor {}] task={} craft waiting inputs crafter={} key={}",
+                                    manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey);
+                    snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                    continue;
+                }
+                boolean accepted = manager.startCraftTask(task.crafter.pos, task.recipeKey, (int) task.amount);
+                if (!accepted) {
+                    task.status = TaskStatus.BLOCKED;
+                    snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                    continue;
+                }
+                started.put(task.taskId, true);
+                org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
+                        .info("[CrafterExecutor {}] task={} craft started crafter={} key={} amount={}",
+                                manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, task.amount);
+            }
             task.status = TaskStatus.IN_PROGRESS;
-            int readyOut = manager.countItemAt(task.outputEndpoint.pos, task.recipeKey);
+            int readyOut = manager.countItemAtEndpoint(task.outputEndpoint, task.recipeKey);
             task.completedAmount = Math.max(task.completedAmount, readyOut);
             if (readyOut >= task.amount) {
                 task.status = TaskStatus.DONE;
+                org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
+                        .info("[CrafterExecutor {}] task={} craft output detected key={} ready={}",
+                                manager.getPos(), task.taskId, task.recipeKey, readyOut);
+                org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
+                        .info("[CrafterExecutor {}] task={} craft done", manager.getPos(), task.taskId);
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                it.remove();
+                started.remove(task.taskId);
+                continue;
             }
             snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
         }

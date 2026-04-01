@@ -85,8 +85,8 @@ public class LogisticsNetworkState {
 
         if (available > 0) {
             TransferTask direct = createTransferTask(manager, order.orderId,
-                    EndpointRef.of(manager.getPos()),
-                    EndpointRef.of(order.returnDestination != null ? order.returnDestination : order.sourcePos),
+                    EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
+                    EndpointRef.of(order.returnDestination != null ? order.returnDestination : order.sourcePos, EndpointRef.AccessMode.INPUT),
                     order.requestedKey,
                     Math.min(order.requestedAmount, available),
                     null,
@@ -120,19 +120,20 @@ public class LogisticsNetworkState {
                 }
             }
             TransferTask supplyInputs = createTransferTask(manager, order.orderId,
-                    EndpointRef.of(manager.getPos()), EndpointRef.of(recipe.source), order.requestedKey, 0, inputDeliveries, "inputs-ready-marker");
+                    EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
+                    EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT), order.requestedKey, 0, inputDeliveries, "inputs-ready-marker");
             supplyInputs.status = inputDeliveries.isEmpty() ? TaskStatus.READY : TaskStatus.WAITING_DEPENDENCY;
 
-            CraftTask craft = createCraftTask(manager, order.orderId, EndpointRef.of(recipe.source), order.requestedKey,
+            CraftTask craft = createCraftTask(manager, order.orderId, EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT), order.requestedKey,
                     cycles * recipe.outputPerCycle, recipe.inputs, Collections.singletonList(supplyInputs.taskId), "execute-craft");
             craft.status = supplyInputs.status == TaskStatus.READY ? TaskStatus.READY : TaskStatus.WAITING_DEPENDENCY;
 
             TransferTask pickup = createTransferTask(manager, order.orderId,
-                    EndpointRef.of(recipe.source), EndpointRef.of(manager.getPos()), order.requestedKey, need,
+                    EndpointRef.of(recipe.source, EndpointRef.AccessMode.OUTPUT), EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER), order.requestedKey, need,
                     Collections.singletonList(craft.taskId), "pickup-output");
             TransferTask deliver = createTransferTask(manager, order.orderId,
-                    EndpointRef.of(manager.getPos()),
-                    EndpointRef.of(order.returnDestination != null ? order.returnDestination : order.sourcePos),
+                    EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
+                    EndpointRef.of(order.returnDestination != null ? order.returnDestination : order.sourcePos, EndpointRef.AccessMode.INPUT),
                     order.requestedKey,
                     need,
                     Collections.singletonList(pickup.taskId),
@@ -193,7 +194,7 @@ public class LogisticsNetworkState {
         CraftTask task = new CraftTask();
         task.taskId = UUID.randomUUID();
         task.orderId = orderId;
-        task.crafter = crafter;
+        task.outputEndpoint = EndpointRef.of(crafter.pos, EndpointRef.AccessMode.OUTPUT);
         task.outputEndpoint = crafter;
         task.recipeKey = key;
         task.amount = Math.max(1, amount);
@@ -318,7 +319,7 @@ public class LogisticsNetworkState {
             for (UUID tid : order.taskIds) {
                 RuntimeTask t = runtimeTasks.get(tid);
                 if (t == null) continue;
-                if (t.status == TaskStatus.FAILED || t.status == TaskStatus.BLOCKED || t.status == TaskStatus.CANCELED) {
+                if (t.status == TaskStatus.FAILED || t.status == TaskStatus.CANCELED) {
                     order.status = OrderStatus.FAILED;
                     order.lastError = "task-failed:" + tid;
                     LOG.warn("[Logistics {}] order failed={} task={} status={}", manager.getPos(), order.orderId, tid, t.status);

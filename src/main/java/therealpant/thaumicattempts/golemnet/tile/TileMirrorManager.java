@@ -43,6 +43,7 @@ import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileSequentialCraftPlanner;
 import therealpant.thaumicattempts.golemnet.logistics.LogisticsNetworkState;
+import therealpant.thaumicattempts.golemnet.logistics.EndpointRef;
 import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -2356,6 +2357,63 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             pullLikeFromProvideSetToBuffer(like, amount);
         }
         return pushFromBufferTo(target, -1, like, amount);
+    }
+
+    public BlockPos resolveInputHandlerPos(BlockPos endpointPos) {
+        if (endpointPos == null) return BlockPos.ORIGIN;
+        if (world == null) return endpointPos.toImmutable();
+        TileEntity te = world.getTileEntity(endpointPos);
+        if (te instanceof ICraftEndpoint) {
+            TileEntity below = world.getTileEntity(endpointPos.down());
+            if (below instanceof TileEntityGolemCrafter) {
+                return endpointPos.down().toImmutable();
+            }
+        }
+        return endpointPos.toImmutable();
+    }
+
+    public BlockPos resolveOutputHandlerPos(BlockPos endpointPos) {
+        return resolveInputHandlerPos(endpointPos);
+    }
+
+    public BlockPos resolveEndpointPos(EndpointRef endpoint) {
+        if (endpoint == null) return BlockPos.ORIGIN;
+        switch (endpoint.mode) {
+            case INPUT:
+                return resolveInputHandlerPos(endpoint.pos);
+            case OUTPUT:
+                return resolveOutputHandlerPos(endpoint.pos);
+            case BUFFER:
+            case DIRECT:
+            default:
+                return endpoint.pos;
+        }
+    }
+
+    public int countItemAtEndpoint(EndpointRef endpoint, ItemKey key) {
+        BlockPos resolved = resolveEndpointPos(endpoint);
+        return countItemAt(resolved, key);
+    }
+
+    public boolean dispatchTransferTask(EndpointRef source, EndpointRef target, ItemKey key, int amount, int queueId) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0 || source == null || target == null) return false;
+        BlockPos src = resolveEndpointPos(source);
+        BlockPos dst = resolveEndpointPos(target);
+        ItemStack like = key.toStack(1);
+
+        int pulled = 0;
+        if (!src.equals(this.pos)) {
+            pulled = harvestLikeToBufferFromHandler(src, -1, like, amount);
+        } else {
+            pulled = pullLikeFromProvideSetToBuffer(like, amount);
+        }
+        int movedNow = pushFromBufferTo(dst, -1, like, amount);
+        if (movedNow < amount) {
+            LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
+            needs.put(key, amount);
+            ensureDeliveryForExact(dst, needs, queueId);
+        }
+        return pulled > 0 || movedNow > 0 || countQueuedFor(dst, like) > 0;
     }
 
     public boolean startCraftTask(BlockPos crafterPos, ItemKey key, int amount) {
