@@ -14,6 +14,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     private final LinkedHashMap<UUID, TaskExecutionSnapshot> snapshots = new LinkedHashMap<UUID, TaskExecutionSnapshot>();
     private final LinkedHashMap<UUID, Long> targetBaseline = new LinkedHashMap<UUID, Long>();
     private final LinkedHashMap<UUID, Long> blockedUntil = new LinkedHashMap<UUID, Long>();
+    private final LinkedHashMap<UUID, Boolean> inboundDelegated = new LinkedHashMap<UUID, Boolean>();
 
     public void bind(TileMirrorManager manager) {
         this.manager = manager;
@@ -53,6 +54,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 it.remove();
                 targetBaseline.remove(task.taskId);
                 blockedUntil.remove(task.taskId);
+                inboundDelegated.remove(task.taskId);
                 continue;
             }
 
@@ -65,6 +67,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 it.remove();
                 targetBaseline.remove(task.taskId);
                 blockedUntil.remove(task.taskId);
+                inboundDelegated.remove(task.taskId);
                 continue;
             }
 
@@ -79,8 +82,27 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.ACCEPTED, task.completedAmount));
             }
 
-            LOG(task, "transfer submit item=" + task.itemKey + " amount=" + remaining + " source=" + manager.resolveEndpointPos(task.source) + " target=" + manager.resolveEndpointPos(task.target));
-            boolean accepted = manager.dispatchTransferTask(task.source, task.target, task.itemKey, (int) Math.min(Integer.MAX_VALUE, remaining), 0);
+            boolean inboundToManager = manager.isInboundToManagerBuffer(task.source, task.target);
+            boolean accepted;
+            if (inboundToManager) {
+                boolean alreadyDelegated = inboundDelegated.getOrDefault(task.taskId, false);
+                int queuedBefore = manager.countQueuedForEndpoint(task.target, task.itemKey);
+                if (!alreadyDelegated || queuedBefore <= 0) {
+                    LOG(task, "inbound transfer delegated to golem delivery item=" + task.itemKey + " amount=" + remaining
+                            + " source=" + manager.resolveEndpointPos(task.source) + " manager pos=" + manager.getPos());
+                    accepted = manager.dispatchInboundToManagerByGolems(task.source, task.itemKey, (int) Math.min(Integer.MAX_VALUE, remaining), 0);
+                    if (accepted) {
+                        inboundDelegated.put(task.taskId, true);
+                        LOG(task, "delivery job queued item=" + task.itemKey + " amount=" + remaining + " source="
+                                + manager.resolveEndpointPos(task.source) + " manager pos=" + manager.getPos());
+                    }
+                } else {
+                    accepted = true;
+                }
+            } else {
+                LOG(task, "transfer submit item=" + task.itemKey + " amount=" + remaining + " source=" + manager.resolveEndpointPos(task.source) + " target=" + manager.resolveEndpointPos(task.target));
+                accepted = manager.dispatchTransferTask(task.source, task.target, task.itemKey, (int) Math.min(Integer.MAX_VALUE, remaining), 0);
+            }
 
             long baseline = targetBaseline.getOrDefault(task.taskId, 0L);
             long atTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
@@ -91,16 +113,23 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
             if (moved > 0) {
                 LOG(task, "transfer moved " + moved);
+                if (inboundToManager) {
+                    LOG(task, "delivery job completed item=" + task.itemKey + " moved=" + moved + " manager pos=" + manager.getPos());
+                }
             }
 
             if (task.completedAmount >= task.amount) {
                 task.status = TaskStatus.DONE;
                 LOG(task, "transfer done");
+                if (inboundToManager) {
+                    LOG(task, "logistics transfer completed from golem delivery item=" + task.itemKey + " amount=" + task.completedAmount);
+                }
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 LOG(task, "transfer removed from running");
                 it.remove();
                 targetBaseline.remove(task.taskId);
                 blockedUntil.remove(task.taskId);
+                inboundDelegated.remove(task.taskId);
                 continue;
             }
 

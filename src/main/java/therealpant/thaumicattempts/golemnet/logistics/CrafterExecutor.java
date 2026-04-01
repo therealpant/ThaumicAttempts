@@ -21,6 +21,14 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
     public boolean submit(CraftTask task) {
         if (!canAccept(task)) return false;
         if (running.containsKey(task.taskId)) return true;
+        if (task.crafter == null || task.recipeKey == null || task.recipeKey == therealpant.thaumicattempts.util.ItemKey.EMPTY || task.outputEndpoint == null) {
+            task.status = TaskStatus.FAILED;
+            org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
+                    .warn("[CrafterExecutor {}] task={} craft rejected invalid fields crafter={} key={} output={}",
+                            manager.getPos(), task.taskId, task.crafter, task.recipeKey, task.outputEndpoint);
+            snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+            return false;
+        }
         task.status = TaskStatus.ACCEPTED;
         running.put(task.taskId, task);
         started.put(task.taskId, false);

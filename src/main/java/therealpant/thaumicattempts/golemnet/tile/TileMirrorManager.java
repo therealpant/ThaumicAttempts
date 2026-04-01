@@ -1592,6 +1592,29 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return moved;
     }
 
+    private int harvestLikeToBufferFromOutputCrafter(TileEntityGolemCrafter crafter, ItemStack like, int upTo) {
+        if (crafter == null || like == null || like.isEmpty() || upTo <= 0) return 0;
+        IItemHandler src = crafter.getOutputHandler();
+        if (src == null) return 0;
+        int moved = 0;
+        for (int s = 0; s < src.getSlots() && moved < upTo; s++) {
+            ItemStack peek = src.extractItem(s, Math.min(64, upTo - moved), true);
+            if (peek.isEmpty()) continue;
+            if (!matchesForDelivery(peek, like)) continue;
+            ItemStack taken = src.extractItem(s, Math.min(upTo - moved, peek.getCount()), false);
+            if (taken.isEmpty()) continue;
+            ItemStack rest = ItemHandlerHelper.insertItem(buffer, taken, false);
+            int accepted = taken.getCount() - (rest.isEmpty() ? 0 : rest.getCount());
+            moved += accepted;
+            if (!rest.isEmpty()) {
+                src.insertItem(s, rest, false);
+                break;
+            }
+        }
+        if (moved > 0) markDirty();
+        return moved;
+    }
+
     public void enqueueBatchCraft(BlockPos dest, int destSide, int queueId,
                                   List<Map.Entry<ItemKey, Integer>> moved, RequesterFinder finder) {
         if (world == null || dest == null || moved == null || moved.isEmpty()) return;
@@ -2391,9 +2414,37 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     public int countItemAtEndpoint(EndpointRef endpoint, ItemKey key) {
+        if (endpoint != null && endpoint.mode == EndpointRef.AccessMode.OUTPUT && world != null) {
+            BlockPos resolved = resolveEndpointPos(endpoint);
+            TileEntity te = world.getTileEntity(resolved);
+            if (te instanceof TileEntityGolemCrafter) {
+                return countAtHandlerLike(((TileEntityGolemCrafter) te).getOutputHandler(), key.toStack(1));
+            }
+        }
         BlockPos resolved = resolveEndpointPos(endpoint);
         return countItemAt(resolved, key);
     }
+
+    public boolean isInboundToManagerBuffer(EndpointRef source, EndpointRef target) {
+        if (source == null || target == null) return false;
+        return target.mode == EndpointRef.AccessMode.BUFFER
+                && this.pos.equals(target.pos)
+                && !this.pos.equals(resolveEndpointPos(source));
+    }
+
+    public int countQueuedForEndpoint(EndpointRef endpoint, ItemKey key) {
+        if (endpoint == null || key == null || key == ItemKey.EMPTY) return 0;
+        return countQueuedFor(resolveEndpointPos(endpoint), key.toStack(1));
+    }
+
+    public boolean dispatchInboundToManagerByGolems(EndpointRef source, ItemKey key, int amount, int queueId) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return false;
+        LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
+        needs.put(key, amount);
+        ensureDeliveryForExact(this.pos, needs, queueId);
+        return countQueuedFor(this.pos, key.toStack(1)) > 0;
+    }
+
 
     public boolean dispatchTransferTask(EndpointRef source, EndpointRef target, ItemKey key, int amount, int queueId) {
         if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0 || source == null || target == null) return false;
@@ -2403,7 +2454,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         int pulled = 0;
         if (!src.equals(this.pos)) {
-            pulled = harvestLikeToBufferFromHandler(src, -1, like, amount);
+            if (source.mode == EndpointRef.AccessMode.OUTPUT && world.getTileEntity(src) instanceof TileEntityGolemCrafter) {
+                pulled = harvestLikeToBufferFromOutputCrafter((TileEntityGolemCrafter) world.getTileEntity(src), like, amount);
+            } else {
+                pulled = harvestLikeToBufferFromHandler(src, -1, like, amount);
+            }
         } else {
             pulled = pullLikeFromProvideSetToBuffer(like, amount);
         }
@@ -2428,6 +2483,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     public int countItemAt(BlockPos pos, ItemKey key) {
         if (pos == null || key == null || key == ItemKey.EMPTY) return 0;
         return countAtDestLike(pos, -1, key.toStack(1));
+    }
+
+    private int countAtHandlerLike(@Nullable IItemHandler h, ItemStack like) {
+        if (h == null || like == null || like.isEmpty()) return 0;
+        int total = 0;
+        for (int i = 0; i < h.getSlots(); i++) {
+            ItemStack s = h.getStackInSlot(i);
+            if (s.isEmpty()) continue;
+            if (matchesForDelivery(s, like)) total += s.getCount();
+        }
+        return total;
     }
 
     private int pullLikeFromProvideSetToBuffer(ItemStack like, int upTo) {

@@ -127,7 +127,13 @@ public class LogisticsNetworkState {
             CraftTask craft = createCraftTask(manager, order.orderId, EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT), order.requestedKey,
                     cycles * recipe.outputPerCycle, recipe.inputs, Collections.singletonList(supplyInputs.taskId), "execute-craft");
             craft.status = supplyInputs.status == TaskStatus.READY ? TaskStatus.READY : TaskStatus.WAITING_DEPENDENCY;
-
+            if (craft == null) {
+                order.status = OrderStatus.FAILED;
+                order.lastError = "invalid-craft-task";
+                LOG.warn("[Logistics {}] order failed={} reason={} key={} recipeSource={}",
+                        manager.getPos(), order.orderId, order.lastError, order.requestedKey, recipe.source);
+                return;
+            }
             TransferTask pickup = createTransferTask(manager, order.orderId,
                     EndpointRef.of(recipe.source, EndpointRef.AccessMode.OUTPUT), EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER), order.requestedKey, need,
                     Collections.singletonList(craft.taskId), "pickup-output");
@@ -183,6 +189,7 @@ public class LogisticsNetworkState {
         return task;
     }
 
+    @Nullable
     private CraftTask createCraftTask(TileMirrorManager manager,
                                       UUID orderId,
                                       EndpointRef crafter,
@@ -191,14 +198,24 @@ public class LogisticsNetworkState {
                                       Map<ItemKey, Integer> requiredInputs,
                                       @Nullable List<UUID> dependsOn,
                                       String purpose) {
+        if (crafter == null || crafter.pos == null || key == null || key == ItemKey.EMPTY) {
+            LOG.warn("[Logistics {}] craft task rejected order={} reason=missing-required crafter={} key={} purpose={}",
+                    manager.getPos(), orderId, crafter, key, purpose);
+            return null;
+        }
         CraftTask task = new CraftTask();
         task.taskId = UUID.randomUUID();
         task.orderId = orderId;
+        task.crafter = crafter;
         task.outputEndpoint = EndpointRef.of(crafter.pos, EndpointRef.AccessMode.OUTPUT);
-        task.outputEndpoint = crafter;
         task.recipeKey = key;
         task.amount = Math.max(1, amount);
-        task.requiredInputs.putAll(requiredInputs);
+        if (requiredInputs != null) {
+            for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
+                if (e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+                task.requiredInputs.put(e.getKey(), Math.max(1, e.getValue() == null ? 1 : e.getValue()));
+            }
+        }
         task.status = TaskStatus.NEW;
         task.createdTick = manager.getServerTickCounter();
         task.updatedTick = task.createdTick;
