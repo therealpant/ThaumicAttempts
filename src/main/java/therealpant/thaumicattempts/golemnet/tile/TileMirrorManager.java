@@ -54,6 +54,8 @@ import java.util.*;
 
 import java.util.UUID;
 
+import static therealpant.thaumicattempts.integration.ThaumcraftCompat.LOG;
+
 /**
  * Менеджер: батчи + единая «корона» зеркал (активные/подвешенные), без дюпа.
  */
@@ -1965,15 +1967,45 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     private boolean processOneCraftLine(Batch b, Line ln) {
-        if (ln.remaining <= 0) return true;
-        if (ln.requester == null) return true;
+        LOG.info("[Manager {}] processOneCraftLine enter wanted={} remaining={} requester={} dest={} queueId={} perCraftOut={} craftsScheduled={} craftsCompleted={} craftsExpected={}",
+                pos,
+                ln == null ? "null" : ln.wanted1,
+                ln == null ? -1 : ln.remaining,
+                ln == null ? "null" : ln.requester,
+                b == null ? "null" : b.dest,
+                b == null ? -1 : b.queueId,
+                ln == null ? -1 : ln.perCraftOut,
+                ln == null ? -1 : ln.craftsScheduled,
+                ln == null ? -1 : ln.craftsCompleted,
+                ln == null ? -1 : ln.craftsExpected);
+
+        if (ln.remaining <= 0) {
+            LOG.info("[Manager {}] processOneCraftLine done immediately: remaining<=0 wanted={}", pos, ln.wanted1);
+            return true;
+        }
+        if (ln.requester == null) {
+            LOG.warn("[Manager {}] processOneCraftLine done immediately: requester null wanted={}", pos, ln.wanted1);
+            return true;
+        }
 
         final BlockPos rp = ln.requester;
         harvestAnyFromCrafterOutput(rp);
         final BlockPos crafterPos = rp.down();
         final TileEntity rte = world.getTileEntity(rp);
         final TileEntity cte = world.getTileEntity(crafterPos);
-        if (!(cte instanceof TileEntityGolemCrafter)) return true;
+
+        LOG.info("[Manager {}] processOneCraftLine tiles requesterPos={} requesterTe={} crafterPos={} crafterTe={}",
+                pos,
+                rp,
+                rte == null ? "null" : rte.getClass().getName(),
+                crafterPos,
+                cte == null ? "null" : cte.getClass().getName());
+
+        if (!(cte instanceof TileEntityGolemCrafter)) {
+            LOG.warn("[Manager {}] processOneCraftLine abort: crafter tile invalid at {} for wanted={}",
+                    pos, crafterPos, ln.wanted1);
+            return true;
+        }
 
         int perCraft = (ln.perCraftOut > 0) ? ln.perCraftOut : 1;
         if (perCraft <= 0 && rte instanceof TilePatternRequester) {
@@ -1981,8 +2013,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             ln.perCraftOut = perCraft;
         }
 
+        LOG.info("[Manager {}] processOneCraftLine perCraft resolved wanted={} perCraft={}",
+                pos, ln.wanted1, perCraft);
+
         int movedFromCrafter = harvestLikeToBufferFromRequester(rp, ln.wanted1, ln.remaining);
         if (movedFromCrafter > 0) {
+            LOG.info("[Manager {}] processOneCraftLine harvested output wanted={} movedFromCrafter={}",
+                    pos, ln.wanted1, movedFromCrafter);
+
             if (perCraft > 0) {
                 int craftsDone = (movedFromCrafter + perCraft - 1) / perCraft;
                 if (ln.craftsScheduled > 0) {
@@ -1992,10 +2030,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
 
             int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, movedFromCrafter);
+            LOG.info("[Manager {}] processOneCraftLine pushed harvested output wanted={} pushed={} dest={}",
+                    pos, ln.wanted1, pushed, b.dest);
+
             if (pushed > 0) {
                 ln.remaining -= pushed;
                 lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
-                if (ln.remaining <= 0) return true;
+                if (ln.remaining <= 0) {
+                    LOG.info("[Manager {}] processOneCraftLine completed after harvested push wanted={}", pos, ln.wanted1);
+                    return true;
+                }
             }
         }
 
@@ -2003,12 +2047,22 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         int remainingAfterBuffer = Math.max(0, ln.remaining - bufferedOut);
 
         int craftsNeeded = (remainingAfterBuffer + perCraft - 1) / perCraft;
+
+        LOG.info("[Manager {}] processOneCraftLine buffer state wanted={} bufferedOut={} remainingAfterBuffer={} craftsNeeded={}",
+                pos, ln.wanted1, bufferedOut, remainingAfterBuffer, craftsNeeded);
+
         if (craftsNeeded <= 0) {
             int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
+            LOG.info("[Manager {}] processOneCraftLine no new crafts needed wanted={} pushedFromBuffer={} dest={}",
+                    pos, ln.wanted1, pushed, b.dest);
+
             if (pushed > 0) {
                 ln.remaining -= pushed;
                 lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
-                if (ln.remaining <= 0) return true;
+                if (ln.remaining <= 0) {
+                    LOG.info("[Manager {}] processOneCraftLine completed from buffer wanted={}", pos, ln.wanted1);
+                    return true;
+                }
             }
             return false;
         }
@@ -2017,6 +2071,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (rte instanceof TilePatternRequester) {
             needList = ((TilePatternRequester) rte).getRecipeInputsFor(ln.wanted1, craftsNeeded);
         }
+
+        LOG.info("[Manager {}] processOneCraftLine recipe inputs wanted={} craftsNeeded={} needList={}",
+                pos, ln.wanted1, craftsNeeded, needList);
 
         Map<ItemKey, Integer> miss = new LinkedHashMap<>();
         IItemHandler in = ((TileEntityGolemCrafter) cte).getInputHandler();
@@ -2032,30 +2089,45 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     if (isCrystal(need)) {
                         match = isCrystal(cur) && crystalSame(cur, need);
                     } else if (need.getMaxStackSize() == 1) {
-                        // нестакуемые — строго item+meta, без NBT
                         match = matchesForDelivery(cur, need);
                     } else {
-                        // стакаемые — relaxed
                         match = ResourceIdentity.sameResource(cur, need);
                     }
 
                     if (match) have += cur.getCount();
                 }
                 int lacking = Math.max(0, want - have);
+                LOG.info("[Manager {}] processOneCraftLine input check wantedResult={} need={} want={} have={} lacking={}",
+                        pos, ln.wanted1, need, want, have, lacking);
                 if (lacking > 0) miss.merge(ItemKey.of(need), lacking, Integer::sum);
             }
         }
 
+        LOG.info("[Manager {}] processOneCraftLine miss map wanted={} miss={}",
+                pos, ln.wanted1, miss);
+
         if (!miss.isEmpty()) {
+            LOG.info("[Manager {}] processOneCraftLine planner expansion call wanted={} miss={} crafterPos={} queueId={} finalDest={}",
+                    pos, ln.wanted1, miss, crafterPos, b.queueId, b.dest);
+
+            expandShortageWithPlanners(miss, crafterPos, -1, b.queueId, ItemKey.of(ln.wanted1), b.dest);
+
             for (Map.Entry<ItemKey, Integer> e : miss.entrySet()) {
                 if (e.getValue() <= 0) continue;
                 int pushed = pushFromBufferTo(crafterPos, -1, e.getKey().toStack(1), e.getValue());
-                if (pushed > 0) e.setValue(Math.max(0, e.getValue() - pushed));
+                if (pushed > 0) {
+                    e.setValue(Math.max(0, e.getValue() - pushed));
+                }
+                LOG.info("[Manager {}] processOneCraftLine post-buffer-fill missingKey={} pushedToCrafter={} stillMissing={}",
+                        pos, e.getKey(), pushed, e.getValue());
             }
         }
 
         if (!miss.isEmpty()) {
             int qDelivery = (b.queueId + 1) % 6;
+            LOG.info("[Manager {}] processOneCraftLine ensureDeliveryForExact wanted={} miss={} crafterPos={} deliveryQueue={}",
+                    pos, ln.wanted1, miss, crafterPos, qDelivery);
+
             ensureDeliveryForExact(crafterPos, miss, qDelivery);
             activeQueue = qDelivery;
         }
@@ -2067,18 +2139,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             if (firstMiss != null) {
                 ItemStack like1 = firstMiss.getKey().toStack(1);
                 int chunk = Math.min(like1.getMaxStackSize(), firstMiss.getValue());
-                ItemStack req = normalizeForProvision(like1, chunk); // <— ключевое
+                ItemStack req = normalizeForProvision(like1, chunk);
                 if (!req.isEmpty()) {
+                    LOG.info("[Manager {}] processOneCraftLine enqueueProvisionTask wanted={} req={}",
+                            pos, ln.wanted1, req);
                     enqueueProvisionTask(req);
                 }
             }
         }
 
-
         TileEntityGolemCrafter cr = (TileEntityGolemCrafter) cte;
 
-        // ❗ Стартуем ТОЛЬКО когда всё лежит в инпуте (miss == 0)
-        // Это важный момент: раньше мы пытались "до срока".
         boolean allReady = true;
         for (Map.Entry<ItemKey, Integer> e : miss.entrySet()) {
             if (e.getValue() > 0) {
@@ -2087,58 +2158,158 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
 
+        LOG.info("[Manager {}] processOneCraftLine readiness wanted={} allReady={} miss={}",
+                pos, ln.wanted1, allReady, miss);
+
         if (allReady && rte instanceof TilePatternRequester) {
             TilePatternRequester rq = (TilePatternRequester) rte;
 
-            // Сколько единиц выдаётся за 1 цикл именно для этого результата
             final int outPerCraft = Math.max(1, ln.perCraftOut > 0 ? ln.perCraftOut : rq.getPerCraftOutputCountFor(ln.wanted1));
             ln.perCraftOut = outPerCraft;
 
-
-            // Сколько ещё единиц надо ПОСЛЕ учёта буфера
             int bufferedOut2 = countInBufferLike(ln.wanted1);
             int remainingAfterBuffer2 = Math.max(0, ln.remaining - bufferedOut2);
 
-            // Сколько циклов реально нужно, исходя из «остатка после буфера»
             int craftsNeedNow = (remainingAfterBuffer2 + outPerCraft - 1) / outPerCraft;
             if (ln.craftsExpected > 0) {
                 int craftsLeft = Math.max(0, ln.craftsExpected - ln.craftsCompleted);
                 craftsNeedNow = Math.max(craftsNeedNow, craftsLeft);
             }
 
-            // Сколько циклов уже запланировано ранее
             int craftsDelta = Math.max(0, craftsNeedNow - ln.craftsScheduled);
 
+            LOG.info("[Manager {}] processOneCraftLine craft scheduling wanted={} outPerCraft={} bufferedOut2={} remainingAfterBuffer2={} craftsNeedNow={} craftsScheduled={} craftsDelta={}",
+                    pos, ln.wanted1, outPerCraft, bufferedOut2, remainingAfterBuffer2, craftsNeedNow, ln.craftsScheduled, craftsDelta);
+
             if (craftsDelta > 0) {
-                // Пинаем крафтер НА craftsDelta циклов, без автопровизии
                 if (cte instanceof TileEntityGolemCrafter) {
                     ((TileEntityGolemCrafter) cte).enqueueCraftsByRequesterLike(ln.wanted1, craftsDelta);
                     ln.craftsScheduled += craftsDelta;
                     lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
+
+                    LOG.info("[Manager {}] processOneCraftLine enqueueCraftsByRequesterLike wanted={} craftsDelta={} crafterPos={}",
+                            pos, ln.wanted1, craftsDelta, crafterPos);
                 }
             }
         }
-        // ... и уже после этого пробуем ещё раз добросить готовое в адресата:
+
         int pushed2 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
+        LOG.info("[Manager {}] processOneCraftLine final push wanted={} pushed2={} dest={} remainingBefore={}",
+                pos, ln.wanted1, pushed2, b.dest, ln.remaining);
+
         if (pushed2 > 0) {
             ln.remaining -= pushed2;
             lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
-            if (ln.remaining <= 0) return true;
+            if (ln.remaining <= 0) {
+                LOG.info("[Manager {}] processOneCraftLine completed after final push wanted={}", pos, ln.wanted1);
+                return true;
+            }
         }
-        return false;
 
+        LOG.info("[Manager {}] processOneCraftLine exit wanted={} remaining={} craftsScheduled={} craftsCompleted={}",
+                pos, ln.wanted1, ln.remaining, ln.craftsScheduled, ln.craftsCompleted);
+
+        return false;
+    }
+
+    private void expandShortageWithPlanners(Map<ItemKey, Integer> miss,
+                                            BlockPos shortageDest,
+                                            int shortageDestSide,
+                                            int queueId,
+                                            @Nullable ItemKey rootOrder,
+                                            @Nullable BlockPos rootDestination) {
+        if (world == null || world.isRemote || miss == null || miss.isEmpty()) {
+            LOG.warn("[Manager {}] planner expansion aborted world={} remote={} miss={} shortageDest={} rootOrder={} rootDestination={}",
+                    pos, world, world != null && world.isRemote, miss, shortageDest, rootOrder, rootDestination);
+            return;
+        }
+
+        LOG.info("[Manager {}] planner expansion request miss={} shortageDest={} shortageDestSide={} queueId={} rootOrder={} rootDestination={} boundPlanners={}",
+                pos, miss, shortageDest, shortageDestSide, queueId, rootOrder, rootDestination, boundPlanners.size());
+
+        if (boundPlanners.isEmpty()) {
+            LOG.info("[Manager {}] planner expansion skipped: no bound planners miss={} shortageDest={} rootOrder={} rootDestination={}",
+                    pos, miss, shortageDest, rootOrder, rootDestination);
+            return;
+        }
+
+        boolean anyAccepted = false;
+
+        for (BlockPos pp : new ArrayList<>(boundPlanners)) {
+            TileEntity te = world.getTileEntity(pp);
+            if (!(te instanceof TileSequentialCraftPlanner) || te.isInvalid()) {
+                LOG.warn("[Manager {}] planner expansion skip invalid planner pos={} te={}",
+                        pos, pp, te == null ? "null" : te.getClass().getName());
+                continue;
+            }
+
+            TileSequentialCraftPlanner planner = (TileSequentialCraftPlanner) te;
+            BlockPos mp = planner.getManagerPos();
+            if (mp == null || !mp.equals(this.pos)) {
+                LOG.warn("[Manager {}] planner expansion skip foreign planner pos={} plannerManager={} self={}",
+                        pos, pp, mp, this.pos);
+                continue;
+            }
+
+            boolean accepted = planner.expandShortages(
+                    miss,
+                    shortageDest,
+                    shortageDestSide,
+                    rootOrder,
+                    rootDestination,
+                    queueId
+            );
+
+            LOG.info("[Manager {}] planner expansion attempt: planner={} accepted={} miss={} shortageDest={} rootOrder={} rootDestination={}",
+                    pos, pp, accepted, miss, shortageDest, rootOrder, rootDestination);
+
+            if (accepted) {
+                anyAccepted = true;
+            }
+        }
+
+        if (!anyAccepted) {
+            LOG.warn("[Manager {}] planner expansion produced no suborders: miss={} shortageDest={} rootOrder={} rootDestination={}",
+                    pos, miss, shortageDest, rootOrder, rootDestination);
+        } else {
+            LOG.info("[Manager {}] planner expansion accepted at least one planner: miss={} shortageDest={} rootOrder={}",
+                    pos, miss, shortageDest, rootOrder);
+        }
     }
 
     private void processBatchHead(Batch b) {
-        if (b == null) return;
-        if (b.seenTick == tickCounter) return;
+        if (b == null) {
+            LOG.warn("[Manager {}] processBatchHead called with null batch", pos);
+            return;
+        }
+
+        LOG.info("[Manager {}] processBatchHead enter queue={} kind={} dest={} destSide={} lines={} index={}  seenTick={} tickCounter={}",
+                pos,
+                activeQueue,
+                b.kind,
+                b.dest,
+                b.destSide,
+                b.lines == null ? -1 : b.lines.size(),
+                b.index,
+                b.seenTick,
+                tickCounter);
+
+        if (b.seenTick == tickCounter) {
+            LOG.debug("[Manager {}] processBatchHead skip same tick queue={} dest={}",
+                    pos, activeQueue, b.dest);
+            return;
+        }
         b.seenTick = tickCounter;
 
         if (b.lines.isEmpty()) {
+            LOG.info("[Manager {}] processBatchHead pop empty batch queue={} dest={}",
+                    pos, activeQueue, b.dest);
             popBatch(b);
             return;
         }
         if (!hasItemCapAt(b.dest, b.destSide)) {
+            LOG.warn("[Manager {}] processBatchHead pop batch: no item capability at dest={} side={} queue={}",
+                    pos, b.dest, b.destSide, activeQueue);
             popBatch(b);
             return;
         }
@@ -2167,6 +2338,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         while (index < b.lines.size()) {
             Line ln = b.lines.get(index);
+
+            LOG.info("[Manager {}] processBatchHead line queue={} idx={} wanted={} remaining={} requester={} dest={} kind={}",
+                    pos,
+                    activeQueue,
+                    index,
+                    ln.wanted1,
+                    ln.remaining,
+                    ln.requester,
+                    b.dest,
+                    b.kind);
+
             LineProcessResult result;
             if (b.kind == Batch.Kind.DELIVERY) {
                 int dispatcherCapForLine = Integer.MAX_VALUE;
@@ -2184,6 +2366,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             } else {
                 result = LineProcessResult.of(processOneCraftLine(b, ln));
             }
+
+            LOG.info("[Manager {}] processBatchHead line result queue={} idx={} wanted={} done={} dispatcherUsed={} remainingAfter={}",
+                    pos,
+                    activeQueue,
+                    index,
+                    ln.wanted1,
+                    result.done,
+                    result.dispatcherSlotsUsed,
+                    ln.remaining);
 
             if (result.dispatcherSlotsUsed > 0 && dispatcherBudget != Integer.MAX_VALUE) {
                 dispatcherBudget = Math.max(0, dispatcherBudget - result.dispatcherSlotsUsed);
@@ -2221,6 +2412,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         if (b.lines.isEmpty()) {
+            LOG.info("[Manager {}] processBatchHead pop finished batch queue={} dest={}",
+                    pos, activeQueue, b.dest);
             popBatch(b);
             return;
         }
@@ -2236,6 +2429,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         } else {
             b.index = Math.max(0, index);
         }
+
+        LOG.info("[Manager {}] processBatchHead exit queue={} nextIndex={} linesRemaining={} dest={}",
+                pos, activeQueue, b.index, b.lines.size(), b.dest);
     }
     /* ===================== Жизненный цикл ===================== */
 
