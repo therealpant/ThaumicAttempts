@@ -13,6 +13,7 @@ import org.apache.logging.log4j.Logger;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
+import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import therealpant.thaumicattempts.golemnet.planner.ProviderType;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -362,10 +363,12 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
                 entries.add(new AbstractMap.SimpleImmutableEntry<>(e.getKey(), e.getValue()));
             }
 
-            LOG.info("[Planner {}] enqueue planner suborders root={} rootQueue={} plannerQueue={} crafter={} orders={}",
+            LOG.info("[Planner {}] planner created fallback sub-order root={} rootQueue={} plannerQueue={} crafter={} orders={}",
                     pos, obs.wanted, obs.queueId, plannerQueue, obs.crafter, dedupPlan);
 
-            manager.enqueueBatchCraft(obs.crafter, -1, plannerQueue, entries, this::findSourceFor);
+            for (Map.Entry<ItemKey, Integer> e : dedupPlan.entrySet()) {
+                manager.submitOrder(e.getKey(), e.getValue(), OrderSourceType.PLANNER, this.pos, null);
+            }
 
             for (Map.Entry<ItemKey, Integer> e : dedupPlan.entrySet()) {
                 trackedPlannerOrders.put(new PlannerOrderKey(e.getKey(), obs.crafter, plannerQueue), e.getValue());

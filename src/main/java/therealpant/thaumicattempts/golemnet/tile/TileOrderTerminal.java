@@ -18,6 +18,7 @@ import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
+import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
@@ -448,29 +449,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         TileEntity mte = (managerPos == null) ? null : world.getTileEntity(managerPos);
         if (mte instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) mte;
-            final int QUEUE_ID = craftTab ? 1 : 0;
-
-            if (!craftTab) {
-                mgr.enqueueBatchDelivery(this.pos, -1, QUEUE_ID, moved);
-                if (!pendingDelivery.isEmpty()) {
-                    mgr.ensureDeliveryFor(this.pos, new LinkedHashMap<>(pendingDelivery));
-                }
-            } else {
-                // CRAFT вкладка, единая логика
-                List<Map.Entry<ItemKey,Integer>> toManager = new ArrayList<>();
-
-                for (Map.Entry<ItemKey,Integer> e : moved) {
-                    ItemKey key = e.getKey();
-                    int n = Math.max(1, e.getValue());
-                    toManager.add(new AbstractMap.SimpleEntry<>(key, n));
-                }
-
-                if (!toManager.isEmpty()) {
-                    mgr.enqueueBatchCraft(
-                            this.pos, -1, QUEUE_ID, moved,
-                            key -> findCraftEndpointFor(mgr, key.toStack(1))  // ищет любой ICraftEndpoint
-                    );
-                }
+            for (Map.Entry<ItemKey, Integer> e : moved) {
+                ItemKey key = e.getKey();
+                int amount = Math.max(1, e.getValue());
+                mgr.submitOrder(key, amount, OrderSourceType.TERMINAL, this.pos, this.pos);
             }
         }
 

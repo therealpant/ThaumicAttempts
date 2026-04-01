@@ -42,6 +42,8 @@ import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileSequentialCraftPlanner;
+import therealpant.thaumicattempts.golemnet.logistics.LogisticsNetworkState;
+import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 
@@ -182,6 +184,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private static final int AUTO_SCAN_PERIOD_TICKS = 100;
     private static final int PROVIDER_SCAN_RADIUS = 16;
     private static final int PROVIDER_RESCAN_TICKS = 200;
+    private static final String TAG_LOGISTICS = "logisticsState";
+
+    private final LogisticsNetworkState logistics = new LogisticsNetworkState();
 
     /* ===================== Владелец / доступ ===================== */
 
@@ -2331,6 +2336,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return tickCounter;
     }
 
+    public UUID submitOrder(ItemKey key, int amount, OrderSourceType sourceType, BlockPos sourcePos, @Nullable BlockPos returnDestination) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+        logistics.refreshRecipeIndex(this);
+        UUID id = logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, null, 0, "root-submit");
+        markDirty();
+        return id;
+    }
+
     private void processBatchHead(Batch b) {
         if (b == null) {
             LOG.warn("[Manager {}] processBatchHead called with null batch", pos);
@@ -2518,6 +2531,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             processBatchHead(b);
             activeQueue = (activeQueue + 1) % 6;
         }
+
+        logistics.tick(this);
 
         tickConsumerFocus();
 
@@ -3391,6 +3406,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         nbt.setTag(TAG_PEND_EJECTS, pe);
         nbt.setTag(TAG_MIRRORS, ml);
         nbt.setLong(TAG_RENDER_SEED, renderSeed);
+        NBTTagCompound logisticsTag = new NBTTagCompound();
+        logistics.writeToNbt(logisticsTag);
+        nbt.setTag(TAG_LOGISTICS, logisticsTag);
 
         return nbt;
     }
@@ -3531,6 +3549,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
         renderSeed = nbt.getLong(TAG_RENDER_SEED);
+        if (nbt.hasKey(TAG_LOGISTICS, 10)) {
+            logistics.readFromNbt(nbt.getCompoundTag(TAG_LOGISTICS));
+        }
         staleSweepTicker = 0;
     }
 
