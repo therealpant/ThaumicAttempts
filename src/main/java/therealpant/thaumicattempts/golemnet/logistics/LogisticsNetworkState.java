@@ -11,6 +11,7 @@ import org.apache.logging.log4j.Logger;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.golemnet.planner.ProviderType;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
+import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -279,7 +280,7 @@ public class LogisticsNetworkState {
         CraftTask craft = createCraftTask(
                 manager,
                 order.orderId,
-                crafterInput,
+                EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT),
                 order.requestedKey,
                 stillNeed,
                 recipe.inputs,
@@ -343,64 +344,27 @@ public class LogisticsNetworkState {
                                             EndpointRef source,
                                             EndpointRef target,
                                             ItemKey key,
-                                            long amount,
-                                            @Nullable List<UUID> dependsOn,
+                                            int amount,
+                                            List<UUID> dependsOn,
                                             String purpose) {
-        if (manager == null
-                || orderId == null
-                || source == null
-                || source.pos == null
-                || target == null
-                || target.pos == null
-                || key == null
-                || key == ItemKey.EMPTY
-                || amount <= 0) {
-            LOG.warn("[Logistics {}] skipped transfer task build order={} key={} amount={} source={} target={} purpose={} reason=invalid-args",
-                    manager != null ? manager.getPos() : null,
-                    orderId, key, amount,
-                    source == null ? null : source.pos,
-                    target == null ? null : target.pos,
-                    purpose);
+        if (manager == null || orderId == null || source == null || target == null || key == null || key == ItemKey.EMPTY || amount <= 0) {
             return null;
         }
 
-        NetworkOrder order = orders.get(orderId);
+        BlockPos managerPos = manager.getPos();
 
-        // result item никогда не должен быть craft-input
-        if ("craft-input".equals(purpose) && order != null && key.equals(order.requestedKey)) {
-            LOG.warn("[Logistics {}] skipped invalid craft-input task order={} key={} amount={} source={} target={} reason=requested-key-used-as-input",
-                    manager.getPos(), orderId, key, amount, source.pos, target.pos);
-            return null;
-        }
+        EndpointRef safeSource = source;
+        EndpointRef safeTarget = target;
 
-        // для craft-only заказа нельзя строить stock-path по итоговому предмету
-        if (order != null && order.intent == NetworkOrder.RequestIntent.CRAFT_ONLY && key.equals(order.requestedKey)) {
-            if ("direct-buffer".equals(purpose)
-                    || "stock-to-manager".equals(purpose)
-                    || "deliver-after-inbound".equals(purpose)) {
-                LOG.warn("[Logistics {}] skipped stock-path for craft-only order={} key={} purpose={}",
-                        manager.getPos(), orderId, key, purpose);
-                return null;
-            }
-        }
-
-        String dedupe = "T|" + orderId
-                + "|" + source.pos.toLong()
-                + "|" + target.pos.toLong()
-                + "|" + key.hashCode()
-                + "|" + purpose;
-
-        UUID existing = activeTaskDedup.get(dedupe);
-        if (existing != null) {
-            RuntimeTask existingTask = runtimeTasks.get(existing);
-            if (existingTask instanceof TransferTask) {
-                TransferTask transfer = (TransferTask) existingTask;
-                if (transfer.status != TaskStatus.DONE
-                        && transfer.status != TaskStatus.FAILED
-                        && transfer.status != TaskStatus.CANCELED) {
-                    return transfer;
-                }
-                activeTaskDedup.remove(dedupe);
+        /*
+         * Для craft-input терминал запрещен как источник.
+         * Если кто-то выше по стеку передал терминал как source,
+         * здесь принудительно подменяем его на самого manager.
+         */
+        if ("craft-input".equals(purpose)) {
+            BlockPos srcPos = endpointPos(source);
+            if (srcPos != null && !srcPos.equals(managerPos) && isTerminalPos(manager, srcPos)) {
+                safeSource = EndpointRef.of(managerPos, EndpointRef.AccessMode.DIRECT);
             }
         }
 
@@ -408,9 +372,9 @@ public class LogisticsNetworkState {
         task.taskId = UUID.randomUUID();
         task.orderId = orderId;
         task.itemKey = key;
+        task.source = safeSource;
+        task.target = safeTarget;
         task.amount = amount;
-        task.source = source;
-        task.target = target;
         task.status = TaskStatus.NEW;
         task.createdTick = manager.getServerTickCounter();
         task.updatedTick = task.createdTick;
@@ -421,23 +385,46 @@ public class LogisticsNetworkState {
         }
 
         runtimeTasks.put(task.taskId, task);
-        activeTaskDedup.put(dedupe, task.taskId);
 
+        NetworkOrder order = orders.get(orderId);
         if (order != null && !order.taskIds.contains(task.taskId)) {
             order.taskIds.add(task.taskId);
         }
 
+        if (!isTerminalTask(task.status)) {
+            String dedupe = "T|" + task.orderId
+                    + "|" + task.source.pos.toLong()
+                    + "|" + task.target.pos.toLong()
+                    + "|" + task.itemKey.hashCode()
+                    + "|" + task.metaPurpose;
+            activeTaskDedup.put(dedupe, task.taskId);
+        }
+
         LOG.info("[Logistics {}] runtime task created transfer={} order={} key={} amount={} src={} dst={} purpose={}",
-                manager.getPos(),
+                managerPos,
                 task.taskId,
                 orderId,
                 key,
-                task.amount,
-                source.pos,
-                target.pos,
-                purpose);
+                amount,
+                endpointPos(task.source),
+                endpointPos(task.target),
+                task.metaPurpose
+        );
 
         return task;
+    }
+
+    private BlockPos endpointPos(EndpointRef ref) {
+        return ref == null ? null : ref.pos;
+    }
+
+    private boolean isTerminalPos(TileMirrorManager manager, BlockPos pos) {
+        if (manager == null || pos == null || manager.getWorld() == null) {
+            return false;
+        }
+
+        TileEntity te = manager.getWorld().getTileEntity(pos);
+        return te instanceof TileOrderTerminal;
     }
 
     @Nullable
@@ -596,20 +583,56 @@ public class LogisticsNetworkState {
 
         for (RuntimeTask task : runtimeTasks.values()) {
             if (isTerminalTask(task.status)) continue;
-            if (task.status == TaskStatus.NEW) task.status = TaskStatus.WAITING_DEPENDENCY;
-            if (task.status == TaskStatus.WAITING_DEPENDENCY && depsDone(task)) {
-                task.status = TaskStatus.READY;
+
+            if (task.status == TaskStatus.NEW) {
+                task.status = TaskStatus.WAITING_DEPENDENCY;
                 task.updatedTick = manager.getServerTickCounter();
             }
+
+            if (task.status == TaskStatus.WAITING_DEPENDENCY) {
+                if (depsDone(task)) {
+                    task.status = TaskStatus.READY;
+                    task.updatedTick = manager.getServerTickCounter();
+                } else {
+                    continue;
+                }
+            }
+
+            /*
+             * КЛЮЧЕВАЯ ПРАВКА:
+             * BLOCKED-задачи не должны умирать навсегда.
+             * Если зависимости уже готовы, даём им повторную попытку.
+             */
+            if (task.status == TaskStatus.BLOCKED) {
+                if (task instanceof TransferTask) {
+                    TransferTask tt = (TransferTask) task;
+                    if (managerExecutor.isRunning(tt.taskId)) {
+                        continue;
+                    }
+                }
+
+                if (depsDone(task)) {
+                    task.status = TaskStatus.READY;
+                    task.updatedTick = manager.getServerTickCounter();
+                } else {
+                    task.status = TaskStatus.WAITING_DEPENDENCY;
+                    task.updatedTick = manager.getServerTickCounter();
+                    continue;
+                }
+            }
+
             if (task.status != TaskStatus.READY) continue;
+
             boolean accepted = false;
             if (task instanceof TransferTask) {
                 accepted = managerExecutor.canAccept((TransferTask) task) && managerExecutor.submit((TransferTask) task);
             } else if (task instanceof CraftTask) {
                 accepted = crafterExecutor.canAccept((CraftTask) task) && crafterExecutor.submit((CraftTask) task);
             }
+
             if (accepted) {
                 task.status = TaskStatus.DISPATCHED;
+                task.updatedTick = manager.getServerTickCounter();
                 LOG.info("[Logistics {}] task dispatched id={} type={}", manager.getPos(), task.taskId, task.getTaskType());
             }
         }

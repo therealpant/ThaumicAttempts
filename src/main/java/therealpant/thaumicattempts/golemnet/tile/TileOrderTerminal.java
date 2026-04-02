@@ -616,11 +616,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         TileEntity te = world.getTileEntity(managerPos);
         if (!(te instanceof TileMirrorManager)) return;
 
-        TileMirrorManager mgr = (TileMirrorManager) te;
-        if (!pendingDelivery.isEmpty()) {
-            mgr.ensureDeliveryForExact(this.pos, new LinkedHashMap<>(pendingDelivery), 0);
-        }
-
         lastEnsureTick = tickCounter;
     }
 

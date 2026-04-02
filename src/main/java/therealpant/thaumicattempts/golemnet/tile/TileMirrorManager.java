@@ -2494,10 +2494,20 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
 
     public boolean dispatchTransferTask(EndpointRef source, EndpointRef target, ItemKey key, int amount, int queueId) {
-        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0 || source == null || target == null) return false;
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0 || source == null || target == null) {
+            return false;
+        }
+
         BlockPos src = resolveEndpointPos(source);
         BlockPos dst = resolveEndpointPos(target);
         ItemStack like = key.toStack(1);
+
+        // КРИТИЧЕСКИЙ ФИКС:
+        // если источник = буфер менеджера, не тянем ничего из складов повторно
+        if (source.mode == EndpointRef.AccessMode.BUFFER && src.equals(this.pos)) {
+            int movedNow = pushFromBufferTo(dst, -1, like, amount);
+            return movedNow > 0 || countQueuedFor(dst, like) > 0;
+        }
 
         int pulled = 0;
         if (!src.equals(this.pos)) {
@@ -2509,12 +2519,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         } else {
             pulled = pullLikeFromProvideSetToBuffer(like, amount);
         }
+
         int movedNow = pushFromBufferTo(dst, -1, like, amount);
-        if (movedNow < amount) {
+
+        int stillNeed = Math.max(0, amount - movedNow);
+        if (stillNeed > 0) {
             LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
-            needs.put(key, amount);
+            needs.put(key, stillNeed);
             ensureDeliveryForExact(dst, needs, queueId);
         }
+
         return pulled > 0 || movedNow > 0 || countQueuedFor(dst, like) > 0;
     }
 

@@ -47,10 +47,12 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
     @Override
     public void tick() {
         if (manager == null) return;
+
         java.util.Iterator<Map.Entry<UUID, CraftTask>> it = running.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<UUID, CraftTask> e = it.next();
             CraftTask task = e.getValue();
+
             if (task.status == TaskStatus.FAILED || task.status == TaskStatus.CANCELED || task.status == TaskStatus.DONE) {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
@@ -60,16 +62,23 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
             }
 
             boolean isStarted = started.getOrDefault(task.taskId, false);
+
             if (!isStarted) {
                 boolean inputsReady = true;
                 for (Map.Entry<therealpant.thaumicattempts.util.ItemKey, Integer> in : task.requiredInputs.entrySet()) {
+                    int need = Math.max(1, in.getValue());
                     int have = manager.countItemAtEndpoint(task.crafter, in.getKey());
-                    if (have < in.getValue()) {
+                    if (have < need) {
                         inputsReady = false;
                         break;
                     }
                 }
+
                 if (!inputsReady) {
+                    /*
+                     * Не убиваем craft окончательно.
+                     * Он должен остаться retriable.
+                     */
                     task.status = TaskStatus.BLOCKED;
                     org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
                             .info("[CrafterExecutor {}] task={} craft waiting inputs crafter={} key={}",
@@ -77,22 +86,32 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                     snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                     continue;
                 }
+
                 boolean accepted = manager.startCraftTask(task.crafter.pos, task.recipeKey, (int) task.amount);
                 if (!accepted) {
                     task.status = TaskStatus.BLOCKED;
+                    org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
+                            .info("[CrafterExecutor {}] task={} craft start blocked crafter={} key={} amount={}",
+                                    manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, task.amount);
                     snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                     continue;
                 }
+
                 started.put(task.taskId, true);
+                task.status = TaskStatus.IN_PROGRESS;
                 org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
                         .info("[CrafterExecutor {}] task={} craft started crafter={} key={} amount={}",
                                 manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, task.amount);
             }
+
             task.status = TaskStatus.IN_PROGRESS;
+
             int readyOut = manager.countItemAtEndpoint(task.outputEndpoint, task.recipeKey);
             int baseOut = outputBaseline.getOrDefault(task.taskId, 0);
             int produced = Math.max(0, readyOut - baseOut);
+
             task.completedAmount = Math.max(task.completedAmount, produced);
+
             if (task.completedAmount >= task.amount) {
                 task.status = TaskStatus.DONE;
                 org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
@@ -106,6 +125,7 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                 outputBaseline.remove(task.taskId);
                 continue;
             }
+
             snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
         }
     }
