@@ -29,6 +29,14 @@ public class NetworkOrder {
     public final List<UUID> taskIds = new ArrayList<UUID>();
     public String debugReason = "";
     public String lastError = "";
+    public boolean recipePathSelected = false;
+    public RequestIntent intent = RequestIntent.NORMAL;
+    public boolean recipePath = false;
+
+    public enum RequestIntent {
+        NORMAL,
+        CRAFT_ONLY
+    }
 
     public NBTTagCompound writeToNbt() {
         NBTTagCompound tag = new NBTTagCompound();
@@ -45,6 +53,7 @@ public class NetworkOrder {
         tag.setLong("updated", updatedTick);
         tag.setString("debug", debugReason == null ? "" : debugReason);
         tag.setString("error", lastError == null ? "" : lastError);
+        tag.setBoolean("recipePath", recipePathSelected);
 
         NBTTagList children = new NBTTagList();
         for (UUID id : childOrderIds) {
@@ -88,6 +97,19 @@ public class NetworkOrder {
         o.updatedTick = tag.getLong("updated");
         o.debugReason = tag.getString("debug");
         o.lastError = tag.getString("error");
+        o.recipePathSelected = tag.hasKey("recipePath", Constants.NBT.TAG_BYTE) && tag.getBoolean("recipePath");
+
+        if (tag.hasKey("Intent", Constants.NBT.TAG_STRING)) {
+            try {
+                intent = RequestIntent.valueOf(tag.getString("Intent"));
+            } catch (Exception ignored) {
+                intent = RequestIntent.NORMAL;
+            }
+        } else {
+            intent = RequestIntent.NORMAL;
+        }
+
+        recipePath = tag.getBoolean("RecipePath");
 
         NBTTagList children = tag.getTagList("children", Constants.NBT.TAG_COMPOUND);
         for (int i = 0; i < children.tagCount(); i++)

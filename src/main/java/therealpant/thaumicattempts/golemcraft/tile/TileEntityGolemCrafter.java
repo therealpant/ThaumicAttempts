@@ -85,7 +85,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     // Флаг: текущая работа запущена от реквестера (чтобы подавить самопровизию)
     private boolean jobViaRequester = false;
 
-
+    @Nullable
+    private UUID activeOrderId = null;
     // ===== Состояние / параметры =====
     private String customName = "";
 
@@ -946,6 +947,10 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (managerPos != null) nbt.setLong("Manager", managerPos.toLong());
         nbt.setBoolean("ManagerPattern", managerFromPattern && managerPos != null);
 
+        if (activeOrderId != null) {
+            nbt.setString("ActiveOrderId", activeOrderId.toString());
+        }
+
         return nbt;
     }
 
@@ -962,6 +967,17 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             }
             output = neo;
         }
+
+        if (nbt.hasKey("ActiveOrderId", Constants.NBT.TAG_STRING)) {
+            try {
+                activeOrderId = UUID.fromString(nbt.getString("ActiveOrderId"));
+            } catch (Exception ignored) {
+                activeOrderId = null;
+            }
+        } else {
+            activeOrderId = null;
+        }
+
         customName = nbt.hasKey(NBT_CUSTOMNAME, Constants.NBT.TAG_STRING) ? nbt.getString(NBT_CUSTOMNAME) : "";
         craftAmount = nbt.getInteger("CraftAmount");
         Aspect a = Aspect.getAspect(nbt.getString("ReqAspect"));

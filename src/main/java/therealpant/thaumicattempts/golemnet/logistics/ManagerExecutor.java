@@ -26,8 +26,14 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     @Override
     public boolean submit(TransferTask task) {
         if (!canAccept(task)) return false;
-        if (running.containsKey(task.taskId)) return true;
-        if (task.status == TaskStatus.DONE || task.status == TaskStatus.FAILED || task.status == TaskStatus.CANCELED) return false;
+        if (running.containsKey(task.taskId)) {
+            LOG(task, "repeated dispatch prevented reason=already-running");
+            return true;
+        }
+        if (task.status == TaskStatus.DONE || task.status == TaskStatus.FAILED || task.status == TaskStatus.CANCELED) {
+            LOG(task, "repeated dispatch prevented reason=terminal-status status=" + task.status);
+            return false;
+        }
         long base = manager.countItemAtEndpoint(task.target, task.itemKey);
         targetBaseline.put(task.taskId, base);
         task.status = TaskStatus.ACCEPTED;
@@ -50,7 +56,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             TransferTask task = e.getValue();
             if (task.status == TaskStatus.DONE || task.status == TaskStatus.FAILED || task.status == TaskStatus.CANCELED) {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                LOG(task, "transfer removed from running status=" + task.status);
+                LOG(task, "transfer finalized and removed status=" + task.status);
                 it.remove();
                 targetBaseline.remove(task.taskId);
                 blockedUntil.remove(task.taskId);
@@ -62,7 +68,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 task.status = TaskStatus.DONE;
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 LOG(task, "transfer done");
-                LOG(task, "transfer removed from running");
+                LOG(task, "transfer finalized and removed");
                 it.remove();
                 targetBaseline.remove(task.taskId);
                 blockedUntil.remove(task.taskId);
@@ -85,7 +91,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             if (inboundToManager) {
                 if (!task.legacyDeliveryQueued) {
                     if (task.legacyDeliveryQueueId < 0) task.legacyDeliveryQueueId = Math.abs(task.taskId.hashCode()) % 6;
-                    LOG(task, "inbound transfer delegated to legacy golem delivery item=" + task.itemKey + " amount=" + remaining
+                    LOG(task, "transfer submitted via legacy backend item=" + task.itemKey + " amount=" + remaining
                             + " source=" + manager.resolveEndpointPos(task.source) + " manager pos=" + manager.getPos());
                     accepted = manager.dispatchInboundToManagerByGolems(task.source, task.itemKey,
                             (int) Math.min(Integer.MAX_VALUE, remaining), task.legacyDeliveryQueueId);
@@ -97,16 +103,17 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                     }
                 } else {
                     accepted = true;
+                    LOG(task, "repeated dispatch prevented reason=legacy-already-queued queueId=" + task.legacyDeliveryQueueId);
                 }
             } else {
-                LOG(task, "transfer submit item=" + task.itemKey + " amount=" + remaining + " source=" + manager.resolveEndpointPos(task.source) + " target=" + manager.resolveEndpointPos(task.target));
+                LOG(task, "transfer submitted item=" + task.itemKey + " amount=" + remaining + " source=" + manager.resolveEndpointPos(task.source) + " target=" + manager.resolveEndpointPos(task.target));
                 accepted = manager.dispatchTransferTask(task.source, task.target, task.itemKey, (int) Math.min(Integer.MAX_VALUE, remaining), 0);
             }
 
             long baseline = targetBaseline.getOrDefault(task.taskId, 0L);
             long atTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
             long delivered = Math.max(0L, atTarget - baseline);
-            long newCompleted = Math.min(task.amount, delivered);
+            long newCompleted = Math.min(task.amount, Math.max(task.completedAmount, delivered));
             long moved = Math.max(0L, newCompleted - task.completedAmount);
             task.completedAmount = newCompleted;
 
@@ -126,7 +133,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                             + " item=" + task.itemKey + " amount=" + task.completedAmount);
                 }
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                LOG(task, "transfer removed from running");
+                LOG(task, "transfer finalized and removed");
                 it.remove();
                 targetBaseline.remove(task.taskId);
                 blockedUntil.remove(task.taskId);

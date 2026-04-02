@@ -11,6 +11,7 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
     private final LinkedHashMap<UUID, CraftTask> running = new LinkedHashMap<UUID, CraftTask>();
     private final LinkedHashMap<UUID, TaskExecutionSnapshot> snapshots = new LinkedHashMap<UUID, TaskExecutionSnapshot>();
     private final LinkedHashMap<UUID, Boolean> started = new LinkedHashMap<UUID, Boolean>();
+    private final LinkedHashMap<UUID, Integer> outputBaseline = new LinkedHashMap<UUID, Integer>();
 
     public void bind(TileMirrorManager manager) { this.manager = manager; }
 
@@ -32,6 +33,7 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
         task.status = TaskStatus.ACCEPTED;
         running.put(task.taskId, task);
         started.put(task.taskId, false);
+        outputBaseline.put(task.taskId, manager.countItemAtEndpoint(task.outputEndpoint, task.recipeKey));
         org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
                 .info("[CrafterExecutor {}] task={} craft accepted crafter={} key={} amount={}",
                         manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, task.amount);
@@ -53,6 +55,7 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
                 started.remove(task.taskId);
+                outputBaseline.remove(task.taskId);
                 continue;
             }
 
@@ -87,17 +90,20 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
             }
             task.status = TaskStatus.IN_PROGRESS;
             int readyOut = manager.countItemAtEndpoint(task.outputEndpoint, task.recipeKey);
-            task.completedAmount = Math.max(task.completedAmount, readyOut);
-            if (readyOut >= task.amount) {
+            int baseOut = outputBaseline.getOrDefault(task.taskId, 0);
+            int produced = Math.max(0, readyOut - baseOut);
+            task.completedAmount = Math.max(task.completedAmount, produced);
+            if (task.completedAmount >= task.amount) {
                 task.status = TaskStatus.DONE;
                 org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
-                        .info("[CrafterExecutor {}] task={} craft output detected key={} ready={}",
-                                manager.getPos(), task.taskId, task.recipeKey, readyOut);
+                        .info("[CrafterExecutor {}] task={} craft output detected key={} produced={} ready={} baseline={}",
+                                manager.getPos(), task.taskId, task.recipeKey, produced, readyOut, baseOut);
                 org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor")
                         .info("[CrafterExecutor {}] task={} craft done", manager.getPos(), task.taskId);
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
                 started.remove(task.taskId);
+                outputBaseline.remove(task.taskId);
                 continue;
             }
             snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
