@@ -119,6 +119,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     private int lastProgressTick = 0;
     private int lastRequestTick = 0;
     private int nextProvisionTick = 0;
+    private final LinkedHashMap<ItemKey, UUID> activeProvisionOrders = new LinkedHashMap<>();
 
     private @Nullable BlockPos managerPos = null;
     private boolean managerFromPattern = false;
@@ -380,6 +381,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         pending.clear();
         baselines.clear();
         sequence.clear();
+        activeProvisionOrders.clear();
         provisionQueue.clear();
         jobActive = false;
         activeSlot = -1;
@@ -438,12 +440,22 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         if (!(te instanceof TileMirrorManager)) return;
         TileMirrorManager mgr = (TileMirrorManager) te;
 
-        Map<ItemKey, Integer> copy = new LinkedHashMap<>(pending);
-        if (!copy.isEmpty()) {
-            mgr.ensureDeliveryForExact(this.pos, copy, 0);
-            lastEnsureTick = tickCounter;
-            needEnsure = false;
+        for (Iterator<Map.Entry<ItemKey, UUID>> it = activeProvisionOrders.entrySet().iterator(); it.hasNext(); ) {
+            Map.Entry<ItemKey, UUID> e = it.next();
+            if (!mgr.isOrderActive(e.getValue())) it.remove();
         }
+        for (Map.Entry<ItemKey, Integer> e : pending.entrySet()) {
+            ItemKey key = e.getKey();
+            int want = Math.max(1, e.getValue());
+            if (activeProvisionOrders.containsKey(key)) continue;
+            UUID orderId = mgr.submitEndpointRequest(therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_REQUESTER,
+                    this.pos, key, want, this.pos, "resource-requester-redstone");
+            if (orderId != null) {
+                activeProvisionOrders.put(key, orderId);
+            }
+        }
+        lastEnsureTick = tickCounter;
+        needEnsure = false;
     }
 
     private void deliverSequence() {

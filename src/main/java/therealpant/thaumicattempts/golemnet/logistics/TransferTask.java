@@ -7,6 +7,9 @@ public class TransferTask extends RuntimeTask {
     public ItemKey itemKey;
     public EndpointRef source;
     public EndpointRef target;
+    public int legacyDeliveryQueueId = -1;
+    public boolean legacyDeliveryQueued = false;
+
 
     @Override
     public String getTaskType() {
@@ -20,6 +23,8 @@ public class TransferTask extends RuntimeTask {
         tag.setTag("key", itemKey.toStack(1).writeToNBT(new NBTTagCompound()));
         tag.setTag("source", source.writeToNbt());
         tag.setTag("target", target.writeToNbt());
+        tag.setInteger("legacyQueueId", legacyDeliveryQueueId);
+        tag.setBoolean("legacyQueued", legacyDeliveryQueued);
         return tag;
     }
 
@@ -29,5 +34,7 @@ public class TransferTask extends RuntimeTask {
         itemKey = ItemKey.of(new net.minecraft.item.ItemStack(tag.getCompoundTag("key")));
         source = EndpointRef.readFromNbt(tag.getCompoundTag("source"));
         target = EndpointRef.readFromNbt(tag.getCompoundTag("target"));
+        legacyDeliveryQueueId = tag.hasKey("legacyQueueId") ? tag.getInteger("legacyQueueId") : -1;
+        legacyDeliveryQueued = tag.hasKey("legacyQueued") && tag.getBoolean("legacyQueued");
     }
 }

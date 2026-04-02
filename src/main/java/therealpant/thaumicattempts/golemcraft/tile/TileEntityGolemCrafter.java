@@ -78,6 +78,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     private boolean managerFromPattern = false;
     private boolean needEnsureWithManager = false;
     private long lastEnsureWorldTime = -9999L;
+    private final LinkedHashMap<ItemKey, UUID> activeInputOrders = new LinkedHashMap<>();
 
     // Очередь запусков от реквестера (индексы паттернов, 0-based)
     private final java.util.Deque<Integer> requesterQueue = new java.util.ArrayDeque<>();
@@ -616,7 +617,17 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
         TileEntity te = world.getTileEntity(managerPos);
         if (te instanceof TileMirrorManager) {
-            ((TileMirrorManager) te).ensureDeliveryForExact(this.pos, miss, 0);
+            TileMirrorManager manager = (TileMirrorManager) te;
+            for (Iterator<Map.Entry<ItemKey, UUID>> it = activeInputOrders.entrySet().iterator(); it.hasNext();) {
+                Map.Entry<ItemKey, UUID> row = it.next();
+                if (!manager.isOrderActive(row.getValue())) it.remove();
+            }
+            for (Map.Entry<ItemKey, Integer> e : miss.entrySet()) {
+                if (activeInputOrders.containsKey(e.getKey())) continue;
+                UUID id = manager.submitEndpointRequest(therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_CRAFTER,
+                        this.pos, e.getKey(), Math.max(1, e.getValue()), this.pos, "golem-crafter-input");
+                if (id != null) activeInputOrders.put(e.getKey(), id);
+            }
             lastEnsureWorldTime = now;
             needEnsureWithManager = false;
         } else {
@@ -838,6 +849,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         this.jobViaRequester = false;
         this.suppressSelfProvision = false;
         this.needEnsureWithManager = false;
+        this.activeInputOrders.clear();
 
         if (world == null) return;
 

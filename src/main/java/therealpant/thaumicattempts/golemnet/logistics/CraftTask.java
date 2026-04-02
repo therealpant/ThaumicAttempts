@@ -17,6 +17,24 @@ public class CraftTask extends RuntimeTask {
     public EndpointRef outputEndpoint;
     public final LinkedHashMap<ItemKey, Integer> requiredInputs = new LinkedHashMap<ItemKey, Integer>();
 
+    public String validationError() {
+        if (taskId == null) return "missing-task-id";
+        if (orderId == null) return "missing-order-id";
+        if (crafter == null || crafter.pos == null) return "missing-crafter-endpoint";
+        if (recipeKey == null || recipeKey == ItemKey.EMPTY) return "missing-recipe-key";
+        if (outputEndpoint == null || outputEndpoint.pos == null) return "missing-output-endpoint";
+        if (requiredInputs.isEmpty()) return "missing-required-inputs";
+        for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
+            if (e.getKey() == null || e.getKey() == ItemKey.EMPTY) return "invalid-required-input-key";
+            if (e.getValue() == null || e.getValue() <= 0) return "invalid-required-input-amount";
+        }
+        return null;
+    }
+
+    public boolean isValidRuntimeTask() {
+        return validationError() == null;
+    }
+
     @Override
     public String getTaskType() {
         return "CRAFT";
@@ -26,32 +44,36 @@ public class CraftTask extends RuntimeTask {
     public NBTTagCompound writeToNbt() {
         NBTTagCompound tag = new NBTTagCompound();
         writeCommon(tag);
+
         if (crafter != null) {
             tag.setTag("crafter", crafter.writeToNbt());
-        } else {
-            LOG.warn("[CraftTask] writeToNbt missing required field crafter taskId={} orderId={}", taskId, orderId);
-        }
-        if (recipeKey != null && recipeKey != ItemKey.EMPTY) {
-            tag.setTag("recipeKey", recipeKey.toStack(1).writeToNBT(new NBTTagCompound()));
-        } else {
-            LOG.warn("[CraftTask] writeToNbt missing required field recipeKey taskId={} orderId={}", taskId, orderId);
-        }
-        if (outputEndpoint != null) {
-            tag.setTag("output", outputEndpoint.writeToNbt());
-        } else {
-            LOG.warn("[CraftTask] writeToNbt missing required field outputEndpoint taskId={} orderId={}", taskId, orderId);
         }
 
+        if (recipeKey != null && recipeKey != ItemKey.EMPTY) {
+            tag.setTag("recipeKey", recipeKey.toStack(1).writeToNBT(new NBTTagCompound()));
+        }
+
+        if (outputEndpoint != null) {
+            tag.setTag("output", outputEndpoint.writeToNbt());
+        }
 
         NBTTagList ins = new NBTTagList();
         for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
-            NBTTagCompound row = new NBTTagCompound();
             if (e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+            if (e.getValue() == null || e.getValue() <= 0) continue;
+
+            NBTTagCompound row = new NBTTagCompound();
             row.setTag("key", e.getKey().toStack(1).writeToNBT(new NBTTagCompound()));
             row.setInteger("amount", e.getValue());
             ins.appendTag(row);
         }
         tag.setTag("inputs", ins);
+
+        String err = validationError();
+        if (err != null) {
+            LOG.warn("[CraftTask] writeToNbt invalid taskId={} orderId={} reason={}", taskId, orderId, err);
+        }
+
         return tag;
     }
 
@@ -71,6 +93,10 @@ public class CraftTask extends RuntimeTask {
             ItemKey key = ItemKey.of(new net.minecraft.item.ItemStack(row.getCompoundTag("key")));
             if (key == null || key == ItemKey.EMPTY) continue;
             requiredInputs.put(key, Math.max(1, row.getInteger("amount")));
+        }
+        String err = validationError();
+        if (err != null) {
+            LOG.warn("[CraftTask] readFromNbt invalid taskId={} orderId={} reason={}", taskId, orderId, err);
         }
     }
 }

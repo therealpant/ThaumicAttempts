@@ -83,8 +83,25 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
 
     /** Привязать к менеджеру и зарегистрироваться внутри него. */
     public void setManagerPos(@Nullable BlockPos pos) {
-        this.managerPos = pos;
+        BlockPos old = this.managerPos;
+        this.managerPos = (pos == null ? null : pos.toImmutable());
+        this.needsRebind = true;
         markDirty();
+
+        if (world != null && !world.isRemote) {
+            if (old != null && !old.equals(this.managerPos)) {
+                TileEntity oldTe = world.getTileEntity(old);
+                if (oldTe instanceof TileMirrorManager) {
+                    ((TileMirrorManager) oldTe).unregisterRequester(this.pos);
+                }
+            }
+            if (this.managerPos != null) {
+                TileEntity newTe = world.getTileEntity(this.managerPos);
+                if (newTe instanceof TileMirrorManager) {
+                    ((TileMirrorManager) newTe).registerRequester(this.pos);
+                }
+            }
+        }
     }
 
     /** Тихо сбросить привязку, если инициатор – именно этот менеджер. */
@@ -131,12 +148,28 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         if (world == null) return;
 
         if (!world.isRemote) {
-            rsQueueTick(); // ← держит/сбрасывает сигнал по очереди крафтов
+            if (managerPos != null) {
+                TileEntity te = world.getTileEntity(managerPos);
+                if (te instanceof TileMirrorManager) {
+                    ((TileMirrorManager) te).registerRequester(this.pos);
+                }
+            }
+
+            if (needsRebind) {
+                needsRebind = false;
+                if (managerPos != null) {
+                    TileEntity te = world.getTileEntity(managerPos);
+                    if (te instanceof TileMirrorManager) {
+                        ((TileMirrorManager) te).registerRequester(this.pos);
+                    }
+                }
+            }
+
+            rsQueueTick();
         }
 
         if (world.isRemote) return;
 
-        // ваш существующий код пульса (если нужен):
         if (pulseTicks > 0) {
             pulseTicks--;
             if (pulseTicks == 0) {
@@ -147,7 +180,41 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         }
     }
 
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        if (world != null && !world.isRemote) {
+            needsRebind = true;
+            if (managerPos != null) {
+                TileEntity te = world.getTileEntity(managerPos);
+                if (te instanceof TileMirrorManager) {
+                    ((TileMirrorManager) te).registerRequester(this.pos);
+                }
+            }
+        }
+    }
 
+    @Override
+    public void invalidate() {
+        if (world != null && !world.isRemote && managerPos != null) {
+            TileEntity te = world.getTileEntity(managerPos);
+            if (te instanceof TileMirrorManager) {
+                ((TileMirrorManager) te).unregisterRequester(this.pos);
+            }
+        }
+        super.invalidate();
+    }
+
+    @Override
+    public void onChunkUnload() {
+        if (world != null && !world.isRemote && managerPos != null) {
+            TileEntity te = world.getTileEntity(managerPos);
+            if (te instanceof TileMirrorManager) {
+                ((TileMirrorManager) te).unregisterRequester(this.pos);
+            }
+        }
+        super.onChunkUnload();
+    }
     /* ====== Публикация каталога крафтабельного ====== */
     @Override
     /** Список всех результатов из паттернов (каждый — с правильным count за 1 крафт). */
@@ -408,6 +475,8 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
                 ? BlockPos.fromLong(nbt.getLong("ManagerPos")) : null;
         outSignal = nbt.getInteger("OutSig");
         pulseTicks = nbt.getInteger("Pulse");
+        needsRebind = true;
+
         rsQueue.clear();
         if (nbt.hasKey("RSQ", Constants.NBT.TAG_LIST)) {
             NBTTagList q = nbt.getTagList("RSQ", Constants.NBT.TAG_COMPOUND);

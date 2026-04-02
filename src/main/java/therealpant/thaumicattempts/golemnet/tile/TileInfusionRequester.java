@@ -209,6 +209,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private int nextProvisionTick = 0;
     private static final int PROVISION_INTERVAL = 10;
     private static final int ENSURE_INTERVAL = 20;
+    private final LinkedHashMap<ItemKey, UUID> activeInputOrders = new LinkedHashMap<>();
 
     @Nullable private BlockPos managerPos = null;
     private boolean managerFromPattern = false;
@@ -854,6 +855,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         pendingToRequester.clear();
         baselineToRequester.clear();
+        activeInputOrders.clear();
         pendingByStorage.clear();
         resetDistributionState();
 
@@ -933,6 +935,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         pendingToRequester.clear();
         baselineToRequester.clear();
+        activeInputOrders.clear();
         pendingByStorage.clear();
 
         needsEnsure = false;
@@ -1085,10 +1088,21 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         if (useManagerForProvision() && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
-            mgr.ensureDeliveryForExact(pos, new LinkedHashMap<>(pendingToRequester), 0);
+            for (Iterator<Map.Entry<ItemKey, UUID>> it = activeInputOrders.entrySet().iterator(); it.hasNext(); ) {
+                Map.Entry<ItemKey, UUID> e = it.next();
+                if (!mgr.isOrderActive(e.getValue())) it.remove();
+            }
+            for (Map.Entry<ItemKey, Integer> e : pendingToRequester.entrySet()) {
+                ItemKey key = e.getKey();
+                int amount = Math.max(1, e.getValue());
+                if (activeInputOrders.containsKey(key)) continue;
+                UUID orderId = mgr.submitEndpointRequest(therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_INFUSION,
+                        pos, key, amount, pos, "infusion-requester-input");
+                if (orderId != null) activeInputOrders.put(key, orderId);
+            }
             needsEnsure = false;
             lastEnsureTick = tickCounter;
-            logDebug("ensurePendingToRequester via manager={} needs={}", managerPos, pendingToRequester);
+            logDebug("ensurePendingToRequester via handler manager={} needs={} activeOrders={}", managerPos, pendingToRequester, activeInputOrders.size());
             return;
         }
 

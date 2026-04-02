@@ -1778,12 +1778,21 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     @Nullable
     private IItemHandler getDestHandler(BlockPos destPos, int destSide) {
         if (world == null || destPos == null) return null;
+
         TileEntity te = world.getTileEntity(destPos);
         if (te == null) return null;
+
+        if (te instanceof TilePatternRequester) {
+            TileEntity below = world.getTileEntity(destPos.down());
+            if (below instanceof TileEntityGolemCrafter) {
+                return ((TileEntityGolemCrafter) below).getInputHandler();
+            }
+        }
 
         if (te instanceof TileEntityGolemCrafter) {
             return ((TileEntityGolemCrafter) te).getInputHandler();
         }
+
         if (te instanceof TileOrderTerminal) {
             return ((TileOrderTerminal) te).getBufferHandler();
         }
@@ -2369,6 +2378,28 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         UUID id = logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, null, 0, "root-submit");
         markDirty();
         return id;
+    }
+
+    public UUID submitEndpointRequest(OrderSourceType sourceType,
+                                      BlockPos endpointPos,
+                                      ItemKey key,
+                                      int amount,
+                                      @Nullable BlockPos destination,
+                                      @Nullable String metadata) {
+        if (world == null || world.isRemote || endpointPos == null || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+        logistics.refreshRecipeIndex(this);
+        UUID id = logistics.submitOrder(this, key, amount, sourceType, endpointPos, destination, null, 0,
+                metadata == null ? "endpoint-submit" : metadata);
+        if (id != null) {
+            LOG.info("[Manager {}] submitEndpointRequest accepted order={} sourceType={} endpoint={} key={} amount={} destination={} reason={}",
+                    pos, id, sourceType, endpointPos, key, amount, destination, metadata);
+        }
+        markDirty();
+        return id;
+    }
+
+    public boolean isOrderActive(@Nullable UUID orderId) {
+        return logistics.isOrderActive(orderId);
     }
 
     public int executeTransferTask(ItemKey key, int amount, BlockPos source, BlockPos target) {
@@ -3925,10 +3956,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     public List<ItemStack> getCraftablesCatalog() {
         List<ItemStack> out = new ArrayList<>();
-        Set<BlockPos> reqs = getRequestersSnapshot();
-        if (world == null || reqs == null) return out;
+        if (world == null) return out;
 
-        for (BlockPos rp : reqs) {
+        LinkedHashMap<ItemKey, ItemStack> uniq = new LinkedHashMap<>();
+
+        for (BlockPos rp : getRequestersSnapshot()) {
             TileEntity te = world.getTileEntity(rp);
             if (!(te instanceof ICraftEndpoint)) continue;
 
@@ -3938,11 +3970,19 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
             for (ItemStack s : lst) {
                 if (s == null || s.isEmpty()) continue;
+                ItemKey k = ItemKey.of(s);
+                if (k == null || k == ItemKey.EMPTY) continue;
+
                 ItemStack one = s.copy();
                 if (one.getCount() <= 0) one.setCount(1);
-                out.add(one);
+
+                if (!uniq.containsKey(k)) {
+                    uniq.put(k, one);
+                }
             }
         }
+
+        out.addAll(uniq.values());
         return out;
     }
 
@@ -3973,6 +4013,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
+    public int countBuffered(ItemKey key) {
+        if (key == null || key == ItemKey.EMPTY) return 0;
+        return countInBufferLike(key.toStack(1));
+    }
+
     /**
      * Сравнение результатов для каталога:
      *  - для кристаллов — по аспекту
@@ -3987,14 +4032,20 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private final Set<BlockPos> requesters = new HashSet<>();
 
     public void registerRequester(BlockPos pos) {
-        if (pos != null) {
-            requesters.add(pos.toImmutable());
+        if (pos == null) return;
+        BlockPos p = pos.toImmutable();
+        if (requesters.add(p)) {
+            logistics.refreshRecipeIndex(this);
             markDirty();
         }
     }
 
     public void unregisterRequester(BlockPos pos) {
-        if (pos != null && requesters.remove(pos)) markDirty();
+        if (pos == null) return;
+        if (requesters.remove(pos)) {
+            logistics.refreshRecipeIndex(this);
+            markDirty();
+        }
     }
 
     boolean isConsumerBound(BlockPos pos) {
