@@ -130,7 +130,6 @@ public class LogisticsNetworkState {
         LinkedHashMap<ItemKey, Integer> catalog = manager.getReachableCatalog();
 
         int totalReachable = Math.max(0, catalog.getOrDefault(order.requestedKey, 0));
-        int localBuffered = Math.max(0, manager.countBuffered(order.requestedKey));
         int reserved = reservationBook.getReservedAmount(order.requestedKey);
         int totalAvailable = Math.max(0, totalReachable - reserved);
 
@@ -142,40 +141,57 @@ public class LogisticsNetworkState {
 
         boolean allowResultStockPath = (order.intent == null || order.intent == NetworkOrder.RequestIntent.NORMAL);
 
-        // NORMAL-заказ: одна общая delivery task на итоговый предмет
+        /*
+         * ЕДИНАЯ ЛОГИКА:
+         * Любой готовый ресурс сначала доставляется в буфер менеджера,
+         * и только потом выдается конечной цели.
+         */
         if (allowResultStockPath && totalAvailable > 0) {
             int deliverAmount = Math.min(order.requestedAmount, totalAvailable);
 
-            TransferTask deliver = createTransferTask(
+            TransferTask stageToManager = createTransferTask(
                     manager,
                     order.orderId,
                     EndpointRef.of(order.sourcePos, EndpointRef.AccessMode.DIRECT),
-                    finalTarget,
+                    managerBuffer,
                     order.requestedKey,
                     deliverAmount,
                     null,
                     "deliver"
             );
-            if (deliver != null) {
-                deliver.status = TaskStatus.NEW;
-                deliver.updatedTick = manager.getServerTickCounter();
+            if (stageToManager != null) {
+                stageToManager.status = TaskStatus.NEW;
+                stageToManager.updatedTick = manager.getServerTickCounter();
+            }
+
+            TransferTask dispatchToTarget = createTransferTask(
+                    manager,
+                    order.orderId,
+                    managerBuffer,
+                    finalTarget,
+                    order.requestedKey,
+                    deliverAmount,
+                    stageToManager == null ? null : Collections.singletonList(stageToManager.taskId),
+                    "deliver-output"
+            );
+            if (dispatchToTarget != null) {
+                dispatchToTarget.status = TaskStatus.NEW;
+                dispatchToTarget.updatedTick = manager.getServerTickCounter();
             }
 
             int stillNeed = Math.max(0, order.requestedAmount - deliverAmount);
             if (stillNeed <= 0) {
                 order.status = OrderStatus.RUNNING;
-                LOG.info("[Logistics {}] order planned={} key={} amount={} purpose=deliver-only recipePath=false",
+                LOG.info("[Logistics {}] order planned={} key={} amount={} purpose=deliver-via-manager recipePath=false",
                         manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount);
                 return;
             }
 
-            // остаток закрываем через recipe path
             order.recipePath = true;
             planCraftRemainder(manager, order, depth, stillNeed, catalog, finalTarget, managerBuffer);
             return;
         }
 
-        // CRAFT_ONLY либо stock не хватило совсем
         order.recipePath = true;
         planCraftRemainder(manager, order, depth, order.requestedAmount, catalog, finalTarget, managerBuffer);
     }
@@ -232,28 +248,53 @@ public class LogisticsNetworkState {
             int inputReserved = reservationBook.getReservedAmount(inputKey);
             int inputAvailable = Math.max(0, inputTotalReachable - inputReserved);
 
-            if (inputAvailable > 0) {
-                int deliverInput = Math.min(inputNeed, inputAvailable);
+            int stageableNow = Math.min(inputNeed, inputAvailable);
 
-                TransferTask t = createTransferTask(
+            /*
+             * ЕДИНЫЙ ПЕРВЫЙ ЭТАП:
+             * сначала staging в буфер менеджера тем же deliver-таском,
+             * что и для обычной доставки в терминал.
+             */
+            if (stageableNow > 0) {
+                TransferTask stageToManager = createTransferTask(
                         manager,
                         order.orderId,
                         EndpointRef.of(order.sourcePos, EndpointRef.AccessMode.DIRECT),
-                        crafterInput,
+                        managerBuffer,
                         inputKey,
-                        deliverInput,
+                        stageableNow,
                         null,
-                        "craft-input"
+                        "deliver"
                 );
-                if (t != null) {
-                    t.status = TaskStatus.NEW;
-                    t.updatedTick = manager.getServerTickCounter();
-                    inputDeps.add(t.taskId);
+                if (stageToManager != null) {
+                    stageToManager.status = TaskStatus.NEW;
+                    stageToManager.updatedTick = manager.getServerTickCounter();
                 }
 
-                inputNeed -= deliverInput;
+                TransferTask feedCrafter = createTransferTask(
+                        manager,
+                        order.orderId,
+                        managerBuffer,
+                        crafterInput,
+                        inputKey,
+                        stageableNow,
+                        stageToManager == null ? null : Collections.singletonList(stageToManager.taskId),
+                        "craft-input"
+                );
+                if (feedCrafter != null) {
+                    feedCrafter.status = TaskStatus.NEW;
+                    feedCrafter.updatedTick = manager.getServerTickCounter();
+                    inputDeps.add(feedCrafter.taskId);
+                }
+
+                inputNeed -= stageableNow;
             }
 
+            /*
+             * Если ресурса в reachable stock не хватает,
+             * заказываем недостачу отдельным suborder.
+             * Возвращать его нужно тоже через менеджер, а не прямо в крафтер.
+             */
             if (inputNeed > 0) {
                 UUID subOrderId = submitOrder(
                         manager,
@@ -261,7 +302,7 @@ public class LogisticsNetworkState {
                         inputNeed,
                         OrderSourceType.INTERNAL_SUBORDER,
                         recipe.source,
-                        recipe.source,
+                        manager.getPos(),
                         order.orderId,
                         depth + 1,
                         "input-for-" + order.requestedKey,
