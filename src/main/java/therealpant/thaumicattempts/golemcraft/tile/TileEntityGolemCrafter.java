@@ -31,6 +31,7 @@ import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
+import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
@@ -619,6 +620,10 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         TileEntity te = world.getTileEntity(managerPos);
         if (te instanceof TileMirrorManager) {
             TileMirrorManager manager = (TileMirrorManager) te;
+            if (activeOrderId != null && manager.isOrderActive(activeOrderId)) {
+                return;
+            }
+            activeOrderId = null;
             for (Iterator<Map.Entry<ItemKey, UUID>> it = activeInputOrders.entrySet().iterator(); it.hasNext();) {
                 Map.Entry<ItemKey, UUID> row = it.next();
                 if (!manager.isOrderActive(row.getValue())) it.remove();
@@ -626,8 +631,13 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             for (Map.Entry<ItemKey, Integer> e : miss.entrySet()) {
                 if (activeInputOrders.containsKey(e.getKey())) continue;
                 UUID id = manager.submitEndpointRequest(therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_CRAFTER,
-                        this.pos, e.getKey(), Math.max(1, e.getValue()), this.pos, "golem-crafter-input");
-                if (id != null) activeInputOrders.put(e.getKey(), id);
+                        this.pos, e.getKey(), Math.max(1, e.getValue()), this.pos, "golem-crafter-input",
+                        NetworkOrder.RequestIntent.CRAFT_ONLY);
+                if (id != null) {
+                    activeInputOrders.put(e.getKey(), id);
+                    activeOrderId = id;
+                    break;
+                }
             }
             lastEnsureWorldTime = now;
             needEnsureWithManager = false;
@@ -851,6 +861,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         this.suppressSelfProvision = false;
         this.needEnsureWithManager = false;
         this.activeInputOrders.clear();
+        this.activeOrderId = null;
 
         if (world == null) return;
 

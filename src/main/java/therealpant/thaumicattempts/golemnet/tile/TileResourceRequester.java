@@ -121,6 +121,9 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     private int nextProvisionTick = 0;
     private final LinkedHashMap<ItemKey, UUID> activeProvisionOrders = new LinkedHashMap<>();
 
+    @Nullable
+    private UUID activeOrderId = null;
+
     private @Nullable BlockPos managerPos = null;
     private boolean managerFromPattern = false;
 
@@ -382,6 +385,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         baselines.clear();
         sequence.clear();
         activeProvisionOrders.clear();
+        activeOrderId = null;
         provisionQueue.clear();
         jobActive = false;
         activeSlot = -1;
@@ -439,6 +443,8 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         TileEntity te = world.getTileEntity(managerPos);
         if (!(te instanceof TileMirrorManager)) return;
         TileMirrorManager mgr = (TileMirrorManager) te;
+        if (activeOrderId != null && mgr.isOrderActive(activeOrderId)) return;
+        activeOrderId = null;
 
         for (Iterator<Map.Entry<ItemKey, UUID>> it = activeProvisionOrders.entrySet().iterator(); it.hasNext(); ) {
             Map.Entry<ItemKey, UUID> e = it.next();
@@ -452,6 +458,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
                     this.pos, key, want, this.pos, "resource-requester-redstone");
             if (orderId != null) {
                 activeProvisionOrders.put(key, orderId);
+                activeOrderId = orderId;
             }
         }
         lastEnsureTick = tickCounter;
@@ -1107,6 +1114,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         compound.setInteger("LastSig", lastSignal);
         if (managerPos != null) compound.setLong("Manager", managerPos.toLong());
         compound.setBoolean("ManagerPattern", managerFromPattern);
+        if (activeOrderId != null) compound.setString("ActiveOrderId", activeOrderId.toString());
 
         NBTTagList pend = new NBTTagList();
         for (Map.Entry<ItemKey, Integer> e : pending.entrySet()) {
@@ -1156,12 +1164,22 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         managerPos = compound.hasKey("Manager", Constants.NBT.TAG_LONG)
                 ? BlockPos.fromLong(compound.getLong("Manager")) : null;
         managerFromPattern = compound.getBoolean("ManagerPattern") && managerPos != null;
+        if (compound.hasKey("ActiveOrderId", Constants.NBT.TAG_STRING)) {
+            try {
+                activeOrderId = UUID.fromString(compound.getString("ActiveOrderId"));
+            } catch (Exception ignored) {
+                activeOrderId = null;
+            }
+        } else {
+            activeOrderId = null;
+        }
 
         pending.clear();
         baselines.clear();
         sequence.clear();
         queuedSignals.clear();
         provisionQueue.clear();
+        activeProvisionOrders.clear();
         nextProvisionTick = 0;
 
         if (compound.hasKey("Pending", Constants.NBT.TAG_LIST)) {

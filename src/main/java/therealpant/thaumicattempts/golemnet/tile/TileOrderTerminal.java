@@ -20,6 +20,7 @@ import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
+import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
 import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
@@ -455,7 +456,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             for (Map.Entry<ItemKey, Integer> e : moved) {
                 ItemKey key = e.getKey();
                 int amount = Math.max(1, e.getValue());
-                mgr.submitOrder(key, amount, OrderSourceType.TERMINAL, this.pos, this.pos);
+                NetworkOrder.RequestIntent intent = craftTab
+                        ? NetworkOrder.RequestIntent.CRAFT_ONLY
+                        : NetworkOrder.RequestIntent.NORMAL;
+                mgr.submitOrder(key, amount, OrderSourceType.TERMINAL, this.pos, this.pos, intent);
             }
         }
 

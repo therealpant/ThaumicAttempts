@@ -210,6 +210,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private static final int PROVISION_INTERVAL = 10;
     private static final int ENSURE_INTERVAL = 20;
     private final LinkedHashMap<ItemKey, UUID> activeInputOrders = new LinkedHashMap<>();
+    @Nullable
+    private UUID activeOrderId = null;
 
     @Nullable private BlockPos managerPos = null;
     private boolean managerFromPattern = false;
@@ -856,6 +858,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         pendingToRequester.clear();
         baselineToRequester.clear();
         activeInputOrders.clear();
+        activeOrderId = null;
         pendingByStorage.clear();
         resetDistributionState();
 
@@ -936,6 +939,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         pendingToRequester.clear();
         baselineToRequester.clear();
         activeInputOrders.clear();
+        activeOrderId = null;
         pendingByStorage.clear();
 
         needsEnsure = false;
@@ -1088,6 +1092,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         if (useManagerForProvision() && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
+            if (activeOrderId != null && mgr.isOrderActive(activeOrderId)) return;
+            activeOrderId = null;
             for (Iterator<Map.Entry<ItemKey, UUID>> it = activeInputOrders.entrySet().iterator(); it.hasNext(); ) {
                 Map.Entry<ItemKey, UUID> e = it.next();
                 if (!mgr.isOrderActive(e.getValue())) it.remove();
@@ -1098,7 +1104,10 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 if (activeInputOrders.containsKey(key)) continue;
                 UUID orderId = mgr.submitEndpointRequest(therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_INFUSION,
                         pos, key, amount, pos, "infusion-requester-input");
-                if (orderId != null) activeInputOrders.put(key, orderId);
+                if (orderId != null) {
+                    activeInputOrders.put(key, orderId);
+                    activeOrderId = orderId;
+                }
             }
             needsEnsure = false;
             lastEnsureTick = tickCounter;
@@ -1618,6 +1627,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (targetPos != null) compound.setLong(TAG_TARGET, targetPos.toLong());
         if (managerPos != null) compound.setLong(TAG_MANAGER, managerPos.toLong());
         compound.setBoolean("ManagerPattern", managerFromPattern && managerPos != null);
+        if (activeOrderId != null) compound.setString("ActiveOrderId", activeOrderId.toString());
 
         if (ownerId != null) compound.setUniqueId(TAG_OWNER_ID, ownerId);
         if (ownerName != null) compound.setString(TAG_OWNER_NAME, ownerName);
@@ -1682,6 +1692,15 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         managerPos = compound.hasKey(TAG_MANAGER) ? BlockPos.fromLong(compound.getLong(TAG_MANAGER)) : null;
         managerFromPattern = compound.getBoolean("ManagerPattern") && managerPos != null;
+        if (compound.hasKey("ActiveOrderId", Constants.NBT.TAG_STRING)) {
+            try {
+                activeOrderId = UUID.fromString(compound.getString("ActiveOrderId"));
+            } catch (Exception ignored) {
+                activeOrderId = null;
+            }
+        } else {
+            activeOrderId = null;
+        }
 
         ownerId = compound.hasUniqueId(TAG_OWNER_ID) ? compound.getUniqueId(TAG_OWNER_ID) : null;
         ownerName = compound.hasKey(TAG_OWNER_NAME) ? compound.getString(TAG_OWNER_NAME) : null;
@@ -1724,6 +1743,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         essentiaAmount = compound.hasKey("EssentiaAmount") ? compound.getInteger("EssentiaAmount") : 0;
 
         queuedTriggers.clear();
+        activeInputOrders.clear();
         if (compound.hasKey(TAG_JOB_QUEUE, Constants.NBT.TAG_LIST)) {
             NBTTagList qList = compound.getTagList(TAG_JOB_QUEUE, Constants.NBT.TAG_COMPOUND);
             for (int i = 0; i < qList.tagCount(); i++) {

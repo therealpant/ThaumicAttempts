@@ -1,7 +1,10 @@
 package therealpant.thaumicattempts.golemnet.logistics;
 
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraftforge.common.util.Constants;
 import therealpant.thaumicattempts.util.ItemKey;
+
+import java.util.UUID;
 
 public class TransferTask extends RuntimeTask {
     public ItemKey itemKey;
@@ -9,7 +12,10 @@ public class TransferTask extends RuntimeTask {
     public EndpointRef target;
     public int legacyDeliveryQueueId = -1;
     public boolean legacyDeliveryQueued = false;
-
+    public boolean inboundQueued = false;
+    public boolean inboundDone = false;
+    public boolean outboundDone = false;
+    public UUID legacyDeliveryId = null;
 
     @Override
     public String getTaskType() {
@@ -25,6 +31,12 @@ public class TransferTask extends RuntimeTask {
         tag.setTag("target", target.writeToNbt());
         tag.setInteger("legacyQueueId", legacyDeliveryQueueId);
         tag.setBoolean("legacyQueued", legacyDeliveryQueued);
+        tag.setBoolean("InboundQueued", inboundQueued);
+        tag.setBoolean("InboundDone", inboundDone);
+        tag.setBoolean("OutboundDone", outboundDone);
+        if (legacyDeliveryId != null) {
+            tag.setString("LegacyDeliveryId", legacyDeliveryId.toString());
+        }
         return tag;
     }
 
@@ -36,5 +48,15 @@ public class TransferTask extends RuntimeTask {
         target = EndpointRef.readFromNbt(tag.getCompoundTag("target"));
         legacyDeliveryQueueId = tag.hasKey("legacyQueueId") ? tag.getInteger("legacyQueueId") : -1;
         legacyDeliveryQueued = tag.hasKey("legacyQueued") && tag.getBoolean("legacyQueued");
+        inboundQueued = tag.getBoolean("InboundQueued");
+        inboundDone = tag.getBoolean("InboundDone");
+        outboundDone = tag.getBoolean("OutboundDone");
+        if (tag.hasKey("LegacyDeliveryId", Constants.NBT.TAG_STRING)) {
+            try {
+                legacyDeliveryId = UUID.fromString(tag.getString("LegacyDeliveryId"));
+            } catch (Exception ignored) {
+                legacyDeliveryId = null;
+            }
+        }
     }
 }

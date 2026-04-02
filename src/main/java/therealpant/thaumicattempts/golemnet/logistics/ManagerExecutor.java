@@ -2,9 +2,12 @@ package therealpant.thaumicattempts.golemnet.logistics;
 
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 
+import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+
+import static therealpant.thaumicattempts.integration.ThaumcraftCompat.LOG;
 
 public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     private static final int BLOCKED_COOLDOWN_TICKS = 10;
@@ -25,21 +28,16 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
     @Override
     public boolean submit(TransferTask task) {
-        if (!canAccept(task)) return false;
-        if (running.containsKey(task.taskId)) {
-            LOG(task, "repeated dispatch prevented reason=already-running");
+        if (task == null || task.taskId == null) return false;
+
+        TransferTask existing = running.get(task.taskId);
+        if (existing != null) {
             return true;
         }
-        if (task.status == TaskStatus.DONE || task.status == TaskStatus.FAILED || task.status == TaskStatus.CANCELED) {
-            LOG(task, "repeated dispatch prevented reason=terminal-status status=" + task.status);
-            return false;
-        }
-        long base = manager.countItemAtEndpoint(task.target, task.itemKey);
-        targetBaseline.put(task.taskId, base);
-        task.status = TaskStatus.ACCEPTED;
+
         running.put(task.taskId, task);
-        LOG(task, "transfer accepted");
-        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.ACCEPTED, task.completedAmount));
+        snapshots.put(task.taskId, new TaskExecutionSnapshot(TaskStatus.DISPATCHED, task.completedAmount));
+        LOG.info("[ManagerExecutor {}] task={} transfer accepted", manager != null ? manager.getPos() : null, task.taskId);
         return true;
     }
 
@@ -49,103 +47,104 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     @Override
     public void tick() {
         if (manager == null) return;
-        long now = manager.getServerTickCounter();
-        java.util.Iterator<Map.Entry<UUID, TransferTask>> it = running.entrySet().iterator();
+
+        Iterator<Map.Entry<UUID, TransferTask>> it = running.entrySet().iterator();
         while (it.hasNext()) {
             Map.Entry<UUID, TransferTask> e = it.next();
             TransferTask task = e.getValue();
-            if (task.status == TaskStatus.DONE || task.status == TaskStatus.FAILED || task.status == TaskStatus.CANCELED) {
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                LOG(task, "transfer finalized and removed status=" + task.status);
+
+            if (task == null) {
                 it.remove();
-                targetBaseline.remove(task.taskId);
-                blockedUntil.remove(task.taskId);
+                continue;
+            }
+
+            if (task.status == TaskStatus.DONE
+                    || task.status == TaskStatus.FAILED
+                    || task.status == TaskStatus.CANCELED) {
+                LOG.info("[ManagerExecutor {}] task={} transfer removed from running",
+                        manager.getPos(), task.taskId);
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.status, task.completedAmount));
+                it.remove();
                 continue;
             }
 
             long remaining = Math.max(0L, task.amount - task.completedAmount);
             if (remaining <= 0L) {
                 task.status = TaskStatus.DONE;
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                LOG(task, "transfer done");
-                LOG(task, "transfer finalized and removed");
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.status, task.completedAmount));
+                LOG.info("[ManagerExecutor {}] task={} transfer done", manager.getPos(), task.taskId);
                 it.remove();
-                targetBaseline.remove(task.taskId);
-                blockedUntil.remove(task.taskId);
-                continue;
-            }
-
-            long blockedUntilTick = blockedUntil.getOrDefault(task.taskId, 0L);
-            if (task.status == TaskStatus.BLOCKED && now < blockedUntilTick) {
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 continue;
             }
 
             task.status = TaskStatus.IN_PROGRESS;
-            if (!snapshots.containsKey(task.taskId)) {
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.ACCEPTED, task.completedAmount));
-            }
 
-            boolean inboundToManager = manager.isInboundToManagerBuffer(task.source, task.target);
-            boolean accepted;
-            if (inboundToManager) {
-                if (!task.legacyDeliveryQueued) {
-                    if (task.legacyDeliveryQueueId < 0) task.legacyDeliveryQueueId = Math.abs(task.taskId.hashCode()) % 6;
-                    LOG(task, "transfer submitted via legacy backend item=" + task.itemKey + " amount=" + remaining
-                            + " source=" + manager.resolveEndpointPos(task.source) + " manager pos=" + manager.getPos());
-                    accepted = manager.dispatchInboundToManagerByGolems(task.source, task.itemKey,
-                            (int) Math.min(Integer.MAX_VALUE, remaining), task.legacyDeliveryQueueId);
-                    if (accepted) {
-                        task.legacyDeliveryQueued = true;
-                        LOG(task, "legacy delivery queued queueId=" + task.legacyDeliveryQueueId + " item=" + task.itemKey
-                                + " amount=" + remaining + " source=" + manager.resolveEndpointPos(task.source)
-                                + " manager pos=" + manager.getPos());
+            // Обычная delivery task: сначала inbound в manager, потом outbound в конечную точку
+            if ("deliver".equals(task.metaPurpose)) {
+
+                if (!task.inboundDone) {
+                    if (!task.inboundQueued) {
+                        UUID deliveryId = manager.dispatchInboundToManagerByGolems(task.itemKey, (int) remaining, task.source.pos);
+                        if (deliveryId != null) {
+                            task.legacyDeliveryId = deliveryId;
+                            task.inboundQueued = true;
+                            task.updatedTick = manager.getServerTickCounter();
+                            LOG.info("[ManagerExecutor {}] task={} inbound queued via legacy backend deliveryId={}",
+                                    manager.getPos(), task.taskId, deliveryId);
+                        } else {
+                            snapshots.put(task.taskId, new TaskExecutionSnapshot(TaskStatus.BLOCKED, task.completedAmount));
+                            continue;
+                        }
                     }
-                } else {
-                    accepted = true;
-                    LOG(task, "repeated dispatch prevented reason=legacy-already-queued queueId=" + task.legacyDeliveryQueueId);
+
+                    if (task.legacyDeliveryId != null && manager.isLegacyDeliveryComplete(task.legacyDeliveryId)) {
+                        task.inboundDone = true;
+                        task.updatedTick = manager.getServerTickCounter();
+                        LOG.info("[ManagerExecutor {}] task={} inbound phase done", manager.getPos(), task.taskId);
+                    } else {
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(TaskStatus.IN_PROGRESS, task.completedAmount));
+                        continue;
+                    }
                 }
-            } else {
-                LOG(task, "transfer submitted item=" + task.itemKey + " amount=" + remaining + " source=" + manager.resolveEndpointPos(task.source) + " target=" + manager.resolveEndpointPos(task.target));
-                accepted = manager.dispatchTransferTask(task.source, task.target, task.itemKey, (int) Math.min(Integer.MAX_VALUE, remaining), 0);
+
+                if (!task.outboundDone) {
+                    long moved = manager.executeTransferTask(task.itemKey, (int) remaining, manager.getPos(), task.target.pos);
+                    if (moved > 0) {
+                        task.completedAmount += moved;
+                        task.outboundDone = (task.completedAmount >= task.amount);
+                        task.updatedTick = manager.getServerTickCounter();
+                        LOG.info("[ManagerExecutor {}] task={} outbound moved {}", manager.getPos(), task.taskId, moved);
+                    }
+
+                    if (task.completedAmount >= task.amount) {
+                        task.status = TaskStatus.DONE;
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(TaskStatus.DONE, task.completedAmount));
+                        LOG.info("[ManagerExecutor {}] task={} transfer done", manager.getPos(), task.taskId);
+                        it.remove();
+                        continue;
+                    } else {
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(TaskStatus.IN_PROGRESS, task.completedAmount));
+                        continue;
+                    }
+                }
             }
 
-            long baseline = targetBaseline.getOrDefault(task.taskId, 0L);
-            long atTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
-            long delivered = Math.max(0L, atTarget - baseline);
-            long newCompleted = Math.min(task.amount, Math.max(task.completedAmount, delivered));
-            long moved = Math.max(0L, newCompleted - task.completedAmount);
-            task.completedAmount = newCompleted;
-
+            // Остальные transfer-задачи (craft-input / pickup-output / deliver-output) остаются как раньше
+            long moved = manager.executeTransferTask(task.itemKey, (int) remaining, task.source.pos, task.target.pos);
             if (moved > 0) {
-                LOG(task, "transfer moved " + moved);
-                if (inboundToManager) {
-                    LOG(task, "legacy delivery completed queueId=" + task.legacyDeliveryQueueId + " item=" + task.itemKey + " moved=" + moved
-                            + " manager pos=" + manager.getPos());
-                }
+                task.completedAmount += moved;
+                task.updatedTick = manager.getServerTickCounter();
+                LOG.info("[ManagerExecutor {}] task={} transfer moved {}", manager.getPos(), task.taskId, moved);
             }
 
             if (task.completedAmount >= task.amount) {
                 task.status = TaskStatus.DONE;
-                LOG(task, "transfer done");
-                if (inboundToManager) {
-                    LOG(task, "transfer task completed from legacy delivery backend queueId=" + task.legacyDeliveryQueueId
-                            + " item=" + task.itemKey + " amount=" + task.completedAmount);
-                }
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                LOG(task, "transfer finalized and removed");
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(TaskStatus.DONE, task.completedAmount));
+                LOG.info("[ManagerExecutor {}] task={} transfer done", manager.getPos(), task.taskId);
                 it.remove();
-                targetBaseline.remove(task.taskId);
-                blockedUntil.remove(task.taskId);
-                continue;
+            } else {
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(TaskStatus.IN_PROGRESS, task.completedAmount));
             }
-
-            if (!accepted && moved == 0) {
-                task.status = TaskStatus.BLOCKED;
-                blockedUntil.put(task.taskId, now + BLOCKED_COOLDOWN_TICKS);
-                LOG(task, "transfer blocked reason=no-source-or-no-path");
-            }
-            snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
         }
     }
 

@@ -44,6 +44,7 @@ import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileSequentialCraftPlanner;
 import therealpant.thaumicattempts.golemnet.logistics.LogisticsNetworkState;
 import therealpant.thaumicattempts.golemnet.logistics.EndpointRef;
+import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
 import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -2373,9 +2374,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     public UUID submitOrder(ItemKey key, int amount, OrderSourceType sourceType, BlockPos sourcePos, @Nullable BlockPos returnDestination) {
+        return submitOrder(key, amount, sourceType, sourcePos, returnDestination, NetworkOrder.RequestIntent.NORMAL);
+    }
+
+    public UUID submitOrder(ItemKey key, int amount, OrderSourceType sourceType, BlockPos sourcePos,
+                            @Nullable BlockPos returnDestination, NetworkOrder.RequestIntent intent) {
         if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
         logistics.refreshRecipeIndex(this);
-        UUID id = logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, null, 0, "root-submit");
+        UUID id = logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, null, 0, "root-submit", intent);
         markDirty();
         return id;
     }
@@ -2386,13 +2392,23 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                                       int amount,
                                       @Nullable BlockPos destination,
                                       @Nullable String metadata) {
+        return submitEndpointRequest(sourceType, endpointPos, key, amount, destination, metadata, NetworkOrder.RequestIntent.NORMAL);
+    }
+
+    public UUID submitEndpointRequest(OrderSourceType sourceType,
+                                      BlockPos endpointPos,
+                                      ItemKey key,
+                                      int amount,
+                                      @Nullable BlockPos destination,
+                                      @Nullable String metadata,
+                                      NetworkOrder.RequestIntent intent) {
         if (world == null || world.isRemote || endpointPos == null || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
         logistics.refreshRecipeIndex(this);
         UUID id = logistics.submitOrder(this, key, amount, sourceType, endpointPos, destination, null, 0,
-                metadata == null ? "endpoint-submit" : metadata);
+                metadata == null ? "endpoint-submit" : metadata, intent);
         if (id != null) {
-            LOG.info("[Manager {}] submitEndpointRequest accepted order={} sourceType={} endpoint={} key={} amount={} destination={} reason={}",
-                    pos, id, sourceType, endpointPos, key, amount, destination, metadata);
+            LOG.info("[Manager {}] submitEndpointRequest accepted order={} sourceType={} endpoint={} key={} amount={} destination={} reason={} intent={}",
+                    pos, id, sourceType, endpointPos, key, amount, destination, metadata, intent);
         }
         markDirty();
         return id;

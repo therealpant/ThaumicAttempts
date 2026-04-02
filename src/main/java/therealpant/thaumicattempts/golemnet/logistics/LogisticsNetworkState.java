@@ -51,6 +51,18 @@ public class LogisticsNetworkState {
                             @Nullable BlockPos returnDestination,
                             @Nullable UUID parentOrderId,
                             int depth,
+                            String reason) {
+        return submitOrder(manager, key, amount, sourceType, sourcePos, returnDestination, parentOrderId, depth, reason, NetworkOrder.RequestIntent.NORMAL);
+    }
+
+    public UUID submitOrder(TileMirrorManager manager,
+                            ItemKey key,
+                            int amount,
+                            OrderSourceType sourceType,
+                            BlockPos sourcePos,
+                            @Nullable BlockPos returnDestination,
+                            @Nullable UUID parentOrderId,
+                            int depth,
                             String reason,
                             @Nullable NetworkOrder.RequestIntent intent) {
         if (key == null || key == ItemKey.EMPTY || amount <= 0) return null;
@@ -119,12 +131,7 @@ public class LogisticsNetworkState {
         int totalReachable = Math.max(0, catalog.getOrDefault(order.requestedKey, 0));
         int localBuffered = Math.max(0, manager.countBuffered(order.requestedKey));
         int reserved = reservationBook.getReservedAmount(order.requestedKey);
-
-        int directAvailable = Math.max(0, localBuffered - reserved);
         int totalAvailable = Math.max(0, totalReachable - reserved);
-
-        int directNow = 0;
-        int stillNeed = order.requestedAmount;
 
         EndpointRef managerBuffer = EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER);
         EndpointRef finalTarget = EndpointRef.of(
@@ -134,82 +141,56 @@ public class LogisticsNetworkState {
 
         boolean allowResultStockPath = (order.intent == null || order.intent == NetworkOrder.RequestIntent.NORMAL);
 
-        // 1. Только NORMAL-заказам разрешено брать уже готовый requestedKey со склада/из буфера
-        if (allowResultStockPath) {
-            directNow = Math.min(order.requestedAmount, directAvailable);
-            stillNeed = Math.max(0, order.requestedAmount - directNow);
+        // NORMAL-заказ: одна общая delivery task на итоговый предмет
+        if (allowResultStockPath && totalAvailable > 0) {
+            int deliverAmount = Math.min(order.requestedAmount, totalAvailable);
 
-            if (directNow > 0) {
-                TransferTask direct = createTransferTask(
-                        manager,
-                        order.orderId,
-                        managerBuffer,
-                        finalTarget,
-                        order.requestedKey,
-                        directNow,
-                        null,
-                        "direct-buffer"
-                );
-                if (direct != null) {
-                    direct.status = TaskStatus.NEW;
-                    direct.updatedTick = manager.getServerTickCounter();
-                }
+            TransferTask deliver = createTransferTask(
+                    manager,
+                    order.orderId,
+                    EndpointRef.of(order.sourcePos, EndpointRef.AccessMode.DIRECT),
+                    finalTarget,
+                    order.requestedKey,
+                    deliverAmount,
+                    null,
+                    "deliver"
+            );
+            if (deliver != null) {
+                deliver.status = TaskStatus.NEW;
+                deliver.updatedTick = manager.getServerTickCounter();
             }
 
+            int stillNeed = Math.max(0, order.requestedAmount - deliverAmount);
             if (stillNeed <= 0) {
                 order.status = OrderStatus.RUNNING;
-                LOG.info("[Logistics {}] order planned={} key={} amount={} directOnly={} recipePath=false",
-                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, directNow);
+                LOG.info("[Logistics {}] order planned={} key={} amount={} purpose=deliver-only recipePath=false",
+                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount);
                 return;
             }
 
-            int networkRest = Math.max(0, totalAvailable - directNow);
-            if (networkRest > 0) {
-                int inboundAmount = Math.min(stillNeed, networkRest);
-
-                TransferTask inbound = createTransferTask(
-                        manager,
-                        order.orderId,
-                        EndpointRef.of(order.sourcePos, EndpointRef.AccessMode.DIRECT),
-                        managerBuffer,
-                        order.requestedKey,
-                        inboundAmount,
-                        null,
-                        "stock-to-manager"
-                );
-                if (inbound != null) {
-                    inbound.status = TaskStatus.NEW;
-                    inbound.updatedTick = manager.getServerTickCounter();
-
-                    TransferTask deliverAfterInbound = createTransferTask(
-                            manager,
-                            order.orderId,
-                            managerBuffer,
-                            finalTarget,
-                            order.requestedKey,
-                            inboundAmount,
-                            Collections.singletonList(inbound.taskId),
-                            "deliver-after-inbound"
-                    );
-                    if (deliverAfterInbound != null) {
-                        deliverAfterInbound.status = TaskStatus.NEW;
-                        deliverAfterInbound.updatedTick = manager.getServerTickCounter();
-                    }
-                }
-
-                stillNeed -= inboundAmount;
-            }
-
-            if (stillNeed <= 0) {
-                order.status = OrderStatus.RUNNING;
-                LOG.info("[Logistics {}] order planned={} key={} amount={} direct={} inbound={} recipePath=false",
-                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount,
-                        directNow, Math.max(0, order.requestedAmount - directNow));
-                return;
-            }
+            // остаток закрываем через recipe path
+            order.recipePath = true;
+            planCraftRemainder(manager, order, depth, stillNeed, catalog, finalTarget, managerBuffer);
+            return;
         }
 
-        // 2. Если остался дефицит или заказ craft-only — идем строго в recipe path
+        // CRAFT_ONLY либо stock не хватило совсем
+        order.recipePath = true;
+        planCraftRemainder(manager, order, depth, order.requestedAmount, catalog, finalTarget, managerBuffer);
+    }
+
+    private void planCraftRemainder(TileMirrorManager manager,
+                                    NetworkOrder order,
+                                    int depth,
+                                    int stillNeed,
+                                    LinkedHashMap<ItemKey, Integer> catalog,
+                                    EndpointRef finalTarget,
+                                    EndpointRef managerBuffer) {
+        if (stillNeed <= 0) {
+            order.status = OrderStatus.RUNNING;
+            return;
+        }
+
         RecipeNode recipe = pickRecipe(order.requestedKey);
         if (recipe == null || recipe.source == null) {
             order.status = OrderStatus.FAILED;
@@ -227,8 +208,6 @@ public class LogisticsNetworkState {
             return;
         }
 
-        order.recipePath = true;
-
         int perCycle = Math.max(1, recipe.outputPerCycle);
         int cycles = (stillNeed + perCycle - 1) / perCycle;
 
@@ -237,7 +216,6 @@ public class LogisticsNetworkState {
         EndpointRef crafterInput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT);
         EndpointRef crafterOutput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.OUTPUT);
 
-        // 3. В recipe path requestedKey НИКОГДА не идет как craft-input
         for (Map.Entry<ItemKey, Integer> in : recipe.inputs.entrySet()) {
             ItemKey inputKey = in.getKey();
             int perCycleNeed = Math.max(1, in.getValue());
@@ -388,12 +366,14 @@ public class LogisticsNetworkState {
 
         NetworkOrder order = orders.get(orderId);
 
+        // result item никогда не должен быть craft-input
         if ("craft-input".equals(purpose) && order != null && key.equals(order.requestedKey)) {
             LOG.warn("[Logistics {}] skipped invalid craft-input task order={} key={} amount={} source={} target={} reason=requested-key-used-as-input",
                     manager.getPos(), orderId, key, amount, source.pos, target.pos);
             return null;
         }
 
+        // для craft-only заказа нельзя строить stock-path по итоговому предмету
         if (order != null && order.intent == NetworkOrder.RequestIntent.CRAFT_ONLY && key.equals(order.requestedKey)) {
             if ("direct-buffer".equals(purpose)
                     || "stock-to-manager".equals(purpose)
@@ -671,17 +651,27 @@ public class LogisticsNetworkState {
 
     private void updateOrders(TileMirrorManager manager) {
         for (NetworkOrder order : orders.values()) {
-            if (!isActiveOrder(order.status)) continue;
+            if (!isActiveOrder(order.status)) {
+                removeOrderFromDedup(order.orderId);
+                continue;
+            }
             boolean allDone = true;
             boolean hasTasks = false;
-            boolean craftDone = !order.recipePathSelected;
-            boolean outputDone = !order.recipePathSelected;
+            boolean craftDone = !order.recipePath;
+            boolean outputDone = !order.recipePath;
             for (UUID tid : order.taskIds) {
                 RuntimeTask t = runtimeTasks.get(tid);
                 if (t == null) continue;
                 hasTasks = true;
                 if (t.status == TaskStatus.FAILED || t.status == TaskStatus.CANCELED) {
                     order.status = OrderStatus.FAILED;
+                    Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
+                    while (it.hasNext()) {
+                        Map.Entry<String, UUID> en = it.next();
+                        if (order.orderId.equals(en.getValue())) {
+                            it.remove();
+                        }
+                    }
                     order.lastError = "task-failed:" + tid;
                     LOG.warn("[Logistics {}] order failed={} task={} status={}", manager.getPos(), order.orderId, tid, t.status);
                     allDone = false;
@@ -695,31 +685,52 @@ public class LogisticsNetworkState {
                 order.status = OrderStatus.FAILED;
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
-                    Map.Entry<String, UUID> e = it.next();
-                    if (order.orderId.equals(e.getValue())) {
+                    Map.Entry<String, UUID> en = it.next();
+                    if (order.orderId.equals(en.getValue())) {
                         it.remove();
                     }
                 }
+                removeOrderFromDedup(order.orderId);
                 order.lastError = "no-runtime-tasks";
                 LOG.warn("[Logistics {}] order failed={} reason=no-runtime-tasks", manager.getPos(), order.orderId);
-            } else if (order.recipePathSelected && (!craftDone || !outputDone)) {
+            } else if (order.recipePath && (!craftDone || !outputDone)) {
                 allDone = false;
             } else if (allDone) {
                 order.status = OrderStatus.DONE;
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
-                    Map.Entry<String, UUID> e = it.next();
-                    if (order.orderId.equals(e.getValue())) {
+                    Map.Entry<String, UUID> en = it.next();
+                    if (order.orderId.equals(en.getValue())) {
                         it.remove();
                     }
                 }
+                removeOrderFromDedup(order.orderId);
                 order.completedAmount = order.requestedAmount;
                 LOG.info("[Logistics {}] order finalized done={} key={} amount={} recipePath={}",
-                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.recipePathSelected);
+                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.recipePath);
+            } else if (order.status == OrderStatus.FAILED || order.status == OrderStatus.CANCELED) {
+                Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
+                while (it.hasNext()) {
+                    Map.Entry<String, UUID> en = it.next();
+                    if (order.orderId.equals(en.getValue())) {
+                        it.remove();
+                    }
+                }
+                removeOrderFromDedup(order.orderId);
             } else if (order.status == OrderStatus.PLANNING || order.status == OrderStatus.NEW) {
                 order.status = OrderStatus.RUNNING;
             }
             order.updatedTick = manager.getServerTickCounter();
+        }
+    }
+
+    private void removeOrderFromDedup(UUID orderId) {
+        Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, UUID> e = it.next();
+            if (orderId.equals(e.getValue())) {
+                it.remove();
+            }
         }
     }
 
@@ -798,7 +809,13 @@ public class LogisticsNetworkState {
             NetworkOrder o = NetworkOrder.readFromNbt(ord.getCompoundTagAt(i));
             orders.put(o.orderId, o);
             if (isActiveOrder(o.status)) {
-                String dedupeKey = o.sourceType.name() + "|" + o.sourcePos.toLong() + "|" + o.requestedKey.hashCode() + "|" + o.requestedAmount + "|" + (o.parentOrderId == null ? "root" : o.parentOrderId.toString());
+                String dedupeKey = o.sourceType.name()
+                        + "|" + o.sourcePos.toLong()
+                        + "|" + o.requestedKey.hashCode()
+                        + "|" + o.requestedAmount
+                        + "|" + (o.returnDestination == null ? "null" : o.returnDestination.toLong())
+                        + "|" + (o.parentOrderId == null ? "root" : o.parentOrderId.toString())
+                        + "|" + (o.intent == null ? NetworkOrder.RequestIntent.NORMAL.name() : o.intent.name());
                 activeOrderDedup.put(dedupeKey, o.orderId);
             }
         }
