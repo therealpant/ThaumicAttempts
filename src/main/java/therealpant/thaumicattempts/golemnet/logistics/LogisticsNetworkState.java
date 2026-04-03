@@ -221,6 +221,8 @@ public class LogisticsNetworkState {
         }
 
         final boolean internalSuborder = (order.sourceType == OrderSourceType.INTERNAL_SUBORDER);
+        final boolean redstoneExecuteOnly = (order.sourceType == OrderSourceType.REDSTONE_CRAFTER
+                && order.intent == NetworkOrder.RequestIntent.CRAFT_ONLY);
 
         int perCycle = Math.max(1, recipe.outputPerCycle);
         int cycles = (stillNeed + perCycle - 1) / perCycle;
@@ -404,30 +406,33 @@ public class LogisticsNetworkState {
             return;
         }
 
-        TransferTask pickup = createTransferTask(
-                manager,
-                order.orderId,
-                crafterOutput,
-                managerBuffer,
-                order.requestedKey,
-                producedAmount,
-                Collections.singletonList(craft.taskId),
-                "pickup-output"
-        );
-        if (pickup != null) {
-            pickup.status = TaskStatus.NEW;
-            pickup.updatedTick = manager.getServerTickCounter();
+        TransferTask pickup = null;
+        if (!redstoneExecuteOnly) {
+            pickup = createTransferTask(
+                    manager,
+                    order.orderId,
+                    crafterOutput,
+                    managerBuffer,
+                    order.requestedKey,
+                    producedAmount,
+                    Collections.singletonList(craft.taskId),
+                    "pickup-output"
+            );
+            if (pickup != null) {
+                pickup.status = TaskStatus.NEW;
+                pickup.updatedTick = manager.getServerTickCounter();
+            }
+
+            reservationBook.claimExpectedOutput(
+                    recipe.source,
+                    order.requestedKey,
+                    producedAmount,
+                    order.orderId,
+                    pickup != null ? pickup.taskId : craft.taskId
+            );
         }
 
-        reservationBook.claimExpectedOutput(
-                recipe.source,
-                order.requestedKey,
-                producedAmount,
-                order.orderId,
-                pickup != null ? pickup.taskId : craft.taskId
-        );
-
-        if (!internalSuborder) {
+        if (!internalSuborder && !redstoneExecuteOnly) {
             TransferTask deliver = createTransferTask(
                     manager,
                     order.orderId,
@@ -442,9 +447,9 @@ public class LogisticsNetworkState {
                 deliver.status = TaskStatus.NEW;
                 deliver.updatedTick = manager.getServerTickCounter();
             }
-        } else {
-            LOG.info("[Logistics {}] internal suborder planned with pickup order={} key={} need={} produced={} crafter={}",
-                    manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source);
+        } else if (redstoneExecuteOnly) {
+            LOG.info("[Logistics {}] redstone execute-only planned order={} key={} need={} produced={} crafter={} intent={}",
+                    manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, order.intent);
         }
 
         order.status = OrderStatus.RUNNING;
@@ -796,8 +801,10 @@ public class LogisticsNetworkState {
             boolean allDone = true;
             boolean hasTasks = false;
             boolean internalSuborder = (order.sourceType == OrderSourceType.INTERNAL_SUBORDER);
+            boolean redstoneExecuteOnly = (order.sourceType == OrderSourceType.REDSTONE_CRAFTER
+                    && order.intent == NetworkOrder.RequestIntent.CRAFT_ONLY);
             boolean craftDone = !order.recipePath;
-            boolean outputDone = !order.recipePath || internalSuborder;
+            boolean outputDone = !order.recipePath || internalSuborder || redstoneExecuteOnly;
 
             for (UUID tid : order.taskIds) {
                 RuntimeTask t = runtimeTasks.get(tid);

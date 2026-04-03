@@ -19,6 +19,8 @@ import net.minecraft.util.text.ITextComponent;
 import net.minecraft.util.text.TextComponentTranslation;
 import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.items.ItemStackHandler;
+import org.apache.logging.log4j.LogManager;
+import org.apache.logging.log4j.Logger;
 import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.IEssentiaTransport;
@@ -48,6 +50,7 @@ import java.util.*;
  - Стоимость эссенции: 2 * число уникальных типов входов. Эссенция: CRAFT, приём снизу/с боков.
  */
 public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite {
+    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/GolemCrafter");
 
     // ===== Константы =====
     public static final int PATTERN_SLOTS = 15;
@@ -559,6 +562,12 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return hasPatternRequesterAbove() && managerPos != null;
     }
 
+    private boolean hasMirrorManagerConnection() {
+        if (world == null || world.isRemote || managerPos == null) return false;
+        TileEntity te = world.getTileEntity(managerPos);
+        return te instanceof TileMirrorManager;
+    }
+
     private void syncManagerFromPattern() {
         if (world == null || world.isRemote) return;
 
@@ -620,21 +629,45 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     }
 
     private boolean submitManagerCraftOrderForSignal(int idx, int repeats) {
-        if (world == null || world.isRemote || managerPos == null) return false;
+        if (world == null || world.isRemote || managerPos == null) {
+            LOG.info("[Crafter {}] redstone root-order rejected: manager unavailable managerPos={} patternIndex={} repeats={}",
+                    pos, managerPos, idx, repeats);
+            return false;
+        }
 
         TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) return false;
+        if (!(te instanceof TileMirrorManager)) {
+            LOG.info("[Crafter {}] redstone root-order rejected: target is not manager managerPos={} targetClass={} patternIndex={} repeats={}",
+                    pos, managerPos, te == null ? "null" : te.getClass().getName(), idx, repeats);
+            return false;
+        }
         TileMirrorManager manager = (TileMirrorManager) te;
-        if (managerRedstoneOrderId != null && manager.isOrderActive(managerRedstoneOrderId)) return true;
+        if (managerRedstoneOrderId != null && manager.isOrderActive(managerRedstoneOrderId)) {
+            LOG.info("[Crafter {}] redstone root-order already active managerPos={} orderId={} patternIndex={} repeats={}",
+                    pos, managerPos, managerRedstoneOrderId, idx, repeats);
+            return true;
+        }
         managerRedstoneOrderId = null;
 
         ItemStack pat = patterns.getStackInSlot(idx);
-        if (pat.isEmpty()) return false;
+        if (pat.isEmpty()) {
+            LOG.info("[Crafter {}] redstone root-order rejected: empty pattern slot index={} managerPos={}",
+                    pos, idx, managerPos);
+            return false;
+        }
         NonNullList<ItemStack> grid = getGrid(pat);
         ItemStack preview = getCraftPreview(pat, grid);
-        if (preview.isEmpty()) return false;
+        if (preview.isEmpty()) {
+            LOG.info("[Crafter {}] redstone root-order rejected: empty preview index={} managerPos={}",
+                    pos, idx, managerPos);
+            return false;
+        }
         ItemKey key = ItemKey.of(preview);
-        if (key == null || key == ItemKey.EMPTY) return false;
+        if (key == null || key == ItemKey.EMPTY) {
+            LOG.info("[Crafter {}] redstone root-order rejected: invalid key index={} managerPos={}",
+                    pos, idx, managerPos);
+            return false;
+        }
 
         int amount = Math.max(1, preview.getCount()) * Math.max(1, repeats);
         UUID id = manager.submitOrder(
@@ -642,12 +675,17 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                 amount,
                 OrderSourceType.REDSTONE_CRAFTER,
                 this.pos,
-                this.pos
+                null,
+                therealpant.thaumicattempts.golemnet.logistics.NetworkOrder.RequestIntent.CRAFT_ONLY
         );
         if (id != null) {
             managerRedstoneOrderId = id;
+            LOG.info("[Crafter {}] redstone root-order submit success managerPos={} orderId={} key={} amount={} patternIndex={} repeats={}",
+                    pos, managerPos, id, key, amount, idx, repeats);
             return true;// попробуем позже
         }
+        LOG.info("[Crafter {}] redstone root-order submit failed managerPos={} key={} amount={} patternIndex={} repeats={}",
+                pos, managerPos, key, amount, idx, repeats);
         return false;
     }
 
@@ -697,13 +735,19 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             if (idx >= 0) {
                 ItemStack pat = patterns.getStackInSlot(idx);
                 int repeats = getPatternRepeatCount(pat);
-                boolean managerMode = useManagerForProvision();
+                boolean managerMode = hasMirrorManagerConnection();
+                LOG.info("[Crafter {}] redstone edge detected signal={} selectedPatternIndex={} managerMode={} managerPos={}",
+                        pos, signal, idx, managerMode, managerPos);
                 this.jobViaRequester = false;
                 if (managerMode) {
-                    submitManagerCraftOrderForSignal(idx, repeats);
+                    boolean submitted = submitManagerCraftOrderForSignal(idx, repeats);
+                    LOG.info("[Crafter {}] redstone root-order submit result success={} selectedPatternIndex={} managerMode={} managerPos={} orderId={}",
+                            pos, submitted, idx, managerMode, managerPos, managerRedstoneOrderId);
                 } else {
                     this.suppressSelfProvision = false;
                     startOneCraftCycle(idx, repeats);
+                    LOG.info("[Crafter {}] redstone started legacy/local cycle selectedPatternIndex={} repeats={} managerMode={} managerPos={}",
+                            pos, idx, repeats, managerMode, managerPos);
                 }
             }
         }
