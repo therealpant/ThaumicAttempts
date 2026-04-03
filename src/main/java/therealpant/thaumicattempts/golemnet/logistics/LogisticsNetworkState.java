@@ -221,6 +221,8 @@ public class LogisticsNetworkState {
         }
 
         final boolean internalSuborder = (order.sourceType == OrderSourceType.INTERNAL_SUBORDER);
+        final boolean internalRedstoneSuborder = internalSuborder
+                && order.intent == NetworkOrder.RequestIntent.INTERNAL_REDSTONE;
         final boolean redstoneExecuteOnly = (order.sourceType == OrderSourceType.REDSTONE_CRAFTER
                 && order.intent == NetworkOrder.RequestIntent.CRAFT_ONLY);
 
@@ -265,7 +267,7 @@ public class LogisticsNetworkState {
                         order.orderId,
                         depth + 1,
                         "input-for-" + order.requestedKey,
-                        NetworkOrder.RequestIntent.NORMAL
+                        NetworkOrder.RequestIntent.INTERNAL_REDSTONE
                 );
 
                 List<UUID> childDeps = new ArrayList<UUID>();
@@ -309,6 +311,21 @@ public class LogisticsNetworkState {
                     }
                 }
 
+                TransferTask stageChildResult = createTransferTask(
+                        manager,
+                        order.orderId,
+                        stockSource(manager),
+                        managerBuffer,
+                        inputKey,
+                        shortage,
+                        childDeps.isEmpty() ? null : childDeps,
+                        "deliver"
+                );
+                if (stageChildResult != null) {
+                    stageChildResult.status = TaskStatus.NEW;
+                    stageChildResult.updatedTick = manager.getServerTickCounter();
+                }
+
                 TransferTask feedChildResult = createTransferTask(
                         manager,
                         order.orderId,
@@ -316,7 +333,7 @@ public class LogisticsNetworkState {
                         crafterInput,
                         inputKey,
                         shortage,
-                        childDeps.isEmpty() ? null : childDeps,
+                        stageChildResult == null ? (childDeps.isEmpty() ? null : childDeps) : Collections.singletonList(stageChildResult.taskId),
                         "craft-input"
                 );
                 if (feedChildResult != null) {
@@ -390,7 +407,7 @@ public class LogisticsNetworkState {
         }
 
         TransferTask pickup = null;
-        if (!redstoneExecuteOnly) {
+        if (!redstoneExecuteOnly && !internalRedstoneSuborder) {
             pickup = createTransferTask(
                     manager,
                     order.orderId,
@@ -432,6 +449,9 @@ public class LogisticsNetworkState {
             }
         } else if (redstoneExecuteOnly) {
             LOG.info("[Logistics {}] redstone execute-only planned order={} key={} need={} produced={} crafter={} intent={}",
+                    manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, order.intent);
+        } else if (internalRedstoneSuborder) {
+            LOG.info("[Logistics {}] internal redstone-style suborder planned order={} key={} need={} produced={} crafter={} intent={}",
                     manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, order.intent);
         }
 
@@ -775,6 +795,7 @@ public class LogisticsNetworkState {
     }
 
     private void updateOrders(TileMirrorManager manager) {
+        LinkedHashMap<ItemKey, Integer> catalog = manager.getReachableCatalog();
         for (NetworkOrder order : orders.values()) {
             if (!isActiveOrder(order.status)) {
                 removeOrderFromDedup(order.orderId);
@@ -784,10 +805,17 @@ public class LogisticsNetworkState {
             boolean allDone = true;
             boolean hasTasks = false;
             boolean internalSuborder = (order.sourceType == OrderSourceType.INTERNAL_SUBORDER);
+            boolean internalRedstoneSuborder = internalSuborder
+                    && order.intent == NetworkOrder.RequestIntent.INTERNAL_REDSTONE;
             boolean redstoneExecuteOnly = (order.sourceType == OrderSourceType.REDSTONE_CRAFTER
                     && order.intent == NetworkOrder.RequestIntent.CRAFT_ONLY);
             boolean craftDone = !order.recipePath;
-            boolean outputDone = !order.recipePath || internalSuborder || redstoneExecuteOnly;
+            boolean outputDone = !order.recipePath || redstoneExecuteOnly;
+            if (internalRedstoneSuborder) {
+                outputDone = isEnoughInStock(catalog, order.requestedKey, order.requestedAmount);
+            } else if (internalSuborder) {
+                outputDone = true;
+            }
 
             for (UUID tid : order.taskIds) {
                 RuntimeTask t = runtimeTasks.get(tid);
@@ -992,6 +1020,14 @@ public class LogisticsNetworkState {
 
     private EndpointRef stockSource(TileMirrorManager manager) {
         return EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.DIRECT);
+    }
+
+    private boolean isEnoughInStock(LinkedHashMap<ItemKey, Integer> catalog, ItemKey key, int needed) {
+        if (catalog == null || key == null || key == ItemKey.EMPTY || needed <= 0) return false;
+        int reachable = Math.max(0, catalog.getOrDefault(key, 0));
+        int reserved = reservationBook.getReservedAmount(key);
+        int available = Math.max(0, reachable - reserved);
+        return available >= needed;
     }
 
     private boolean hasLiveDependents(UUID taskId) {

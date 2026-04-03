@@ -34,7 +34,8 @@ public class NetworkOrder {
 
     public enum RequestIntent {
         NORMAL,
-        CRAFT_ONLY
+        CRAFT_ONLY,
+        INTERNAL_REDSTONE
     }
 
     public NBTTagCompound writeToNbt() {
