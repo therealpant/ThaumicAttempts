@@ -67,6 +67,11 @@ public class LogisticsNetworkState {
                             String reason,
                             @Nullable NetworkOrder.RequestIntent intent) {
         if (key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+        if (sourceType == OrderSourceType.INTERNAL_SUBORDER && parentOrderId == null) {
+            LOG.warn("[Logistics {}] rejected invalid internal suborder key={} amount={} reason={} (parent missing)",
+                    manager.getPos(), key, amount, reason);
+            return null;
+        }
 
         NetworkOrder.RequestIntent safeIntent = (intent == null ? NetworkOrder.RequestIntent.NORMAL : intent);
 
@@ -407,7 +412,7 @@ public class LogisticsNetworkState {
         }
 
         TransferTask pickup = null;
-        if (!redstoneExecuteOnly && !internalRedstoneSuborder) {
+        if (!redstoneExecuteOnly && !internalSuborder) {
             pickup = createTransferTask(
                     manager,
                     order.orderId,
@@ -450,8 +455,8 @@ public class LogisticsNetworkState {
         } else if (redstoneExecuteOnly) {
             LOG.info("[Logistics {}] redstone execute-only planned order={} key={} need={} produced={} crafter={} intent={}",
                     manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, order.intent);
-        } else if (internalRedstoneSuborder) {
-            LOG.info("[Logistics {}] internal redstone-style suborder planned order={} key={} need={} produced={} crafter={} intent={}",
+        } else if (internalSuborder) {
+            LOG.info("[Logistics {}] internal suborder planned execute-only order={} key={} need={} produced={} crafter={} intent={}",
                     manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, order.intent);
         }
 
@@ -811,10 +816,8 @@ public class LogisticsNetworkState {
                     && order.intent == NetworkOrder.RequestIntent.CRAFT_ONLY);
             boolean craftDone = !order.recipePath;
             boolean outputDone = !order.recipePath || redstoneExecuteOnly;
-            if (internalRedstoneSuborder) {
-                outputDone = isEnoughInStock(catalog, order.requestedKey, order.requestedAmount);
-            } else if (internalSuborder) {
-                outputDone = true;
+            if (internalSuborder) {
+                outputDone = isEnoughInStockIgnoringReservations(catalog, order.requestedKey, order.requestedAmount);
             }
 
             for (UUID tid : order.taskIds) {
@@ -1028,6 +1031,12 @@ public class LogisticsNetworkState {
         int reserved = reservationBook.getReservedAmount(key);
         int available = Math.max(0, reachable - reserved);
         return available >= needed;
+    }
+
+    private boolean isEnoughInStockIgnoringReservations(LinkedHashMap<ItemKey, Integer> catalog, ItemKey key, int needed) {
+        if (catalog == null || key == null || key == ItemKey.EMPTY || needed <= 0) return false;
+        int reachable = Math.max(0, catalog.getOrDefault(key, 0));
+        return reachable >= needed;
     }
 
     private boolean hasLiveDependents(UUID taskId) {

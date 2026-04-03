@@ -139,6 +139,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                         task.inboundQueued = true;
                         task.legacyDeliveryQueued = true;
                         task.legacyDeliveryQueueId = queueId;
+                        inboundBaseline.put(task.taskId, manager.countBuffered(task.itemKey));
                         if (task.legacyDeliveryId == null) {
                             task.legacyDeliveryId = UUID.nameUUIDFromBytes(
                                     ("legacy-deliver-" + task.taskId.toString()).getBytes(java.nio.charset.StandardCharsets.UTF_8)
@@ -152,8 +153,12 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                             task.itemKey
                     );
                     int movedIntoBuffer = Math.max(0, nowInBuffer - task.bufferBaseline);
+                    int queuedToBuffer = manager.countQueuedForEndpoint(
+                            EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
+                            task.itemKey
+                    );
 
-                    if (movedIntoBuffer >= task.amount) {
+                    if (movedIntoBuffer >= task.amount || queuedToBuffer <= 0 || isInboundDone(task)) {
                         task.inboundDone = true;
                         task.updatedTick = manager.getServerTickCounter();
                         LOG.info("[ManagerExecutor {}] task={} inbound phase done", manager.getPos(), task.taskId);
