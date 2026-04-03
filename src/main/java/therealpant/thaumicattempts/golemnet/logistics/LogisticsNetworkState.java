@@ -141,18 +141,13 @@ public class LogisticsNetworkState {
 
         boolean allowResultStockPath = (order.intent == null || order.intent == NetworkOrder.RequestIntent.NORMAL);
 
-        /*
-         * ЕДИНАЯ ЛОГИКА:
-         * Любой готовый ресурс сначала доставляется в буфер менеджера,
-         * и только потом выдается конечной цели.
-         */
         if (allowResultStockPath && totalAvailable > 0) {
             int deliverAmount = Math.min(order.requestedAmount, totalAvailable);
 
             TransferTask stageToManager = createTransferTask(
                     manager,
                     order.orderId,
-                    EndpointRef.of(order.sourcePos, EndpointRef.AccessMode.DIRECT),
+                    stockSource(manager),
                     managerBuffer,
                     order.requestedKey,
                     deliverAmount,
@@ -225,44 +220,137 @@ public class LogisticsNetworkState {
             return;
         }
 
+        final boolean internalSuborder = (order.sourceType == OrderSourceType.INTERNAL_SUBORDER);
+
         int perCycle = Math.max(1, recipe.outputPerCycle);
         int cycles = (stillNeed + perCycle - 1) / perCycle;
+        int producedAmount = cycles * perCycle;
+        LinkedHashMap<ItemKey, Integer> scaledInputs = scaleRecipeInputs(recipe.inputs, cycles);
 
         List<UUID> inputDeps = new ArrayList<UUID>();
 
         EndpointRef crafterInput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT);
         EndpointRef crafterOutput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.OUTPUT);
 
-        for (Map.Entry<ItemKey, Integer> in : recipe.inputs.entrySet()) {
+        for (Map.Entry<ItemKey, Integer> in : scaledInputs.entrySet()) {
             ItemKey inputKey = in.getKey();
-            int perCycleNeed = Math.max(1, in.getValue());
-            int inputNeed = perCycleNeed * cycles;
-
             if (inputKey == null || inputKey == ItemKey.EMPTY || inputKey.equals(order.requestedKey)) {
-                LOG.warn("[Logistics {}] skipped invalid recipe input order={} result={} input={} inputNeed={}",
-                        manager.getPos(), order.orderId, order.requestedKey, inputKey, inputNeed);
+                LOG.warn("[Logistics {}] skipped invalid recipe input order={} result={} input={}",
+                        manager.getPos(), order.orderId, order.requestedKey, inputKey);
                 continue;
             }
+
+            int inputNeed = Math.max(1, in.getValue());
 
             int inputTotalReachable = Math.max(0, catalog.getOrDefault(inputKey, 0));
             int inputReserved = reservationBook.getReservedAmount(inputKey);
             int inputAvailable = Math.max(0, inputTotalReachable - inputReserved);
 
-            int stageableNow = Math.min(inputNeed, inputAvailable);
+            int fromStockNow = Math.min(inputNeed, inputAvailable);
+            int shortage = Math.max(0, inputNeed - fromStockNow);
 
-            /*
-             * ЕДИНЫЙ ПЕРВЫЙ ЭТАП:
-             * сначала staging в буфер менеджера тем же deliver-таском,
-             * что и для обычной доставки в терминал.
-             */
-            if (stageableNow > 0) {
+            RecipeNode inputRecipe = pickRecipe(inputKey);
+            boolean craftableInput = (inputRecipe != null && inputRecipe.source != null);
+
+            if (craftableInput && shortage > 0) {
+                UUID subOrderId = submitOrder(
+                        manager,
+                        inputKey,
+                        shortage,
+                        OrderSourceType.INTERNAL_SUBORDER,
+                        recipe.source,
+                        manager.getPos(),
+                        order.orderId,
+                        depth + 1,
+                        "input-for-" + order.requestedKey,
+                        NetworkOrder.RequestIntent.NORMAL
+                );
+
+                List<UUID> childDeps = new ArrayList<UUID>();
+                if (subOrderId != null) {
+                    NetworkOrder child = orders.get(subOrderId);
+                    if (child != null && !child.taskIds.isEmpty()) {
+                        childDeps.addAll(child.taskIds);
+                    }
+                }
+
+                if (fromStockNow > 0) {
+                    TransferTask stageExisting = createTransferTask(
+                            manager,
+                            order.orderId,
+                            stockSource(manager),
+                            managerBuffer,
+                            inputKey,
+                            fromStockNow,
+                            null,
+                            "deliver"
+                    );
+                    if (stageExisting != null) {
+                        stageExisting.status = TaskStatus.NEW;
+                        stageExisting.updatedTick = manager.getServerTickCounter();
+                    }
+
+                    TransferTask feedExisting = createTransferTask(
+                            manager,
+                            order.orderId,
+                            managerBuffer,
+                            crafterInput,
+                            inputKey,
+                            fromStockNow,
+                            stageExisting == null ? null : Collections.singletonList(stageExisting.taskId),
+                            "craft-input"
+                    );
+                    if (feedExisting != null) {
+                        feedExisting.status = TaskStatus.NEW;
+                        feedExisting.updatedTick = manager.getServerTickCounter();
+                        inputDeps.add(feedExisting.taskId);
+                    }
+                }
+
+                TransferTask stageChildResult = createTransferTask(
+                        manager,
+                        order.orderId,
+                        stockSource(manager),
+                        managerBuffer,
+                        inputKey,
+                        shortage,
+                        childDeps.isEmpty() ? null : childDeps,
+                        "deliver"
+                );
+                if (stageChildResult != null) {
+                    stageChildResult.status = TaskStatus.NEW;
+                    stageChildResult.updatedTick = manager.getServerTickCounter();
+                }
+
+                TransferTask feedChildResult = createTransferTask(
+                        manager,
+                        order.orderId,
+                        managerBuffer,
+                        crafterInput,
+                        inputKey,
+                        shortage,
+                        stageChildResult == null
+                                ? (childDeps.isEmpty() ? null : childDeps)
+                                : Collections.singletonList(stageChildResult.taskId),
+                        "craft-input"
+                );
+                if (feedChildResult != null) {
+                    feedChildResult.status = TaskStatus.NEW;
+                    feedChildResult.updatedTick = manager.getServerTickCounter();
+                    inputDeps.add(feedChildResult.taskId);
+                }
+
+                continue;
+            }
+
+            if (fromStockNow > 0) {
                 TransferTask stageToManager = createTransferTask(
                         manager,
                         order.orderId,
-                        EndpointRef.of(order.sourcePos, EndpointRef.AccessMode.DIRECT),
+                        stockSource(manager),
                         managerBuffer,
                         inputKey,
-                        stageableNow,
+                        fromStockNow,
                         null,
                         "deliver"
                 );
@@ -277,7 +365,7 @@ public class LogisticsNetworkState {
                         managerBuffer,
                         crafterInput,
                         inputKey,
-                        stageableNow,
+                        fromStockNow,
                         stageToManager == null ? null : Collections.singletonList(stageToManager.taskId),
                         "craft-input"
                 );
@@ -286,35 +374,14 @@ public class LogisticsNetworkState {
                     feedCrafter.updatedTick = manager.getServerTickCounter();
                     inputDeps.add(feedCrafter.taskId);
                 }
-
-                inputNeed -= stageableNow;
             }
 
-            /*
-             * Если ресурса в reachable stock не хватает,
-             * заказываем недостачу отдельным suborder.
-             * Возвращать его нужно тоже через менеджер, а не прямо в крафтер.
-             */
-            if (inputNeed > 0) {
-                UUID subOrderId = submitOrder(
-                        manager,
-                        inputKey,
-                        inputNeed,
-                        OrderSourceType.INTERNAL_SUBORDER,
-                        recipe.source,
-                        manager.getPos(),
-                        order.orderId,
-                        depth + 1,
-                        "input-for-" + order.requestedKey,
-                        NetworkOrder.RequestIntent.NORMAL
-                );
-
-                if (subOrderId != null) {
-                    NetworkOrder child = orders.get(subOrderId);
-                    if (child != null && !child.taskIds.isEmpty()) {
-                        inputDeps.addAll(child.taskIds);
-                    }
-                }
+            if (shortage > 0) {
+                order.status = OrderStatus.FAILED;
+                order.lastError = "missing non-craftable input " + inputKey;
+                LOG.warn("[Logistics {}] order failed={} key={} missingInput={} amount={} reason=missing_noncraftable_input",
+                        manager.getPos(), order.orderId, order.requestedKey, inputKey, shortage);
+                return;
             }
         }
 
@@ -324,7 +391,7 @@ public class LogisticsNetworkState {
                 EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT),
                 order.requestedKey,
                 stillNeed,
-                recipe.inputs,
+                scaledInputs,
                 inputDeps,
                 "execute-craft"
         );
@@ -343,7 +410,7 @@ public class LogisticsNetworkState {
                 crafterOutput,
                 managerBuffer,
                 order.requestedKey,
-                stillNeed,
+                producedAmount,
                 Collections.singletonList(craft.taskId),
                 "pickup-output"
         );
@@ -352,32 +419,37 @@ public class LogisticsNetworkState {
             pickup.updatedTick = manager.getServerTickCounter();
         }
 
-        TransferTask deliver = createTransferTask(
-                manager,
-                order.orderId,
-                managerBuffer,
-                finalTarget,
-                order.requestedKey,
-                stillNeed,
-                pickup == null ? Collections.singletonList(craft.taskId) : Collections.singletonList(pickup.taskId),
-                "deliver-output"
-        );
-        if (deliver != null) {
-            deliver.status = TaskStatus.NEW;
-            deliver.updatedTick = manager.getServerTickCounter();
-        }
-
         reservationBook.claimExpectedOutput(
                 recipe.source,
                 order.requestedKey,
-                stillNeed,
+                producedAmount,
                 order.orderId,
                 pickup != null ? pickup.taskId : craft.taskId
         );
 
+        if (!internalSuborder) {
+            TransferTask deliver = createTransferTask(
+                    manager,
+                    order.orderId,
+                    managerBuffer,
+                    finalTarget,
+                    order.requestedKey,
+                    stillNeed,
+                    pickup == null ? Collections.singletonList(craft.taskId) : Collections.singletonList(pickup.taskId),
+                    "deliver-output"
+            );
+            if (deliver != null) {
+                deliver.status = TaskStatus.NEW;
+                deliver.updatedTick = manager.getServerTickCounter();
+            }
+        } else {
+            LOG.info("[Logistics {}] internal suborder planned with pickup order={} key={} need={} produced={} crafter={}",
+                    manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source);
+        }
+
         order.status = OrderStatus.RUNNING;
-        LOG.info("[Logistics {}] craft order planned order={} key={} amount={} recipeSource={} inputs={} intent={}",
-                manager.getPos(), order.orderId, order.requestedKey, stillNeed, recipe.source, recipe.inputs, order.intent);
+        LOG.info("[Logistics {}] craft order planned order={} key={} amount={} produced={} recipeSource={} inputs={} intent={} internalSuborder={}",
+                manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, scaledInputs, order.intent, internalSuborder);
     }
 
     private TransferTask createTransferTask(TileMirrorManager manager,
@@ -397,11 +469,6 @@ public class LogisticsNetworkState {
         EndpointRef safeSource = source;
         EndpointRef safeTarget = target;
 
-        /*
-         * Для craft-input терминал запрещен как источник.
-         * Если кто-то выше по стеку передал терминал как source,
-         * здесь принудительно подменяем его на самого manager.
-         */
         if ("craft-input".equals(purpose)) {
             BlockPos srcPos = endpointPos(source);
             if (srcPos != null && !srcPos.equals(managerPos) && isTerminalPos(manager, srcPos)) {
@@ -570,18 +637,23 @@ public class LogisticsNetworkState {
                 ItemKey result = ItemKey.of(out);
                 if (result == null || result == ItemKey.EMPTY) continue;
 
-                Map<ItemKey, Integer> inputs = new LinkedHashMap<>();
-                List<ItemStack> req = ep.getRecipeInputsFor(out, 1);
+                int perCraft = Math.max(1, ep.getPerCraftOutputCountFor(out));
+
+                Map<ItemKey, Integer> inputs = new LinkedHashMap<ItemKey, Integer>();
+                List<ItemStack> req = ep.getRecipeInputsFor(out, perCraft);
+
                 if (req != null) {
                     for (ItemStack need : req) {
                         if (need == null || need.isEmpty()) continue;
+
                         ItemKey nk = ItemKey.of(need);
                         if (nk == null || nk == ItemKey.EMPTY) continue;
-                        inputs.merge(nk, Math.max(1, need.getCount()), Integer::sum);
+
+                        int count = Math.max(1, need.getCount());
+                        inputs.merge(nk, count, Integer::sum);
                     }
                 }
 
-                int perCraft = Math.max(1, ep.getPerCraftOutputCountFor(out));
                 ProviderType pt = ProviderType.GOLEM_CRAFTER;
 
                 if (te.getClass().getSimpleName().contains("Infusion")) {
@@ -596,7 +668,7 @@ public class LogisticsNetworkState {
 
                 List<RecipeNode> nodes = recipesByResult.get(result);
                 if (nodes == null) {
-                    nodes = new ArrayList<>();
+                    nodes = new ArrayList<RecipeNode>();
                     recipesByResult.put(result, nodes);
                 }
 
@@ -614,6 +686,9 @@ public class LogisticsNetworkState {
                 if (!exists) {
                     nodes.add(node);
                 }
+
+                LOG.info("[Logistics {}] recipe indexed result={} perCraft={} inputs={} source={}",
+                        manager.getPos(), result, perCraft, inputs, rp);
             }
         }
     }
@@ -639,11 +714,6 @@ public class LogisticsNetworkState {
                 }
             }
 
-            /*
-             * КЛЮЧЕВАЯ ПРАВКА:
-             * BLOCKED-задачи не должны умирать навсегда.
-             * Если зависимости уже готовы, даём им повторную попытку.
-             */
             if (task.status == TaskStatus.BLOCKED) {
                 if (task instanceof TransferTask) {
                     TransferTask tt = (TransferTask) task;
@@ -706,7 +776,10 @@ public class LogisticsNetworkState {
     private boolean depsDone(RuntimeTask task) {
         for (UUID dep : task.dependsOn) {
             RuntimeTask depTask = runtimeTasks.get(dep);
-            if (depTask == null || depTask.status != TaskStatus.DONE) {
+            if (depTask == null) {
+                continue;
+            }
+            if (depTask.status != TaskStatus.DONE) {
                 return false;
             }
         }
@@ -719,14 +792,18 @@ public class LogisticsNetworkState {
                 removeOrderFromDedup(order.orderId);
                 continue;
             }
+
             boolean allDone = true;
             boolean hasTasks = false;
+            boolean internalSuborder = (order.sourceType == OrderSourceType.INTERNAL_SUBORDER);
             boolean craftDone = !order.recipePath;
-            boolean outputDone = !order.recipePath;
+            boolean outputDone = !order.recipePath || internalSuborder;
+
             for (UUID tid : order.taskIds) {
                 RuntimeTask t = runtimeTasks.get(tid);
                 if (t == null) continue;
                 hasTasks = true;
+
                 if (t.status == TaskStatus.FAILED || t.status == TaskStatus.CANCELED) {
                     order.status = OrderStatus.FAILED;
                     Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
@@ -737,14 +814,17 @@ public class LogisticsNetworkState {
                         }
                     }
                     order.lastError = "task-failed:" + tid;
-                    LOG.warn("[Logistics {}] order failed={} task={} status={}", manager.getPos(), order.orderId, tid, t.status);
+                    LOG.warn("[Logistics {}] order failed={} task={} status={}",
+                            manager.getPos(), order.orderId, tid, t.status);
                     allDone = false;
                     break;
                 }
+
                 if (t.status != TaskStatus.DONE) allDone = false;
                 if ("execute-craft".equals(t.metaPurpose) && t.status == TaskStatus.DONE) craftDone = true;
                 if ("deliver-output".equals(t.metaPurpose) && t.status == TaskStatus.DONE) outputDone = true;
             }
+
             if (!hasTasks) {
                 order.status = OrderStatus.FAILED;
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
@@ -784,6 +864,7 @@ public class LogisticsNetworkState {
             } else if (order.status == OrderStatus.PLANNING || order.status == OrderStatus.NEW) {
                 order.status = OrderStatus.RUNNING;
             }
+
             order.updatedTick = manager.getServerTickCounter();
         }
     }
@@ -804,6 +885,11 @@ public class LogisticsNetworkState {
             Map.Entry<UUID, RuntimeTask> e = it.next();
             RuntimeTask task = e.getValue();
             if (!isTerminalTask(task.status)) continue;
+
+            if (hasLiveDependents(task.taskId)) {
+                continue;
+            }
+
             NetworkOrder order = orders.get(task.orderId);
             if (order == null || !isActiveOrder(order.status)) {
                 it.remove();
@@ -851,7 +937,6 @@ public class LogisticsNetworkState {
             rt.appendTag(task.writeToNbt());
         }
         tag.setTag("runtimeTasks", rt);
-
 
         NBTTagList recipes = new NBTTagList();
         for (List<RecipeNode> list : recipesByResult.values()) {
@@ -913,5 +998,39 @@ public class LogisticsNetworkState {
         if (tag.hasKey("reservations", Constants.NBT.TAG_COMPOUND)) {
             reservationBook.readFromNbt(tag.getCompoundTag("reservations"));
         }
+    }
+
+    private EndpointRef stockSource(TileMirrorManager manager) {
+        return EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.DIRECT);
+    }
+
+    private boolean hasLiveDependents(UUID taskId) {
+        for (RuntimeTask other : runtimeTasks.values()) {
+            if (other == null) continue;
+            if (isTerminalTask(other.status)) continue;
+            if (other.dependsOn.contains(taskId)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private LinkedHashMap<ItemKey, Integer> scaleRecipeInputs(Map<ItemKey, Integer> inputs, int cycles) {
+        LinkedHashMap<ItemKey, Integer> scaled = new LinkedHashMap<ItemKey, Integer>();
+        if (inputs == null || inputs.isEmpty() || cycles <= 0) {
+            return scaled;
+        }
+
+        for (Map.Entry<ItemKey, Integer> e : inputs.entrySet()) {
+            ItemKey key = e.getKey();
+            if (key == null || key == ItemKey.EMPTY) continue;
+
+            int perCycleValue = (e.getValue() == null ? 0 : e.getValue());
+            if (perCycleValue <= 0) continue;
+
+            scaled.put(key, perCycleValue * cycles);
+        }
+
+        return scaled;
     }
 }

@@ -4078,6 +4078,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
+    public void refreshRecipeIndexFromPlanner() {
+        logistics.refreshRecipeIndex(this);
+    }
+
+    public boolean isLogisticsHealthy() {
+        return logistics != null;
+    }
+
     boolean isConsumerBound(BlockPos pos) {
         if (pos == null) return false;
         return boundTerminals.contains(pos) || boundRequesters.contains(pos);
