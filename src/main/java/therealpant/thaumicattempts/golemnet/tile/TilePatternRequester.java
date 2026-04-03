@@ -165,7 +165,9 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
                 }
             }
 
-            rsQueueTick();
+            if (managerPos == null) {
+                rsQueueTick();
+            }
         }
 
         if (world.isRemote) return;
@@ -274,11 +276,22 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     @Override
     public int enqueueCraftOrder(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
         if (resultLike == null || resultLike.isEmpty() || amount <= 0) return 0;
+        if (managerPos != null) {
+            return startAssignedCraftTask(managerPos, returnDest, returnSide, resultLike, amount);
+        }
+
         int perCraft = Math.max(1, getPerCraftOutputCountFor(resultLike));
         int crafts = (amount + perCraft - 1) / perCraft;
         if (crafts <= 0) return 0;
         queueCraft(resultLike, crafts);
         return crafts * perCraft;
+    }
+
+    @Override
+    public int startAssignedCraftTask(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
+        TileEntityGolemCrafter cr = getCrafterBelow();
+        if (cr == null) return 0;
+        return cr.startManagedExecution(resultLike, amount);
     }
     /**
      * Полный список входов, необходимых для `times` крафтов (агрегирован по «ключу сетки»).

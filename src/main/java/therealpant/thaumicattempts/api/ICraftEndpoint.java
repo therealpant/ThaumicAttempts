@@ -47,6 +47,17 @@ public interface ICraftEndpoint {
     }
 
     /**
+     * Прямой запуск назначенного сетевого execution task-а.
+     *
+     * По умолчанию откатывается к enqueueCraftOrder(...) ради совместимости,
+     * но manager-mode endpoint-ы могут переопределить и запустить локальный
+     * цикл без requester/redstone orchestration.
+     */
+    default int startAssignedCraftTask(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
+        return enqueueCraftOrder(managerPos, returnDest, returnSide, resultLike, amount);
+    }
+
+    /**
      * Есть ли активные или поставленные в очередь циклы.
      */
     boolean hasActiveOrQueued();

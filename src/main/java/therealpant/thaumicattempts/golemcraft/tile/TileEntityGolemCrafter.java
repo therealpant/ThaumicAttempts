@@ -84,9 +84,10 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
     // Очередь запусков от реквестера (индексы паттернов, 0-based)
     private final java.util.Deque<Integer> requesterQueue = new java.util.ArrayDeque<>();
+    private final java.util.Deque<Integer> managedExecutionQueue = new java.util.ArrayDeque<>();
     // Флаг: текущая работа запущена от реквестера (чтобы подавить самопровизию)
     private boolean jobViaRequester = false;
-
+    private boolean jobViaManagerAssignment = false;
 
     // ===== Состояние / параметры =====
     private String customName = "";
@@ -239,6 +240,36 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     @Override
     public int enqueueFromPatternRequester(ItemStack resultLike, int times) {
         return enqueueCraftsByRequesterLike(resultLike, times);
+    }
+
+    public int startManagedExecution(ItemStack resultLike, int amount) {
+        if (resultLike == null || resultLike.isEmpty() || amount <= 0) return 0;
+        int patternIndex = findPatternIndexForResultLike(resultLike);
+        if (patternIndex < 0 || !patternIndexValid(patternIndex)) return 0;
+
+        ItemStack pattern = patterns.getStackInSlot(patternIndex);
+        if (pattern.isEmpty()) return 0;
+        NonNullList<ItemStack> grid = getGrid(pattern);
+        ItemStack preview = getCraftPreview(pattern, grid);
+        if (preview.isEmpty()) return 0;
+
+        int perCraft = Math.max(1, preview.getCount());
+        int crafts = Math.max(1, (amount + perCraft - 1) / perCraft);
+        for (int i = 0; i < crafts; i++) managedExecutionQueue.addLast(patternIndex);
+        markDirty();
+        return crafts * perCraft;
+    }
+
+    private void tryStartNextManagedJob() {
+        if (jobActive) return;
+        Integer next = managedExecutionQueue.pollFirst();
+        if (next == null) return;
+        if (!patternIndexValid(next)) return;
+
+        this.suppressSelfProvision = true;
+        this.jobViaRequester = false;
+        this.jobViaManagerAssignment = true;
+        startOneCraftCycle(next);
     }
 
     private void tryStartNextRequesterJob() {
@@ -651,13 +682,17 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         // СНАЧАЛА пробуем запустить из очереди реквестера
         int signal = readSignal();
 
+        if (!jobActive && !managedExecutionQueue.isEmpty()) {
+            tryStartNextManagedJob();
+        }
+
         // 1) если есть очередь от реквестера — запускаем её первой
         if (!jobActive && !requesterQueue.isEmpty()) {
             tryStartNextRequesterJob();
         }
 
-        // 2) редстоун-триггер по фронту — как было
-        if (!jobActive && requesterQueue.isEmpty() && lastSignal == 0 && signal > 0) {
+        // 2) редстоун-триггер по фронту — только внешний root-order/legacy старт
+        if (!jobActive && managedExecutionQueue.isEmpty() && requesterQueue.isEmpty() && lastSignal == 0 && signal > 0) {
             int idx = choosePatternIndexForSignal(signal);
             if (idx >= 0) {
                 ItemStack pat = patterns.getStackInSlot(idx);
@@ -816,12 +851,17 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         this.step = 0;
         this.lastOrderWorldTime = 0;
 
-        // сбрасываем режим «от реквестера» и подавление провизии
+        // сбрасываем режимы источника запуска и подавление провизии
         this.jobViaRequester = false;
+        this.jobViaManagerAssignment = false;
         this.suppressSelfProvision = false;
 
         if (world == null) return;
 
+        if (!managedExecutionQueue.isEmpty()) {
+            tryStartNextManagedJob();
+            return;
+        }
         // сначала — очередь от реквестера
         if (!requesterQueue.isEmpty()) {
             tryStartNextRequesterJob();
@@ -921,6 +961,14 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
         nbt.setTag("RequesterQ", rq);
 
+        net.minecraft.nbt.NBTTagList mq = new net.minecraft.nbt.NBTTagList();
+        for (Integer idx : managedExecutionQueue) {
+            net.minecraft.nbt.NBTTagCompound c = new net.minecraft.nbt.NBTTagCompound();
+            c.setInteger("I", idx == null ? -1 : idx);
+            mq.appendTag(c);
+        }
+        nbt.setTag("ManagedQ", mq);
+
         if (managerPos != null) nbt.setLong("Manager", managerPos.toLong());
         nbt.setBoolean("ManagerPattern", managerFromPattern && managerPos != null);
 
@@ -965,6 +1013,16 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                 net.minecraft.nbt.NBTTagCompound c = rq.getCompoundTagAt(i);
                 int idx = c.getInteger("I");
                 if (idx >= 0 && idx < PATTERN_SLOTS) requesterQueue.addLast(idx);
+            }
+        }
+
+        managedExecutionQueue.clear();
+        if (nbt.hasKey("ManagedQ", Constants.NBT.TAG_LIST)) {
+            net.minecraft.nbt.NBTTagList mq = nbt.getTagList("ManagedQ", Constants.NBT.TAG_COMPOUND);
+            for (int i = 0; i < mq.tagCount(); i++) {
+                net.minecraft.nbt.NBTTagCompound c = mq.getCompoundTagAt(i);
+                int idx = c.getInteger("I");
+                if (idx >= 0 && idx < PATTERN_SLOTS) managedExecutionQueue.addLast(idx);
             }
         }
 

@@ -2537,7 +2537,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         TileEntity te = world.getTileEntity(crafterPos);
         if (!(te instanceof ICraftEndpoint)) return false;
         ICraftEndpoint endpoint = (ICraftEndpoint) te;
-        int accepted = endpoint.enqueueCraftOrder(this.pos, crafterPos, -1, key.toStack(1), amount);
+        int accepted = endpoint.startAssignedCraftTask(this.pos, crafterPos, -1, key.toStack(1), amount);
         return accepted > 0;
     }
 
