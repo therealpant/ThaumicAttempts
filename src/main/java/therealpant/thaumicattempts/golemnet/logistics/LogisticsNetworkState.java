@@ -309,21 +309,6 @@ public class LogisticsNetworkState {
                     }
                 }
 
-                TransferTask stageChildResult = createTransferTask(
-                        manager,
-                        order.orderId,
-                        stockSource(manager),
-                        managerBuffer,
-                        inputKey,
-                        shortage,
-                        childDeps.isEmpty() ? null : childDeps,
-                        "deliver"
-                );
-                if (stageChildResult != null) {
-                    stageChildResult.status = TaskStatus.NEW;
-                    stageChildResult.updatedTick = manager.getServerTickCounter();
-                }
-
                 TransferTask feedChildResult = createTransferTask(
                         manager,
                         order.orderId,
@@ -331,9 +316,7 @@ public class LogisticsNetworkState {
                         crafterInput,
                         inputKey,
                         shortage,
-                        stageChildResult == null
-                                ? (childDeps.isEmpty() ? null : childDeps)
-                                : Collections.singletonList(stageChildResult.taskId),
+                        childDeps.isEmpty() ? null : childDeps,
                         "craft-input"
                 );
                 if (feedChildResult != null) {
