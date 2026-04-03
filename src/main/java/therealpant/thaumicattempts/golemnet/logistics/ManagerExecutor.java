@@ -214,6 +214,14 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
              * Потом просто ждём фактического изменения target по baseline.
              */
             if (!task.dispatchQueued) {
+                if (requiresFullSourceBeforeDispatch(task)) {
+                    int availableAtSource = manager.countItemAtEndpoint(task.source, task.itemKey);
+                    if (availableAtSource < remaining) {
+                        task.status = TaskStatus.BLOCKED;
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                        continue;
+                    }
+                }
                 int queueId = ensureQueueId(task);
                 boolean accepted = manager.dispatchTransferTask(
                         task.source,
@@ -271,5 +279,12 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         int nowBuffered = manager.countBuffered(task.itemKey);
         int deliveredToBuffer = Math.max(0, nowBuffered - base);
         return deliveredToBuffer >= Math.max(1L, task.amount);
+    }
+
+    private static boolean requiresFullSourceBeforeDispatch(TransferTask task) {
+        if (task == null || task.metaPurpose == null) return false;
+        return "craft-input".equals(task.metaPurpose)
+                || "pickup-output".equals(task.metaPurpose)
+                || "deliver-output".equals(task.metaPurpose);
     }
 }

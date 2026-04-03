@@ -7,10 +7,17 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.common.util.Constants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
+import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
+import therealpant.thaumicattempts.golemnet.logistics.RecipeNode;
+import therealpant.thaumicattempts.util.ItemKey;
 
 
 import javax.annotation.Nullable;
+import java.util.LinkedHashMap;
 import java.util.Locale;
+import java.util.Map;
+import java.util.UUID;
 
 public class TileSequentialCraftPlanner extends TileEntity implements ITickable {
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/SequentialPlanner");
@@ -26,7 +33,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
     private static final String TAG_ACTIVE = "Active";
     private static final String TAG_STATUS = "PlannerStatus";
     private static final int RECIPE_INDEX_REFRESH_TICKS = 100;
-
+    private static final int MAX_PLAN_DEPTH = 8;
 
     @Nullable
     private BlockPos managerPos;
@@ -95,6 +102,117 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         if (world == null || managerPos == null) return null;
         TileEntity te = world.getTileEntity(managerPos);
         return te instanceof TileMirrorManager ? (TileMirrorManager) te : null;
+    }
+
+    @Nullable
+    public UUID planAndSubmitRootDemand(TileMirrorManager manager,
+                                        ItemKey key,
+                                        int amount,
+                                        BlockPos sourcePos,
+                                        @Nullable BlockPos returnDestination,
+                                        NetworkOrder.RequestIntent intent) {
+        if (manager == null || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+        LinkedHashMap<ItemKey, Integer> workingStock = new LinkedHashMap<ItemKey, Integer>(manager.getReachableCatalog());
+
+        PlannerSubmitContext ctx = new PlannerSubmitContext(manager, sourcePos);
+        boolean planned = planDependenciesRecursive(ctx, workingStock, key, amount, null, 0);
+        if (!planned) {
+            LOG.warn("[Planner {}] failed to plan demand key={} amount={} reason={}",
+                    pos, key, amount, ctx.failureReason);
+            return null;
+        }
+
+        UUID rootOrder = manager.submitPlannerOrder(
+                key,
+                amount,
+                OrderSourceType.TERMINAL,
+                sourcePos,
+                returnDestination,
+                null,
+                0,
+                "planner-root",
+                intent
+        );
+
+        LOG.info("[Planner {}] plan submit complete key={} amount={} rootOrder={}", pos, key, amount, rootOrder);
+        return rootOrder;
+    }
+
+    private boolean planDependenciesRecursive(PlannerSubmitContext ctx,
+                                              Map<ItemKey, Integer> workingStock,
+                                              ItemKey requested,
+                                              int amount,
+                                              @Nullable UUID parentOrderId,
+                                              int depth) {
+        if (depth > MAX_PLAN_DEPTH) {
+            ctx.failureReason = "max-depth";
+            return false;
+        }
+        if (requested == null || requested == ItemKey.EMPTY || amount <= 0) {
+            ctx.failureReason = "invalid-demand";
+            return false;
+        }
+
+        int remaining = consumeAvailable(workingStock, requested, amount);
+        if (remaining <= 0) return true;
+
+        RecipeNode recipe = ctx.manager.getPlannerRecipe(requested);
+        if (recipe == null || recipe.source == null) {
+            ctx.failureReason = "no-recipe:" + requested;
+            return false;
+        }
+
+        int perCycle = Math.max(1, recipe.outputPerCycle);
+        int cycles = (remaining + perCycle - 1) / perCycle;
+        int producedAmount = cycles * perCycle;
+
+        for (Map.Entry<ItemKey, Integer> input : recipe.inputs.entrySet()) {
+            ItemKey inputKey = input.getKey();
+            int inputNeed = Math.max(1, input.getValue() * cycles);
+            if (!planDependenciesRecursive(ctx, workingStock, inputKey, inputNeed, parentOrderId, depth + 1)) {
+                return false;
+            }
+        }
+
+        UUID created = ctx.manager.submitPlannerOrder(
+                requested,
+                remaining,
+                OrderSourceType.INTERNAL_SUBORDER,
+                ctx.sourcePos,
+                ctx.manager.getPos(),
+                parentOrderId,
+                depth,
+                "planner-input-for-" + requested,
+                NetworkOrder.RequestIntent.INTERNAL_REDSTONE
+        );
+        if (created == null) {
+            ctx.failureReason = "submit-failed:" + requested;
+            return false;
+        }
+
+        workingStock.merge(requested, producedAmount, Integer::sum);
+        consumeAvailable(workingStock, requested, remaining);
+        return true;
+    }
+
+    private static int consumeAvailable(Map<ItemKey, Integer> stock, ItemKey key, int amount) {
+        int have = Math.max(0, stock.getOrDefault(key, 0));
+        int consume = Math.min(have, Math.max(0, amount));
+        if (consume > 0) {
+            stock.put(key, have - consume);
+        }
+        return Math.max(0, amount - consume);
+    }
+
+    private static final class PlannerSubmitContext {
+        private final TileMirrorManager manager;
+        private final BlockPos sourcePos;
+        private String failureReason = "";
+
+        private PlannerSubmitContext(TileMirrorManager manager, BlockPos sourcePos) {
+            this.manager = manager;
+            this.sourcePos = sourcePos == null ? BlockPos.ORIGIN : sourcePos.toImmutable();
+        }
     }
 
     @Override

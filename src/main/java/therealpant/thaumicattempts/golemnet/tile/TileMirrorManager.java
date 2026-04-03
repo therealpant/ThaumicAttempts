@@ -46,6 +46,7 @@ import therealpant.thaumicattempts.golemnet.logistics.LogisticsNetworkState;
 import therealpant.thaumicattempts.golemnet.logistics.EndpointRef;
 import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
 import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
+import therealpant.thaumicattempts.golemnet.logistics.RecipeNode;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 
@@ -2381,9 +2382,50 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                             @Nullable BlockPos returnDestination, NetworkOrder.RequestIntent intent) {
         if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
         logistics.refreshRecipeIndex(this);
+        TileSequentialCraftPlanner planner = getActiveSequentialPlanner();
+        if (sourceType == OrderSourceType.TERMINAL && planner != null && planner.isActivePlanner()) {
+            UUID planned = planner.planAndSubmitRootDemand(this, key, amount, sourcePos, returnDestination, intent);
+            if (planned != null) {
+                markDirty();
+                return planned;
+            }
+            LOG.warn("[Manager {}] planner was active but failed to produce plan, fallback to direct submit key={} amount={}",
+                    pos, key, amount);
+        }
         UUID id = logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, null, 0, "root-submit", intent);
         markDirty();
         return id;
+    }
+
+    @Nullable
+    private TileSequentialCraftPlanner getActiveSequentialPlanner() {
+        if (world == null || world.isRemote) return null;
+        for (BlockPos plannerPos : boundPlanners) {
+            TileEntity te = world.getTileEntity(plannerPos);
+            if (te instanceof TileSequentialCraftPlanner) {
+                return (TileSequentialCraftPlanner) te;
+            }
+        }
+        return null;
+    }
+
+    public UUID submitPlannerOrder(ItemKey key,
+                                   int amount,
+                                   OrderSourceType sourceType,
+                                   BlockPos sourcePos,
+                                   @Nullable BlockPos returnDestination,
+                                   @Nullable UUID parentOrderId,
+                                   int depth,
+                                   String reason,
+                                   NetworkOrder.RequestIntent intent) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+        return logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, parentOrderId, depth, reason, intent);
+    }
+
+    @Nullable
+    public RecipeNode getPlannerRecipe(ItemKey key) {
+        if (key == null || key == ItemKey.EMPTY) return null;
+        return logistics.getRecipeForPlanner(key);
     }
 
     public UUID submitEndpointRequest(OrderSourceType sourceType,

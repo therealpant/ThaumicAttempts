@@ -20,7 +20,6 @@ import java.util.*;
 
 public class LogisticsNetworkState {
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/LogisticsHandler");
-    private static final int MAX_SUBORDER_DEPTH = 8;
 
     private final LinkedHashMap<UUID, NetworkOrder> orders = new LinkedHashMap<UUID, NetworkOrder>();
     private final LinkedHashMap<UUID, RuntimeTask> runtimeTasks = new LinkedHashMap<UUID, RuntimeTask>();
@@ -67,11 +66,6 @@ public class LogisticsNetworkState {
                             String reason,
                             @Nullable NetworkOrder.RequestIntent intent) {
         if (key == null || key == ItemKey.EMPTY || amount <= 0) return null;
-        if (sourceType == OrderSourceType.INTERNAL_SUBORDER && parentOrderId == null) {
-            LOG.warn("[Logistics {}] rejected invalid internal suborder key={} amount={} reason={} (parent missing)",
-                    manager.getPos(), key, amount, reason);
-            return null;
-        }
 
         NetworkOrder.RequestIntent safeIntent = (intent == null ? NetworkOrder.RequestIntent.NORMAL : intent);
 
@@ -217,14 +211,6 @@ public class LogisticsNetworkState {
             return;
         }
 
-        if (depth >= MAX_SUBORDER_DEPTH) {
-            order.status = OrderStatus.FAILED;
-            order.lastError = "max sub-order depth reached";
-            LOG.warn("[Logistics {}] order failed={} key={} amount={} reason=max_depth",
-                    manager.getPos(), order.orderId, order.requestedKey, stillNeed);
-            return;
-        }
-
         final boolean internalSuborder = (order.sourceType == OrderSourceType.INTERNAL_SUBORDER);
         final boolean internalRedstoneSuborder = internalSuborder
                 && order.intent == NetworkOrder.RequestIntent.INTERNAL_REDSTONE;
@@ -258,9 +244,6 @@ public class LogisticsNetworkState {
             int fromStockNow = Math.min(inputNeed, inputAvailable);
             int shortage = Math.max(0, inputNeed - fromStockNow);
 
-            RecipeNode inputRecipe = pickRecipe(inputKey);
-            boolean craftableInput = (inputRecipe != null && inputRecipe.source != null);
-
             List<UUID> feedDeps = new ArrayList<UUID>();
 
             if (fromStockNow > 0) {
@@ -281,48 +264,10 @@ public class LogisticsNetworkState {
                 }
             }
 
-            if (craftableInput && shortage > 0) {
-                UUID subOrderId = submitOrder(
-                        manager,
-                        inputKey,
-                        shortage,
-                        OrderSourceType.INTERNAL_SUBORDER,
-                        recipe.source,
-                        manager.getPos(),
-                        order.orderId,
-                        depth + 1,
-                        "input-for-" + order.requestedKey,
-                        NetworkOrder.RequestIntent.INTERNAL_REDSTONE
-                );
-
-                List<UUID> childDeps = new ArrayList<UUID>();
-                if (subOrderId != null) {
-                    NetworkOrder child = orders.get(subOrderId);
-                    if (child != null && !child.taskIds.isEmpty()) {
-                        childDeps.addAll(child.taskIds);
-                    }
-                }
-
-                TransferTask stageChildResult = createTransferTask(
-                        manager,
-                        order.orderId,
-                        stockSource(manager),
-                        managerBuffer,
-                        inputKey,
-                        shortage,
-                        childDeps.isEmpty() ? null : childDeps,
-                        "deliver"
-                );
-                if (stageChildResult != null) {
-                    stageChildResult.status = TaskStatus.NEW;
-                    stageChildResult.updatedTick = manager.getServerTickCounter();
-                    feedDeps.add(stageChildResult.taskId);
-                }
-
-            } else if (shortage > 0) {
+            if (shortage > 0) {
                 order.status = OrderStatus.FAILED;
-                order.lastError = "missing non-craftable input " + inputKey;
-                LOG.warn("[Logistics {}] order failed={} key={} missingInput={} amount={} reason=missing_noncraftable_input",
+                order.lastError = "missing planned input " + inputKey;
+                LOG.warn("[Logistics {}] order failed={} key={} missingInput={} amount={} reason=missing_planned_input",
                         manager.getPos(), order.orderId, order.requestedKey, inputKey, shortage);
                 return;
             }
@@ -364,7 +309,7 @@ public class LogisticsNetworkState {
         }
 
         TransferTask pickup = null;
-        if (!redstoneExecuteOnly && !internalSuborder) {
+        if (!redstoneExecuteOnly) {
             pickup = createTransferTask(
                     manager,
                     order.orderId,
@@ -389,7 +334,7 @@ public class LogisticsNetworkState {
             );
         }
 
-        if (!internalSuborder && !redstoneExecuteOnly) {
+        if (!redstoneExecuteOnly) {
             TransferTask deliver = createTransferTask(
                     manager,
                     order.orderId,
@@ -406,9 +351,6 @@ public class LogisticsNetworkState {
             }
         } else if (redstoneExecuteOnly) {
             LOG.info("[Logistics {}] redstone execute-only planned order={} key={} need={} produced={} crafter={} intent={}",
-                    manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, order.intent);
-        } else if (internalSuborder) {
-            LOG.info("[Logistics {}] internal suborder planned execute-only order={} key={} need={} produced={} crafter={} intent={}",
                     manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, order.intent);
         }
 
@@ -888,6 +830,13 @@ public class LogisticsNetworkState {
 
     private static boolean isActiveOrder(OrderStatus status) {
         return status != OrderStatus.DONE && status != OrderStatus.FAILED && status != OrderStatus.CANCELED;
+    }
+
+    @Nullable
+    public RecipeNode getRecipeForPlanner(ItemKey key) {
+        RecipeNode node = pickRecipe(key);
+        if (node == null) return null;
+        return new RecipeNode(node.result, node.source, node.providerType, node.outputPerCycle, node.inputs);
     }
 
     public void writeToNbt(NBTTagCompound tag) {
