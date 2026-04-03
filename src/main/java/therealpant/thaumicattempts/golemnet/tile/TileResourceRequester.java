@@ -27,8 +27,8 @@ import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
+import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import therealpant.thaumicattempts.util.ItemKey;
-import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.items.ItemsTC;
@@ -279,10 +279,14 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             if (signal > 0) {
                 int idx = patternIndexFromSignal(signal);
                 if (idx >= 0) {
-                    enqueueTrigger(idx, 1);
-                    tryStartQueuedJob();
-                    if (jobActive && !useManagerForProvision()) {
-                        requestProvisionForPending();
+                    if (useManagerForProvision()) {
+                        submitUnifiedManagerOrderForSlot(idx, 1);
+                    } else {
+                        enqueueTrigger(idx, 1);
+                        tryStartQueuedJob();
+                        if (jobActive) {
+                            requestProvisionForPending();
+                        }
                     }
                 }
             }
@@ -442,27 +446,29 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
 
         TileEntity te = world.getTileEntity(managerPos);
         if (!(te instanceof TileMirrorManager)) return;
-        TileMirrorManager mgr = (TileMirrorManager) te;
-        if (activeOrderId != null && mgr.isOrderActive(activeOrderId)) return;
+        // В manager-mode локальный requester не инициирует supply-заказы.
+        // Доставку планирует/создаёт только LogisticsNetworkState.
+        activeProvisionOrders.clear();
         activeOrderId = null;
-
-        for (Iterator<Map.Entry<ItemKey, UUID>> it = activeProvisionOrders.entrySet().iterator(); it.hasNext(); ) {
-            Map.Entry<ItemKey, UUID> e = it.next();
-            if (!mgr.isOrderActive(e.getValue())) it.remove();
-        }
-        for (Map.Entry<ItemKey, Integer> e : pending.entrySet()) {
-            ItemKey key = e.getKey();
-            int want = Math.max(1, e.getValue());
-            if (activeProvisionOrders.containsKey(key)) continue;
-            UUID orderId = mgr.submitEndpointRequest(therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_REQUESTER,
-                    this.pos, key, want, this.pos, "resource-requester-redstone");
-            if (orderId != null) {
-                activeProvisionOrders.put(key, orderId);
-                activeOrderId = orderId;
-            }
-        }
         lastEnsureTick = tickCounter;
         needEnsure = false;
+    }
+
+    private boolean submitUnifiedManagerOrderForSlot(int slot, int crafts) {
+        if (world == null || world.isRemote || managerPos == null || slot < 0 || slot >= patterns.getSlots()) return false;
+        TileEntity te = world.getTileEntity(managerPos);
+        if (!(te instanceof TileMirrorManager)) return false;
+
+        ItemStack pattern = patterns.getStackInSlot(slot);
+        if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) return false;
+        ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
+        if (preview.isEmpty()) return false;
+
+        ItemKey key = ItemKey.of(preview);
+        if (key == null || key == ItemKey.EMPTY) return false;
+        int amount = Math.max(1, preview.getCount()) * Math.max(1, crafts);
+        UUID id = ((TileMirrorManager) te).submitOrder(key, amount, OrderSourceType.REDSTONE_REQUESTER, this.pos, this.pos);
+        return id != null;
     }
 
     private void deliverSequence() {

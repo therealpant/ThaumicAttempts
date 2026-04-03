@@ -490,8 +490,12 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (signal > 0) {
                 int slot = patternIndexFromSignal(signal);
                 if (slot >= 0) {
-                    enqueueTrigger(slot, 1, true);
-                    tryStartNextJob();
+                    if (useManagerForProvision()) {
+                        submitUnifiedManagerOrderForSlot(slot, 1);
+                    } else {
+                        enqueueTrigger(slot, 1, true);
+                        tryStartNextJob();
+                    }
                 }
             }
             lastSignal = signal;
@@ -1091,27 +1095,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (!needsEnsure && (tickCounter - lastEnsureTick) < interval) return;
 
         if (useManagerForProvision() && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
-            TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
-            if (activeOrderId != null && mgr.isOrderActive(activeOrderId)) return;
+            // В manager-mode endpoint больше не создаёт дочерние supply-заказы сам.
+            // Снабжение приходит только как задачи от LogisticsNetworkState.
+            activeInputOrders.clear();
             activeOrderId = null;
-            for (Iterator<Map.Entry<ItemKey, UUID>> it = activeInputOrders.entrySet().iterator(); it.hasNext(); ) {
-                Map.Entry<ItemKey, UUID> e = it.next();
-                if (!mgr.isOrderActive(e.getValue())) it.remove();
-            }
-            for (Map.Entry<ItemKey, Integer> e : pendingToRequester.entrySet()) {
-                ItemKey key = e.getKey();
-                int amount = Math.max(1, e.getValue());
-                if (activeInputOrders.containsKey(key)) continue;
-                UUID orderId = mgr.submitEndpointRequest(therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_INFUSION,
-                        pos, key, amount, pos, "infusion-requester-input");
-                if (orderId != null) {
-                    activeInputOrders.put(key, orderId);
-                    activeOrderId = orderId;
-                }
-            }
             needsEnsure = false;
             lastEnsureTick = tickCounter;
-            logDebug("ensurePendingToRequester via handler manager={} needs={} activeOrders={}", managerPos, pendingToRequester, activeInputOrders.size());
+            logDebug("ensurePendingToRequester manager-mode wait manager={} needs={}", managerPos, pendingToRequester);
             return;
         }
 
@@ -1124,6 +1114,29 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         lastEnsureTick = tickCounter;
         nextProvisionTick = tickCounter + PROVISION_INTERVAL;
         needsEnsure = false;
+    }
+
+    private boolean submitUnifiedManagerOrderForSlot(int slot, int crafts) {
+        if (world == null || world.isRemote || managerPos == null || slot < 0 || slot >= patterns.getSlots()) return false;
+        TileEntity te = world.getTileEntity(managerPos);
+        if (!(te instanceof TileMirrorManager)) return false;
+        ItemStack pat = patterns.getStackInSlot(slot);
+        if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) return false;
+
+        ItemStack preview = TerminalOrderApi.stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
+        if (preview.isEmpty()) return false;
+        ItemKey key = ItemKey.of(preview);
+        if (key == null || key == ItemKey.EMPTY) return false;
+
+        int amount = Math.max(1, preview.getCount()) * Math.max(1, crafts);
+        UUID id = ((TileMirrorManager) te).submitOrder(
+                key,
+                amount,
+                therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_INFUSION,
+                this.pos,
+                this.pos
+        );
+        return id != null;
     }
 
     // ========================= RESOURCES PHASE 2 (DISTRIBUTE) =========================
