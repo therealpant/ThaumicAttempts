@@ -261,6 +261,26 @@ public class LogisticsNetworkState {
             RecipeNode inputRecipe = pickRecipe(inputKey);
             boolean craftableInput = (inputRecipe != null && inputRecipe.source != null);
 
+            List<UUID> feedDeps = new ArrayList<UUID>();
+
+            if (fromStockNow > 0) {
+                TransferTask stageFromStock = createTransferTask(
+                        manager,
+                        order.orderId,
+                        stockSource(manager),
+                        managerBuffer,
+                        inputKey,
+                        fromStockNow,
+                        null,
+                        "deliver"
+                );
+                if (stageFromStock != null) {
+                    stageFromStock.status = TaskStatus.NEW;
+                    stageFromStock.updatedTick = manager.getServerTickCounter();
+                    feedDeps.add(stageFromStock.taskId);
+                }
+            }
+
             if (craftableInput && shortage > 0) {
                 UUID subOrderId = submitOrder(
                         manager,
@@ -283,39 +303,6 @@ public class LogisticsNetworkState {
                     }
                 }
 
-                if (fromStockNow > 0) {
-                    TransferTask stageExisting = createTransferTask(
-                            manager,
-                            order.orderId,
-                            stockSource(manager),
-                            managerBuffer,
-                            inputKey,
-                            fromStockNow,
-                            null,
-                            "deliver"
-                    );
-                    if (stageExisting != null) {
-                        stageExisting.status = TaskStatus.NEW;
-                        stageExisting.updatedTick = manager.getServerTickCounter();
-                    }
-
-                    TransferTask feedExisting = createTransferTask(
-                            manager,
-                            order.orderId,
-                            managerBuffer,
-                            crafterInput,
-                            inputKey,
-                            fromStockNow,
-                            stageExisting == null ? null : Collections.singletonList(stageExisting.taskId),
-                            "craft-input"
-                    );
-                    if (feedExisting != null) {
-                        feedExisting.status = TaskStatus.NEW;
-                        feedExisting.updatedTick = manager.getServerTickCounter();
-                        inputDeps.add(feedExisting.taskId);
-                    }
-                }
-
                 TransferTask stageChildResult = createTransferTask(
                         manager,
                         order.orderId,
@@ -329,66 +316,31 @@ public class LogisticsNetworkState {
                 if (stageChildResult != null) {
                     stageChildResult.status = TaskStatus.NEW;
                     stageChildResult.updatedTick = manager.getServerTickCounter();
+                    feedDeps.add(stageChildResult.taskId);
                 }
 
-                TransferTask feedChildResult = createTransferTask(
-                        manager,
-                        order.orderId,
-                        managerBuffer,
-                        crafterInput,
-                        inputKey,
-                        shortage,
-                        stageChildResult == null ? (childDeps.isEmpty() ? null : childDeps) : Collections.singletonList(stageChildResult.taskId),
-                        "craft-input"
-                );
-                if (feedChildResult != null) {
-                    feedChildResult.status = TaskStatus.NEW;
-                    feedChildResult.updatedTick = manager.getServerTickCounter();
-                    inputDeps.add(feedChildResult.taskId);
-                }
-
-                continue;
-            }
-
-            if (fromStockNow > 0) {
-                TransferTask stageToManager = createTransferTask(
-                        manager,
-                        order.orderId,
-                        stockSource(manager),
-                        managerBuffer,
-                        inputKey,
-                        fromStockNow,
-                        null,
-                        "deliver"
-                );
-                if (stageToManager != null) {
-                    stageToManager.status = TaskStatus.NEW;
-                    stageToManager.updatedTick = manager.getServerTickCounter();
-                }
-
-                TransferTask feedCrafter = createTransferTask(
-                        manager,
-                        order.orderId,
-                        managerBuffer,
-                        crafterInput,
-                        inputKey,
-                        fromStockNow,
-                        stageToManager == null ? null : Collections.singletonList(stageToManager.taskId),
-                        "craft-input"
-                );
-                if (feedCrafter != null) {
-                    feedCrafter.status = TaskStatus.NEW;
-                    feedCrafter.updatedTick = manager.getServerTickCounter();
-                    inputDeps.add(feedCrafter.taskId);
-                }
-            }
-
-            if (shortage > 0) {
+            } else if (shortage > 0) {
                 order.status = OrderStatus.FAILED;
                 order.lastError = "missing non-craftable input " + inputKey;
                 LOG.warn("[Logistics {}] order failed={} key={} missingInput={} amount={} reason=missing_noncraftable_input",
                         manager.getPos(), order.orderId, order.requestedKey, inputKey, shortage);
                 return;
+            }
+
+            TransferTask unifiedFeedToCrafter = createTransferTask(
+                    manager,
+                    order.orderId,
+                    managerBuffer,
+                    crafterInput,
+                    inputKey,
+                    inputNeed,
+                    feedDeps.isEmpty() ? null : feedDeps,
+                    "craft-input"
+            );
+            if (unifiedFeedToCrafter != null) {
+                unifiedFeedToCrafter.status = TaskStatus.NEW;
+                unifiedFeedToCrafter.updatedTick = manager.getServerTickCounter();
+                inputDeps.add(unifiedFeedToCrafter.taskId);
             }
         }
 

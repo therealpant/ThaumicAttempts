@@ -153,12 +153,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                             task.itemKey
                     );
                     int movedIntoBuffer = Math.max(0, nowInBuffer - task.bufferBaseline);
-                    int queuedToBuffer = manager.countQueuedForEndpoint(
-                            EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
-                            task.itemKey
-                    );
 
-                    if (movedIntoBuffer >= task.amount || queuedToBuffer <= 0 || isInboundDone(task)) {
+                    if (movedIntoBuffer >= task.amount || isInboundDone(task)) {
                         task.inboundDone = true;
                         task.updatedTick = manager.getServerTickCounter();
                         LOG.info("[ManagerExecutor {}] task={} inbound phase done", manager.getPos(), task.taskId);
@@ -271,11 +267,9 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     }
 
     private boolean isInboundDone(TransferTask task) {
-        EndpointRef managerBuffer = EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER);
-        int queued = manager.countQueuedForEndpoint(managerBuffer, task.itemKey);
         int base = inboundBaseline.getOrDefault(task.taskId, 0);
         int nowBuffered = manager.countBuffered(task.itemKey);
         int deliveredToBuffer = Math.max(0, nowBuffered - base);
-        return queued <= 0 || deliveredToBuffer >= Math.max(1L, task.amount);
+        return deliveredToBuffer >= Math.max(1L, task.amount);
     }
 }
