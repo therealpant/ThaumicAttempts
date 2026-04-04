@@ -1964,7 +1964,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         boolean toCrafter = world.getTileEntity(b.dest) instanceof TileEntityGolemCrafter;
 
         int flying = inflight.getOrDefault(key, 0);
-        int atDest = countAtDestLike(b.dest, b.destSide, ln.wanted1);
         int queuedAll = countQueuedFor(b.dest, ln.wanted1);
         int queuedOthers = Math.max(0, queuedAll - ln.remaining);
 
@@ -1982,7 +1981,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 lastProgressTick.put(key, tickCounter);
             }
             int reservedHere = Math.max(0, Math.min(ln.reserved, ln.remaining));
-            int covered = atDest + queuedOthers + reservedHere;
+            int covered = queuedOthers + Math.max(flying, reservedHere);
             need = (covered >= ln.remaining) ? 0 : (ln.remaining - covered);
         } else {
             int lp = lastProgressTick.getOrDefault(key, -9999);
@@ -2025,15 +2024,21 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     }
                 } else {
                     // Менеджер сначала ставит таск в очередь, а диспетчер раскидывает по курьерам
-                    int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
-                    if (chunk > 0) {
+                    while (budget > 0) {
+                        int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
+                        if (chunk <= 0) break;
+
                         ItemStack req = normalizeForProvision(ln.wanted1, chunk);
-                        if (!req.isEmpty()) {
-                            boolean ok = ThaumcraftProvisionHelper.requestProvisioningForManager(this, req);
-                            if (ok) {
-                                requested += chunk;
-                            }
+
+                        if (req.isEmpty()) break;
+
+                        boolean ok = ThaumcraftProvisionHelper.requestProvisioningForManager(this, req);
+                        if (!ok) {
+                            // Нет свободного диспетчера/не удалось создать таск — прерываемся и доберём на следующих тиках.
+                            break;
                         }
+                        requested += chunk;
+                        budget -= chunk;
                     }
                 }
 
