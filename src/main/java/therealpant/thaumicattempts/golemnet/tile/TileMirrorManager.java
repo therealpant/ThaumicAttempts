@@ -2409,6 +2409,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return null;
     }
 
+    @Nullable
     public UUID submitPlannerOrder(ItemKey key,
                                    int amount,
                                    OrderSourceType sourceType,
@@ -2417,15 +2418,59 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                                    @Nullable UUID parentOrderId,
                                    int depth,
                                    String reason,
-                                   NetworkOrder.RequestIntent intent) {
-        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
-        return logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, parentOrderId, depth, reason, intent);
+                                   @Nullable NetworkOrder.RequestIntent intent) {
+        if (world == null || world.isRemote) return null;
+        if (key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+
+        /*
+         * ВАЖНО:
+         * Planner-first режим требует, чтобы перед каждым planner submit
+         * manager имел свежий recipe index.
+         *
+         * Иначе planner может построить зависимость, а handler при submitOrder
+         * увидит stale recipesByResult и уронит order с no_recipe.
+         */
+        refreshRecipeIndexFromPlanner();
+
+        return logistics.submitOrder(
+                this,
+                key,
+                amount,
+                sourceType,
+                sourcePos,
+                returnDestination,
+                parentOrderId,
+                depth,
+                reason,
+                intent == null ? NetworkOrder.RequestIntent.CRAFT_ONLY : intent
+        );
     }
 
     @Nullable
     public RecipeNode getPlannerRecipe(ItemKey key) {
+        if (world == null || world.isRemote) return null;
         if (key == null || key == ItemKey.EMPTY) return null;
-        return logistics.getRecipeForPlanner(key);
+
+        /*
+         * Planner при рекурсивном построении дерева должен смотреть на
+         * актуальный recipe index, а не на индекс десятитиковой давности.
+         */
+        refreshRecipeIndexFromPlanner();
+
+        return logistics.getRecipeNodeForPlanning(key);
+    }
+
+    @Nullable
+    public TileSequentialCraftPlanner findBestSequentialPlanner() {
+        if (world == null) return null;
+
+        for (BlockPos pos : getRequestersSnapshot()) {
+            TileEntity te = world.getTileEntity(pos);
+            if (te instanceof TileSequentialCraftPlanner) {
+                return (TileSequentialCraftPlanner) te;
+            }
+        }
+        return null;
     }
 
     public UUID submitEndpointRequest(OrderSourceType sourceType,
@@ -2458,6 +2503,20 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     public boolean isOrderActive(@Nullable UUID orderId) {
         return logistics.isOrderActive(orderId);
+    }
+
+    @Nullable
+    public therealpant.thaumicattempts.golemnet.logistics.OrderStatus getOrderStatus(@Nullable UUID orderId) {
+        return logistics.getOrderStatus(orderId);
+    }
+
+    @Nullable
+    public String getOrderLastError(@Nullable UUID orderId) {
+        return logistics.getOrderLastError(orderId);
+    }
+
+    public boolean hasActivePlannerContinuation(@Nullable UUID orderId) {
+        return logistics.hasActiveChildOrders(orderId);
     }
 
     public int executeTransferTask(ItemKey key, int amount, BlockPos source, BlockPos target) {

@@ -9,6 +9,7 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.text.TextComponentString;
 import net.minecraftforge.common.capabilities.Capability;
 
 import net.minecraftforge.items.CapabilityItemHandler;
@@ -21,6 +22,7 @@ import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
+import therealpant.thaumicattempts.golemnet.logistics.OrderStatus;
 import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
@@ -180,6 +182,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     private final LinkedHashMap<ItemKey, Integer> draftCraft      = new LinkedHashMap<>();
     private final LinkedHashMap<ItemKey, Integer> pendingDelivery = new LinkedHashMap<>();
     private final LinkedHashMap<ItemKey, Integer> pendingCraft    = new LinkedHashMap<>();
+    private final LinkedHashMap<UUID, PendingCraftOrder> pendingCraftOrders = new LinkedHashMap<>();
 
     private static final class TerminalOrderRequest {
         final BlockPos pos;
@@ -197,6 +200,16 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         InfusionOrderTarget(BlockPos pos, int slot) {
             this.pos = pos;
             this.slot = slot;
+        }
+    }
+
+    private static final class PendingCraftOrder {
+        final ItemKey key;
+        int remaining;
+
+        PendingCraftOrder(ItemKey key, int requestedAmount) {
+            this.key = key;
+            this.remaining = Math.max(0, requestedAmount);
         }
     }
 
@@ -459,7 +472,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 NetworkOrder.RequestIntent intent = craftTab
                         ? NetworkOrder.RequestIntent.CRAFT_ONLY
                         : NetworkOrder.RequestIntent.NORMAL;
-                mgr.submitOrder(key, amount, OrderSourceType.TERMINAL, this.pos, this.pos, intent);
+                UUID orderId = mgr.submitOrder(key, amount, OrderSourceType.TERMINAL, this.pos, this.pos, intent);
+                if (craftTab && orderId != null) {
+                    pendingCraftOrders.put(orderId, new PendingCraftOrder(key, amount));
+                }
             }
         }
 
@@ -534,6 +550,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 if (have > 0) {
                     int take = Math.min(have, left);
                     addToMap(pendingCraft, keyCr, -take);
+                    consumePendingCraftOrders(keyCr, take);
                     LOG.info("[OrderTerminal {}] pendingCraft decremented like={} take={} before={} after={}",
                             pos, like, take, have, Math.max(0, have - take));
                     left -= take;
@@ -582,8 +599,139 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
 
         ensurePendingWithManager(30);
+        reconcilePendingCraftOrdersWithManager();
 
         if ((tickCounter % 20) == 0) autoReconcilePendingByBuffer();
+    }
+
+    private void reconcilePendingCraftOrdersWithManager() {
+        if (pendingCraftOrders.isEmpty() || managerPos == null) return;
+
+        TileEntity te = world.getTileEntity(managerPos);
+        if (!(te instanceof TileMirrorManager)) return;
+        TileMirrorManager manager = (TileMirrorManager) te;
+
+        boolean pendingChanged = false;
+
+        Iterator<Map.Entry<UUID, PendingCraftOrder>> it = pendingCraftOrders.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, PendingCraftOrder> entry = it.next();
+            UUID orderId = entry.getKey();
+            PendingCraftOrder tracked = entry.getValue();
+            OrderStatus status = manager.getOrderStatus(orderId);
+
+            if (status == null) {
+                continue;
+            }
+
+            if (status == OrderStatus.DONE) {
+                it.remove();
+                continue;
+            }
+
+            if (status != OrderStatus.FAILED && status != OrderStatus.CANCELED) {
+                continue;
+            }
+
+            int havePending = Math.max(0, pendingCraft.getOrDefault(tracked.key, 0));
+            int unresolved = Math.min(havePending, Math.max(0, tracked.remaining));
+            if (unresolved > 0) {
+                addToMap(pendingCraft, tracked.key, -unresolved);
+                pendingChanged = true;
+            }
+
+            /*
+             * ВАЖНО:
+             * Для craft-only заказов, которые невозможно выполнить (например без planner или
+             * без сгенерированных planner suborders), терминал НЕ должен:
+             *  - слать сообщение в чат
+             *  - возвращать предмет обратно в draft/page
+             *
+             * Он должен просто тихо убрать запись из pending.
+             */
+            it.remove();
+        }
+
+        if (pendingChanged) {
+            markDirty();
+            sendSnapshotToViewers(true);
+        }
+    }
+
+    private void consumePendingCraftOrders(ItemKey deliveredKey, int amount) {
+        if (amount <= 0 || deliveredKey == null || deliveredKey == ItemKey.EMPTY || pendingCraftOrders.isEmpty()) return;
+        int left = amount;
+
+        Iterator<Map.Entry<UUID, PendingCraftOrder>> it = pendingCraftOrders.entrySet().iterator();
+        while (it.hasNext() && left > 0) {
+            PendingCraftOrder tracked = it.next().getValue();
+            if (tracked == null || tracked.key == null || tracked.key == ItemKey.EMPTY) continue;
+            if (!ResourceIdentity.sameResource(tracked.key.toStack(1), deliveredKey.toStack(1))) continue;
+
+            int take = Math.min(left, Math.max(0, tracked.remaining));
+            tracked.remaining = Math.max(0, tracked.remaining - take);
+            left -= take;
+
+            if (tracked.remaining <= 0) it.remove();
+        }
+    }
+
+    private boolean isCraftRequestPossible(ItemStack stack, int requestedAmount) {
+        if (stack == null || stack.isEmpty() || requestedAmount <= 0) {
+            return false;
+        }
+
+        ItemKey key = ItemKey.of(stack);
+        if (key == null || key == ItemKey.EMPTY) {
+            return false;
+        }
+
+        // Сначала обычная planner-aware проверка
+        if (canCraftThroughPlanner(key, requestedAmount)) {
+            return true;
+        }
+
+        /*
+         * Fallback:
+         * если planner по какой-то причине еще не ответил true, но менеджер уже видит
+         * этот результат в catalog craftables, считаем предмет крафтимым хотя бы в 1 цикл.
+         * Это не заменяет planner, а только не дает GUI преждевременно погасить кнопку.
+         */
+        if (world != null && managerPos != null) {
+            TileEntity te = world.getTileEntity(managerPos);
+            if (te instanceof TileMirrorManager) {
+                TileMirrorManager mgr = (TileMirrorManager) te;
+                List<ItemStack> craftables = mgr.getCraftablesCatalog();
+                if (craftables != null) {
+                    for (ItemStack out : craftables) {
+                        if (out == null || out.isEmpty()) continue;
+                        if (ResourceIdentity.sameResource(out, stack)) {
+                            return true;
+                        }
+                    }
+                }
+            }
+        }
+
+        return false;
+    }
+    private boolean canCraftThroughPlanner(ItemKey key, int amount) {
+        if (world == null || managerPos == null || key == null || key == ItemKey.EMPTY || amount <= 0) {
+            return false;
+        }
+
+        TileEntity te = world.getTileEntity(managerPos);
+        if (!(te instanceof TileMirrorManager)) {
+            return false;
+        }
+
+        TileMirrorManager manager = (TileMirrorManager) te;
+        TileSequentialCraftPlanner planner = manager.findBestSequentialPlanner();
+        if (planner == null) {
+            return false;
+        }
+
+        return planner.canPlanDemand(manager, key, amount);
     }
 
     @net.minecraftforge.fml.relauncher.SideOnly(net.minecraftforge.fml.relauncher.Side.CLIENT)
@@ -716,6 +864,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         nbt.setTag("draftC", writeMap(draftCraft));
         nbt.setTag("pendD",  writeMap(pendingDelivery));
         nbt.setTag("pendC",  writeMap(pendingCraft));
+        nbt.setTag("pendCraftOrders", writePendingCraftOrders());
 
         NBTTagList bl = new NBTTagList();
         for (Map.Entry<ItemKey, Integer> e : deliveryBaselines.entrySet()) {
@@ -740,6 +889,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         readMap(nbt.getTagList("draftC", 10), draftCraft);
         readMap(nbt.getTagList("pendD",  10), pendingDelivery);
         readMap(nbt.getTagList("pendC",  10), pendingCraft);
+        readPendingCraftOrders(nbt.getTagList("pendCraftOrders", 10));
 
         deliveryBaselines.clear();
         if (nbt.hasKey("deliveryBaselines")) {
@@ -780,6 +930,41 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             if (!st.isEmpty() && c > 0) out.put(ItemKey.of(st), c);
         }
         trimTo9(out);
+    }
+
+    private NBTTagList writePendingCraftOrders() {
+        NBTTagList list = new NBTTagList();
+        for (Map.Entry<UUID, PendingCraftOrder> e : pendingCraftOrders.entrySet()) {
+            PendingCraftOrder tracked = e.getValue();
+            if (tracked == null || tracked.key == null || tracked.key == ItemKey.EMPTY) continue;
+            NBTTagCompound t = new NBTTagCompound();
+            t.setString("id", e.getKey().toString());
+            t.setTag("k", tracked.key.toStack(1).serializeNBT());
+            t.setInteger("r", Math.max(0, tracked.remaining));
+            list.appendTag(t);
+        }
+        return list;
+    }
+
+    private void readPendingCraftOrders(NBTTagList list) {
+        pendingCraftOrders.clear();
+        if (list == null) return;
+
+        for (int i = 0; i < list.tagCount(); i++) {
+            NBTTagCompound t = list.getCompoundTagAt(i);
+            if (!t.hasKey("id")) continue;
+            UUID id;
+            try {
+                id = UUID.fromString(t.getString("id"));
+            } catch (IllegalArgumentException ex) {
+                continue;
+            }
+
+            ItemStack st = new ItemStack(t.getCompoundTag("k"));
+            if (st.isEmpty()) continue;
+            int remaining = Math.max(0, t.getInteger("r"));
+            pendingCraftOrders.put(id, new PendingCraftOrder(ItemKey.of(st), remaining));
+        }
     }
 
     public int tryInsertToBuffer(ItemStack stack) {
@@ -826,16 +1011,16 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         final String q = search.trim().toLowerCase(java.util.Locale.ROOT);
         final Aspect aspectQuery = parseAspectSearch(q);
 
-        // --- 1) Создать/зафиксировать snapshotId и ОБЯЗАТЕЛЬНО выслать его клиенту при создании
         final long sid;
         if (snapshotId < 0) {
             long mix = (world.getTotalWorldTime() << 1)
                     ^ this.pos.toLong()
                     ^ player.getUniqueID().getMostSignificantBits()
                     ^ (craftTab ? 0xCAFEBABEL : 0xDEADBEEFL);
-            long positive = mix & Long.MAX_VALUE; // снимем знак, GUI ждёт sid > 0
-            if (positive == 0L) positive = 1L;    // на всякий
+            long positive = mix & Long.MAX_VALUE;
+            if (positive == 0L) positive = 1L;
             sid = positive;
+
             therealpant.thaumicattempts.ThaumicAttempts.NET.sendTo(
                     new therealpant.thaumicattempts.golemnet.net.msg.S2C_SnapshotCreated(craftTab, sid),
                     player
@@ -844,12 +1029,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             sid = snapshotId;
         }
 
-        // --- 2) Достаём менеджер
         final int COLS = 5, ROWS = 7, PER_PAGE = COLS * ROWS;
         TileEntity teMgr = (managerPos == null) ? null : world.getTileEntity(managerPos);
         TileMirrorManager mgr = (teMgr instanceof TileMirrorManager) ? (TileMirrorManager) teMgr : null;
 
-        // Если менеджера нет — отправляем пустую страницу, но с валидным sid
         if (mgr == null) {
             therealpant.thaumicattempts.ThaumicAttempts.NET.sendTo(
                     new therealpant.thaumicattempts.golemnet.net.msg.S2C_CatalogPage(
@@ -867,7 +1050,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
 
         if (craftTab) {
-            // ===== CRAFT вкладка =====
             java.util.List<ItemStack> all = mgr.getCraftablesCatalog();
             if (all == null) all = java.util.Collections.emptyList();
 
@@ -886,34 +1068,55 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             int to   = Math.min(from + PER_PAGE, filtered.size());
 
             java.util.List<ItemStack> items35 = new java.util.ArrayList<ItemStack>(PER_PAGE);
-            java.util.List<Integer>   counts35 = new java.util.ArrayList<Integer>(PER_PAGE);
+            java.util.List<Integer> counts35 = new java.util.ArrayList<Integer>(PER_PAGE);
+            java.util.List<Integer> make35 = new java.util.ArrayList<Integer>(PER_PAGE);
+            java.util.List<Boolean> possible35 = new java.util.ArrayList<Boolean>(PER_PAGE);
+
             for (int i = from; i < to; i++) {
                 ItemStack s = filtered.get(i);
-                ItemStack icon = s.copy(); icon.setCount(1);
-                items35.add(icon);
-                counts35.add(perCraft.get(i));
-            }
-            while (items35.size() < PER_PAGE) { items35.add(ItemStack.EMPTY); counts35.add(0); }
+                int perCraftCount = perCraft.get(i);
 
-            therealpant.thaumicattempts.golemnet.net.msg.PageCraftCalc.CalcResult cr =
-                    therealpant.thaumicattempts.golemnet.net.msg.PageCraftCalc.computeMakeForPage(
-                            mgr, items35, mgr.getReachableCatalog()
-                    );
+                ItemStack icon = s.copy();
+                icon.setCount(1);
+
+                items35.add(icon);
+                counts35.add(perCraftCount);
+
+                /*
+                 * Старый PageCraftCalc не знает про planner-first sequential chain,
+                 * поэтому terminal не понимал, что предмет достижим через промежуточные крафты.
+                 *
+                 * Здесь possible считаем planner-aware.
+                 */
+                boolean possible = isCraftRequestPossible(s, perCraftCount);
+                possible35.add(possible);
+
+                /*
+                 * Для GUI makeCount оставляем минимально безопасным:
+                 * если крафт возможен — показываем хотя бы один крафт-цикл.
+                 * Если невозможен — 0.
+                 */
+                make35.add(possible ? perCraftCount : 0);
+            }
+
+            while (items35.size() < PER_PAGE) {
+                items35.add(ItemStack.EMPTY);
+                counts35.add(0);
+                make35.add(0);
+                possible35.add(false);
+            }
 
             boolean hasMore = (page + 1) < totalPages;
 
             therealpant.thaumicattempts.ThaumicAttempts.NET.sendTo(
                     new therealpant.thaumicattempts.golemnet.net.msg.S2C_CatalogPage(
                             true, sid, page + 1, totalPages, hasMore,
-                            items35, counts35,
-                            (cr.makeCounts != null ? cr.makeCounts : java.util.Collections.<Integer>emptyList()),
-                            (cr.possible   != null ? cr.possible   : java.util.Collections.<Boolean>emptyList())
+                            items35, counts35, make35, possible35
                     ),
                     player
             );
 
         } else {
-            // ===== DELIVERY вкладка =====
             java.util.LinkedHashMap<ItemKey,Integer> cat = mgr.getReachableCatalog();
             java.util.ArrayList<java.util.Map.Entry<ItemKey,Integer>> entries =
                     new java.util.ArrayList<java.util.Map.Entry<ItemKey,Integer>>(cat.entrySet());
@@ -940,7 +1143,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 items35.add(filtered.get(i).copy());
                 counts35.add(counts.get(i));
             }
-            while (items35.size() < PER_PAGE) { items35.add(ItemStack.EMPTY); counts35.add(0); }
+            while (items35.size() < PER_PAGE) {
+                items35.add(ItemStack.EMPTY);
+                counts35.add(0);
+            }
 
             boolean hasMore = (page + 1) < totalPages;
 
@@ -955,7 +1161,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             );
         }
 
-        // --- 3) Синхронизация черновиков/пэндинга (как было)
         sendDraftSnapshotTo(player, false);
         sendDraftSnapshotTo(player, true);
     }

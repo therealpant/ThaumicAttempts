@@ -133,6 +133,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                         if (!queued) {
                             task.status = TaskStatus.BLOCKED;
                             snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                            it.remove();
+                            inboundBaseline.remove(task.taskId);
                             continue;
                         }
 
@@ -179,6 +181,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                         if (!accepted) {
                             task.status = TaskStatus.BLOCKED;
                             snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                            it.remove();
+                            inboundBaseline.remove(task.taskId);
                             continue;
                         }
 
@@ -219,6 +223,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                     if (availableAtSource < remaining) {
                         task.status = TaskStatus.BLOCKED;
                         snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                        it.remove();
+                        inboundBaseline.remove(task.taskId);
                         continue;
                     }
                 }
@@ -234,6 +240,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 if (!accepted) {
                     task.status = TaskStatus.BLOCKED;
                     snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                    it.remove();
+                    inboundBaseline.remove(task.taskId);
                     continue;
                 }
 

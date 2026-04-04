@@ -43,6 +43,34 @@ public class LogisticsNetworkState {
         return status != null && status != OrderStatus.DONE && status != OrderStatus.FAILED && status != OrderStatus.CANCELED;
     }
 
+    @Nullable
+    public String getOrderLastError(@Nullable UUID orderId) {
+        if (orderId == null) return null;
+        NetworkOrder order = orders.get(orderId);
+        if (order == null) return null;
+        return order.lastError;
+    }
+
+    public boolean hasActiveChildOrders(@Nullable UUID orderId) {
+        if (orderId == null) return false;
+        NetworkOrder root = orders.get(orderId);
+        if (root == null || root.childOrderIds.isEmpty()) return false;
+
+        Set<UUID> visited = new HashSet<UUID>();
+        Deque<UUID> queue = new ArrayDeque<UUID>(root.childOrderIds);
+
+        while (!queue.isEmpty()) {
+            UUID id = queue.removeFirst();
+            if (id == null || !visited.add(id)) continue;
+            NetworkOrder child = orders.get(id);
+            if (child == null) continue;
+            if (isActiveOrder(child.status)) return true;
+            if (!child.childOrderIds.isEmpty()) queue.addAll(child.childOrderIds);
+        }
+
+        return false;
+    }
+
     public UUID submitOrder(TileMirrorManager manager,
                             ItemKey key,
                             int amount,
@@ -240,20 +268,46 @@ public class LogisticsNetworkState {
             int inputTotalReachable = Math.max(0, catalog.getOrDefault(inputKey, 0));
             int inputReserved = reservationBook.getReservedAmount(inputKey);
             int inputAvailable = Math.max(0, inputTotalReachable - inputReserved);
-
             int fromStockNow = Math.min(inputNeed, inputAvailable);
             int shortage = Math.max(0, inputNeed - fromStockNow);
 
+            /*
+             * Planner-driven orders не должны падать на missing_planned_input мгновенно.
+             * Для них нужно создать ожидание полного подвоза из stock manager'а:
+             * child planned order / внешний склад потом положит результат в сеть,
+             * а transfer будет переисполнен, когда ресурс появится.
+             */
+            boolean plannerDriven =
+                    order.debugReason != null
+                            && (order.debugReason.startsWith("planner-root")
+                            || order.debugReason.startsWith("planner-input-for-"));
+
             List<UUID> feedDeps = new ArrayList<UUID>();
 
-            if (fromStockNow > 0) {
+            int stagedAmount;
+            if (plannerDriven) {
+                /*
+                 * Для planner-driven order stagedAmount = полный inputNeed.
+                 * Даже если сейчас в stock есть только часть, задача должна ждать
+                 * появления остатка, а не фейлиться.
+                 */
+                stagedAmount = inputNeed;
+            } else {
+                /*
+                 * Старое поведение для не-planner order:
+                 * можно тащить только то, что уже реально есть.
+                 */
+                stagedAmount = fromStockNow;
+            }
+
+            if (stagedAmount > 0) {
                 TransferTask stageFromStock = createTransferTask(
                         manager,
                         order.orderId,
                         stockSource(manager),
                         managerBuffer,
                         inputKey,
-                        fromStockNow,
+                        stagedAmount,
                         null,
                         "deliver"
                 );
@@ -264,7 +318,7 @@ public class LogisticsNetworkState {
                 }
             }
 
-            if (shortage > 0) {
+            if (shortage > 0 && !plannerDriven) {
                 order.status = OrderStatus.FAILED;
                 order.lastError = "missing planned input " + inputKey;
                 LOG.warn("[Logistics {}] order failed={} key={} missingInput={} amount={} reason=missing_planned_input",
@@ -968,5 +1022,13 @@ public class LogisticsNetworkState {
         }
 
         return scaled;
+    }
+
+    @Nullable
+    public RecipeNode getRecipeNodeForPlanning(ItemKey key) {
+        if (key == null || key == ItemKey.EMPTY) return null;
+        List<RecipeNode> nodes = recipesByResult.get(key);
+        if (nodes == null || nodes.isEmpty()) return null;
+        return nodes.get(0);
     }
 }
