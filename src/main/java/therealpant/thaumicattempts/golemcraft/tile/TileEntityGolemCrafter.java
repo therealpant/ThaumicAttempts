@@ -562,12 +562,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return hasPatternRequesterAbove() && managerPos != null;
     }
 
-    private boolean hasMirrorManagerConnection() {
-        if (world == null || world.isRemote || managerPos == null) return false;
-        TileEntity te = world.getTileEntity(managerPos);
-        return te instanceof TileMirrorManager;
-    }
-
     private void syncManagerFromPattern() {
         if (world == null || world.isRemote) return;
 
@@ -741,7 +735,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             if (idx >= 0) {
                 ItemStack pat = patterns.getStackInSlot(idx);
                 int repeats = getPatternRepeatCount(pat);
-                boolean managerMode = hasMirrorManagerConnection();
+                boolean managerMode = (managerPos != null);
                 LOG.info("[Crafter {}] redstone edge detected signal={} selectedPatternIndex={} managerMode={} managerPos={}",
                         pos, signal, idx, managerMode, managerPos);
                 this.jobViaRequester = false;

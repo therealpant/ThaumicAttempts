@@ -340,9 +340,26 @@ public class LogisticsNetworkState {
         }
 
         if (firstMissingKey != null) {
+            order.updatedTick = manager.getServerTickCounter();
+
+            /*
+             * Для обычных CRAFT_ONLY запросов (terminal/redstone endpoint) заказ,
+             * который не может быть выполнен сразу, не должен «висеть» бесконечно
+             * в WAITING_INPUTS. Иначе источник заказа будет ждать вечно.
+             *
+             * WAITING_INPUTS оставляем только для planner-origin заказов, где
+             * недостающие входы действительно появятся после цепочки зависимостей.
+             */
+            if (order.sourceType != OrderSourceType.PLANNER) {
+                order.status = OrderStatus.FAILED;
+                order.lastError = "missing-input:" + firstMissingKey + ":" + firstMissingAmount;
+                LOG.info("[Logistics {}] creation failed-immediate order={} key={} missingInput={} amount={} sourceType={}",
+                        manager.getPos(), order.orderId, order.requestedKey, firstMissingKey, firstMissingAmount, order.sourceType);
+                return;
+            }
+
             order.status = OrderStatus.WAITING_INPUTS;
             order.lastError = "waiting-input:" + firstMissingKey + ":" + firstMissingAmount;
-            order.updatedTick = manager.getServerTickCounter();
 
             LOG.info("[Logistics {}] creation waiting-inputs order={} key={} missingInput={} amount={} reason=waiting_planner_inputs",
                     manager.getPos(), order.orderId, order.requestedKey, firstMissingKey, firstMissingAmount);
