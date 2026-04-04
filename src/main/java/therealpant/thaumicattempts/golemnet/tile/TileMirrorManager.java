@@ -40,13 +40,9 @@ import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
+import therealpant.thaumicattempts.golemnet.logistics.*;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.tile.TileSequentialCraftPlanner;
-import therealpant.thaumicattempts.golemnet.logistics.LogisticsNetworkState;
-import therealpant.thaumicattempts.golemnet.logistics.EndpointRef;
-import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
-import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
-import therealpant.thaumicattempts.golemnet.logistics.RecipeNode;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 
@@ -2378,6 +2374,37 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return submitOrder(key, amount, sourceType, sourcePos, returnDestination, NetworkOrder.RequestIntent.NORMAL);
     }
 
+
+    @Nullable
+    public UUID submitCreationOrder(ItemKey key,
+                                    int amount,
+                                    OrderSourceType sourceType,
+                                    BlockPos sourcePos,
+                                    @Nullable BlockPos returnDestination,
+                                    NetworkOrder.RequestIntent intent,
+                                    therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode outputMode) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+        logistics.refreshRecipeIndex(this);
+        UUID id = logistics.submitOrder(
+                this,
+                key,
+                amount,
+                sourceType,
+                sourcePos,
+                returnDestination,
+                null,
+                0,
+                "creation-submit",
+                intent,
+                NetworkOrder.OrderKind.CREATION,
+                outputMode
+        );
+        if (id != null) {
+            markDirty();
+        }
+        return id;
+    }
+
     public boolean canAcceptCraftRequest(ItemKey key, int amount) {
         if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return false;
         logistics.refreshRecipeIndex(this);
@@ -2387,7 +2414,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             return planner.canPlanDemand(this, key, amount);
         }
 
-        return isDirectCraftAvailable(key);
+        return logistics.canFulfillCraftNow(this, key, amount);
     }
 
     @Nullable
@@ -2412,35 +2439,85 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             return planned;
         }
 
-        if (!isDirectCraftAvailable(key)) {
+        if (!logistics.canFulfillCraftNow(this, key, amount)) {
             return null;
         }
 
-        UUID id = logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, null, 0, "craft-submit", intent);
+        return submitCreationOrderChecked(
+                key,
+                amount,
+                sourceType,
+                sourcePos,
+                returnDestination,
+                intent,
+                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.RETURN_TO_REQUESTER
+        );
+    }
+
+    public LogisticsNetworkState getLogisticsState() {
+        return logistics;
+    }
+
+    public boolean hasSequentialPlanner() {
+        TileSequentialCraftPlanner planner = getActiveSequentialPlanner();
+        return planner != null && planner.isActivePlanner();
+    }
+
+
+    public boolean canFulfillCraftNow(ItemKey key, int amount) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return false;
+        logistics.refreshRecipeIndex(this);
+        return logistics.canFulfillCraftNow(this, key, amount);
+    }
+
+    public boolean isCraftVisibleForTerminal(ItemKey key, int amount) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return false;
+        logistics.refreshRecipeIndex(this);
+        return logistics.isCraftVisibleForTerminal(this, key, amount, hasSequentialPlanner());
+    }
+
+    @Nullable
+    public UUID submitCreationOrderChecked(ItemKey key,
+                                           int amount,
+                                           OrderSourceType sourceType,
+                                           BlockPos sourcePos,
+                                           @Nullable BlockPos returnDestination,
+                                           NetworkOrder.RequestIntent intent,
+                                           therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode outputMode) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+        logistics.refreshRecipeIndex(this);
+        UUID id = logistics.submitCreationOrderChecked(
+                this,
+                key,
+                amount,
+                sourceType,
+                sourcePos,
+                returnDestination,
+                intent,
+                outputMode,
+                hasSequentialPlanner()
+        );
         if (id != null) {
             markDirty();
         }
         return id;
     }
 
+    @Nullable
+    public OrderStatus getOrderStatus(@Nullable UUID orderId) {
+        return logistics.getOrderStatus(orderId);
+    }
+
     public UUID submitOrder(ItemKey key, int amount, OrderSourceType sourceType, BlockPos sourcePos,
                             @Nullable BlockPos returnDestination, NetworkOrder.RequestIntent intent) {
         if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
         logistics.refreshRecipeIndex(this);
-        TileSequentialCraftPlanner planner = getActiveSequentialPlanner();
-        if (sourceType == OrderSourceType.TERMINAL && planner != null && planner.isActivePlanner()) {
-            UUID planned = planner.planAndSubmitRootDemand(this, key, amount, sourcePos, returnDestination, intent);
-            if (planned != null) {
-                markDirty();
-                return planned;
-            }
-            LOG.warn("[Manager {}] planner was active but failed to produce plan, fallback to direct submit key={} amount={}",
-                    pos, key, amount);
-        }
         UUID id = logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, null, 0, "root-submit", intent);
         markDirty();
         return id;
     }
+
+
 
     private boolean isDirectCraftAvailable(ItemKey key) {
         if (key == null || key == ItemKey.EMPTY) return false;
@@ -2552,11 +2629,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     public boolean isOrderActive(@Nullable UUID orderId) {
         return logistics.isOrderActive(orderId);
-    }
-
-    @Nullable
-    public therealpant.thaumicattempts.golemnet.logistics.OrderStatus getOrderStatus(@Nullable UUID orderId) {
-        return logistics.getOrderStatus(orderId);
     }
 
     @Nullable

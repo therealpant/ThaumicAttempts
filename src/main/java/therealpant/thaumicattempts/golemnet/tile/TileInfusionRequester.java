@@ -47,6 +47,7 @@ import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
 import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
+import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -1129,12 +1130,14 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (key == null || key == ItemKey.EMPTY) return false;
 
         int amount = Math.max(1, preview.getCount()) * Math.max(1, crafts);
-        UUID id = ((TileMirrorManager) te).submitOrder(
+        UUID id = ((TileMirrorManager) te).submitCreationOrder(
                 key,
                 amount,
                 therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_INFUSION,
                 this.pos,
-                this.pos
+                this.pos,
+                NetworkOrder.RequestIntent.CRAFT_ONLY,
+                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.LEAVE_IN_CRAFTER
         );
         return id != null;
     }

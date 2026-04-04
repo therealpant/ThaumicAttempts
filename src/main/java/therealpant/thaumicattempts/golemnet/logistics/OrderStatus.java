@@ -4,6 +4,7 @@ public enum OrderStatus {
     NEW,
     PLANNING,
     RUNNING,
+    WAITING_INPUTS,
     DONE,
     FAILED,
     CANCELED

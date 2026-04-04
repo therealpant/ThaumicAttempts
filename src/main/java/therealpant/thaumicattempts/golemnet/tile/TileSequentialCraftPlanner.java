@@ -7,25 +7,27 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.common.util.Constants;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
+import therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode;
 import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
 import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
+import therealpant.thaumicattempts.golemnet.logistics.OrderStatus;
 import therealpant.thaumicattempts.golemnet.logistics.RecipeNode;
 import therealpant.thaumicattempts.util.ItemKey;
 
-
 import javax.annotation.Nullable;
-import java.util.LinkedHashMap;
-import java.util.Locale;
-import java.util.Map;
-import java.util.UUID;
+import java.util.*;
 
 public class TileSequentialCraftPlanner extends TileEntity implements ITickable {
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/SequentialPlanner");
 
     public enum PlannerStatus {
         IDLE,
-        SCANNING,
-        PLANNING,
+        ANALYZING,
+        SUBMITTING_DEPENDENCY,
+        WAITING_DEPENDENCY,
+        SUBMITTING_FINAL,
+        WAITING_FINAL,
+        DONE,
         FAILED
     }
 
@@ -35,12 +37,32 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
     private static final int RECIPE_INDEX_REFRESH_TICKS = 100;
     private static final int MAX_PLAN_DEPTH = 8;
 
+    private static final class CraftChainNode {
+        final ItemKey key;
+        final int amount;
+        final BlockPos sourcePos;
+        @Nullable final BlockPos returnDestination;
+        final CreationOutputMode outputMode;
+        @Nullable UUID orderId;
+        PlannerStatus nodeStatus = PlannerStatus.IDLE;
+
+        private CraftChainNode(ItemKey key, int amount, BlockPos sourcePos, @Nullable BlockPos returnDestination, CreationOutputMode outputMode) {
+            this.key = key;
+            this.amount = Math.max(1, amount);
+            this.sourcePos = sourcePos == null ? BlockPos.ORIGIN : sourcePos.toImmutable();
+            this.returnDestination = returnDestination == null ? null : returnDestination.toImmutable();
+            this.outputMode = outputMode;
+        }
+    }
+
     @Nullable
     private BlockPos managerPos;
     private boolean active = false;
     private PlannerStatus status = PlannerStatus.IDLE;
 
     private int lastRecipeRefreshTick = -9999;
+    private final List<CraftChainNode> activeChain = new ArrayList<CraftChainNode>();
+    private int currentNode = -1;
 
     @Nullable
     public BlockPos getManagerPos() {
@@ -57,6 +79,8 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             this.managerPos = null;
             this.active = false;
             this.status = PlannerStatus.IDLE;
+            this.activeChain.clear();
+            this.currentNode = -1;
             markDirty();
         }
     }
@@ -81,20 +105,66 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
 
         final int now = manager.getServerTickCounter();
         if ((now - lastRecipeRefreshTick) >= RECIPE_INDEX_REFRESH_TICKS) {
-            status = PlannerStatus.SCANNING;
             manager.refreshRecipeIndexFromPlanner();
             lastRecipeRefreshTick = now;
-            LOG.debug("[Planner {}] refreshed logistics recipe index", pos);
         }
 
-        status = PlannerStatus.PLANNING;
-        if (!manager.isLogisticsHealthy()) {
-            status = PlannerStatus.FAILED;
-            LOG.warn("[Planner {}] logistics pipeline is not healthy", pos);
+        tickActiveChain(manager);
+        if (status == PlannerStatus.DONE) {
+            status = PlannerStatus.IDLE;
+        }
+    }
+
+    private void tickActiveChain(TileMirrorManager manager) {
+        if (activeChain.isEmpty() || currentNode < 0 || currentNode >= activeChain.size()) {
             return;
         }
 
-        status = PlannerStatus.IDLE;
+        CraftChainNode node = activeChain.get(currentNode);
+        if (node.orderId == null) {
+            status = node.outputMode == CreationOutputMode.RETURN_TO_REQUESTER ? PlannerStatus.SUBMITTING_FINAL : PlannerStatus.SUBMITTING_DEPENDENCY;
+            UUID id = manager.submitCreationOrder(
+                    node.key,
+                    node.amount,
+                    OrderSourceType.PLANNER,
+                    node.sourcePos,
+                    node.returnDestination,
+                    NetworkOrder.RequestIntent.CRAFT_ONLY,
+                    node.outputMode
+            );
+            if (id == null) {
+                status = PlannerStatus.FAILED;
+                return;
+            }
+            node.orderId = id;
+            node.nodeStatus = node.outputMode == CreationOutputMode.RETURN_TO_REQUESTER ? PlannerStatus.WAITING_FINAL : PlannerStatus.WAITING_DEPENDENCY;
+            status = node.nodeStatus;
+            markDirty();
+            return;
+        }
+
+        OrderStatus orderStatus = manager.getOrderStatus(node.orderId);
+        if (orderStatus == null) {
+            status = PlannerStatus.FAILED;
+            return;
+        }
+
+        if (orderStatus == OrderStatus.DONE) {
+            if (currentNode + 1 < activeChain.size()) {
+                currentNode++;
+                status = PlannerStatus.SUBMITTING_DEPENDENCY;
+            } else {
+                status = PlannerStatus.DONE;
+                activeChain.clear();
+                currentNode = -1;
+            }
+            markDirty();
+            return;
+        }
+
+        if (orderStatus == OrderStatus.FAILED || orderStatus == OrderStatus.CANCELED) {
+            status = PlannerStatus.FAILED;
+        }
     }
 
     @Nullable
@@ -114,125 +184,65 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         if (manager == null || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
 
         manager.refreshRecipeIndexFromPlanner();
+        status = PlannerStatus.ANALYZING;
 
         LinkedHashMap<ItemKey, Integer> workingStock =
                 new LinkedHashMap<ItemKey, Integer>(manager.getReachableCatalog());
 
         LinkedHashMap<ItemKey, Integer> steps = new LinkedHashMap<ItemKey, Integer>();
         if (!collectStandardCraftSteps(manager, workingStock, steps, key, amount, 0)) {
-            LOG.warn("[Planner {}] failed to plan demand key={} amount={} reason=unbuildable-chain",
-                    pos, key, amount);
+            status = PlannerStatus.FAILED;
             return null;
         }
 
-        int finalPlannedAmount = Math.max(0, steps.getOrDefault(key, 0));
+        int finalPlannedAmount = Math.max(1, steps.getOrDefault(key, amount));
         steps.remove(key);
 
-        if (steps.isEmpty() && finalPlannedAmount <= 0) {
-            return manager.submitOrder(
-                    key,
-                    amount,
-                    OrderSourceType.PLANNER,
-                    sourcePos,
-                    returnDestination,
-                    intent
-            );
-        }
-
-        int intermediateSteps = 0;
-
-        for (Map.Entry<ItemKey, Integer> e : steps.entrySet()) {
-            ItemKey stepKey = e.getKey();
-            int stepAmount = Math.max(1, e.getValue());
-
-            UUID id = manager.submitOrder(
-                    stepKey,
-                    stepAmount,
-                    OrderSourceType.PLANNER,
-                    sourcePos,
-                    manager.getPos(),
-                    NetworkOrder.RequestIntent.CRAFT_ONLY
-            );
-
-            if (id == null) {
-                LOG.warn("[Planner {}] failed to submit standard craft step key={} amount={}",
-                        pos, stepKey, stepAmount);
-                return null;
-            }
-
-            intermediateSteps++;
-        }
-
-        UUID finalOrder = manager.submitOrder(
+        UUID finalOrderId = manager.submitCreationOrder(
                 key,
-                Math.max(1, finalPlannedAmount > 0 ? finalPlannedAmount : amount),
+                finalPlannedAmount,
                 OrderSourceType.PLANNER,
                 sourcePos,
                 returnDestination,
-                intent
+                intent,
+                CreationOutputMode.RETURN_TO_REQUESTER
         );
-
-        if (finalOrder == null) {
-            LOG.warn("[Planner {}] failed to submit final standard craft step key={} amount={}",
-                    pos, key, amount);
+        if (finalOrderId == null) {
+            status = PlannerStatus.FAILED;
             return null;
         }
 
-        LOG.info("[Planner {}] standard craft-order chain submitted key={} amount={} intermediateSteps={} intermediates={} finalOrder={}",
-                pos, key, amount, intermediateSteps, steps, finalOrder);
-
-        return finalOrder;
-    }
-
-    private boolean enqueueStandardCraftOrders(PlannerSubmitContext ctx,
-                                               Map<ItemKey, Integer> workingStock,
-                                               ItemKey requested,
-                                               int amount,
-                                               int depth) {
-        if (depth > MAX_PLAN_DEPTH) {
-            ctx.failureReason = "max-depth";
-            return false;
-        }
-        if (requested == null || requested == ItemKey.EMPTY || amount <= 0) {
-            ctx.failureReason = "invalid-demand";
-            return false;
+        activeChain.clear();
+        currentNode = -1;
+        for (Map.Entry<ItemKey, Integer> e : steps.entrySet()) {
+            activeChain.add(new CraftChainNode(
+                    e.getKey(),
+                    e.getValue(),
+                    this.pos,
+                    null,
+                    CreationOutputMode.LEAVE_IN_CRAFTER
+            ));
         }
 
-        int remaining = consumeAvailable(workingStock, requested, amount);
-        if (remaining <= 0) {
-            return true;
+        CraftChainNode finalNode = new CraftChainNode(
+                key,
+                finalPlannedAmount,
+                sourcePos,
+                returnDestination,
+                CreationOutputMode.RETURN_TO_REQUESTER
+        );
+        finalNode.orderId = finalOrderId;
+        activeChain.add(finalNode);
+
+        if (activeChain.isEmpty()) {
+            status = PlannerStatus.FAILED;
+            return null;
         }
 
-        ctx.manager.refreshRecipeIndexFromPlanner();
+        currentNode = 0;
+        tickActiveChain(manager);
 
-        RecipeNode recipe = ctx.manager.getPlannerRecipe(requested);
-        if (recipe == null || recipe.source == null) {
-            ctx.failureReason = "no-recipe:" + requested;
-            return false;
-        }
-
-        int perCycle = Math.max(1, recipe.outputPerCycle);
-        int cycles = (remaining + perCycle - 1) / perCycle;
-        int producedAmount = cycles * perCycle;
-
-        /*
-         * Сначала deeper dependencies.
-         */
-        for (Map.Entry<ItemKey, Integer> input : recipe.inputs.entrySet()) {
-            ItemKey inputKey = input.getKey();
-            int inputNeed = Math.max(1, input.getValue() * cycles);
-
-            if (!enqueueStandardCraftOrders(ctx, workingStock, inputKey, inputNeed, depth + 1)) {
-                return false;
-            }
-        }
-
-        ctx.plannedOrderSequence.merge(requested, remaining, Integer::sum);
-
-        workingStock.merge(requested, producedAmount, Integer::sum);
-        consumeAvailable(workingStock, requested, remaining);
-
-        return true;
+        return finalOrderId;
     }
 
     private static int consumeAvailable(Map<ItemKey, Integer> stock, ItemKey key, int amount) {
@@ -242,33 +252,6 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             stock.put(key, have - consume);
         }
         return Math.max(0, amount - consume);
-    }
-
-    private static final class PlannerSubmitContext {
-        private final TileMirrorManager manager;
-        private final BlockPos sourcePos;
-        @Nullable
-        private final BlockPos returnDestination;
-        private final LinkedHashMap<ItemKey, Integer> plannedOrderSequence = new LinkedHashMap<ItemKey, Integer>();
-        private String failureReason = "";
-
-        private PlannerSubmitContext(TileMirrorManager manager, BlockPos sourcePos, @Nullable BlockPos returnDestination) {
-            this.manager = manager;
-            this.sourcePos = sourcePos == null ? BlockPos.ORIGIN : sourcePos.toImmutable();
-            this.returnDestination = returnDestination == null ? null : returnDestination.toImmutable();
-        }
-    }
-
-    private static final class PlannedCraftStep {
-        final ItemKey key;
-        final int amount;
-        final boolean finalStep;
-
-        private PlannedCraftStep(ItemKey key, int amount, boolean finalStep) {
-            this.key = key;
-            this.amount = amount;
-            this.finalStep = finalStep;
-        }
     }
 
     private boolean collectStandardCraftSteps(TileMirrorManager manager,
@@ -374,5 +357,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         } catch (IllegalArgumentException ignored) {
             status = PlannerStatus.IDLE;
         }
+        activeChain.clear();
+        currentNode = -1;
     }
 }

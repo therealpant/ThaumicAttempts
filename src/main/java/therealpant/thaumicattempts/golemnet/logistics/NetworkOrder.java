@@ -30,7 +30,14 @@ public class NetworkOrder {
     public String debugReason = "";
     public String lastError = "";
     public RequestIntent intent = RequestIntent.NORMAL;
+    public OrderKind orderKind = OrderKind.DELIVERY;
+    public CreationOutputMode creationOutputMode = CreationOutputMode.RETURN_TO_REQUESTER;
     public boolean recipePath = false;
+
+    public enum OrderKind {
+        DELIVERY,
+        CREATION
+    }
 
     public enum RequestIntent {
         NORMAL,
@@ -55,6 +62,8 @@ public class NetworkOrder {
         tag.setString("error", lastError == null ? "" : lastError);
         tag.setBoolean("recipePath", recipePath);
         tag.setString("intent", intent == null ? RequestIntent.NORMAL.name() : intent.name());
+        tag.setString("orderKind", orderKind == null ? OrderKind.DELIVERY.name() : orderKind.name());
+        tag.setString("creationOutputMode", creationOutputMode == null ? CreationOutputMode.RETURN_TO_REQUESTER.name() : creationOutputMode.name());
 
         NBTTagList children = new NBTTagList();
         for (UUID id : childOrderIds) {
@@ -110,6 +119,25 @@ public class NetworkOrder {
         }
 
         o.recipePath = tag.hasKey("recipePath", Constants.NBT.TAG_BYTE) && tag.getBoolean("recipePath");
+        if (tag.hasKey("orderKind", Constants.NBT.TAG_STRING)) {
+            try {
+                o.orderKind = OrderKind.valueOf(tag.getString("orderKind"));
+            } catch (Exception ignored) {
+                o.orderKind = OrderKind.DELIVERY;
+            }
+        } else {
+            o.orderKind = OrderKind.DELIVERY;
+        }
+
+        if (tag.hasKey("creationOutputMode", Constants.NBT.TAG_STRING)) {
+            try {
+                o.creationOutputMode = CreationOutputMode.valueOf(tag.getString("creationOutputMode"));
+            } catch (Exception ignored) {
+                o.creationOutputMode = CreationOutputMode.RETURN_TO_REQUESTER;
+            }
+        } else {
+            o.creationOutputMode = CreationOutputMode.RETURN_TO_REQUESTER;
+        }
 
         NBTTagList children = tag.getTagList("children", Constants.NBT.TAG_COMPOUND);
         for (int i = 0; i < children.tagCount(); i++)

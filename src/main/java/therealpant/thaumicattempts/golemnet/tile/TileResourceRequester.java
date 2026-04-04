@@ -27,6 +27,7 @@ import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
+import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
 import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import therealpant.thaumicattempts.util.ItemKey;
 import thaumcraft.api.aspects.Aspect;
@@ -467,7 +468,15 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         ItemKey key = ItemKey.of(preview);
         if (key == null || key == ItemKey.EMPTY) return false;
         int amount = Math.max(1, preview.getCount()) * Math.max(1, crafts);
-        UUID id = ((TileMirrorManager) te).submitOrder(key, amount, OrderSourceType.REDSTONE_REQUESTER, this.pos, this.pos);
+        UUID id = ((TileMirrorManager) te).submitCreationOrder(
+                key,
+                amount,
+                OrderSourceType.REDSTONE_REQUESTER,
+                this.pos,
+                this.pos,
+                NetworkOrder.RequestIntent.CRAFT_ONLY,
+                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.LEAVE_IN_CRAFTER
+        );
         return id != null;
     }
 

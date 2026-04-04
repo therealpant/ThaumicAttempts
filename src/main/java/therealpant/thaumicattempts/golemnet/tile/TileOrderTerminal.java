@@ -43,6 +43,9 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/OrderTerminal");
     private static final Map<String, String> ASPECT_ALIASES = buildAspectAliases();
 
+    private static final int CRAFT_REFRESH_TICKS = 20;
+    private long nextCraftRefreshTick = 0L;
+
     private static Map<String, String> buildAspectAliases() {
         Map<String, String> map = new HashMap<>();
 
@@ -129,6 +132,44 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
 
         return null;
+    }
+
+    private void tickCraftAvailabilityRefresh() {
+        if (world == null || world.isRemote) return;
+        if (managerPos == null) return;
+
+        long now = world.getTotalWorldTime();
+        if (now < nextCraftRefreshTick) return;
+        nextCraftRefreshTick = now + CRAFT_REFRESH_TICKS;
+
+        TileEntity te = world.getTileEntity(managerPos);
+        if (!(te instanceof TileMirrorManager)) return;
+        TileMirrorManager mgr = (TileMirrorManager) te;
+
+        boolean changed = false;
+
+        Iterator<Map.Entry<UUID, PendingCraftOrder>> it = pendingCraftOrders.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, PendingCraftOrder> e = it.next();
+            UUID orderId = e.getKey();
+
+            OrderStatus st = mgr.getOrderStatus(orderId);
+            if (st == null || st == OrderStatus.FAILED || st == OrderStatus.CANCELED || st == OrderStatus.DONE) {
+                it.remove();
+                changed = true;
+            }
+        }
+
+        if (pendingCraftOrders.isEmpty() && !pendingCraft.isEmpty()) {
+            pendingCraft.clear();
+            changed = true;
+        }
+
+        if (changed) {
+            markDirty();
+            sendSnapshotToViewers(true);
+            world.notifyBlockUpdate(pos, world.getBlockState(pos), world.getBlockState(pos), 3);
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -608,6 +649,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     public void update() {
         if (world == null) return;
 
+        if (!world.isRemote) {
+            tickCraftAvailabilityRefresh();
+        }
+
         if (world.isRemote) { clientTickBookAnimation(); return; }
 
         tickCounter++;
@@ -695,26 +740,17 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
     }
 
-    private boolean isCraftRequestPossible(ItemStack stack, int requestedAmount) {
-        if (stack == null || stack.isEmpty() || requestedAmount <= 0) {
-            return false;
-        }
-        if (world == null || managerPos == null) {
-            return false;
-        }
+    private boolean isCraftRequestPossible(ItemStack stack, int amount) {
+        if (stack == null || stack.isEmpty() || managerPos == null || world == null) return false;
 
         TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) {
-            return false;
-        }
+        if (!(te instanceof TileMirrorManager)) return false;
 
         TileMirrorManager mgr = (TileMirrorManager) te;
         ItemKey key = ItemKey.of(stack);
-        if (key == null || key == ItemKey.EMPTY) {
-            return false;
-        }
+        if (key == null || key == ItemKey.EMPTY) return false;
 
-        return mgr.canAcceptCraftRequest(key, requestedAmount);
+        return mgr.isCraftVisibleForTerminal(key, Math.max(1, amount));
     }
 
     @net.minecraftforge.fml.relauncher.SideOnly(net.minecraftforge.fml.relauncher.Side.CLIENT)
@@ -1156,13 +1192,18 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     private UUID submitCraftRequest(TileMirrorManager mgr, ItemKey key, int amount) {
         if (mgr == null || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
 
-        return mgr.submitCraftRequest(
+        if (!mgr.canAcceptCraftRequest(key, amount)) {
+            return null;
+        }
+
+        return mgr.submitCreationOrderChecked(
                 key,
                 amount,
                 OrderSourceType.TERMINAL,
                 this.pos,
                 this.pos,
-                NetworkOrder.RequestIntent.CRAFT_ONLY
+                NetworkOrder.RequestIntent.CRAFT_ONLY,
+                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.RETURN_TO_REQUESTER
         );
     }
 
