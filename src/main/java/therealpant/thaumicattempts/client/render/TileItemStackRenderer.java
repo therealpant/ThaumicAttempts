@@ -27,8 +27,11 @@ public class TileItemStackRenderer<T extends TileEntity> extends TileEntityItemS
 
     @Override
     public void renderByItem(ItemStack itemStackIn, float partialTicks) {
-        tile.setWorld(null);
-        tile.setPos(BlockPos.ORIGIN);
-        TileEntityRendererDispatcher.instance.render(tile, 0.0D, 0.0D, 0.0D, partialTicks);
+        World world = Minecraft.getMinecraft().world;
+        if (world != null) {
+            tile.setWorld(world);
+        }
+
+        TileEntityRendererDispatcher.instance.render(tile, 0d, 0d, 0d, partialTicks);
     }
 }

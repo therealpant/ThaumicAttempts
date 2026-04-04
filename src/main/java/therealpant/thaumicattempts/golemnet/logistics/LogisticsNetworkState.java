@@ -785,15 +785,30 @@ public class LogisticsNetworkState {
 
             boolean accepted = false;
             if (task instanceof TransferTask) {
-                accepted = managerExecutor.canAccept((TransferTask) task) && managerExecutor.submit((TransferTask) task);
+                TransferTask tt = (TransferTask) task;
+
+                /*
+                 * КРИТИЧЕСКИЙ ФИКС:
+                 * если executor уже ведёт эту задачу, не надо повторно её dispatch'ить.
+                 * Иначе один и тот же taskId многократно submit'ится каждый тик.
+                 */
+                if (managerExecutor.isRunning(tt.taskId)) {
+                    task.status = TaskStatus.DISPATCHED;
+                    task.updatedTick = manager.getServerTickCounter();
+                    continue;
+                }
+
+                accepted = managerExecutor.canAccept(tt) && managerExecutor.submit(tt);
             } else if (task instanceof CraftTask) {
                 accepted = crafterExecutor.canAccept((CraftTask) task) && crafterExecutor.submit((CraftTask) task);
             }
-
             if (accepted) {
                 task.status = TaskStatus.DISPATCHED;
                 task.updatedTick = manager.getServerTickCounter();
-                LOG.info("[Logistics {}] task dispatched id={} type={}", manager.getPos(), task.taskId, task.getTaskType());
+                LOG.info("[Logistics {}] task dispatched id={} type={}",
+                        manager.getPos(),
+                        task.taskId,
+                        (task instanceof TransferTask ? "TRANSFER" : "CRAFT"));
             }
         }
 

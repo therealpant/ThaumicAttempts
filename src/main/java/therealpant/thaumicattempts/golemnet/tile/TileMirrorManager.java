@@ -2680,13 +2680,51 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     public int executeTransferTask(ItemKey key, int amount, BlockPos source, BlockPos target) {
-        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0 || source == null || target == null) return 0;
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0 || source == null || target == null) {
+            return 0;
+        }
+
         ItemStack like = key.toStack(1);
+
+        /*
+         * Спец-случай:
+         * задача "склад -> буфер менеджера".
+         * Здесь нельзя ограничиваться одной попыткой pullLikeFromProvideSetToBuffer(),
+         * иначе при переноске меньше amount задача зависает.
+         *
+         * Мы:
+         * 1) смотрим, что уже есть в буфере;
+         * 2) мгновенно добираем локально, что можно;
+         * 3) недостачу отправляем в batch-очередь exact-delivery на сам буфер менеджера.
+         */
+        if (source.equals(this.pos) && target.equals(this.pos)) {
+            int bufferedNow = countInManagerBufferLike(like);
+            if (bufferedNow >= amount) {
+                return amount;
+            }
+
+            int need = amount - bufferedNow;
+            int pulledNow = pullLikeFromProvideSetToBuffer(like, need);
+
+            int bufferedAfterPull = countInManagerBufferLike(like);
+            int stillNeed = Math.max(0, amount - bufferedAfterPull);
+
+            if (stillNeed > 0) {
+                LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
+                needs.put(key, stillNeed);
+                ensureDeliveryForExact(this.pos, needs, 0);
+            }
+
+            int queued = countQueuedFor(this.pos, like);
+            return Math.min(amount, bufferedAfterPull + queued);
+        }
+
         if (!source.equals(this.pos)) {
             harvestLikeToBufferFromHandler(source, -1, like, amount);
         } else {
             pullLikeFromProvideSetToBuffer(like, amount);
         }
+
         return pushFromBufferTo(target, -1, like, amount);
     }
 
@@ -2763,13 +2801,71 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         BlockPos dst = resolveEndpointPos(target);
         ItemStack like = key.toStack(1);
 
-        // КРИТИЧЕСКИЙ ФИКС:
-        // если источник = буфер менеджера, не тянем ничего из складов повторно
+        /*
+         * 1) Буфер менеджера -> конечная цель
+         * Ничего повторно со складов не подтягиваем.
+         */
         if (source.mode == EndpointRef.AccessMode.BUFFER && src.equals(this.pos)) {
             int movedNow = pushFromBufferTo(dst, -1, like, amount);
-            return movedNow > 0 || countQueuedFor(dst, like) > 0;
+            int queued = countQueuedFor(dst, like);
+            return movedNow > 0 || queued > 0;
         }
 
+        /*
+         * 2) Любой сценарий "... -> буфер менеджера"
+         * Это главный фикс.
+         *
+         * Нужно не "один раз попробовать", а гарантированно:
+         * - учесть, что уже лежит в буфере;
+         * - локально подтянуть, что можно сразу;
+         * - остаток поставить в exact-delivery именно на ПОЗИЦИЮ менеджера.
+         */
+        if (target.mode == EndpointRef.AccessMode.BUFFER && dst.equals(this.pos)) {
+            int bufferedNow = countInManagerBufferLike(like);
+            if (bufferedNow >= amount) {
+                return true;
+            }
+
+            int needBeforePull = amount - bufferedNow;
+            int pulled = 0;
+
+            if (!src.equals(this.pos)) {
+                if (source.mode == EndpointRef.AccessMode.OUTPUT && world.getTileEntity(src) instanceof TileEntityGolemCrafter) {
+                    pulled = harvestLikeToBufferFromOutputCrafter((TileEntityGolemCrafter) world.getTileEntity(src), like, needBeforePull);
+                } else {
+                    pulled = harvestLikeToBufferFromHandler(src, -1, like, needBeforePull);
+                }
+            } else {
+                /*
+                 * source == manager direct:
+                 * это случай "взять со складов/провайдеров в буфер менеджера".
+                 */
+                pulled = pullLikeFromProvideSetToBuffer(like, needBeforePull);
+            }
+
+            int bufferedAfterPull = countInManagerBufferLike(like);
+            int queuedToManager = countQueuedFor(this.pos, like);
+            int covered = bufferedAfterPull + queuedToManager;
+            int stillNeed = Math.max(0, amount - covered);
+
+            if (stillNeed > 0) {
+                LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
+                needs.put(key, stillNeed);
+
+                /*
+                 * Кладём недостачу не в dst как в обычной доставке,
+                 * а именно в delivery-очередь менеджера.
+                 */
+                ensureDeliveryForExact(this.pos, needs, queueId);
+            }
+
+            int coveredAfterQueue = countInManagerBufferLike(like) + countQueuedFor(this.pos, like);
+            return pulled > 0 || coveredAfterQueue >= amount || countQueuedFor(this.pos, like) > 0;
+        }
+
+        /*
+         * 3) Обычная доставка "... -> конечная цель"
+         */
         int pulled = 0;
         if (!src.equals(this.pos)) {
             if (source.mode == EndpointRef.AccessMode.OUTPUT && world.getTileEntity(src) instanceof TileEntityGolemCrafter) {
@@ -2814,6 +2910,30 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             ItemStack s = h.getStackInSlot(i);
             if (s.isEmpty()) continue;
             if (matchesForDelivery(s, like)) total += s.getCount();
+        }
+        return total;
+    }
+
+    private int countInManagerBufferLike(ItemStack like) {
+        if (like == null || like.isEmpty()) return 0;
+
+        int total = 0;
+        for (int i = 0; i < buffer.getSlots(); i++) {
+            ItemStack s = buffer.getStackInSlot(i);
+            if (s.isEmpty()) continue;
+
+            boolean match;
+            if (like.getMaxStackSize() == 1) {
+                match = matchesForDelivery(s, like);
+            } else if (isCrystal(like) || isCrystal(s)) {
+                match = isCrystal(like) && isCrystal(s) && crystalSame(s, like);
+            } else {
+                match = ResourceIdentity.sameResource(s, like);
+            }
+
+            if (match) {
+                total += s.getCount();
+            }
         }
         return total;
     }
