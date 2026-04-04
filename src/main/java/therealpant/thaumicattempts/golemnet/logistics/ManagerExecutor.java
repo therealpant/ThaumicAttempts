@@ -131,11 +131,10 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                     int inboundStillNeed = (int) Math.max(0L, task.amount - inboundCovered);
 
                     /*
-                     * КЛЮЧЕВОЙ ФИКС:
-                     * inbound-dispatch только один раз для текущего running task.
-                     * Потом просто ждём, пока буфер реально покроет amount.
+                     * Повторяем inbound-dispatch до полного покрытия amount.
+                     * Дополнительное дублирование защищено проверкой queuedToBuffer выше.
                      */
-                    if (inboundStillNeed > 0 && !task.inboundQueued) {
+                    if (inboundStillNeed > 0) {
                         int queueId = ensureQueueId(task);
                         boolean queued = manager.dispatchInboundToManagerByGolems(
                                 task.source,
@@ -194,10 +193,10 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                     int outboundStillNeed = (int) Math.max(0L, task.amount - coveredAtTarget);
 
                     /*
-                     * КЛЮЧЕВОЙ ФИКС:
-                     * outbound-dispatch тоже только один раз.
+                     * Повторяем outbound-dispatch до полного покрытия amount.
+                     * Дополнительное дублирование защищено проверкой queuedToTarget выше.
                      */
-                    if (outboundStillNeed > 0 && !task.outboundQueued) {
+                    if (outboundStillNeed > 0) {
                         int queueId = ensureQueueId(task);
                         boolean accepted = manager.dispatchTransferTask(
                                 EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
@@ -247,8 +246,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
              * ===== Обычные transfer-задачи =====
              * craft-input / pickup-output / deliver-output
              *
-             * dispatchTransferTask(...) вызываем только ОДИН раз.
-             * Потом ждём фактического изменения target по baseline.
+             * dispatchTransferTask(...) повторяется до полного покрытия amount.
+             * Это нужно для задач, где доставка приходит частями.
              */
             task.completedAmount = calculateDeliveredToTarget(task);
 
@@ -256,20 +255,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             int coveredAtTarget = (int) Math.min(task.amount, task.completedAmount + queuedToTarget);
             int stillNeed = (int) Math.max(0L, task.amount - coveredAtTarget);
 
-            if (stillNeed > 0 && !task.dispatchQueued) {
-                if (requiresFullSourceBeforeDispatch(task)) {
-                    int availableAtSource = manager.countItemAtEndpoint(task.source, task.itemKey);
-                    if (availableAtSource < stillNeed) {
-                        task.status = TaskStatus.BLOCKED;
-                        LOG.info("[ManagerExecutor {}] task={} status=BLOCKED reason=source-underflow amount={} completed={} buffered={} queued={} remaining={}",
-                                manager.getPos(), task.taskId, task.amount, task.completedAmount, 0, queuedToTarget, Math.max(0L, task.amount - task.completedAmount));
-                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                        it.remove();
-                        inboundBaseline.remove(task.taskId);
-                        continue;
-                    }
-                }
-
+            if (stillNeed > 0) {
                 int queueId = ensureQueueId(task);
                 boolean accepted = manager.dispatchTransferTask(
                         task.source,
@@ -342,13 +328,14 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     private long calculateDeliveredToTarget(TransferTask task) {
         int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
         int movedToTarget = Math.max(0, nowAtTarget - task.targetBaseline);
-        return Math.min(task.amount, movedToTarget);
-    }
+        long observed = movedToTarget;
 
-    private static boolean requiresFullSourceBeforeDispatch(TransferTask task) {
-        if (task == null || task.metaPurpose == null) return false;
-        return "craft-input".equals(task.metaPurpose)
-                || "pickup-output".equals(task.metaPurpose)
-                || "deliver-output".equals(task.metaPurpose);
+        if (!"deliver".equals(task.metaPurpose)) {
+            int nowAtSource = manager.countItemAtEndpoint(task.source, task.itemKey);
+            int movedFromSource = Math.max(0, task.sourceBaseline - nowAtSource);
+            observed = Math.max(observed, movedFromSource);
+        }
+        observed = Math.max(observed, task.completedAmount);
+        return Math.min(task.amount, observed);
     }
 }
