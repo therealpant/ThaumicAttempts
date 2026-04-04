@@ -340,19 +340,6 @@ public class LogisticsNetworkState {
         }
 
         if (firstMissingKey != null) {
-            boolean plannerPresent = manager.hasSequentialPlanner();
-            boolean plannerDriven = order.sourceType == OrderSourceType.PLANNER;
-
-            if (!plannerPresent && !plannerDriven) {
-                order.status = OrderStatus.FAILED;
-                order.lastError = "craft-unavailable-without-planner";
-                order.updatedTick = manager.getServerTickCounter();
-
-                LOG.warn("[Logistics {}] creation failed order={} key={} missingInput={} amount={} reason=no_planner_direct_craft_unavailable source={} intent={}",
-                        manager.getPos(), order.orderId, order.requestedKey, firstMissingKey, firstMissingAmount, order.sourceType, order.intent);
-                return;
-            }
-
             order.status = OrderStatus.WAITING_INPUTS;
             order.lastError = "waiting-input:" + firstMissingKey + ":" + firstMissingAmount;
             order.updatedTick = manager.getServerTickCounter();
@@ -1142,95 +1129,6 @@ public class LogisticsNetworkState {
         }
 
         return scaled;
-    }
-
-    public boolean canFulfillCraftNow(TileMirrorManager manager, ItemKey resultKey, int amount) {
-        if (manager == null || resultKey == null || resultKey == ItemKey.EMPTY || amount <= 0) {
-            return false;
-        }
-
-        RecipeNode recipe = pickRecipe(resultKey);
-        if (recipe == null || recipe.source == null) {
-            return false;
-        }
-
-        LinkedHashMap<ItemKey, Integer> catalog = manager.getReachableCatalog();
-
-        int perCycle = Math.max(1, recipe.outputPerCycle);
-        int cycles = (Math.max(1, amount) + perCycle - 1) / perCycle;
-        LinkedHashMap<ItemKey, Integer> scaledInputs = scaleRecipeInputs(recipe.inputs, cycles);
-
-        for (Map.Entry<ItemKey, Integer> e : scaledInputs.entrySet()) {
-            ItemKey inputKey = e.getKey();
-            if (inputKey == null || inputKey == ItemKey.EMPTY) return false;
-            int need = Math.max(1, e.getValue());
-            if (!isEnoughInStock(catalog, inputKey, need)) {
-                return false;
-            }
-        }
-
-        return true;
-    }
-
-    public boolean isCraftVisibleForTerminal(TileMirrorManager manager, ItemKey resultKey, int amount, boolean plannerPresent) {
-        if (plannerPresent) {
-            return getRecipeNodeForPlanning(resultKey) != null;
-        }
-        return canFulfillCraftNow(manager, resultKey, amount);
-    }
-
-    public UUID submitCreationOrderChecked(TileMirrorManager manager,
-                                           ItemKey key,
-                                           int amount,
-                                           OrderSourceType sourceType,
-                                           BlockPos sourcePos,
-                                           @Nullable BlockPos returnDestination,
-                                           NetworkOrder.RequestIntent intent,
-                                           CreationOutputMode outputMode,
-                                           boolean plannerPresent) {
-        if (key == null || key == ItemKey.EMPTY || amount <= 0) return null;
-
-        if (!plannerPresent && !canFulfillCraftNow(manager, key, amount)) {
-            NetworkOrder order = new NetworkOrder();
-            order.orderId = UUID.randomUUID();
-            order.parentOrderId = null;
-            order.sourceType = sourceType;
-            order.sourcePos = sourcePos.toImmutable();
-            order.returnDestination = returnDestination == null ? null : returnDestination.toImmutable();
-            order.requestedKey = key;
-            order.requestedAmount = Math.max(1, amount);
-            order.completedAmount = 0;
-            order.status = OrderStatus.FAILED;
-            order.createdTick = manager.getServerTickCounter();
-            order.updatedTick = order.createdTick;
-            order.debugReason = "rejected-no-planner";
-            order.intent = intent == null ? NetworkOrder.RequestIntent.NORMAL : intent;
-            order.orderKind = NetworkOrder.OrderKind.CREATION;
-            order.creationOutputMode = outputMode == null ? CreationOutputMode.RETURN_TO_REQUESTER : outputMode;
-            order.lastError = "craft-unavailable-without-planner";
-
-            orders.put(order.orderId, order);
-
-            LOG.warn("[Logistics {}] creation rejected order={} source={} key={} amount={} reason=no_planner_direct_craft_unavailable",
-                    manager.getPos(), order.orderId, sourceType, key, amount);
-
-            return order.orderId;
-        }
-
-        return submitOrder(
-                manager,
-                key,
-                amount,
-                sourceType,
-                sourcePos,
-                returnDestination,
-                null,
-                0,
-                "root-submit",
-                intent,
-                NetworkOrder.OrderKind.CREATION,
-                outputMode
-        );
     }
 
     @Nullable

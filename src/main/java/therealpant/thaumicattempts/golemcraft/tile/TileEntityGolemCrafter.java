@@ -31,7 +31,6 @@ import therealpant.thaumicattempts.api.IPatternedWorksite;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.PatternResourceList;
-import therealpant.thaumicattempts.golemnet.logistics.OrderStatus;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
@@ -642,9 +641,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                     pos, managerPos, te == null ? "null" : te.getClass().getName(), idx, repeats);
             return false;
         }
-
         TileMirrorManager manager = (TileMirrorManager) te;
-
         if (managerRedstoneOrderId != null && manager.isOrderActive(managerRedstoneOrderId)) {
             LOG.info("[Crafter {}] redstone root-order already active managerPos={} orderId={} patternIndex={} repeats={}",
                     pos, managerPos, managerRedstoneOrderId, idx, repeats);
@@ -652,19 +649,12 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
         managerRedstoneOrderId = null;
 
-        if (idx < 0 || idx >= PATTERN_SLOTS) {
-            LOG.info("[Crafter {}] redstone root-order rejected: invalid pattern index={} managerPos={}",
-                    pos, idx, managerPos);
-            return false;
-        }
-
         ItemStack pat = patterns.getStackInSlot(idx);
         if (pat.isEmpty()) {
             LOG.info("[Crafter {}] redstone root-order rejected: empty pattern slot index={} managerPos={}",
                     pos, idx, managerPos);
             return false;
         }
-
         NonNullList<ItemStack> grid = getGrid(pat);
         ItemStack preview = getCraftPreview(pat, grid);
         if (preview.isEmpty()) {
@@ -672,7 +662,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                     pos, idx, managerPos);
             return false;
         }
-
         ItemKey key = ItemKey.of(preview);
         if (key == null || key == ItemKey.EMPTY) {
             LOG.info("[Crafter {}] redstone root-order rejected: invalid key index={} managerPos={}",
@@ -680,42 +669,29 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             return false;
         }
 
-        int perCraft = Math.max(1, preview.getCount());
-        int totalAmount = perCraft * Math.max(1, repeats);
-
-        if (!manager.canAcceptCraftRequest(key, totalAmount)) {
+        int amount = Math.max(1, preview.getCount()) * Math.max(1, repeats);
+        if (!manager.canAcceptCraftRequest(key, amount)) {
             LOG.info("[Crafter {}] redstone root-order rejected: craft request cannot be accepted managerPos={} key={} amount={} patternIndex={} repeats={}",
-                    pos, managerPos, key, totalAmount, idx, repeats);
+                    pos, managerPos, key, amount, idx, repeats);
             return false;
         }
 
-        UUID id = manager.submitCreationOrderChecked(
+        UUID id = manager.submitCraftRequest(
                 key,
-                totalAmount,
+                amount,
                 OrderSourceType.REDSTONE_CRAFTER,
                 this.pos,
-                this.pos,
-                therealpant.thaumicattempts.golemnet.logistics.NetworkOrder.RequestIntent.CRAFT_ONLY,
-                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.LEAVE_IN_CRAFTER
+                null,
+                therealpant.thaumicattempts.golemnet.logistics.NetworkOrder.RequestIntent.CRAFT_ONLY
         );
-
         if (id != null) {
-            OrderStatus st = manager.getOrderStatus(id);
-            if (st == OrderStatus.FAILED || st == OrderStatus.CANCELED) {
-                managerRedstoneOrderId = null;
-                LOG.info("[Crafter {}] redstone root-order rejected immediately managerPos={} orderId={} key={} amount={} patternIndex={} repeats={} status={}",
-                        pos, managerPos, id, key, totalAmount, idx, repeats, st);
-                return false;
-            }
-
             managerRedstoneOrderId = id;
-            LOG.info("[Crafter {}] redstone root-order submit success managerPos={} orderId={} key={} amount={} patternIndex={} repeats={} outputMode=LEAVE_IN_CRAFTER",
-                    pos, managerPos, id, key, totalAmount, idx, repeats);
-            return true;
+            LOG.info("[Crafter {}] redstone root-order submit success managerPos={} orderId={} key={} amount={} patternIndex={} repeats={}",
+                    pos, managerPos, id, key, amount, idx, repeats);
+            return true;// попробуем позже
         }
-
         LOG.info("[Crafter {}] redstone root-order submit failed managerPos={} key={} amount={} patternIndex={} repeats={}",
-                pos, managerPos, key, totalAmount, idx, repeats);
+                pos, managerPos, key, amount, idx, repeats);
         return false;
     }
 
@@ -1107,7 +1083,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         // последовательность пересоберём при первом тике работы
         seq.clear();
     }
-
     @Override public NBTTagCompound getUpdateTag() { return writeToNBT(new NBTTagCompound()); }
     @Override public SPacketUpdateTileEntity getUpdatePacket() { return new SPacketUpdateTileEntity(getPos(), 0, getUpdateTag()); }
     @Override public void onDataPacket(NetworkManager net, SPacketUpdateTileEntity pkt) { readFromNBT(pkt.getNbtCompound()); }
