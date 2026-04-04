@@ -2436,7 +2436,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             if (!planner.canPlanDemand(this, key, amount)) {
                 return null;
             }
-            UUID planned = planner.planAndSubmitRootDemand(this, key, amount, sourcePos, returnDestination, intent);
+            UUID planned = planner.planAndSubmitRootDemand(
+                    this,
+                    key,
+                    amount,
+                    sourceType,
+                    sourcePos,
+                    returnDestination,
+                    intent
+            );
             if (planned != null) {
                 markDirty();
             }
@@ -2446,6 +2454,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (!isDirectCraftAvailable(key)) {
             return null;
         }
+
+        therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode outputMode =
+                (sourceType == OrderSourceType.REDSTONE_CRAFTER)
+                        ? therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.LEAVE_IN_CRAFTER
+                        : therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.RETURN_TO_REQUESTER;
+
         return submitCreationOrder(
                 key,
                 amount,
@@ -2453,7 +2467,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 sourcePos,
                 returnDestination,
                 intent,
-                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.RETURN_TO_REQUESTER
+                outputMode
         );
     }
 

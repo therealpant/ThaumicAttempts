@@ -178,6 +178,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
     public UUID planAndSubmitRootDemand(TileMirrorManager manager,
                                         ItemKey key,
                                         int amount,
+                                        @Nullable OrderSourceType sourceType,
                                         BlockPos sourcePos,
                                         @Nullable BlockPos returnDestination,
                                         NetworkOrder.RequestIntent intent) {
@@ -198,6 +199,8 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         int finalPlannedAmount = Math.max(1, steps.getOrDefault(key, amount));
         steps.remove(key);
 
+        CreationOutputMode rootOutputMode = resolveRootOutputMode(sourceType);
+
         UUID finalOrderId = manager.submitCreationOrder(
                 key,
                 finalPlannedAmount,
@@ -205,7 +208,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
                 sourcePos,
                 returnDestination,
                 intent,
-                CreationOutputMode.RETURN_TO_REQUESTER
+                rootOutputMode
         );
         if (finalOrderId == null) {
             status = PlannerStatus.FAILED;
@@ -214,6 +217,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
 
         activeChain.clear();
         currentNode = -1;
+
         for (Map.Entry<ItemKey, Integer> e : steps.entrySet()) {
             activeChain.add(new CraftChainNode(
                     e.getKey(),
@@ -229,7 +233,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
                 finalPlannedAmount,
                 sourcePos,
                 returnDestination,
-                CreationOutputMode.RETURN_TO_REQUESTER
+                rootOutputMode
         );
         finalNode.orderId = finalOrderId;
         activeChain.add(finalNode);
@@ -243,6 +247,12 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         tickActiveChain(manager);
 
         return finalOrderId;
+    }
+
+    private CreationOutputMode resolveRootOutputMode(@Nullable OrderSourceType sourceType) {
+        return sourceType == OrderSourceType.REDSTONE_CRAFTER
+                ? CreationOutputMode.LEAVE_IN_CRAFTER
+                : CreationOutputMode.RETURN_TO_REQUESTER;
     }
 
     private static int consumeAvailable(Map<ItemKey, Integer> stock, ItemKey key, int amount) {
