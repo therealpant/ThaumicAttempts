@@ -271,34 +271,8 @@ public class LogisticsNetworkState {
             int fromStockNow = Math.min(inputNeed, inputAvailable);
             int shortage = Math.max(0, inputNeed - fromStockNow);
 
-            /*
-             * Planner-driven orders не должны падать на missing_planned_input мгновенно.
-             * Для них нужно создать ожидание полного подвоза из stock manager'а:
-             * child planned order / внешний склад потом положит результат в сеть,
-             * а transfer будет переисполнен, когда ресурс появится.
-             */
-            boolean plannerDriven =
-                    order.debugReason != null
-                            && (order.debugReason.startsWith("planner-root")
-                            || order.debugReason.startsWith("planner-input-for-"));
-
             List<UUID> feedDeps = new ArrayList<UUID>();
-
-            int stagedAmount;
-            if (plannerDriven) {
-                /*
-                 * Для planner-driven order stagedAmount = полный inputNeed.
-                 * Даже если сейчас в stock есть только часть, задача должна ждать
-                 * появления остатка, а не фейлиться.
-                 */
-                stagedAmount = inputNeed;
-            } else {
-                /*
-                 * Старое поведение для не-planner order:
-                 * можно тащить только то, что уже реально есть.
-                 */
-                stagedAmount = fromStockNow;
-            }
+            int stagedAmount = fromStockNow;
 
             if (stagedAmount > 0) {
                 TransferTask stageFromStock = createTransferTask(
@@ -318,7 +292,7 @@ public class LogisticsNetworkState {
                 }
             }
 
-            if (shortage > 0 && !plannerDriven) {
+            if (shortage > 0) {
                 order.status = OrderStatus.FAILED;
                 order.lastError = "missing planned input " + inputKey;
                 LOG.warn("[Logistics {}] order failed={} key={} missingInput={} amount={} reason=missing_planned_input",
@@ -409,8 +383,8 @@ public class LogisticsNetworkState {
         }
 
         order.status = OrderStatus.RUNNING;
-        LOG.info("[Logistics {}] craft order planned order={} key={} amount={} produced={} recipeSource={} inputs={} intent={} internalSuborder={}",
-                manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, scaledInputs, order.intent, internalSuborder);
+        LOG.info("[Logistics {}] craft order planned order={} key={} amount={} produced={} recipeSource={} inputs={} intent={}",
+                manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, recipe.source, scaledInputs, order.intent);
     }
 
     private TransferTask createTransferTask(TileMirrorManager manager,
@@ -757,16 +731,10 @@ public class LogisticsNetworkState {
 
             boolean allDone = true;
             boolean hasTasks = false;
-            boolean internalSuborder = (order.sourceType == OrderSourceType.INTERNAL_SUBORDER);
-            boolean internalRedstoneSuborder = internalSuborder
-                    && order.intent == NetworkOrder.RequestIntent.INTERNAL_REDSTONE;
             boolean redstoneExecuteOnly = (order.sourceType == OrderSourceType.REDSTONE_CRAFTER
                     && order.intent == NetworkOrder.RequestIntent.CRAFT_ONLY);
             boolean craftDone = !order.recipePath;
             boolean outputDone = !order.recipePath || redstoneExecuteOnly;
-            if (internalSuborder) {
-                outputDone = isEnoughInStockIgnoringReservations(catalog, order.requestedKey, order.requestedAmount);
-            }
 
             for (UUID tid : order.taskIds) {
                 RuntimeTask t = runtimeTasks.get(tid);
@@ -846,6 +814,15 @@ public class LogisticsNetworkState {
                 it.remove();
             }
         }
+    }
+
+    public List<RecipeNode> getAllRecipeNodesForPlanning() {
+        List<RecipeNode> out = new ArrayList<RecipeNode>();
+        for (List<RecipeNode> list : recipesByResult.values()) {
+            if (list == null) continue;
+            out.addAll(list);
+        }
+        return out;
     }
 
     private void pruneFinalizedTasks(TileMirrorManager manager) {

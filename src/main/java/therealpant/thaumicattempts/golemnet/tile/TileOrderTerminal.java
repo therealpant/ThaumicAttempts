@@ -466,19 +466,38 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         TileEntity mte = (managerPos == null) ? null : world.getTileEntity(managerPos);
         if (mte instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) mte;
+
             for (Map.Entry<ItemKey, Integer> e : moved) {
                 ItemKey key = e.getKey();
                 int amount = Math.max(1, e.getValue());
-                NetworkOrder.RequestIntent intent = craftTab
-                        ? NetworkOrder.RequestIntent.CRAFT_ONLY
-                        : NetworkOrder.RequestIntent.NORMAL;
-                UUID orderId = mgr.submitOrder(key, amount, OrderSourceType.TERMINAL, this.pos, this.pos, intent);
-                if (craftTab && orderId != null) {
-                    pendingCraftOrders.put(orderId, new PendingCraftOrder(key, amount));
+
+                if (craftTab) {
+                    UUID orderId = submitCraftRequest(mgr, key, amount);
+
+                    if (orderId != null) {
+                        pendingCraftOrders.put(orderId, new PendingCraftOrder(key, amount));
+                    } else {
+                        /*
+                         * Заказ недостижим:
+                         * убираем его из pending и возвращаем в draft,
+                         * чтобы terminal не "съедал" его молча.
+                         */
+                        addToMap(pendingCraft, key, -amount);
+                        addToMap(draftCraft, key, amount);
+                    }
+
+                } else {
+                    UUID orderId = mgr.submitOrder(
+                            key,
+                            amount,
+                            OrderSourceType.TERMINAL,
+                            this.pos,
+                            this.pos,
+                            NetworkOrder.RequestIntent.NORMAL
+                    );
                 }
             }
         }
-
             sendSnapshotToViewers(craftTab);
     }
 
@@ -680,41 +699,38 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         if (stack == null || stack.isEmpty() || requestedAmount <= 0) {
             return false;
         }
+        if (world == null || managerPos == null) {
+            return false;
+        }
 
+        TileEntity te = world.getTileEntity(managerPos);
+        if (!(te instanceof TileMirrorManager)) {
+            return false;
+        }
+
+        TileMirrorManager mgr = (TileMirrorManager) te;
         ItemKey key = ItemKey.of(stack);
         if (key == null || key == ItemKey.EMPTY) {
             return false;
         }
 
-        // Сначала обычная planner-aware проверка
-        if (canCraftThroughPlanner(key, requestedAmount)) {
-            return true;
+        /*
+         * БЕЗ planner:
+         * terminal должен принимать только direct one-step craft.
+         */
+        TileSequentialCraftPlanner planner = mgr.findBestSequentialPlanner();
+        if (planner == null) {
+            return isDirectCraftAvailable(mgr, key);
         }
 
         /*
-         * Fallback:
-         * если planner по какой-то причине еще не ответил true, но менеджер уже видит
-         * этот результат в catalog craftables, считаем предмет крафтимым хотя бы в 1 цикл.
-         * Это не заменяет planner, а только не дает GUI преждевременно погасить кнопку.
+         * С planner:
+         * terminal должен принимать заказ только если planner умеет
+         * рекурсивно построить ПОЛНУЮ цепочку.
          */
-        if (world != null && managerPos != null) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) {
-                TileMirrorManager mgr = (TileMirrorManager) te;
-                List<ItemStack> craftables = mgr.getCraftablesCatalog();
-                if (craftables != null) {
-                    for (ItemStack out : craftables) {
-                        if (out == null || out.isEmpty()) continue;
-                        if (ResourceIdentity.sameResource(out, stack)) {
-                            return true;
-                        }
-                    }
-                }
-            }
-        }
-
-        return false;
+        return planner.canPlanDemand(mgr, key, requestedAmount);
     }
+
     private boolean canCraftThroughPlanner(ItemKey key, int amount) {
         if (world == null || managerPos == null || key == null || key == ItemKey.EMPTY || amount <= 0) {
             return false;
@@ -1058,8 +1074,12 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             for (ItemStack s : all) {
                 if (s == null || s.isEmpty()) continue;
                 if (!matchesSearch(s, q, aspectQuery)) continue;
+
+                int amount = Math.max(1, s.getCount());
+                if (!isCraftRequestPossible(s, amount)) continue;
+
                 filtered.add(s);
-                perCraft.add(Math.max(1, s.getCount()));
+                perCraft.add(amount);
             }
 
             int totalPages = Math.max(1, (filtered.size() + PER_PAGE - 1) / PER_PAGE);
@@ -1163,6 +1183,52 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         sendDraftSnapshotTo(player, false);
         sendDraftSnapshotTo(player, true);
+    }
+
+    @Nullable
+    private UUID submitCraftRequest(TileMirrorManager mgr, ItemKey key, int amount) {
+        if (mgr == null || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+
+        TileSequentialCraftPlanner planner = mgr.findBestSequentialPlanner();
+        if (planner != null && planner.canPlanDemand(mgr, key, amount)) {
+            return planner.planAndSubmitRootDemand(
+                    mgr,
+                    key,
+                    amount,
+                    this.pos,
+                    this.pos,
+                    NetworkOrder.RequestIntent.CRAFT_ONLY
+            );
+        }
+
+        if (isDirectCraftAvailable(mgr, key)) {
+            return mgr.submitOrder(
+                    key,
+                    amount,
+                    OrderSourceType.TERMINAL,
+                    this.pos,
+                    this.pos,
+                    NetworkOrder.RequestIntent.CRAFT_ONLY
+            );
+        }
+
+        return null;
+    }
+
+    private boolean isDirectCraftAvailable(TileMirrorManager mgr, ItemKey key) {
+        if (mgr == null || key == null || key == ItemKey.EMPTY) return false;
+
+        List<ItemStack> craftables = mgr.getCraftablesCatalog();
+        if (craftables == null || craftables.isEmpty()) return false;
+
+        ItemStack like = key.toStack(1);
+        for (ItemStack out : craftables) {
+            if (out == null || out.isEmpty()) continue;
+            if (ResourceIdentity.sameResource(out, like)) {
+                return true;
+            }
+        }
+        return false;
     }
 
     @Nullable

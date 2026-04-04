@@ -118,60 +118,65 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         LinkedHashMap<ItemKey, Integer> workingStock =
                 new LinkedHashMap<ItemKey, Integer>(manager.getReachableCatalog());
 
-        PlannerSubmitContext ctx = new PlannerSubmitContext(manager, sourcePos);
+        LinkedHashMap<ItemKey, Integer> steps = new LinkedHashMap<ItemKey, Integer>();
+        if (!collectStandardCraftSteps(manager, workingStock, steps, key, amount, 0)) {
+            LOG.warn("[Planner {}] failed to plan demand key={} amount={} reason=unbuildable-chain",
+                    pos, key, amount);
+            return null;
+        }
 
-        /*
-         * Сначала planner обязан спланировать все зависимости ДЛЯ ФИНАЛЬНОГО key,
-         * но root-order при этом не должен подменяться промежуточным узлом.
-         */
-        int remaining = consumeAvailable(workingStock, key, amount);
-        if (remaining > 0) {
-            RecipeNode recipe = manager.getPlannerRecipe(key);
-            if (recipe == null || recipe.source == null) {
-                LOG.warn("[Planner {}] failed to plan demand key={} amount={} reason=no-root-recipe",
-                        pos, key, amount);
-                return null;
+        if (steps.isEmpty()) {
+            return manager.submitOrder(
+                    key,
+                    amount,
+                    OrderSourceType.PLANNER,
+                    sourcePos,
+                    returnDestination,
+                    intent
+            );
+        }
+
+        UUID finalOrder = null;
+        int intermediateSteps = 0;
+
+        for (Map.Entry<ItemKey, Integer> e : steps.entrySet()) {
+            ItemKey stepKey = e.getKey();
+            int stepAmount = Math.max(1, e.getValue());
+            boolean finalStep = stepKey.equals(key);
+
+            UUID id = manager.submitOrder(
+                    stepKey,
+                    stepAmount,
+                    OrderSourceType.PLANNER,
+                    sourcePos,
+                    finalStep ? returnDestination : manager.getPos(),
+                    NetworkOrder.RequestIntent.CRAFT_ONLY
+            );
+
+            if (id == null) {
+                LOG.warn("[Planner {}] failed to submit standard craft step key={} amount={}",
+                        pos, stepKey, stepAmount);
+                return finalOrder;
             }
 
-            int perCycle = Math.max(1, recipe.outputPerCycle);
-            int cycles = (remaining + perCycle - 1) / perCycle;
-
-            for (Map.Entry<ItemKey, Integer> input : recipe.inputs.entrySet()) {
-                ItemKey inputKey = input.getKey();
-                int inputNeed = Math.max(1, input.getValue() * cycles);
-
-                if (!planDependenciesRecursive(ctx, workingStock, inputKey, inputNeed, null, 1)) {
-                    LOG.warn("[Planner {}] failed to plan demand key={} amount={} reason={}",
-                            pos, key, amount, ctx.failureReason);
-                    return null;
-                }
+            if (finalStep) {
+                finalOrder = id;
+            } else {
+                intermediateSteps++;
             }
         }
 
-        manager.refreshRecipeIndexFromPlanner();
+        LOG.info("[Planner {}] standard craft-order chain submitted key={} amount={} intermediateSteps={} finalOrder={}",
+                pos, key, amount, intermediateSteps, finalOrder);
 
-        UUID rootOrder = manager.submitPlannerOrder(
-                key,
-                amount,
-                OrderSourceType.TERMINAL,
-                sourcePos,
-                returnDestination,
-                null,
-                0,
-                "planner-root",
-                intent
-        );
-
-        LOG.info("[Planner {}] plan submit complete key={} amount={} rootOrder={}", pos, key, amount, rootOrder);
-        return rootOrder;
+        return finalOrder;
     }
 
-    private boolean planDependenciesRecursive(PlannerSubmitContext ctx,
-                                              Map<ItemKey, Integer> workingStock,
-                                              ItemKey requested,
-                                              int amount,
-                                              @Nullable UUID parentOrderId,
-                                              int depth) {
+    private boolean enqueueStandardCraftOrders(PlannerSubmitContext ctx,
+                                               Map<ItemKey, Integer> workingStock,
+                                               ItemKey requested,
+                                               int amount,
+                                               int depth) {
         if (depth > MAX_PLAN_DEPTH) {
             ctx.failureReason = "max-depth";
             return false;
@@ -205,28 +210,12 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             ItemKey inputKey = input.getKey();
             int inputNeed = Math.max(1, input.getValue() * cycles);
 
-            if (!planDependenciesRecursive(ctx, workingStock, inputKey, inputNeed, null, depth + 1)) {
+            if (!enqueueStandardCraftOrders(ctx, workingStock, inputKey, inputNeed, depth + 1)) {
                 return false;
             }
         }
 
-        ctx.manager.refreshRecipeIndexFromPlanner();
-
-        UUID created = ctx.manager.submitPlannerOrder(
-                requested,
-                remaining,
-                OrderSourceType.INTERNAL_SUBORDER,
-                ctx.sourcePos,
-                ctx.manager.getPos(),
-                parentOrderId,
-                depth,
-                "planner-input-for-" + requested,
-                NetworkOrder.RequestIntent.INTERNAL_REDSTONE
-        );
-        if (created == null) {
-            ctx.failureReason = "submit-failed:" + requested;
-            return false;
-        }
+        ctx.plannedOrderSequence.merge(requested, remaining, Integer::sum);
 
         workingStock.merge(requested, producedAmount, Integer::sum);
         consumeAvailable(workingStock, requested, remaining);
@@ -246,12 +235,75 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
     private static final class PlannerSubmitContext {
         private final TileMirrorManager manager;
         private final BlockPos sourcePos;
+        @Nullable
+        private final BlockPos returnDestination;
+        private final LinkedHashMap<ItemKey, Integer> plannedOrderSequence = new LinkedHashMap<ItemKey, Integer>();
         private String failureReason = "";
 
-        private PlannerSubmitContext(TileMirrorManager manager, BlockPos sourcePos) {
+        private PlannerSubmitContext(TileMirrorManager manager, BlockPos sourcePos, @Nullable BlockPos returnDestination) {
             this.manager = manager;
             this.sourcePos = sourcePos == null ? BlockPos.ORIGIN : sourcePos.toImmutable();
+            this.returnDestination = returnDestination == null ? null : returnDestination.toImmutable();
         }
+    }
+
+    private static final class PlannedCraftStep {
+        final ItemKey key;
+        final int amount;
+        final boolean finalStep;
+
+        private PlannedCraftStep(ItemKey key, int amount, boolean finalStep) {
+            this.key = key;
+            this.amount = amount;
+            this.finalStep = finalStep;
+        }
+    }
+
+    private boolean collectStandardCraftSteps(TileMirrorManager manager,
+                                              Map<ItemKey, Integer> workingStock,
+                                              LinkedHashMap<ItemKey, Integer> steps,
+                                              ItemKey requested,
+                                              int amount,
+                                              int depth) {
+        if (manager == null || requested == null || requested == ItemKey.EMPTY || amount <= 0) return false;
+        if (depth > MAX_PLAN_DEPTH) return false;
+
+        int remaining = consumeAvailable(workingStock, requested, amount);
+        if (remaining <= 0) return true;
+
+        manager.refreshRecipeIndexFromPlanner();
+        RecipeNode recipe = manager.getPlannerRecipe(requested);
+        if (recipe == null || recipe.source == null) return false;
+
+        int perCycle = Math.max(1, recipe.outputPerCycle);
+        int cycles = (remaining + perCycle - 1) / perCycle;
+        int producedAmount = cycles * perCycle;
+
+        for (Map.Entry<ItemKey, Integer> input : recipe.inputs.entrySet()) {
+            ItemKey inputKey = input.getKey();
+            int inputNeed = Math.max(1, input.getValue() * cycles);
+            if (!collectStandardCraftSteps(manager, workingStock, steps, inputKey, inputNeed, depth + 1)) {
+                return false;
+            }
+        }
+
+        steps.merge(requested, remaining, Integer::sum);
+        workingStock.merge(requested, producedAmount, Integer::sum);
+        consumeAvailable(workingStock, requested, remaining);
+        return true;
+    }
+
+    public boolean canPlanDemand(TileMirrorManager manager, ItemKey key, int amount) {
+        if (manager == null || key == null || key == ItemKey.EMPTY || amount <= 0) {
+            return false;
+        }
+
+        manager.refreshRecipeIndexFromPlanner();
+
+        LinkedHashMap<ItemKey, Integer> workingStock =
+                new LinkedHashMap<ItemKey, Integer>(manager.getReachableCatalog());
+
+        return canPlanDemandRecursive(manager, workingStock, key, amount, 0);
     }
 
     private boolean canPlanDemandRecursive(TileMirrorManager manager,
@@ -259,23 +311,15 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
                                            ItemKey requested,
                                            int amount,
                                            int depth) {
-        if (manager == null || requested == null || requested == ItemKey.EMPTY || amount <= 0) {
-            return false;
-        }
-        if (depth > MAX_PLAN_DEPTH) {
-            return false;
-        }
+        if (manager == null || requested == null || requested == ItemKey.EMPTY || amount <= 0) return false;
+        if (depth > MAX_PLAN_DEPTH) return false;
 
         int remaining = consumeAvailable(workingStock, requested, amount);
-        if (remaining <= 0) {
-            return true;
-        }
+        if (remaining <= 0) return true;
 
         manager.refreshRecipeIndexFromPlanner();
         RecipeNode recipe = manager.getPlannerRecipe(requested);
-        if (recipe == null || recipe.source == null) {
-            return false;
-        }
+        if (recipe == null || recipe.source == null) return false;
 
         int perCycle = Math.max(1, recipe.outputPerCycle);
         int cycles = (remaining + perCycle - 1) / perCycle;
@@ -294,18 +338,6 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         return true;
     }
 
-    public boolean canPlanDemand(TileMirrorManager manager, ItemKey key, int amount) {
-        if (manager == null || key == null || key == ItemKey.EMPTY || amount <= 0) {
-            return false;
-        }
-
-        manager.refreshRecipeIndexFromPlanner();
-
-        LinkedHashMap<ItemKey, Integer> workingStock =
-                new LinkedHashMap<ItemKey, Integer>(manager.getReachableCatalog());
-
-        return canPlanDemandRecursive(manager, workingStock, key, amount, 0);
-    }
     @Override
     public NBTTagCompound writeToNBT(NBTTagCompound tag) {
         super.writeToNBT(tag);

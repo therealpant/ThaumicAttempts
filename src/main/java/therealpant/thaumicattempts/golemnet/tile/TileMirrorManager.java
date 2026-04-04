@@ -2409,41 +2409,29 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return null;
     }
 
-    @Nullable
-    public UUID submitPlannerOrder(ItemKey key,
-                                   int amount,
-                                   OrderSourceType sourceType,
-                                   BlockPos sourcePos,
-                                   @Nullable BlockPos returnDestination,
-                                   @Nullable UUID parentOrderId,
-                                   int depth,
-                                   String reason,
-                                   @Nullable NetworkOrder.RequestIntent intent) {
-        if (world == null || world.isRemote) return null;
-        if (key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+    public List<ItemStack> getPlannerCraftablesCatalog() {
+        LinkedHashMap<ItemKey, ItemStack> out = new LinkedHashMap<ItemKey, ItemStack>();
 
-        /*
-         * ВАЖНО:
-         * Planner-first режим требует, чтобы перед каждым planner submit
-         * manager имел свежий recipe index.
-         *
-         * Иначе planner может построить зависимость, а handler при submitOrder
-         * увидит stale recipesByResult и уронит order с no_recipe.
-         */
-        refreshRecipeIndexFromPlanner();
+        List<ItemStack> direct = getCraftablesCatalog();
+        if (direct != null) {
+            for (ItemStack s : direct) {
+                if (s == null || s.isEmpty()) continue;
+                ItemKey k = ItemKey.of(s);
+                if (k == null || k == ItemKey.EMPTY) continue;
+                out.putIfAbsent(k, s.copy());
+            }
+        }
 
-        return logistics.submitOrder(
-                this,
-                key,
-                amount,
-                sourceType,
-                sourcePos,
-                returnDestination,
-                parentOrderId,
-                depth,
-                reason,
-                intent == null ? NetworkOrder.RequestIntent.CRAFT_ONLY : intent
-        );
+        for (RecipeNode node : logistics.getAllRecipeNodesForPlanning()) {
+            if (node == null || node.result == null || node.result == ItemKey.EMPTY) continue;
+            ItemStack s = node.result.toStack(Math.max(1, node.outputPerCycle));
+            if (s.isEmpty()) continue;
+            ItemKey k = ItemKey.of(s);
+            if (k == null || k == ItemKey.EMPTY) continue;
+            out.putIfAbsent(k, s);
+        }
+
+        return new ArrayList<ItemStack>(out.values());
     }
 
     @Nullable
