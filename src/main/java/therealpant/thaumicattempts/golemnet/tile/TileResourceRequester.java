@@ -207,20 +207,31 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     @Override
     public List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times) {
         if (resultLike == null || resultLike.isEmpty() || times <= 0) return Collections.emptyList();
+
         int slot = findPatternSlotForResult(resultLike);
         if (slot < 0) return Collections.emptyList();
+
         ItemStack pattern = patterns.getStackInSlot(slot);
         if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) return Collections.emptyList();
 
         List<PatternResourceList.Entry> entries = PatternResourceList.build(pattern);
         if (entries == null || entries.isEmpty()) return Collections.emptyList();
+
+        /*
+         * times = количество ЦИКЛОВ крафта, а не количество выходных предметов.
+         * Поэтому здесь просто линейно масштабируем входы на число циклов.
+         */
         List<ItemStack> out = new ArrayList<>();
-        int mul = Math.max(1, times);
+        int craftCycles = Math.max(1, times);
+
         for (PatternResourceList.Entry e : entries) {
             if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
-            ItemStack stack = e.getKey().toStack(Math.max(1, e.getCount()) * mul);
+
+            int total = Math.max(1, e.getCount()) * craftCycles;
+            ItemStack stack = e.getKey().toStack(total);
             if (!stack.isEmpty()) out.add(stack);
         }
+
         return out;
     }
 

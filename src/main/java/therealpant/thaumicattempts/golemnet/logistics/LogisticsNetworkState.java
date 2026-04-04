@@ -308,20 +308,22 @@ public class LogisticsNetworkState {
             return;
         }
 
-        int perCycle = Math.max(1, recipe.outputPerCycle);
-        int cycles = (stillNeed + perCycle - 1) / perCycle;
-        int producedAmount = cycles * perCycle;
+        int outputPerCycle = Math.max(1, recipe.outputPerCycle);
+        int cycles = (stillNeed + outputPerCycle - 1) / outputPerCycle;
+        int producedAmount = cycles * outputPerCycle;
+
+        /*
+         * recipe.inputs теперь обязаны хранить входы РОВНО НА 1 ЦИКЛ.
+         * Здесь это масштабируется единственный раз.
+         */
         LinkedHashMap<ItemKey, Integer> scaledInputs = scaleRecipeInputs(recipe.inputs, cycles);
 
         EndpointRef crafterInput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT);
         EndpointRef crafterOutput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.OUTPUT);
 
         /*
-         * ВАЖНО:
          * Сначала полностью проверяем, что ВСЕ входы доступны.
          * Никаких runtime-task'ов до завершения этой проверки не создаём.
-         * Иначе order может перейти в WAITING_INPUTS уже с частично созданными taskIds,
-         * после чего retryWaitingCreationOrders() больше его не перепланирует.
          */
         LinkedHashMap<ItemKey, Integer> availableFromStock = new LinkedHashMap<ItemKey, Integer>();
         ItemKey firstMissingKey = null;
@@ -357,12 +359,8 @@ public class LogisticsNetworkState {
             order.updatedTick = manager.getServerTickCounter();
 
             /*
-             * Для обычных CRAFT_ONLY запросов (terminal/redstone endpoint) заказ,
-             * который не может быть выполнен сразу, не должен «висеть» бесконечно
-             * в WAITING_INPUTS. Иначе источник заказа будет ждать вечно.
-             *
-             * WAITING_INPUTS оставляем только для planner-origin заказов, где
-             * недостающие входы действительно появятся после цепочки зависимостей.
+             * Для обычных CRAFT_ONLY запросов заказ,
+             * который нельзя выполнить сразу, не должен висеть бесконечно.
              */
             if (order.sourceType != OrderSourceType.PLANNER) {
                 order.status = OrderStatus.FAILED;
@@ -498,7 +496,7 @@ public class LogisticsNetworkState {
         order.updatedTick = manager.getServerTickCounter();
 
         LOG.info("[Logistics {}] craft order planned order={} key={} amount={} produced={} perCycle={} cycles={} recipeSource={} inputs={} outputMode={}",
-                manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, perCycle, cycles, recipe.source, scaledInputs, order.creationOutputMode);
+                manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, outputPerCycle, cycles, recipe.source, scaledInputs, order.creationOutputMode);
     }
 
     private TransferTask createTransferTask(TileMirrorManager manager,
@@ -584,79 +582,55 @@ public class LogisticsNetworkState {
         return te instanceof TileOrderTerminal;
     }
 
-    @Nullable
     private CraftTask createCraftTask(TileMirrorManager manager,
                                       UUID orderId,
                                       EndpointRef crafter,
-                                      ItemKey key,
-                                      long amount,
+                                      ItemKey recipeKey,
+                                      int amount,
                                       Map<ItemKey, Integer> requiredInputs,
-                                      @Nullable List<UUID> dependsOn,
+                                      java.util.List<UUID> dependencies,
                                       String purpose) {
-        if (crafter == null || crafter.pos == null || key == null || key == ItemKey.EMPTY || amount <= 0) {
-            LOG.info("[Logistics {}] craft task build started order={} key={} crafter={} purpose={}",
-                    manager.getPos(), orderId, key, crafter, purpose);
-            LOG.warn("[Logistics {}] craft task rejected order={} reason=missing-required crafter={} key={} amount={} purpose={}",
-                    manager.getPos(), orderId, crafter, key, amount, purpose);
+        if (manager == null || crafter == null || crafter.pos == null || recipeKey == null || recipeKey == ItemKey.EMPTY || amount <= 0) {
             return null;
         }
 
-        LOG.info("[Logistics {}] craft task build started order={} key={} amount={} crafter={} purpose={}",
-                manager.getPos(), orderId, key, amount, crafter.pos, purpose);
+        EndpointRef crafterOutput = EndpointRef.of(crafter.pos, EndpointRef.AccessMode.OUTPUT);
 
         CraftTask task = new CraftTask();
         task.taskId = UUID.randomUUID();
         task.orderId = orderId;
-        task.crafter = crafter;
-        task.outputEndpoint = EndpointRef.of(crafter.pos, EndpointRef.AccessMode.OUTPUT);
-        task.recipeKey = key;
-        task.amount = Math.max(1, amount);
-
-        if (requiredInputs != null) {
-            for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
-                ItemKey inputKey = e.getKey();
-                int inputAmount = (e.getValue() == null ? 0 : e.getValue());
-
-                if (inputKey == null || inputKey == ItemKey.EMPTY) continue;
-                if (inputAmount <= 0) continue;
-
-                if (inputKey.equals(task.recipeKey)) {
-                    LOG.warn("[Logistics {}] craft task validation failed order={} reason=result-used-as-input key={}",
-                            manager.getPos(), orderId, task.recipeKey);
-                    return null;
-                }
-
-                task.requiredInputs.put(inputKey, inputAmount);
-            }
-        }
-
-        String invalidReason = task.validationError();
-        if (invalidReason != null) {
-            LOG.warn("[Logistics {}] craft task validation failed order={} reason={} crafter={} key={} output={} inputs={}",
-                    manager.getPos(), orderId, invalidReason, task.crafter, task.recipeKey, task.outputEndpoint, task.requiredInputs.size());
-            return null;
-        }
-
         task.status = TaskStatus.NEW;
         task.createdTick = manager.getServerTickCounter();
         task.updatedTick = task.createdTick;
+        task.crafter = crafter;
+        task.recipeKey = recipeKey;
+        task.outputEndpoint = crafterOutput;
+        task.amount = Math.max(1, amount);
+        task.completedAmount = 0;
+        task.purpose = purpose == null ? "craft" : purpose;
 
-        if (dependsOn != null && !dependsOn.isEmpty()) {
-            task.dependsOn.addAll(dependsOn);
+        if (requiredInputs != null) {
+            for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
+                if (e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+                task.requiredInputs.put(e.getKey(), Math.max(1, e.getValue()));
+            }
         }
 
-        task.metaPurpose = purpose;
+        if (dependencies != null && !dependencies.isEmpty()) {
+            task.dependsOn.addAll(dependencies);
+        }
+
+        String err = task.validationError();
+        if (err != null) {
+            LOG.warn("[Logistics {}] craft task create invalid order={} reason={} crafter={} key={} output={} amount={}",
+                    manager.getPos(), orderId, err, task.crafter, task.recipeKey, task.outputEndpoint, amount);
+            return null;
+        }
+
+        LOG.info("[Logistics {}] craft task created task={} order={} key={} amount={} crafter={} output={} inputs={}",
+                manager.getPos(), task.taskId, orderId, recipeKey, amount, task.crafter, task.outputEndpoint, task.requiredInputs);
+
         runtimeTasks.put(task.taskId, task);
-
-        NetworkOrder order = orders.get(orderId);
-        if (order != null && !order.taskIds.contains(task.taskId)) {
-            order.taskIds.add(task.taskId);
-            order.recipePath = true;
-        }
-
-        LOG.info("[Logistics {}] craft task created task={} order={} key={} amount={} crafter={} inputs={}",
-                manager.getPos(), task.taskId, orderId, key, amount, crafter.pos, task.requiredInputs);
-
         return task;
     }
 
@@ -686,10 +660,22 @@ public class LogisticsNetworkState {
                 ItemKey result = ItemKey.of(out);
                 if (result == null || result == ItemKey.EMPTY) continue;
 
-                int perCraft = Math.max(1, ep.getPerCraftOutputCountFor(out));
+                int outputPerCycle = Math.max(1, ep.getPerCraftOutputCountFor(out));
 
+                /*
+                 * ВАЖНО:
+                 * getRecipeInputsFor(resultLike, times) принимает количество ЦИКЛОВ крафта.
+                 * Поэтому индекс рецептов должен хранить входы ровно на 1 цикл,
+                 * а не на outputPerCycle.
+                 *
+                 * Иначе для рецептов типа:
+                 *   2 доски -> 4 палки
+                 * мы сначала получим входы уже на 4 цикла,
+                 * а потом ещё раз умножим их в planCreationOrder(...),
+                 * что и раздувает большие партии.
+                 */
                 Map<ItemKey, Integer> inputs = new LinkedHashMap<ItemKey, Integer>();
-                List<ItemStack> req = ep.getRecipeInputsFor(out, perCraft);
+                List<ItemStack> req = ep.getRecipeInputsFor(out, 1);
 
                 if (req != null) {
                     for (ItemStack need : req) {
@@ -713,7 +699,7 @@ public class LogisticsNetworkState {
                     pt = ProviderType.GOLEM_CRAFTER;
                 }
 
-                RecipeNode node = new RecipeNode(result, rp, pt, perCraft, inputs);
+                RecipeNode node = new RecipeNode(result, rp, pt, outputPerCycle, inputs);
 
                 List<RecipeNode> nodes = recipesByResult.get(result);
                 if (nodes == null) {
@@ -736,8 +722,8 @@ public class LogisticsNetworkState {
                     nodes.add(node);
                 }
 
-                LOG.info("[Logistics {}] recipe indexed result={} perCraft={} inputs={} source={}",
-                        manager.getPos(), result, perCraft, inputs, rp);
+                LOG.info("[Logistics {}] recipe indexed result={} perCycle={} inputsPerCycle={} source={}",
+                        manager.getPos(), result, outputPerCycle, inputs, rp);
             }
         }
     }

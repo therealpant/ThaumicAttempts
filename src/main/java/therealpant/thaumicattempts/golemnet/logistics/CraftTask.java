@@ -12,9 +12,31 @@ public class CraftTask extends RuntimeTask {
     private static final org.apache.logging.log4j.Logger LOG =
             org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CraftTask");
 
+    /**
+     * Endpoint, куда подаются ингредиенты / где запускается крафт.
+     * Обычно это INPUT endpoint крафтера.
+     */
     public EndpointRef crafter;
+
+    /**
+     * Что именно крафтим.
+     */
     public ItemKey recipeKey;
+
+    /**
+     * ВАЖНО:
+     * Это НЕ финальная точка доставки заказа.
+     * Это именно наблюдаемый OUTPUT крафтера, по которому CrafterExecutor
+     * определяет, что результат реально появился.
+     *
+     * То есть сюда всегда должен записываться:
+     * EndpointRef.of(recipe.source, EndpointRef.AccessMode.OUTPUT)
+     */
     public EndpointRef outputEndpoint;
+
+    /**
+     * Входы на весь объём этого craft-task.
+     */
     public final LinkedHashMap<ItemKey, Integer> requiredInputs = new LinkedHashMap<ItemKey, Integer>();
 
     public String validationError() {
@@ -24,6 +46,7 @@ public class CraftTask extends RuntimeTask {
         if (recipeKey == null || recipeKey == ItemKey.EMPTY) return "missing-recipe-key";
         if (outputEndpoint == null || outputEndpoint.pos == null) return "missing-output-endpoint";
         if (requiredInputs.isEmpty()) return "missing-required-inputs";
+
         for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
             if (e.getKey() == null || e.getKey() == ItemKey.EMPTY) return "invalid-required-input-key";
             if (e.getValue() == null || e.getValue() <= 0) return "invalid-required-input-amount";
@@ -71,7 +94,8 @@ public class CraftTask extends RuntimeTask {
 
         String err = validationError();
         if (err != null) {
-            LOG.warn("[CraftTask] writeToNbt invalid taskId={} orderId={} reason={}", taskId, orderId, err);
+            LOG.warn("[CraftTask] writeToNbt invalid taskId={} orderId={} reason={} crafter={} key={} output={}",
+                    taskId, orderId, err, crafter, recipeKey, outputEndpoint);
         }
 
         return tag;
@@ -80,12 +104,19 @@ public class CraftTask extends RuntimeTask {
     @Override
     protected void readFromNbtImpl(NBTTagCompound tag) {
         readCommon(tag);
+
         crafter = tag.hasKey("crafter", Constants.NBT.TAG_COMPOUND)
-                ? EndpointRef.readFromNbt(tag.getCompoundTag("crafter")) : null;
+                ? EndpointRef.readFromNbt(tag.getCompoundTag("crafter"))
+                : null;
+
         recipeKey = tag.hasKey("recipeKey", Constants.NBT.TAG_COMPOUND)
-                ? ItemKey.of(new net.minecraft.item.ItemStack(tag.getCompoundTag("recipeKey"))) : ItemKey.EMPTY;
+                ? ItemKey.of(new net.minecraft.item.ItemStack(tag.getCompoundTag("recipeKey")))
+                : ItemKey.EMPTY;
+
         outputEndpoint = tag.hasKey("output", Constants.NBT.TAG_COMPOUND)
-                ? EndpointRef.readFromNbt(tag.getCompoundTag("output")) : null;
+                ? EndpointRef.readFromNbt(tag.getCompoundTag("output"))
+                : null;
+
         requiredInputs.clear();
         NBTTagList ins = tag.getTagList("inputs", Constants.NBT.TAG_COMPOUND);
         for (int i = 0; i < ins.tagCount(); i++) {
@@ -94,9 +125,11 @@ public class CraftTask extends RuntimeTask {
             if (key == null || key == ItemKey.EMPTY) continue;
             requiredInputs.put(key, Math.max(1, row.getInteger("amount")));
         }
+
         String err = validationError();
         if (err != null) {
-            LOG.warn("[CraftTask] readFromNbt invalid taskId={} orderId={} reason={}", taskId, orderId, err);
+            LOG.warn("[CraftTask] readFromNbt invalid taskId={} orderId={} reason={} crafter={} key={} output={}",
+                    taskId, orderId, err, crafter, recipeKey, outputEndpoint);
         }
     }
 }

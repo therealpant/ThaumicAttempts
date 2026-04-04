@@ -2930,13 +2930,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return pulled > 0 || movedNow > 0 || countQueuedFor(dst, like) > 0;
     }
 
-    public boolean startCraftTask(BlockPos crafterPos, ItemKey key, int amount) {
-        if (world == null || world.isRemote || crafterPos == null || key == null || key == ItemKey.EMPTY || amount <= 0) return false;
+    public int startCraftTask(BlockPos crafterPos, ItemKey key, int amount) {
+        if (world == null || world.isRemote || crafterPos == null || key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
         TileEntity te = world.getTileEntity(crafterPos);
-        if (!(te instanceof ICraftEndpoint)) return false;
+        if (!(te instanceof ICraftEndpoint)) return 0;
         ICraftEndpoint endpoint = (ICraftEndpoint) te;
         int accepted = endpoint.startAssignedCraftTask(this.pos, crafterPos, -1, key.toStack(1), amount);
-        return accepted > 0;
+        return Math.max(0, endpoint.startAssignedCraftTask(this.pos, crafterPos, -1, key.toStack(1), amount));
     }
 
     public int countItemAt(BlockPos pos, ItemKey key) {
