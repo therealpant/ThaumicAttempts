@@ -1066,7 +1066,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
 
         if (craftTab) {
-            java.util.List<ItemStack> all = mgr.getCraftablesCatalog();
+            java.util.List<ItemStack> all = mgr.getPlannerCraftablesCatalog();
             if (all == null) all = java.util.Collections.emptyList();
 
             java.util.List<ItemStack> filtered = new java.util.ArrayList<ItemStack>();

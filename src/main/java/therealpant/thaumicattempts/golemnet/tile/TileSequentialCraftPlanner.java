@@ -125,7 +125,10 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             return null;
         }
 
-        if (steps.isEmpty()) {
+        int finalPlannedAmount = Math.max(0, steps.getOrDefault(key, 0));
+        steps.remove(key);
+
+        if (steps.isEmpty() && finalPlannedAmount <= 0) {
             return manager.submitOrder(
                     key,
                     amount,
@@ -142,28 +145,38 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
         for (Map.Entry<ItemKey, Integer> e : steps.entrySet()) {
             ItemKey stepKey = e.getKey();
             int stepAmount = Math.max(1, e.getValue());
-            boolean finalStep = stepKey.equals(key);
 
             UUID id = manager.submitOrder(
                     stepKey,
                     stepAmount,
                     OrderSourceType.PLANNER,
                     sourcePos,
-                    finalStep ? returnDestination : manager.getPos(),
+                    manager.getPos(),
                     NetworkOrder.RequestIntent.CRAFT_ONLY
             );
 
             if (id == null) {
                 LOG.warn("[Planner {}] failed to submit standard craft step key={} amount={}",
                         pos, stepKey, stepAmount);
-                return finalOrder;
+                return null;
             }
 
-            if (finalStep) {
-                finalOrder = id;
-            } else {
-                intermediateSteps++;
-            }
+            intermediateSteps++;
+        }
+
+        finalOrder = manager.submitOrder(
+                key,
+                Math.max(1, finalPlannedAmount > 0 ? finalPlannedAmount : amount),
+                OrderSourceType.PLANNER,
+                sourcePos,
+                returnDestination,
+                intent
+        );
+
+        if (finalOrder == null) {
+            LOG.warn("[Planner {}] failed to submit final standard craft step key={} amount={}",
+                    pos, key, amount);
+            return null;
         }
 
         LOG.info("[Planner {}] standard craft-order chain submitted key={} amount={} intermediateSteps={} finalOrder={}",
