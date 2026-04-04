@@ -2037,9 +2037,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
                 boolean hasDispatchers = !boundDispatchers.isEmpty();
 
-                int budget = Math.min(MAX_REQ_PER_TICK, need);
+                int budget;
                 if (hasDispatchers) {
-                    budget = Math.min(budget, Math.max(0, dispatcherCapForLine));
+                    int stackLimit = Math.max(1, ln.wanted1.getMaxStackSize());
+                    int golemParallel = Math.max(0, dispatcherCapForLine);
+                    int pooledBudget = golemParallel * stackLimit;
+                    budget = Math.min(need, pooledBudget);
+                } else {
+                    budget = Math.min(MAX_REQ_PER_TICK, need);
                 }
                 int requested = 0;
 
@@ -3619,9 +3624,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                         }
                         itL.remove();
                     }
-
-                    left -= take;
-                    if (ln.remaining <= 0) itL.remove();
                 }
                 if (b.lines.isEmpty()) itB.remove();
             }

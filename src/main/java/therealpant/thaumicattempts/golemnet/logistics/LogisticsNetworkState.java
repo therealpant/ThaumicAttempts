@@ -234,35 +234,49 @@ public class LogisticsNetworkState {
             return;
         }
 
-        TransferTask stageToManager = createTransferTask(
-                manager,
-                order.orderId,
-                stockSource(manager),
-                managerBuffer,
-                order.requestedKey,
-                deliverAmount,
-                null,
-                "deliver"
-        );
-        if (stageToManager != null) {
+        ItemStack like = order.requestedKey.toStack(1);
+        int stackLimit = Math.max(1, like.getMaxStackSize());
+        int remaining = deliverAmount;
+
+        while (remaining > 0) {
+            int chunk = Math.min(stackLimit, remaining);
+
+            TransferTask stageToManager = createTransferTask(
+                    manager,
+                    order.orderId,
+                    stockSource(manager),
+                    managerBuffer,
+                    order.requestedKey,
+                    chunk,
+                    null,
+                    "deliver"
+            );
+            if (stageToManager == null) {
+                order.status = OrderStatus.FAILED;
+                order.lastError = "delivery-task-build-failed:" + order.requestedKey;
+                return;
+            }
             stageToManager.status = TaskStatus.NEW;
             stageToManager.updatedTick = manager.getServerTickCounter();
-        }
-
-
-        TransferTask dispatchToTarget = createTransferTask(
-                manager,
-                order.orderId,
-                managerBuffer,
-                finalTarget,
-                order.requestedKey,
-                deliverAmount,
-                stageToManager == null ? null : Collections.singletonList(stageToManager.taskId),
-                "deliver-output"
-        );
-        if (dispatchToTarget != null) {
+            TransferTask dispatchToTarget = createTransferTask(
+                    manager,
+                    order.orderId,
+                    managerBuffer,
+                    finalTarget,
+                    order.requestedKey,
+                    chunk,
+                    Collections.singletonList(stageToManager.taskId),
+                    "deliver-output"
+            );
+            if (dispatchToTarget == null) {
+                order.status = OrderStatus.FAILED;
+                order.lastError = "delivery-task-build-failed:" + order.requestedKey;
+                return;
+            }
             dispatchToTarget.status = TaskStatus.NEW;
             dispatchToTarget.updatedTick = manager.getServerTickCounter();
+
+            remaining -= chunk;
         }
 
         if (order.requestedAmount > deliverAmount) {
