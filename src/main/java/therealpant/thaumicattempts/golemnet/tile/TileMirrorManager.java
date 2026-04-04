@@ -2038,6 +2038,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 boolean hasDispatchers = !boundDispatchers.isEmpty();
 
                 int budget = Math.min(MAX_REQ_PER_TICK, need);
+                if (hasDispatchers) {
+                    budget = Math.min(budget, Math.max(0, dispatcherCapForLine));
+                }
                 int requested = 0;
 
                 if (!hasDispatchers) {
@@ -2055,6 +2058,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     }
                 } else {
                     // Менеджер сначала ставит таск в очередь, а диспетчер раскидывает по курьерам
+                    java.util.concurrent.ConcurrentHashMap<Integer, Task> tasksSnapshot =
+                            ThaumcraftProvisionHelper.getTasksSafe();
                     while (budget > 0) {
                         int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
                         if (chunk <= 0) break;
@@ -2063,7 +2068,22 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
                         if (req.isEmpty()) break;
 
-                        boolean ok = ThaumcraftProvisionHelper.requestProvisioningForManager(this, req);
+                        UUID assignedGolem = null;
+                        if (ln.golemId != null
+                                && isDispatcherLinkedGolem(ln.golemId)
+                                && !isDispatcherGolemBusy(tasksSnapshot, ln.golemId)) {
+                            assignedGolem = ln.golemId;
+                        } else {
+                            assignedGolem = findFreeDispatcherGolemUUID(tasksSnapshot);
+                            ln.golemId = assignedGolem;
+                        }
+
+                        boolean ok;
+                        if (assignedGolem != null) {
+                            ok = ThaumcraftProvisionHelper.requestProvisioningForManagerWithGolem(this, req, assignedGolem);
+                        } else {
+                            ok = false;
+                        }
                         if (!ok) {
                             // Нет свободного диспетчера/не удалось создать таск — прерываемся и доберём на следующих тиках.
                             break;
@@ -2092,6 +2112,18 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         return new LineProcessResult(false, reservationsCommitted);
 
+    }
+
+    private boolean isDispatcherGolemBusy(@Nullable java.util.concurrent.ConcurrentHashMap<Integer, Task> tasks,
+                                          @Nullable UUID golemId) {
+        if (golemId == null || tasks == null || tasks.isEmpty()) return false;
+        for (Task t : tasks.values()) {
+            if (t == null) continue;
+            if (t.isCompleted() || t.isSuspended()) continue;
+            UUID gid = t.getGolemUUID();
+            if (golemId.equals(gid)) return true;
+        }
+        return false;
     }
 
     private boolean processOneCraftLine(Batch b, Line ln) {
