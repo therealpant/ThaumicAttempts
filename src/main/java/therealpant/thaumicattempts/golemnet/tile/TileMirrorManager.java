@@ -2759,6 +2759,24 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
+    private int countCoveredAtTarget(EndpointRef target, ItemKey key, int amount) {
+        if (target == null || key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
+
+        int atTarget = countItemAtEndpoint(target, key);
+        int queued = countQueuedForEndpoint(target, key);
+
+        return Math.min(amount, Math.max(0, atTarget + queued));
+    }
+
+    private int countCoveredForManagerBuffer(ItemKey key, int amount) {
+        if (key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
+
+        int buffered = countBuffered(key);
+        int queued = countQueuedFor(this.pos, key.toStack(1));
+
+        return Math.min(amount, Math.max(0, buffered + queued));
+    }
+
     public int countItemAtEndpoint(EndpointRef endpoint, ItemKey key) {
         if (endpoint != null && endpoint.mode == EndpointRef.AccessMode.OUTPUT && world != null) {
             BlockPos resolved = resolveEndpointPos(endpoint);
@@ -2802,84 +2820,107 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         ItemStack like = key.toStack(1);
 
         /*
+         * Сначала считаем, сколько вообще ещё реально нужно target.
+         * Нельзя ни тянуть из source, ни отправлять в target больше этого остатка.
+         */
+        final int coveredAtTarget = countCoveredAtTarget(target, key, amount);
+        final int remainingNeedAtTarget = Math.max(0, amount - coveredAtTarget);
+
+        if (remainingNeedAtTarget <= 0) {
+            return true;
+        }
+
+        /*
          * 1) Буфер менеджера -> конечная цель
-         * Ничего повторно со складов не подтягиваем.
+         * Ничего со складов не подтягиваем, только ограниченный push по недостаче.
          */
         if (source.mode == EndpointRef.AccessMode.BUFFER && src.equals(this.pos)) {
-            int movedNow = pushFromBufferTo(dst, -1, like, amount);
-            int queued = countQueuedFor(dst, like);
-            return movedNow > 0 || queued > 0;
+            int canSend = Math.min(remainingNeedAtTarget, countInManagerBufferLike(like));
+            if (canSend <= 0) {
+                return countQueuedFor(dst, like) > 0;
+            }
+
+            int movedNow = pushFromBufferTo(dst, -1, like, canSend);
+            return movedNow > 0 || countQueuedFor(dst, like) > 0;
         }
 
         /*
          * 2) Любой сценарий "... -> буфер менеджера"
-         * Это главный фикс.
-         *
-         * Нужно не "один раз попробовать", а гарантированно:
-         * - учесть, что уже лежит в буфере;
-         * - локально подтянуть, что можно сразу;
-         * - остаток поставить в exact-delivery именно на ПОЗИЦИЮ менеджера.
+         * Нужно покрыть только недостачу буфера, а не тянуть amount целиком.
          */
         if (target.mode == EndpointRef.AccessMode.BUFFER && dst.equals(this.pos)) {
-            int bufferedNow = countInManagerBufferLike(like);
-            if (bufferedNow >= amount) {
+            int coveredByManagerBuffer = countCoveredForManagerBuffer(key, amount);
+            int remainingNeedForBuffer = Math.max(0, amount - coveredByManagerBuffer);
+
+            if (remainingNeedForBuffer <= 0) {
                 return true;
             }
 
-            int needBeforePull = amount - bufferedNow;
             int pulled = 0;
-
             if (!src.equals(this.pos)) {
                 if (source.mode == EndpointRef.AccessMode.OUTPUT && world.getTileEntity(src) instanceof TileEntityGolemCrafter) {
-                    pulled = harvestLikeToBufferFromOutputCrafter((TileEntityGolemCrafter) world.getTileEntity(src), like, needBeforePull);
+                    pulled = harvestLikeToBufferFromOutputCrafter(
+                            (TileEntityGolemCrafter) world.getTileEntity(src),
+                            like,
+                            remainingNeedForBuffer
+                    );
                 } else {
-                    pulled = harvestLikeToBufferFromHandler(src, -1, like, needBeforePull);
+                    pulled = harvestLikeToBufferFromHandler(src, -1, like, remainingNeedForBuffer);
                 }
             } else {
-                /*
-                 * source == manager direct:
-                 * это случай "взять со складов/провайдеров в буфер менеджера".
-                 */
-                pulled = pullLikeFromProvideSetToBuffer(like, needBeforePull);
+                pulled = pullLikeFromProvideSetToBuffer(like, remainingNeedForBuffer);
             }
 
-            int bufferedAfterPull = countInManagerBufferLike(like);
-            int queuedToManager = countQueuedFor(this.pos, like);
-            int covered = bufferedAfterPull + queuedToManager;
-            int stillNeed = Math.max(0, amount - covered);
+            int coveredAfterPull = countCoveredForManagerBuffer(key, amount);
+            int stillNeed = Math.max(0, amount - coveredAfterPull);
 
             if (stillNeed > 0) {
                 LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
                 needs.put(key, stillNeed);
-
-                /*
-                 * Кладём недостачу не в dst как в обычной доставке,
-                 * а именно в delivery-очередь менеджера.
-                 */
                 ensureDeliveryForExact(this.pos, needs, queueId);
             }
 
-            int coveredAfterQueue = countInManagerBufferLike(like) + countQueuedFor(this.pos, like);
-            return pulled > 0 || coveredAfterQueue >= amount || countQueuedFor(this.pos, like) > 0;
+            return pulled > 0 || countQueuedFor(this.pos, like) > 0 || countCoveredForManagerBuffer(key, amount) >= amount;
         }
 
         /*
          * 3) Обычная доставка "... -> конечная цель"
+         *
+         * Критический фикс:
+         * из source тянем не amount, а только столько, сколько реально ещё нужно цели,
+         * за вычетом уже имеющегося в буфере менеджера.
          */
+        int bufferedNow = countInManagerBufferLike(like);
+        int needAfterBuffer = Math.max(0, remainingNeedAtTarget - bufferedNow);
+
         int pulled = 0;
-        if (!src.equals(this.pos)) {
-            if (source.mode == EndpointRef.AccessMode.OUTPUT && world.getTileEntity(src) instanceof TileEntityGolemCrafter) {
-                pulled = harvestLikeToBufferFromOutputCrafter((TileEntityGolemCrafter) world.getTileEntity(src), like, amount);
+        if (needAfterBuffer > 0) {
+            if (!src.equals(this.pos)) {
+                if (source.mode == EndpointRef.AccessMode.OUTPUT && world.getTileEntity(src) instanceof TileEntityGolemCrafter) {
+                    pulled = harvestLikeToBufferFromOutputCrafter(
+                            (TileEntityGolemCrafter) world.getTileEntity(src),
+                            like,
+                            needAfterBuffer
+                    );
+                } else {
+                    pulled = harvestLikeToBufferFromHandler(src, -1, like, needAfterBuffer);
+                }
             } else {
-                pulled = harvestLikeToBufferFromHandler(src, -1, like, amount);
+                pulled = pullLikeFromProvideSetToBuffer(like, needAfterBuffer);
             }
-        } else {
-            pulled = pullLikeFromProvideSetToBuffer(like, amount);
         }
 
-        int movedNow = pushFromBufferTo(dst, -1, like, amount);
+        int bufferedAfterPull = countInManagerBufferLike(like);
+        int canPushNow = Math.min(remainingNeedAtTarget, bufferedAfterPull);
 
-        int stillNeed = Math.max(0, amount - movedNow);
+        int movedNow = 0;
+        if (canPushNow > 0) {
+            movedNow = pushFromBufferTo(dst, -1, like, canPushNow);
+        }
+
+        int coveredAfterPush = countCoveredAtTarget(target, key, amount);
+        int stillNeed = Math.max(0, amount - coveredAfterPush);
+
         if (stillNeed > 0) {
             LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
             needs.put(key, stillNeed);

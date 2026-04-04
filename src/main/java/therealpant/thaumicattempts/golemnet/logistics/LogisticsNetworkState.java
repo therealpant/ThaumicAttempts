@@ -904,11 +904,18 @@ public class LogisticsNetworkState {
             boolean hasTasks = false;
             boolean craftDone = !order.recipePath;
             boolean outputDone = !order.recipePath || order.creationOutputMode == CreationOutputMode.LEAVE_IN_CRAFTER;
+            long actualCompleted = 0L;
+            int runningTasks = 0;
 
             for (UUID tid : order.taskIds) {
                 RuntimeTask t = runtimeTasks.get(tid);
                 if (t == null) continue;
                 hasTasks = true;
+                if (!isTerminalTask(t.status)) runningTasks++;
+
+                if (contributesToOrderProgress(order, t)) {
+                    actualCompleted += Math.max(0L, t.completedAmount);
+                }
 
                 if (t.status == TaskStatus.FAILED || t.status == TaskStatus.CANCELED) {
                     order.status = OrderStatus.FAILED;
@@ -922,6 +929,8 @@ public class LogisticsNetworkState {
                     order.lastError = "task-failed:" + tid;
                     LOG.warn("[Logistics {}] order failed={} task={} status={}",
                             manager.getPos(), order.orderId, tid, t.status);
+                    LOG.warn("[Logistics {}] order={} reason=task-terminal amount={} completed={} runningTasks={}",
+                            manager.getPos(), order.orderId, order.requestedAmount, Math.max(0L, actualCompleted), runningTasks);
                     allDone = false;
                     break;
                 }
@@ -936,6 +945,9 @@ public class LogisticsNetworkState {
                 continue;
             }
 
+            order.completedAmount = (int) Math.min(order.requestedAmount, Math.max(0L, actualCompleted));
+            int remaining = Math.max(0, order.requestedAmount - order.completedAmount);
+
             if (!hasTasks) {
                 order.status = OrderStatus.FAILED;
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
@@ -948,9 +960,11 @@ public class LogisticsNetworkState {
                 removeOrderFromDedup(order.orderId);
                 order.lastError = "no-runtime-tasks";
                 LOG.warn("[Logistics {}] order failed={} reason=no-runtime-tasks", manager.getPos(), order.orderId);
+                LOG.warn("[Logistics {}] order={} status=FAILED amount={} completed={} remaining={} runningTasks={}",
+                        manager.getPos(), order.orderId, order.requestedAmount, order.completedAmount, remaining, runningTasks);
             } else if (order.recipePath && (!craftDone || !outputDone)) {
                 allDone = false;
-            } else if (allDone) {
+            } else if (allDone && order.completedAmount >= order.requestedAmount) {
                 order.status = OrderStatus.DONE;
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
@@ -960,9 +974,8 @@ public class LogisticsNetworkState {
                     }
                 }
                 removeOrderFromDedup(order.orderId);
-                order.completedAmount = order.requestedAmount;
-                LOG.info("[Logistics {}] order finalized done={} key={} amount={} recipePath={}",
-                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.recipePath);
+                LOG.info("[Logistics {}] order={} status=DONE reason=completed-amount-reached key={} amount={} completed={} remaining=0 recipePath={}",
+                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.completedAmount, order.recipePath);
             } else if (order.status == OrderStatus.FAILED || order.status == OrderStatus.CANCELED) {
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
@@ -975,9 +988,22 @@ public class LogisticsNetworkState {
             } else if (order.status == OrderStatus.PLANNING || order.status == OrderStatus.NEW) {
                 order.status = OrderStatus.RUNNING;
             }
+            if (order.status == OrderStatus.RUNNING || order.status == OrderStatus.WAITING_INPUTS) {
+                LOG.info("[Logistics {}] order={} status={} amount={} completed={} remaining={} runningTasks={} recipePath={}",
+                        manager.getPos(), order.orderId, order.status, order.requestedAmount, order.completedAmount, remaining, runningTasks, order.recipePath);
+            }
 
             order.updatedTick = manager.getServerTickCounter();
         }
+    }
+
+    private boolean contributesToOrderProgress(NetworkOrder order, RuntimeTask task) {
+        if (order == null || task == null) return false;
+        if (order.orderKind == NetworkOrder.OrderKind.CREATION
+                && order.creationOutputMode == CreationOutputMode.LEAVE_IN_CRAFTER) {
+            return "execute-craft".equals(task.metaPurpose);
+        }
+        return "deliver-output".equals(task.metaPurpose);
     }
 
     private void removeOrderFromDedup(UUID orderId) {
