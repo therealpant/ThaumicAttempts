@@ -483,11 +483,25 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return new ArrayList<>(activeMirrors);
     }
 
-    // Курьер принёс предметы для этого менеджера.
-    // Возвращает остаток, который не влез.
     public ItemStack acceptProvisionResult(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return ItemStack.EMPTY;
-        return silentInsertToBuffer(stack);
+
+        ItemStack before = stack.copy();
+        ItemStack rem = silentInsertToBuffer(stack);
+
+        int accepted = before.getCount() - (rem.isEmpty() ? 0 : rem.getCount());
+        if (accepted > 0) {
+            onArrivedToBuffer(before, accepted);
+
+            Batch b = peekNextBatch();
+            if (b != null) {
+                processBatchHead(b);
+            }
+
+            markDirtyAndSync();
+        }
+
+        return rem;
     }
 
     /**
@@ -1956,9 +1970,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (pushed0 > 0) {
             markDeliveryHappened();
             ln.remaining -= pushed0;
-            if (ln.reserved > 0) ln.reserved = Math.max(0, ln.reserved - pushed0);
             lastProgressTick.put(key, tickCounter);
-            if (ln.remaining <= 0) return new LineProcessResult(true, 0);
+
+            if (ln.remaining <= 0) {
+                return new LineProcessResult(true, 0);
+            }
         }
 
         boolean toCrafter = world.getTileEntity(b.dest) instanceof TileEntityGolemCrafter;
@@ -1966,6 +1982,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         int flying = inflight.getOrDefault(key, 0);
         int queuedAll = countQueuedFor(b.dest, ln.wanted1);
         int queuedOthers = Math.max(0, queuedAll - ln.remaining);
+        int lastReq = lastReqTick.getOrDefault(key, -9999);
+
+        if (flying > 0 && tickCounter - lastReq > STALL_TICKS) {
+            inflight.put(key, 0);
+            flying = 0;
+            if (ln.reserved > 0) {
+                releaseDispatcherGolems(ln.reserved);
+                ln.reserved = 0;
+            }
+            lastReqTick.put(key, tickCounter - REQ_DEBOUNCE_TICKS);
+        }
 
         int need;
         if (toCrafter) {
@@ -1980,22 +2007,26 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 lastReqTick.put(key, tickCounter - REQ_DEBOUNCE_TICKS);
                 lastProgressTick.put(key, tickCounter);
             }
-            int reservedHere = Math.max(0, Math.min(ln.reserved, ln.remaining));
-            int covered = queuedOthers + Math.max(flying, reservedHere);
-            need = (covered >= ln.remaining) ? 0 : (ln.remaining - covered);
+
+            int covered = queuedOthers + flying;
+            need = Math.max(0, ln.remaining - covered);
         } else {
             int lp = lastProgressTick.getOrDefault(key, -9999);
-            if (tickCounter - lp > STALL_TICKS) {
+            if (tickCounter - lp > STALL_TICKS && (ln.reserved > 0 || flying > 0)) {
                 inflight.put(key, 0);
                 flying = 0;
+
                 int reservedBefore = ln.reserved;
                 ln.reserved = 0;
-                releaseDispatcherGolems(reservedBefore);
-                releaseDispatcherGolem();
+                if (reservedBefore > 0) {
+                    releaseDispatcherGolems(reservedBefore);
+                }
+
+                lastReqTick.put(key, tickCounter - REQ_DEBOUNCE_TICKS);
+                lastProgressTick.put(key, tickCounter);
             }
-            int reservedHere = Math.max(0, Math.min(ln.reserved, ln.remaining));
-            int accounted = Math.max(flying, reservedHere);
-            need = Math.max(0, ln.remaining - accounted);
+
+            need = Math.max(0, ln.remaining - flying);
         }
 
         int reservationsCommitted = 0;
@@ -3547,13 +3578,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     if (!match) continue;
 
                     int take = Math.min(left, ln.remaining);
-                    int beforeReserved = ln.reserved;
                     ln.remaining -= take;
-                    if (ln.reserved > ln.remaining) {
-                        ln.reserved = Math.max(0, ln.remaining);
+
+                    if (ln.remaining <= 0) {
+                        if (ln.reserved > 0) {
+                            releaseDispatcherGolems(ln.reserved);
+                            ln.reserved = 0;
+                        }
+                        itL.remove();
                     }
-                    int released = Math.max(0, beforeReserved - ln.reserved);
-                    if (released > 0) releaseDispatcherGolems(released);
+
                     left -= take;
                     if (ln.remaining <= 0) itL.remove();
                 }
