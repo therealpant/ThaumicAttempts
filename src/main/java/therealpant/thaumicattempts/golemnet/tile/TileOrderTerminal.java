@@ -541,28 +541,11 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     public void onDelivered(ItemStack like, int count) {
         if (like == null || like.isEmpty() || count <= 0) return;
 
-        int left = count;
 
         ItemKey keyDel = findMatchingKeyRelaxed(pendingDelivery, like);
-        if (keyDel != null) {
-            int have = Math.max(0, pendingDelivery.getOrDefault(keyDel, 0));
-            if (have > 0) {
-                int take = Math.min(have, left);
-                addToMap(pendingDelivery, keyDel, -take);
-                left -= take;
+        int left = count;
 
-                if (!pendingDelivery.containsKey(keyDel)) {
-                    deliveryBaselines.remove(keyDel);
-                } else {
-                    int base = Math.max(0, deliveryBaselines.getOrDefault(keyDel, 0));
-                    int haveInBuf = Math.max(0, countInBufferLike(like));
-                    int newBase = Math.min(base + take, haveInBuf);
-                    deliveryBaselines.put(keyDel, newBase);
-                }
-            }
-        }
-
-        if (left > 0) {
+        if (keyDel == null && left > 0) {
             ItemKey keyCr = findMatchingKeyRelaxed(pendingCraft, like);
             if (keyCr != null) {
                 int have = Math.max(0, pendingCraft.getOrDefault(keyCr, 0));

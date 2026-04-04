@@ -976,6 +976,16 @@ public class LogisticsNetworkState {
                 removeOrderFromDedup(order.orderId);
                 LOG.info("[Logistics {}] order={} status=DONE reason=completed-amount-reached key={} amount={} completed={} remaining=0 recipePath={}",
                         manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.completedAmount, order.recipePath);
+            } else if (allDone) {
+                /*
+                 * Все runtime-task завершились, но требуемое количество не достигнуто.
+                 * Если оставить RUNNING, заказ зависает навсегда без живых задач.
+                 */
+                order.status = OrderStatus.FAILED;
+                order.lastError = "incomplete-delivery:" + order.requestedKey + ":" + order.completedAmount + "/" + order.requestedAmount;
+                removeOrderFromDedup(order.orderId);
+                LOG.warn("[Logistics {}] order={} status=FAILED reason=incomplete-after-all-tasks key={} amount={} completed={} remaining={} recipePath={}",
+                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.completedAmount, remaining, order.recipePath);
             } else if (order.status == OrderStatus.FAILED || order.status == OrderStatus.CANCELED) {
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
