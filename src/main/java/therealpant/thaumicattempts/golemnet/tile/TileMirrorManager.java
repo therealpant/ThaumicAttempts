@@ -2378,6 +2378,51 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return submitOrder(key, amount, sourceType, sourcePos, returnDestination, NetworkOrder.RequestIntent.NORMAL);
     }
 
+    public boolean canAcceptCraftRequest(ItemKey key, int amount) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return false;
+        logistics.refreshRecipeIndex(this);
+
+        TileSequentialCraftPlanner planner = getActiveSequentialPlanner();
+        if (planner != null && planner.isActivePlanner()) {
+            return planner.canPlanDemand(this, key, amount);
+        }
+
+        return isDirectCraftAvailable(key);
+    }
+
+    @Nullable
+    public UUID submitCraftRequest(ItemKey key,
+                                   int amount,
+                                   OrderSourceType sourceType,
+                                   BlockPos sourcePos,
+                                   @Nullable BlockPos returnDestination,
+                                   NetworkOrder.RequestIntent intent) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
+        logistics.refreshRecipeIndex(this);
+
+        TileSequentialCraftPlanner planner = getActiveSequentialPlanner();
+        if (planner != null && planner.isActivePlanner()) {
+            if (!planner.canPlanDemand(this, key, amount)) {
+                return null;
+            }
+            UUID planned = planner.planAndSubmitRootDemand(this, key, amount, sourcePos, returnDestination, intent);
+            if (planned != null) {
+                markDirty();
+            }
+            return planned;
+        }
+
+        if (!isDirectCraftAvailable(key)) {
+            return null;
+        }
+
+        UUID id = logistics.submitOrder(this, key, amount, sourceType, sourcePos, returnDestination, null, 0, "craft-submit", intent);
+        if (id != null) {
+            markDirty();
+        }
+        return id;
+    }
+
     public UUID submitOrder(ItemKey key, int amount, OrderSourceType sourceType, BlockPos sourcePos,
                             @Nullable BlockPos returnDestination, NetworkOrder.RequestIntent intent) {
         if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return null;
@@ -2396,6 +2441,22 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         markDirty();
         return id;
     }
+
+    private boolean isDirectCraftAvailable(ItemKey key) {
+        if (key == null || key == ItemKey.EMPTY) return false;
+        List<ItemStack> craftables = getCraftablesCatalog();
+        if (craftables == null || craftables.isEmpty()) return false;
+
+        ItemStack like = key.toStack(1);
+        for (ItemStack out : craftables) {
+            if (out == null || out.isEmpty()) continue;
+            if (ResourceIdentity.sameResource(out, like)) {
+                return true;
+            }
+        }
+        return false;
+    }
+
 
     @Nullable
     private TileSequentialCraftPlanner getActiveSequentialPlanner() {

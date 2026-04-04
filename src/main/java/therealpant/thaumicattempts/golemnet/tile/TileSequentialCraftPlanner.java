@@ -139,7 +139,6 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             );
         }
 
-        UUID finalOrder = null;
         int intermediateSteps = 0;
 
         for (Map.Entry<ItemKey, Integer> e : steps.entrySet()) {
@@ -164,7 +163,7 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             intermediateSteps++;
         }
 
-        finalOrder = manager.submitOrder(
+        UUID finalOrder = manager.submitOrder(
                 key,
                 Math.max(1, finalPlannedAmount > 0 ? finalPlannedAmount : amount),
                 OrderSourceType.PLANNER,
@@ -179,8 +178,8 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             return null;
         }
 
-        LOG.info("[Planner {}] standard craft-order chain submitted key={} amount={} intermediateSteps={} finalOrder={}",
-                pos, key, amount, intermediateSteps, finalOrder);
+        LOG.info("[Planner {}] standard craft-order chain submitted key={} amount={} intermediateSteps={} intermediates={} finalOrder={}",
+                pos, key, amount, intermediateSteps, steps, finalOrder);
 
         return finalOrder;
     }

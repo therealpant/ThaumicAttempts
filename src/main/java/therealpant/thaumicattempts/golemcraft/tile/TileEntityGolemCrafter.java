@@ -670,7 +670,13 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
 
         int amount = Math.max(1, preview.getCount()) * Math.max(1, repeats);
-        UUID id = manager.submitOrder(
+        if (!manager.canAcceptCraftRequest(key, amount)) {
+            LOG.info("[Crafter {}] redstone root-order rejected: craft request cannot be accepted managerPos={} key={} amount={} patternIndex={} repeats={}",
+                    pos, managerPos, key, amount, idx, repeats);
+            return false;
+        }
+
+        UUID id = manager.submitCraftRequest(
                 key,
                 amount,
                 OrderSourceType.REDSTONE_CRAFTER,
