@@ -81,6 +81,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
     private static final int  CRAFT_CAP       = 128;
     private static final int  CRAFT_SUCTION   = 128;
+    private static final int  BATCH_OUTPUT_LIMIT = 32;
 
     private int lastSignal = 0; // 0..15, чтобы ловить фронт 0->N
 
@@ -92,9 +93,19 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     private UUID managerRedstoneOrderId = null;
 
 
-    // Очередь запусков от реквестера (индексы паттернов, 0-based)
-    private final java.util.Deque<Integer> requesterQueue = new java.util.ArrayDeque<>();
-    private final java.util.Deque<Integer> managedExecutionQueue = new java.util.ArrayDeque<>();
+    private static final class JobRequest {
+        final int patternIndex;
+        final int outputItems;
+
+        JobRequest(int patternIndex, int outputItems) {
+            this.patternIndex = patternIndex;
+            this.outputItems = Math.max(1, outputItems);
+        }
+    }
+
+    // Очередь запусков от реквестера/менеджера (индекс паттерна + итоговые предметы)
+    private final java.util.Deque<JobRequest> requesterQueue = new java.util.ArrayDeque<>();
+    private final java.util.Deque<JobRequest> managedExecutionQueue = new java.util.ArrayDeque<>();
     // Флаг: текущая работа запущена от реквестера (чтобы подавить самопровизию)
     private boolean jobViaRequester = false;
     private boolean jobViaManagerAssignment = false;
@@ -109,12 +120,21 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
     /** Буфер эссенции. */
     private int craftAmount = 0;
+    private int essentiaDebt = 0;
     private int costRemaining = 0;
 
-    /** Активен ли единичный цикл. */
+    /** Активен ли единичный заказ.. */
     private boolean jobActive = false;
-    private int jobRepeatLeft = 1;
-    private int jobRepeatTotal = 1;
+    private int totalCraftsRemainingForOrder = 0;
+    private int totalCraftsInitialForOrder = 0;
+    private int totalOrderOutputRemainingItems = 0;
+    private int totalOrderOutputInitialItems = 0;
+
+    private int activeBatchCraftsRemaining = 0;
+    private int activeBatchCraftsTotal = 0;
+    private int activeBatchOutputItems = 0;
+    private int activeBatchOutputPerCraft = 1;
+    private int activeBatchEssentiaDebt = 0;
 
     /** Какой слот-паттерн выбрали при старте цикла. */
     int jobPatternIndex = -1;
@@ -211,9 +231,13 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (patternIndex < 0 || patternIndex >= PATTERN_SLOTS) return 0;
         if (!patternIndexValid(patternIndex)) return 0;
         int n = Math.max(1, times);
-        for (int i = 0; i < n; i++) requesterQueue.addLast(patternIndex);
+        ItemStack pattern = patterns.getStackInSlot(patternIndex);
+        NonNullList<ItemStack> grid = getGrid(pattern);
+        ItemStack preview = getCraftPreview(pattern, grid);
+        int perCraft = Math.max(1, preview.getCount());
+        requesterQueue.addLast(new JobRequest(patternIndex, n * perCraft));
         markDirty();
-        return n;
+        return n * perCraft;
     }
 
     public void dropContents() {
@@ -264,33 +288,32 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (preview.isEmpty()) return 0;
 
         int perCraft = Math.max(1, preview.getCount());
-        int crafts = Math.max(1, (amount + perCraft - 1) / perCraft);
-        for (int i = 0; i < crafts; i++) managedExecutionQueue.addLast(patternIndex);
+        managedExecutionQueue.addLast(new JobRequest(patternIndex, amount));
         markDirty();
-        return crafts * perCraft;
+        return amount;
     }
 
     private void tryStartNextManagedJob() {
         if (jobActive) return;
-        Integer next = managedExecutionQueue.pollFirst();
+        JobRequest next = managedExecutionQueue.pollFirst();
         if (next == null) return;
-        if (!patternIndexValid(next)) return;
+        if (!patternIndexValid(next.patternIndex)) return;
 
         this.suppressSelfProvision = true;
         this.jobViaRequester = false;
         this.jobViaManagerAssignment = true;
-        startOneCraftCycle(next);
+        startOneCraftCycle(next.patternIndex, next.outputItems);
     }
 
     private void tryStartNextRequesterJob() {
         if (jobActive) return;
-        Integer next = requesterQueue.pollFirst();
+        JobRequest next = managedExecutionQueue.pollFirst();
         if (next == null) return;
-        if (!patternIndexValid(next)) return;
+        if (!patternIndexValid(next.patternIndex)) return;
 
         this.suppressSelfProvision = true; // от реквестера — без заявок снабжения
         this.jobViaRequester = true;
-        startOneCraftCycle(next);
+        startOneCraftCycle(next.patternIndex, next.outputItems);
     }
 
 
@@ -388,7 +411,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return have;
     }
 
-    protected boolean hasAllForGrid(NonNullList<ItemStack> grid) {
+    protected boolean hasAllForGrid(NonNullList<ItemStack> grid, int crafts) {
         ItemStack pat = (this.jobPatternIndex >= 0 && this.jobPatternIndex < PATTERN_SLOTS)
                 ? this.patterns.getStackInSlot(this.jobPatternIndex) : ItemStack.EMPTY;
 
@@ -397,16 +420,21 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             need = PatternResourceList.aggregate(grid, false);
         }
         if (need == null || need.isEmpty()) return false;
+
         for (PatternResourceList.Entry entry : need) {
             if (entry == null) continue;
+
             ItemStack key = entry.getKeyStack();
             if (key == null || key.isEmpty()) continue;
-            if (countInInput(key) < entry.getCount()) return false;
+
+            int required = Math.max(0, entry.getCount() * Math.max(1, crafts));
+
+            if (countInInput(key) < required) return false;
         }
         return true;
     }
 
-    protected void consumeForGrid(NonNullList<ItemStack> grid) {
+    protected void consumeForGrid(NonNullList<ItemStack> grid, int crafts) {
         ItemStack pat = (this.jobPatternIndex >= 0 && this.jobPatternIndex < PATTERN_SLOTS)
                 ? this.patterns.getStackInSlot(this.jobPatternIndex) : ItemStack.EMPTY;
         List<PatternResourceList.Entry> need = PatternResourceList.build(pat);
@@ -417,7 +445,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
         for (PatternResourceList.Entry entry : need) {
             if (entry == null) continue;
-            int left = entry.getCount();
+            int left = Math.max(0, entry.getCount() * Math.max(1, crafts));
             ItemStack key = entry.getKeyStack();
             if (key == null || key.isEmpty()) continue;
             for (int i = 0; i < input.getSlots() && left > 0; i++) {
@@ -503,7 +531,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (drawDelay < ESSENTIA_PULL_INTERVAL) return false;
         drawDelay = 0;
 
-        if (craftAmount >= CRAFT_CAP) return false;
+        if (craftAmount >= CRAFT_CAP && essentiaDebt <= 0) return false;
 
         boolean pulled = false;
         for (EnumFacing inFace : ESSENTIA_INPUT_FACES) {
@@ -518,9 +546,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             if (ic.getSuctionAmount(opp) < this.getSuctionAmount(inFace)) {
                 int taken = ic.takeEssentia(requiredAspect, 1, opp);
                 if (taken > 0) {
-                    craftAmount = Math.min(CRAFT_CAP, craftAmount + taken);
+                    acceptIncomingEssentia(taken);
                     pulled = true;
-                    waitingForEssentia = false;
                     break;
                 }
             }
@@ -533,48 +560,82 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return pulled;
     }
 
+    private int acceptIncomingEssentia(int incoming) {
+        int toApply = Math.max(0, incoming);
+        int debtPaid = 0;
+        if (toApply > 0 && essentiaDebt > 0) {
+            debtPaid = Math.min(toApply, essentiaDebt);
+            essentiaDebt -= debtPaid;
+            toApply -= debtPaid;
+            if (activeBatchCraftsRemaining <= 0) {
+                activeBatchEssentiaDebt = essentiaDebt;
+            }
+        }
+        if (toApply > 0) {
+            craftAmount = Math.min(CRAFT_CAP, craftAmount + toApply);
+        }
+        waitingForEssentia = false;
+        LOG.info("[Crafter {}] essentia incoming incoming={} debtPaid={} newDebt={} newCraftAmount={}",
+                pos, incoming, debtPaid, essentiaDebt, craftAmount);
+        return incoming - toApply;
+    }
+
     /** Пытается списать до amt единиц эссенции. Возвращает true, если чанк оплачен полностью. */
     private boolean tryPayEssentiaChunk(int amt) {
         if (amt <= 0) return true;
 
-        if (craftAmount <= 0) {
-            waitingForEssentia = true;
-            return false;
-        }
-
-        int take = Math.min(amt, craftAmount);
+        int take = Math.min(amt, Math.max(0, craftAmount));
         craftAmount -= take;
-        costRemaining = Math.max(0, costRemaining - take);
-
-        if (take < amt) {
-            waitingForEssentia = true;
-        } else {
-            waitingForEssentia = false;
+        int missing = Math.max(0, amt - take);
+        if (missing > 0 && activeBatchCraftsRemaining > 0) {
+            essentiaDebt += missing;
+            activeBatchEssentiaDebt = essentiaDebt;
         }
-
+        costRemaining = Math.max(0, costRemaining - amt);
+        waitingForEssentia = (activeBatchCraftsRemaining <= 0) && (craftAmount <= 0 || essentiaDebt > 0);
         markDirty();
         pingNeighbors();
-        return take >= amt;
+        return true;
     }
 
 
     // ===== Выход =====
-    private boolean canAcceptResult(ItemStack result) {
-        if (result == null || result.isEmpty()) return false;
-        ItemStack left = result.copy();
-        // симуляцией проверяем, что ВСЯ стопка влезет в output (в любую комбинацию слотов)
-        for (int i = 0; i < output.getSlots(); i++) {
-            left = output.insertItem(i, left, true); // simulate = true
-            if (left.isEmpty()) return true;
+    private List<ItemStack> buildBatchResultStackList(ItemStack preview, int totalOutputItems) {
+        List<ItemStack> stacks = new ArrayList<>();
+        if (preview == null || preview.isEmpty() || totalOutputItems <= 0) return stacks;
+        int maxStack = Math.max(1, preview.getMaxStackSize());
+        int left = totalOutputItems;
+        while (left > 0) {
+            int take = Math.min(left, maxStack);
+            ItemStack part = preview.copy();
+            part.setCount(take);
+            stacks.add(part);
+            left -= take;
         }
-        return false;
+        return stacks;
     }
-    private void pushResult(ItemStack result) {
-        if (result == null || result.isEmpty()) return;
-        ItemStack left = result.copy();
-        for (int i = 0; i < output.getSlots(); i++) {
-            left = output.insertItem(i, left, false); // реальная вставка
-            if (left.isEmpty()) return;
+
+    private boolean canAcceptBatchResult(List<ItemStack> stacks) {
+        if (stacks == null || stacks.isEmpty()) return false;
+        for (ItemStack s : stacks) {
+            if (s == null || s.isEmpty()) continue;
+            ItemStack left = s.copy();
+            for (int i = 0; i < output.getSlots(); i++) {
+                left = output.insertItem(i, left, true);
+                if (left.isEmpty()) break;
+            }
+            if (!left.isEmpty()) return false;
+        }
+        return true;
+    }
+    private void pushBatchResult(List<ItemStack> stacks) {
+        if (stacks == null || stacks.isEmpty()) return;
+        for (ItemStack s : stacks) {
+            ItemStack left = s.copy();
+            for (int i = 0; i < output.getSlots(); i++) {
+                left = output.insertItem(i, left, false);
+                if (left.isEmpty()) break;
+            }
         }
     }
 
@@ -779,7 +840,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                             pos, submitted, idx, managerMode, managerPos, managerRedstoneOrderId);
                 } else {
                     this.suppressSelfProvision = false;
-                    startOneCraftCycle(idx, repeats);
+                    int outputItems = Math.max(1, previewForPattern(idx).getCount()) * Math.max(1, repeats);
+                    startOneCraftCycle(idx, outputItems);
                     LOG.info("[Crafter {}] redstone started legacy/local cycle selectedPatternIndex={} repeats={} managerMode={} managerPos={}",
                             pos, idx, repeats, managerMode, managerPos);
                 }
@@ -792,13 +854,30 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     }
 
 
-    protected void startOneCraftCycle(int idx, int repeats) {
+    private ItemStack previewForPattern(int idx) {
+        if (idx < 0 || idx >= PATTERN_SLOTS) return ItemStack.EMPTY;
+        ItemStack pat = patterns.getStackInSlot(idx);
+        if (pat.isEmpty()) return ItemStack.EMPTY;
+        return getCraftPreview(pat, getGrid(pat));
+    }
+
+    protected void startOneCraftCycle(int idx, int outputItems) {
         this.costRemaining = 0;
 
         jobActive = true;
         jobPatternIndex = idx;
-        jobRepeatTotal = Math.max(1, repeats);
-        jobRepeatLeft = jobRepeatTotal;
+        ItemStack preview = previewForPattern(idx);
+        int perCraft = Math.max(1, preview.getCount());
+        totalOrderOutputInitialItems = Math.max(1, outputItems);
+        totalOrderOutputRemainingItems = totalOrderOutputInitialItems;
+        totalCraftsInitialForOrder = Math.max(1, (totalOrderOutputInitialItems + perCraft - 1) / perCraft);
+        totalCraftsRemainingForOrder = totalCraftsInitialForOrder;
+        activeBatchCraftsRemaining = 0;
+        activeBatchCraftsTotal = 0;
+        activeBatchOutputItems = 0;
+        activeBatchOutputPerCraft = perCraft;
+        activeBatchEssentiaDebt = 0;
+
 
         seq.clear();
         step = 0;
@@ -817,7 +896,9 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     }
 
     protected void startOneCraftCycle(int idx) {
-        startOneCraftCycle(idx, 1);
+        ItemStack preview = previewForPattern(idx);
+        int perCraft = Math.max(1, preview.getCount());
+        startOneCraftCycle(idx, perCraft);
     }
 
 
@@ -859,38 +940,55 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             return;
         }
 
-        if (costRemaining <= 0) {
-            costRemaining = getPerCraftCost(pat, grid);
+        if (activeBatchCraftsRemaining <= 0) {
+            if (totalCraftsRemainingForOrder <= 0 || totalOrderOutputRemainingItems <= 0) {
+                finishJob();
+                return;
+            }
+            if (essentiaDebt > 0 || craftAmount <= 0) {
+                long now = world.getTotalWorldTime();
+                if (lastEssentiaWaitLogTime == 0L || now - lastEssentiaWaitLogTime >= 40L) {
+                    LOG.info("[Crafter {}] waiting next batch due to essentia gate craftAmount={} essentiaDebt={} remainingOrderItems={}",
+                            pos, craftAmount, essentiaDebt, totalOrderOutputRemainingItems);
+                    lastEssentiaWaitLogTime = now;
+                }
+                waitingForEssentia = true;
+                return;
+            }
+
+            int outputPerCraft = Math.max(1, preview.getCount());
+            int craftsPerBatch = Math.max(1, (BATCH_OUTPUT_LIMIT + outputPerCraft - 1) / outputPerCraft);
+            int maxByItems = Math.max(1, (totalOrderOutputRemainingItems + outputPerCraft - 1) / outputPerCraft);
+            activeBatchCraftsTotal = Math.max(1, Math.min(totalCraftsRemainingForOrder, Math.min(craftsPerBatch, maxByItems)));
+            activeBatchCraftsRemaining = activeBatchCraftsTotal;
+            activeBatchOutputPerCraft = outputPerCraft;
+            activeBatchOutputItems = Math.min(totalOrderOutputRemainingItems, activeBatchCraftsTotal * outputPerCraft);
+            activeBatchEssentiaDebt = essentiaDebt;
+            seq.clear();
+            rebuildSequence(pat, grid);
+            step = 0;
+            stalledJobTicks = 0;
+            LOG.info("[Crafter {}] batch start patternIndex={} outputPerCraft={} craftsInBatch={} batchOutputItems={} craftAmount={} essentiaDebt={}",
+                    pos, jobPatternIndex, outputPerCraft, activeBatchCraftsTotal, activeBatchOutputItems, craftAmount, essentiaDebt);
         }
 
-        if (isAllInputsReadyForJob()) {
-            step = seq.size();
-        }
+        if (costRemaining <= 0) costRemaining = getPerCraftCost(pat, grid) * Math.max(1, activeBatchCraftsTotal);
+
+        if (isAllInputsReadyForJob()) step = seq.size();
 
         // ----- Поочередная проверка входов и оплата по типам -----
         if (step < seq.size()) {
             Req r = seq.get(step);
             int have = countInInput(r.key1);
-            int repeats = Math.max(1, jobRepeatLeft);
+            int repeats = Math.max(1, activeBatchCraftsRemaining);
             int totalNeed = r.count * repeats;
 
             if (have >= totalNeed) {
-                int chunk = Math.max(1, perTypeEssentia);
-                if (tryPayEssentiaChunk(chunk)) {
-                    waitingForEssentia = false;
-                    stalledJobTicks = 0;
-                    step++;
-                } else {
-                    waitingForEssentia = true;
-
-                    long now = world.getTotalWorldTime();
-                    if (lastEssentiaWaitLogTime == 0L || now - lastEssentiaWaitLogTime >= 40L) {
-                        LOG.info("[Crafter {}] waiting for essentia during step payment step={} patternIndex={} craftAmount={} costRemaining={} requiredAspect={}",
-                                pos, step, jobPatternIndex, craftAmount, costRemaining, requiredAspect);
-                        lastEssentiaWaitLogTime = now;
-                    }
-                    return;
-                }
+                int chunk = Math.max(1, perTypeEssentia) * Math.max(1, activeBatchCraftsRemaining);
+                tryPayEssentiaChunk(chunk);
+                waitingForEssentia = false;
+                stalledJobTicks = 0;
+                step++;
             } else {
                 waitingForEssentia = false;
 
@@ -939,7 +1037,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                 }
             }
 
-            if (!hasAllForGrid(grid)) {
+            if (!hasAllForGrid(grid, activeBatchCraftsTotal)) {
                 if (stalledJobTicks == 40 || stalledJobTicks == 100 || stalledJobTicks % 200 == 0) {
                     LOG.info("[Crafter {}] final phase waiting for inputs patternIndex={} costRemaining={} craftAmount={}",
                             pos, jobPatternIndex, costRemaining, craftAmount);
@@ -947,13 +1045,14 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                 return;
             }
 
-            if (!canAcceptResult(preview)) {
+            List<ItemStack> batchResult = buildBatchResultStackList(preview, activeBatchOutputItems);
+            if (!canAcceptBatchResult(batchResult)) {
                 waitingForOutputSpace = true;
 
                 long now = world.getTotalWorldTime();
                 if (lastOutputWaitLogTime == 0L || now - lastOutputWaitLogTime >= 40L) {
-                    LOG.info("[Crafter {}] waiting for output space patternIndex={} preview={} outputSlots={} costRemaining={}",
-                            pos, jobPatternIndex, preview, output.getSlots(), costRemaining);
+                    LOG.info("[Crafter {}] waiting for output space patternIndex={} batchOutputItems={} outputSlots={} costRemaining={}",
+                            pos, jobPatternIndex, activeBatchOutputItems, output.getSlots(), costRemaining);
                     lastOutputWaitLogTime = now;
                 }
                 return;
@@ -961,23 +1060,32 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                 waitingForOutputSpace = false;
             }
 
-            consumeForGrid(grid);
-            pushResult(preview);
+            int finishedBatchOutput = activeBatchOutputItems;
+            int finishedBatchCrafts = activeBatchCraftsTotal;
+            consumeForGrid(grid, finishedBatchCrafts);
+            pushBatchResult(batchResult);
 
-            jobRepeatLeft = Math.max(0, jobRepeatLeft - 1);
+            totalCraftsRemainingForOrder = Math.max(0, totalCraftsRemainingForOrder - finishedBatchCrafts);
+            totalOrderOutputRemainingItems = Math.max(0, totalOrderOutputRemainingItems - finishedBatchOutput);
+            activeBatchCraftsRemaining = 0;
+            activeBatchCraftsTotal = 0;
+            activeBatchOutputItems = 0;
+            activeBatchEssentiaDebt = essentiaDebt;
             stalledJobTicks = 0;
             markDirty();
             pingNeighbors();
 
-            if (jobRepeatLeft > 0) {
-                seq.clear();
-                step = 0;
-                costRemaining = 0;
+            LOG.info("[Crafter {}] batch finished batchOutputItems={} remainingOrderItems={} craftAmount={} essentiaDebt={}",
+                    pos, finishedBatchOutput, totalOrderOutputRemainingItems, craftAmount, essentiaDebt);
 
-                long now = world != null ? world.getTotalWorldTime() : 0L;
-                lastOrderWorldTime = now - REORDER_TICKS;
-                supplyCooldown = 0;
-                return;
+            seq.clear();
+            step = 0;
+            costRemaining = 0;
+            long now = world != null ? world.getTotalWorldTime() : 0L;
+            lastOrderWorldTime = now - REORDER_TICKS;
+            supplyCooldown = 0;
+            if (totalOrderOutputRemainingItems <= 0 || totalCraftsRemainingForOrder <= 0) {
+                finishJob();
             }
 
             finishJob();
@@ -988,8 +1096,15 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     private void finishJob() {
         this.jobActive = false;
         this.jobPatternIndex = -1;
-        this.jobRepeatLeft = 1;
-        this.jobRepeatTotal = 1;
+        this.totalCraftsRemainingForOrder = 0;
+        this.totalCraftsInitialForOrder = 0;
+        this.totalOrderOutputRemainingItems = 0;
+        this.totalOrderOutputInitialItems = 0;
+        this.activeBatchCraftsRemaining = 0;
+        this.activeBatchCraftsTotal = 0;
+        this.activeBatchOutputItems = 0;
+        this.activeBatchOutputPerCraft = 1;
+        this.activeBatchEssentiaDebt = 0;
         this.seq.clear();
         this.step = 0;
         this.lastOrderWorldTime = 0;
@@ -1040,7 +1155,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
     private boolean isAllInputsReadyForJob() {
         if (seq.isEmpty()) return true;
-        int repeats = Math.max(1, jobRepeatLeft);
+        int repeats = Math.max(1, activeBatchCraftsRemaining);
         for (Req r : seq) {
             if (r == null || r.key1 == null || r.key1.isEmpty()) continue;
             int need = Math.max(0, r.count * repeats);
@@ -1060,15 +1175,15 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     @Override public boolean canInputFrom(EnumFacing face)  { return canFaceInput(face); }
     @Override public boolean canOutputTo(EnumFacing face)   { return false; }
     @Override public void setSuction(Aspect aspect, int amount) {}
-    @Override public Aspect getSuctionType(EnumFacing face) { return (canFaceInput(face) && craftAmount < CRAFT_CAP) ? requiredAspect : null; }
-    @Override public int getSuctionAmount(EnumFacing face)  { return (canFaceInput(face) && craftAmount < CRAFT_CAP) ? CRAFT_SUCTION : 0; }
+    @Override public Aspect getSuctionType(EnumFacing face) { return (canFaceInput(face) && (craftAmount < CRAFT_CAP || essentiaDebt > 0)) ? requiredAspect : null; }
+    @Override public int getSuctionAmount(EnumFacing face)  { return (canFaceInput(face) && (craftAmount < CRAFT_CAP || essentiaDebt > 0)) ? CRAFT_SUCTION : 0; }
     @Override public int addEssentia(Aspect aspect, int amount, EnumFacing face) {
         if (!canFaceInput(face)) return 0;
         if (aspect != requiredAspect || amount <= 0) return 0;
-        int can = Math.min(amount, CRAFT_CAP - craftAmount);
+        int can = Math.min(amount, CRAFT_CAP - craftAmount + essentiaDebt);
         if (can <= 0) return 0;
         craftAmount += can;
-        markDirty(); pingNeighbors();
+        acceptIncomingEssentia(can);
         return can;
     }
     @Override public int takeEssentia(Aspect aspect, int amount, EnumFacing face) { return 0; }
@@ -1085,6 +1200,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         nbt.setTag(NBT_OUTPUT,   output.serializeNBT());
         if (hasCustomName()) nbt.setString(NBT_CUSTOMNAME, customName);
         nbt.setInteger("CraftAmount", craftAmount);
+        nbt.setInteger("EssentiaDebt", essentiaDebt);
         nbt.setString("ReqAspect", requiredAspect == null ? "" : requiredAspect.getTag());
         nbt.setInteger("PerTypeEssentia", perTypeEssentia);
         nbt.setInteger("CostRemaining", costRemaining);
@@ -1093,8 +1209,15 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         nbt.setInteger("JobPatternIndex", jobPatternIndex);
         nbt.setInteger("Step", step);
         nbt.setLong("LastOrderWT", lastOrderWorldTime);
-        nbt.setInteger("JobRepeatLeft", jobRepeatLeft);
-        nbt.setInteger("JobRepeatTotal", jobRepeatTotal);
+        nbt.setInteger("OrderCraftsRemaining", totalCraftsRemainingForOrder);
+        nbt.setInteger("OrderCraftsTotal", totalCraftsInitialForOrder);
+        nbt.setInteger("OrderOutputRemaining", totalOrderOutputRemainingItems);
+        nbt.setInteger("OrderOutputTotal", totalOrderOutputInitialItems);
+        nbt.setInteger("BatchCraftsRemaining", activeBatchCraftsRemaining);
+        nbt.setInteger("BatchCraftsTotal", activeBatchCraftsTotal);
+        nbt.setInteger("BatchOutputItems", activeBatchOutputItems);
+        nbt.setInteger("BatchOutputPerCraft", activeBatchOutputPerCraft);
+        nbt.setInteger("BatchEssentiaDebt", activeBatchEssentiaDebt);
 
         nbt.setInteger("LastSignal", lastSignal);
 
@@ -1105,17 +1228,19 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         nbt.setInteger("StalledJobTicks", stalledJobTicks);
 
         net.minecraft.nbt.NBTTagList rq = new net.minecraft.nbt.NBTTagList();
-        for (Integer idx : requesterQueue) {
+        for (JobRequest req : requesterQueue) {
             net.minecraft.nbt.NBTTagCompound c = new net.minecraft.nbt.NBTTagCompound();
-            c.setInteger("I", idx == null ? -1 : idx);
+            c.setInteger("I", req == null ? -1 : req.patternIndex);
+            c.setInteger("O", req == null ? 0 : req.outputItems);
             rq.appendTag(c);
         }
         nbt.setTag("RequesterQ", rq);
 
         net.minecraft.nbt.NBTTagList mq = new net.minecraft.nbt.NBTTagList();
-        for (Integer idx : managedExecutionQueue) {
+        for (JobRequest req : managedExecutionQueue) {
             net.minecraft.nbt.NBTTagCompound c = new net.minecraft.nbt.NBTTagCompound();
-            c.setInteger("I", idx == null ? -1 : idx);
+            c.setInteger("I", req == null ? -1 : req.patternIndex);
+            c.setInteger("O", req == null ? 0 : req.outputItems);
             mq.appendTag(c);
         }
         nbt.setTag("ManagedQ", mq);
@@ -1142,6 +1267,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
         customName = nbt.hasKey(NBT_CUSTOMNAME, Constants.NBT.TAG_STRING) ? nbt.getString(NBT_CUSTOMNAME) : "";
         craftAmount = nbt.getInteger("CraftAmount");
+        essentiaDebt = Math.max(0, nbt.getInteger("EssentiaDebt"));
         Aspect a = Aspect.getAspect(nbt.getString("ReqAspect"));
         if (a != null) requiredAspect = a;
         perTypeEssentia = Math.max(1, nbt.getInteger("PerTypeEssentia"));
@@ -1151,8 +1277,15 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         jobPatternIndex = nbt.getInteger("JobPatternIndex");
         step = Math.max(0, nbt.getInteger("Step"));
         lastOrderWorldTime = nbt.getLong("LastOrderWT");
-        jobRepeatLeft = Math.max(0, nbt.getInteger("JobRepeatLeft"));
-        jobRepeatTotal = Math.max(1, nbt.getInteger("JobRepeatTotal"));
+        totalCraftsRemainingForOrder = Math.max(0, nbt.getInteger("OrderCraftsRemaining"));
+        totalCraftsInitialForOrder = Math.max(0, nbt.getInteger("OrderCraftsTotal"));
+        totalOrderOutputRemainingItems = Math.max(0, nbt.getInteger("OrderOutputRemaining"));
+        totalOrderOutputInitialItems = Math.max(0, nbt.getInteger("OrderOutputTotal"));
+        activeBatchCraftsRemaining = Math.max(0, nbt.getInteger("BatchCraftsRemaining"));
+        activeBatchCraftsTotal = Math.max(0, nbt.getInteger("BatchCraftsTotal"));
+        activeBatchOutputItems = Math.max(0, nbt.getInteger("BatchOutputItems"));
+        activeBatchOutputPerCraft = Math.max(1, nbt.getInteger("BatchOutputPerCraft"));
+        activeBatchEssentiaDebt = Math.max(0, nbt.getInteger("BatchEssentiaDebt"));
 
         lastSignal = nbt.getInteger("LastSignal");
 
@@ -1168,7 +1301,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             for (int i = 0; i < rq.tagCount(); i++) {
                 net.minecraft.nbt.NBTTagCompound c = rq.getCompoundTagAt(i);
                 int idx = c.getInteger("I");
-                if (idx >= 0 && idx < PATTERN_SLOTS) requesterQueue.addLast(idx);
+                int out = Math.max(1, c.hasKey("O", Constants.NBT.TAG_INT) ? c.getInteger("O") : 1);
+                if (idx >= 0 && idx < PATTERN_SLOTS) requesterQueue.addLast(new JobRequest(idx, out));
             }
         }
 
@@ -1178,7 +1312,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             for (int i = 0; i < mq.tagCount(); i++) {
                 net.minecraft.nbt.NBTTagCompound c = mq.getCompoundTagAt(i);
                 int idx = c.getInteger("I");
-                if (idx >= 0 && idx < PATTERN_SLOTS) managedExecutionQueue.addLast(idx);
+                int out = Math.max(1, c.hasKey("O", Constants.NBT.TAG_INT) ? c.getInteger("O") : 1);
+                if (idx >= 0 && idx < PATTERN_SLOTS) managedExecutionQueue.addLast(new JobRequest(idx, out));
             }
         }
 
