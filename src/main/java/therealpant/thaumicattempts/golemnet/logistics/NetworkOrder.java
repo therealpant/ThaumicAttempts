@@ -37,6 +37,9 @@ public class NetworkOrder {
     public boolean recipePath = false;
     public int targetSnapshotAmount = -1;
     public int stockSnapshotAmount = -1;
+    public int stagingSlotIndex = -1;
+    @Nullable
+    public UUID stagingReservationId = null;
 
     public enum OrderKind {
         DELIVERY,
@@ -69,6 +72,10 @@ public class NetworkOrder {
         tag.setBoolean("recipePath", recipePath);
         tag.setInteger("targetSnapshot", targetSnapshotAmount);
         tag.setInteger("stockSnapshot", stockSnapshotAmount);
+        tag.setInteger("stagingSlotIndex", stagingSlotIndex);
+        if (stagingReservationId != null) {
+            tag.setString("stagingReservationId", stagingReservationId.toString());
+        }
         tag.setString("intent", intent == null ? RequestIntent.NORMAL.name() : intent.name());
         tag.setString("orderKind", orderKind == null ? OrderKind.DELIVERY.name() : orderKind.name());
         tag.setString("creationOutputMode", creationOutputMode == null ? CreationOutputMode.RETURN_TO_REQUESTER.name() : creationOutputMode.name());
@@ -139,6 +146,16 @@ public class NetworkOrder {
         o.stockSnapshotAmount = tag.hasKey("stockSnapshot", Constants.NBT.TAG_INT)
                 ? tag.getInteger("stockSnapshot")
                 : -1;
+        o.stagingSlotIndex = tag.hasKey("stagingSlotIndex", Constants.NBT.TAG_INT)
+                ? tag.getInteger("stagingSlotIndex")
+                : -1;
+        if (tag.hasKey("stagingReservationId", Constants.NBT.TAG_STRING)) {
+            try {
+                o.stagingReservationId = UUID.fromString(tag.getString("stagingReservationId"));
+            } catch (Exception ignored) {
+                o.stagingReservationId = null;
+            }
+        }
         if (tag.hasKey("orderKind", Constants.NBT.TAG_STRING)) {
             try {
                 o.orderKind = OrderKind.valueOf(tag.getString("orderKind"));

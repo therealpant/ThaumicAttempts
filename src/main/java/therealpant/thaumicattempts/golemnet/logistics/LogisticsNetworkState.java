@@ -27,6 +27,9 @@ public class LogisticsNetworkState {
     private final LinkedHashMap<String, UUID> activeOrderDedup = new LinkedHashMap<String, UUID>();
     private final LinkedHashMap<ItemKey, List<RecipeNode>> recipesByResult = new LinkedHashMap<ItemKey, List<RecipeNode>>();
     private final ResourceReservationBook reservationBook = new ResourceReservationBook();
+    private static final int RESERVED_STAGING_SLOT_COUNT = 18;
+    private final LinkedHashMap<UUID, BufferReservation> bufferReservations = new LinkedHashMap<UUID, BufferReservation>();
+    private final LinkedHashMap<UUID, UUID> reservationByOrderId = new LinkedHashMap<UUID, UUID>();
 
     private final ManagerExecutor managerExecutor = new ManagerExecutor();
     private final CrafterExecutor crafterExecutor = new CrafterExecutor();
@@ -39,6 +42,56 @@ public class LogisticsNetworkState {
         int missingNow;
         int craftNeeded;
     }
+
+    public static final class BufferReservation {
+        public UUID reservationId;
+        public UUID orderId;
+        public ItemKey itemKey;
+        public int requestedAmount;
+        public int stagedAmount;
+        public int slotIndex;
+        public boolean readyForDispatch;
+        public boolean released;
+        public long createdTick;
+        public long updatedTick;
+
+        public NBTTagCompound writeToNbt() {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setString("reservationId", reservationId.toString());
+            tag.setString("orderId", orderId.toString());
+            tag.setTag("itemKey", itemKey.toStack(1).writeToNBT(new NBTTagCompound()));
+            tag.setInteger("requestedAmount", requestedAmount);
+            tag.setInteger("stagedAmount", stagedAmount);
+            tag.setInteger("slotIndex", slotIndex);
+            tag.setBoolean("readyForDispatch", readyForDispatch);
+            tag.setBoolean("released", released);
+            tag.setLong("createdTick", createdTick);
+            tag.setLong("updatedTick", updatedTick);
+            return tag;
+        }
+
+        @Nullable
+        public static BufferReservation readFromNbt(NBTTagCompound tag) {
+            if (tag == null) return null;
+            BufferReservation reservation = new BufferReservation();
+            try {
+                reservation.reservationId = UUID.fromString(tag.getString("reservationId"));
+                reservation.orderId = UUID.fromString(tag.getString("orderId"));
+            } catch (Exception ignored) {
+                return null;
+            }
+            reservation.itemKey = ItemKey.of(new ItemStack(tag.getCompoundTag("itemKey")));
+            reservation.requestedAmount = Math.max(1, tag.getInteger("requestedAmount"));
+            reservation.stagedAmount = Math.max(0, tag.getInteger("stagedAmount"));
+            reservation.slotIndex = Math.max(0, tag.getInteger("slotIndex"));
+            reservation.readyForDispatch = tag.getBoolean("readyForDispatch");
+            reservation.released = tag.getBoolean("released");
+            reservation.createdTick = tag.getLong("createdTick");
+            reservation.updatedTick = tag.getLong("updatedTick");
+            return reservation;
+        }
+    }
+
     @Nullable
     public OrderStatus getOrderStatus(@Nullable UUID orderId) {
         if (orderId == null) return null;
@@ -217,9 +270,17 @@ public class LogisticsNetworkState {
         order.status = OrderStatus.PLANNING;
         order.updatedTick = manager.getServerTickCounter();
 
+        if (isTerminalDeliveryOrder(order) && !ensureReservationForOrder(manager, order)) {
+            order.status = OrderStatus.WAITING_BUFFER_SLOT;
+            order.lastError = "waiting-buffer-slot";
+            LOG.info("[Logistics {}] order={} waiting for free staging slot key={} amount={} status={}",
+                    manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.status);
+            return;
+        }
+
         LinkedHashMap<ItemKey, Integer> catalog = manager.getReachableCatalog();
 
-        EndpointRef managerBuffer = EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER);
+        EndpointRef managerBuffer = resolveOrderManagerBuffer(manager, order);
         EndpointRef finalTarget = EndpointRef.of(
                 order.returnDestination != null ? order.returnDestination : order.sourcePos,
                 EndpointRef.AccessMode.INPUT
@@ -261,6 +322,80 @@ public class LogisticsNetworkState {
         }
 
         planDeliveryOrder(manager, order, catalog, finalTarget, managerBuffer, need);
+    }
+
+    private boolean ensureReservationForOrder(TileMirrorManager manager, NetworkOrder order) {
+        if (manager == null || order == null || order.orderId == null) return false;
+        if (!isTerminalDeliveryOrder(order)) return true;
+
+        BufferReservation existing = findReservationByOrder(order.orderId);
+        if (existing != null && !existing.released) {
+            order.stagingSlotIndex = existing.slotIndex;
+            order.stagingReservationId = existing.reservationId;
+            existing.updatedTick = manager.getServerTickCounter();
+            return true;
+        }
+
+        boolean[] occupied = new boolean[RESERVED_STAGING_SLOT_COUNT];
+        for (BufferReservation reservation : bufferReservations.values()) {
+            if (reservation == null || reservation.released) continue;
+            if (reservation.slotIndex >= 0 && reservation.slotIndex < RESERVED_STAGING_SLOT_COUNT) {
+                occupied[reservation.slotIndex] = true;
+            }
+        }
+
+        int freeSlot = -1;
+        for (int i = 0; i < RESERVED_STAGING_SLOT_COUNT; i++) {
+            if (!occupied[i]) {
+                freeSlot = i;
+                break;
+            }
+        }
+
+        if (freeSlot < 0) {
+            LOG.info("[Logistics {}] reservation waiting order={} key={} requested={} reason=no-free-staging-slot",
+                    manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount);
+            return false;
+        }
+
+        BufferReservation reservation = new BufferReservation();
+        reservation.reservationId = UUID.randomUUID();
+        reservation.orderId = order.orderId;
+        reservation.itemKey = order.requestedKey;
+        reservation.requestedAmount = Math.max(1, order.requestedAmount);
+        reservation.stagedAmount = 0;
+        reservation.slotIndex = freeSlot;
+        reservation.readyForDispatch = false;
+        reservation.released = false;
+        reservation.createdTick = manager.getServerTickCounter();
+        reservation.updatedTick = reservation.createdTick;
+
+        bufferReservations.put(reservation.reservationId, reservation);
+        reservationByOrderId.put(order.orderId, reservation.reservationId);
+        order.stagingSlotIndex = freeSlot;
+        order.stagingReservationId = reservation.reservationId;
+
+        LOG.info("[Logistics {}] reservation created reservation={} order={} key={} requested={}",
+                manager.getPos(), reservation.reservationId, order.orderId, reservation.itemKey, reservation.requestedAmount);
+        LOG.info("[Logistics {}] reservation assigned reservation={} order={} slotIndex={}",
+                manager.getPos(), reservation.reservationId, order.orderId, reservation.slotIndex);
+        return true;
+    }
+
+    @Nullable
+    private BufferReservation findReservationByOrder(@Nullable UUID orderId) {
+        if (orderId == null) return null;
+        UUID reservationId = reservationByOrderId.get(orderId);
+        if (reservationId == null) return null;
+        return bufferReservations.get(reservationId);
+    }
+
+    private EndpointRef resolveOrderManagerBuffer(TileMirrorManager manager, @Nullable NetworkOrder order) {
+        if (manager == null) return EndpointRef.of(BlockPos.ORIGIN, EndpointRef.AccessMode.BUFFER);
+        if (order != null && order.stagingSlotIndex >= 0) {
+            return EndpointRef.managerBufferSlot(manager.getPos(), order.stagingSlotIndex);
+        }
+        return EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER);
     }
 
     private void planDeliveryOrder(TileMirrorManager manager,
@@ -637,6 +772,11 @@ public class LogisticsNetworkState {
         task.createdTick = manager.getServerTickCounter();
         task.updatedTick = task.createdTick;
         task.metaPurpose = purpose;
+        NetworkOrder order = orders.get(orderId);
+        if (order != null) {
+            task.stagingSlotIndex = order.stagingSlotIndex;
+            task.stagingReservationId = order.stagingReservationId;
+        }
 
         if (dependsOn != null && !dependsOn.isEmpty()) {
             task.dependsOn.addAll(dependsOn);
@@ -644,7 +784,6 @@ public class LogisticsNetworkState {
 
         runtimeTasks.put(task.taskId, task);
 
-        NetworkOrder order = orders.get(orderId);
         if (order != null && !order.taskIds.contains(task.taskId)) {
             order.taskIds.add(task.taskId);
         }
@@ -904,6 +1043,7 @@ public class LogisticsNetworkState {
     public void tick(TileMirrorManager manager) {
         managerExecutor.bind(manager);
         crafterExecutor.bind(manager);
+        refreshReservationState(manager);
 
         for (RuntimeTask task : runtimeTasks.values()) {
             if (isTerminalTask(task.status)) continue;
@@ -972,9 +1112,66 @@ public class LogisticsNetworkState {
 
         collectSnapshot(manager, managerExecutor);
         collectSnapshot(manager, crafterExecutor);
+        retryWaitingBufferSlotOrders(manager);
         retryWaitingCreationOrders(manager);
         updateOrders(manager);
+        releaseReservationsForInactiveOrders(manager);
         pruneFinalizedTasks(manager);
+    }
+
+    private void retryWaitingBufferSlotOrders(TileMirrorManager manager) {
+        for (NetworkOrder order : orders.values()) {
+            if (order == null) continue;
+            if (order.status != OrderStatus.WAITING_BUFFER_SLOT) continue;
+            if (!isTerminalDeliveryOrder(order)) continue;
+            if (!ensureReservationForOrder(manager, order)) continue;
+
+            if (order.taskIds != null && !order.taskIds.isEmpty()) {
+                order.taskIds.clear();
+            }
+            planOrder(manager, order, 0);
+        }
+    }
+
+    private void refreshReservationState(TileMirrorManager manager) {
+        if (manager == null) return;
+        for (BufferReservation reservation : bufferReservations.values()) {
+            if (reservation == null || reservation.released) continue;
+            int staged = manager.countItemAtEndpoint(EndpointRef.managerBufferSlot(manager.getPos(), reservation.slotIndex), reservation.itemKey);
+            reservation.stagedAmount = Math.max(0, staged);
+            boolean readyNow = reservation.stagedAmount >= reservation.requestedAmount;
+            if (readyNow && !reservation.readyForDispatch) {
+                LOG.info("[Logistics {}] reservation ready reservation={} order={} slotIndex={} staged={}/{}",
+                        manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reservation.stagedAmount, reservation.requestedAmount);
+            }
+            reservation.readyForDispatch = readyNow;
+            reservation.updatedTick = manager.getServerTickCounter();
+            LOG.info("[Logistics {}] reservation fill-progress reservation={} order={} slotIndex={} staged={}/{}",
+                    manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reservation.stagedAmount, reservation.requestedAmount);
+        }
+    }
+
+    private void releaseReservationsForInactiveOrders(TileMirrorManager manager) {
+        if (manager == null) return;
+        for (NetworkOrder order : orders.values()) {
+            if (order == null || order.orderId == null) continue;
+            if (isActiveOrder(order.status)) continue;
+            releaseReservationForOrder(manager, order.orderId, "order-terminal-state:" + order.status);
+        }
+    }
+
+    private void releaseReservationForOrder(TileMirrorManager manager, @Nullable UUID orderId, String reason) {
+        BufferReservation reservation = findReservationByOrder(orderId);
+        if (reservation == null || reservation.released) return;
+        reservation.released = true;
+        reservation.updatedTick = manager == null ? reservation.updatedTick : manager.getServerTickCounter();
+        reservationByOrderId.remove(reservation.orderId);
+
+        if (manager != null) {
+            manager.clearManagerBufferSlot(reservation.slotIndex);
+            LOG.info("[Logistics {}] reservation released reservation={} order={} slotIndex={} reason={}",
+                    manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reason);
+        }
     }
 
     private void retryWaitingCreationOrders(TileMirrorManager manager) {
@@ -1099,6 +1296,9 @@ public class LogisticsNetworkState {
                 if ("deliver-output".equals(t.metaPurpose) && t.status == TaskStatus.DONE) outputDone = true;
             }
 
+            if (!hasTasks && (order.status == OrderStatus.WAITING_INPUTS || order.status == OrderStatus.WAITING_BUFFER_SLOT)) {
+
+            }
             if (!hasTasks && order.status == OrderStatus.WAITING_INPUTS) {
                 order.updatedTick = manager.getServerTickCounter();
                 continue;
@@ -1202,7 +1402,9 @@ public class LogisticsNetworkState {
                 order.status = OrderStatus.RUNNING;
             }
 
-            if (order.status == OrderStatus.RUNNING || order.status == OrderStatus.WAITING_INPUTS) {
+            if (order.status == OrderStatus.RUNNING
+                    || order.status == OrderStatus.WAITING_INPUTS
+                    || order.status == OrderStatus.WAITING_BUFFER_SLOT) {
                 if (isTerminalDeliveryOrder(order)) {
                     LOG.info("[Logistics {}] order={} status={} rawRequested={} effectiveGoal={} completed={} deliveredAmount={} remaining={} runningTasks={} recipePath={}",
                             manager.getPos(),
@@ -1278,6 +1480,7 @@ public class LogisticsNetworkState {
             if (transfer.itemKey == null || !key.equals(transfer.itemKey)) continue;
             if (transfer.target == null) continue;
             if (transfer.target.mode != target.mode || !transfer.target.pos.equals(target.pos)) continue;
+            if (transfer.target.stagingSlotIndex != target.stagingSlotIndex) continue;
 
             long outstanding = Math.max(0L, transfer.amount - transfer.completedAmount);
             if (outstanding > 0L) {
@@ -1457,12 +1660,20 @@ public class LogisticsNetworkState {
         }
         tag.setTag("recipes", recipes);
         tag.setTag("reservations", reservationBook.writeToNbt());
+        NBTTagList stagingReservations = new NBTTagList();
+        for (BufferReservation reservation : bufferReservations.values()) {
+            if (reservation == null) continue;
+            stagingReservations.appendTag(reservation.writeToNbt());
+        }
+        tag.setTag("stagingReservations", stagingReservations);
     }
 
     public void readFromNbt(NBTTagCompound tag) {
         orders.clear();
         runtimeTasks.clear();
         recipesByResult.clear();
+        bufferReservations.clear();
+        reservationByOrderId.clear();
         activeOrderDedup.clear();
         activeTaskDedup.clear();
 
@@ -1512,6 +1723,15 @@ public class LogisticsNetworkState {
 
         if (tag.hasKey("reservations", Constants.NBT.TAG_COMPOUND)) {
             reservationBook.readFromNbt(tag.getCompoundTag("reservations"));
+        }
+        NBTTagList stagingReservations = tag.getTagList("stagingReservations", Constants.NBT.TAG_COMPOUND);
+        for (int i = 0; i < stagingReservations.tagCount(); i++) {
+            BufferReservation reservation = BufferReservation.readFromNbt(stagingReservations.getCompoundTagAt(i));
+            if (reservation == null || reservation.reservationId == null) continue;
+            bufferReservations.put(reservation.reservationId, reservation);
+            if (reservation.orderId != null && !reservation.released) {
+                reservationByOrderId.put(reservation.orderId, reservation.reservationId);
+            }
         }
     }
 

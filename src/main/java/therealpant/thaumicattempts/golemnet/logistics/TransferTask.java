@@ -18,6 +18,8 @@ public class TransferTask extends RuntimeTask {
     public UUID legacyDeliveryId = null;
     public boolean dispatchQueued = false;
     public int dispatchQueueId = -1;
+    public int stagingSlotIndex = -1;
+    public UUID stagingReservationId = null;
 
     public boolean isDeliverTask() {
         return source != null && source.mode == EndpointRef.AccessMode.BUFFER;
@@ -60,6 +62,10 @@ public class TransferTask extends RuntimeTask {
         tag.setBoolean("InboundDone", inboundDone);
         tag.setBoolean("OutboundDone", outboundDone);
         tag.setLong("creditedAmount", creditedAmount);
+        tag.setInteger("StagingSlotIndex", stagingSlotIndex);
+        if (stagingReservationId != null) {
+            tag.setString("StagingReservationId", stagingReservationId.toString());
+        }
 
         if (legacyDeliveryId != null) {
             tag.setString("LegacyDeliveryId", legacyDeliveryId.toString());
@@ -115,5 +121,15 @@ public class TransferTask extends RuntimeTask {
         creditedAmount = tag.hasKey("creditedAmount", Constants.NBT.TAG_LONG)
                 ? tag.getLong("creditedAmount")
                 : 0L;
+        stagingSlotIndex = tag.hasKey("StagingSlotIndex") ? tag.getInteger("StagingSlotIndex") : -1;
+        if (tag.hasKey("StagingReservationId", Constants.NBT.TAG_STRING)) {
+            try {
+                stagingReservationId = UUID.fromString(tag.getString("StagingReservationId"));
+            } catch (Exception ignored) {
+                stagingReservationId = null;
+            }
+        } else {
+            stagingReservationId = null;
+        }
     }
 }

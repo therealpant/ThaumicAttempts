@@ -1619,6 +1619,39 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return moved;
     }
 
+    private int harvestLikeToBufferSlotFromHandler(BlockPos sourcePos, int sourceSide, ItemStack like, int upTo, int slotIndex) {
+        if (slotIndex < 0 || slotIndex >= buffer.getSlots()) return 0;
+        if (world == null || sourcePos == null || like == null || like.isEmpty() || upTo <= 0) return 0;
+        IItemHandler src = getDestHandler(sourcePos, sourceSide);
+        if (src == null) return 0;
+        int moved = 0;
+        for (int s = 0; s < src.getSlots() && moved < upTo; s++) {
+            ItemStack peek = src.extractItem(s, Math.min(64, upTo - moved), true);
+            if (peek.isEmpty()) continue;
+            boolean match = (like.getMaxStackSize() == 1)
+                    ? matchesForDelivery(peek, like)
+                    : (isCrystal(like)
+                    ? (isCrystal(peek) && crystalSame(peek, like))
+                    : ResourceIdentity.sameResource(peek, like));
+            if (!match) continue;
+            int want = Math.min(upTo - moved, peek.getCount());
+            ItemStack taken = src.extractItem(s, want, false);
+            if (taken.isEmpty()) continue;
+            int toInsert = taken.getCount();
+            ItemStack rest = buffer.insertItem(slotIndex, taken, false);
+            int accepted = toInsert - (rest.isEmpty() ? 0 : rest.getCount());
+            moved += Math.max(0, accepted);
+            if (!rest.isEmpty()) {
+                src.insertItem(s, rest, false);
+                if (accepted <= 0) {
+                    break;
+                }
+            }
+        }
+        if (moved > 0) markDirty();
+        return moved;
+    }
+
     private int harvestLikeToBufferFromOutputCrafter(TileEntityGolemCrafter crafter, ItemStack like, int upTo) {
         if (crafter == null || like == null || like.isEmpty() || upTo <= 0) return 0;
         IItemHandler src = crafter.getOutputHandler();
@@ -1847,6 +1880,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     private int pushFromBufferTo(BlockPos destPos, int destSide, ItemStack like, int upTo) {
+        return pushFromBufferTo(destPos, destSide, like, upTo, -1);
+    }
+
+    private int pushFromBufferTo(BlockPos destPos, int destSide, ItemStack like, int upTo, int sourceSlotIndex) {
         if (like == null || like.isEmpty() || upTo <= 0) return 0;
         IItemHandler dest = getDestHandler(destPos, destSide);
         if (dest == null) return 0;
@@ -1859,7 +1896,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         // 2) Теперь извлекаем из буфера не больше, чем "cap"
         while (left > 0) {
-            ItemStack take = extractFromBuffer(like, left);
+            ItemStack take = extractFromBuffer(like, left, sourceSlotIndex);
             if (take.isEmpty()) break;
 
             ItemStack notFit = ItemHandlerHelper.insertItem(dest, take, false);
@@ -1920,7 +1957,25 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     private ItemStack extractFromBuffer(ItemStack like, int max) {
+        return extractFromBuffer(like, max, -1);
+    }
+
+    private ItemStack extractFromBuffer(ItemStack like, int max, int sourceSlotIndex) {
         if (like == null || like.isEmpty() || max <= 0) return ItemStack.EMPTY;
+
+        if (sourceSlotIndex >= 0) {
+            if (sourceSlotIndex >= buffer.getSlots()) return ItemStack.EMPTY;
+            ItemStack inSlot = buffer.getStackInSlot(sourceSlotIndex);
+            if (inSlot.isEmpty()) return ItemStack.EMPTY;
+            boolean match = (like.getMaxStackSize() == 1)
+                    ? matchesForDelivery(inSlot, like)
+                    : (isCrystal(like)
+                    ? (isCrystal(inSlot) && crystalSame(inSlot, like))
+                    : ResourceIdentity.sameResource(inSlot, like));
+            if (!match) return ItemStack.EMPTY;
+            int toTake = Math.min(max, inSlot.getCount());
+            return buffer.extractItem(sourceSlotIndex, toTake, false);
+        }
 
         if (like.getMaxStackSize() == 1) {
             for (int i = 0; i < buffer.getSlots(); i++) {
@@ -2780,6 +2835,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     public int countItemAtEndpoint(EndpointRef endpoint, ItemKey key) {
+        if (endpoint != null
+                && endpoint.mode == EndpointRef.AccessMode.BUFFER
+                && endpoint.stagingSlotIndex >= 0
+                && endpoint.pos != null
+                && endpoint.pos.equals(this.pos)
+                && key != null
+                && key != ItemKey.EMPTY) {
+            return countInManagerBufferLike(key.toStack(1), endpoint.stagingSlotIndex);
+        }
         if (endpoint != null && endpoint.mode == EndpointRef.AccessMode.OUTPUT && world != null) {
             BlockPos resolved = resolveEndpointPos(endpoint);
             TileEntity te = world.getTileEntity(resolved);
@@ -2800,6 +2864,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     public int countQueuedForEndpoint(EndpointRef endpoint, ItemKey key) {
         if (endpoint == null || key == null || key == ItemKey.EMPTY) return 0;
+        if (endpoint.mode == EndpointRef.AccessMode.BUFFER
+                && endpoint.stagingSlotIndex >= 0
+                && endpoint.pos != null
+                && endpoint.pos.equals(this.pos)) {
+            return 0;
+        }
         return countQueuedFor(resolveEndpointPos(endpoint), key.toStack(1));
     }
 
@@ -2837,12 +2907,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
          * а не по абсолютному наличию.
          */
         if (source.mode == EndpointRef.AccessMode.BUFFER && src.equals(this.pos)) {
-            int canSend = Math.min(amount, countInManagerBufferLike(like));
+            int sourceSlot = source.stagingSlotIndex;
+            int canSend = Math.min(amount, countInManagerBufferLike(like, sourceSlot));
             if (canSend <= 0) {
                 return countQueuedFor(dst, like) > 0;
             }
 
-            int movedNow = pushFromBufferTo(dst, -1, like, canSend);
+            int movedNow = pushFromBufferTo(dst, -1, like, canSend, sourceSlot);
             return movedNow > 0 || countQueuedFor(dst, like) > 0;
         }
 
@@ -2863,6 +2934,29 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
          * поэтому дозаказываем именно amount, не опираясь на абсолютный current-buffer.
          */
         if (target.mode == EndpointRef.AccessMode.BUFFER && dst.equals(this.pos)) {
+            if (target.stagingSlotIndex >= 0) {
+                int slotIndex = target.stagingSlotIndex;
+                int stagedNow = countInManagerBufferLike(like, slotIndex);
+                int needForSlot = Math.max(0, amount - stagedNow);
+                if (needForSlot <= 0) {
+                    return true;
+                }
+
+                int moved = 0;
+                if (!src.equals(this.pos)) {
+                    moved += harvestLikeToBufferSlotFromHandler(src, -1, like, needForSlot, slotIndex);
+                } else {
+                    moved += pullLikeFromProvideSetToBufferSlot(like, needForSlot, slotIndex);
+                }
+
+                if (moved < needForSlot) {
+                    moved += pullLikeFromProvideSetToBufferSlot(like, needForSlot - moved, slotIndex);
+                }
+
+                int stagedAfter = countInManagerBufferLike(like, slotIndex);
+                return stagedAfter > stagedNow;
+            }
+
             LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
             needs.put(key, amount);
             ensureDeliveryForExact(this.pos, needs, queueId);
@@ -2954,6 +3048,64 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
         return total;
+    }
+
+    private int countInManagerBufferLike(ItemStack like, int slotIndex) {
+        if (like == null || like.isEmpty()) return 0;
+        if (slotIndex < 0) return countInManagerBufferLike(like);
+        if (slotIndex >= buffer.getSlots()) return 0;
+
+        ItemStack s = buffer.getStackInSlot(slotIndex);
+        if (s.isEmpty()) return 0;
+
+        boolean match;
+        if (like.getMaxStackSize() == 1) {
+            match = matchesForDelivery(s, like);
+        } else if (isCrystal(like) || isCrystal(s)) {
+            match = isCrystal(like) && isCrystal(s) && crystalSame(s, like);
+        } else {
+            match = ResourceIdentity.sameResource(s, like);
+        }
+        return match ? s.getCount() : 0;
+    }
+
+    private int pullLikeFromProvideSetToBufferSlot(ItemStack like, int upTo, int slotIndex) {
+        if (slotIndex < 0 || slotIndex >= buffer.getSlots()) return 0;
+        if (world == null || world.isRemote || like == null || like.isEmpty() || upTo <= 0) return 0;
+
+        int moved = 0;
+        rebuildProvideSetFromSeals();
+        for (TrackedInv ti : provideSet) {
+            if (moved >= upTo) break;
+            EnumFacing face = (ti.side >= 0 && ti.side < 6) ? EnumFacing.byIndex(ti.side) : null;
+            IItemHandler ih = getSealExactInventory(world, ti.pos, face);
+            if (ih == null) continue;
+            for (int s = 0; s < ih.getSlots() && moved < upTo; s++) {
+                ItemStack peek = ih.extractItem(s, Math.min(64, upTo - moved), true);
+                if (peek.isEmpty() || !matchesForDelivery(peek, like)) continue;
+                ItemStack taken = ih.extractItem(s, Math.min(peek.getCount(), upTo - moved), false);
+                if (taken.isEmpty()) continue;
+
+                int toInsert = taken.getCount();
+                ItemStack rem = buffer.insertItem(slotIndex, taken, false);
+                int accepted = toInsert - (rem.isEmpty() ? 0 : rem.getCount());
+                moved += Math.max(0, accepted);
+                if (!rem.isEmpty()) {
+                    ih.insertItem(s, rem, false);
+                    if (accepted <= 0) {
+                        return moved;
+                    }
+                }
+            }
+        }
+        if (moved > 0) markDirty();
+        return moved;
+    }
+
+    public void clearManagerBufferSlot(int slotIndex) {
+        if (slotIndex < 0 || slotIndex >= buffer.getSlots()) return;
+        buffer.setStackInSlot(slotIndex, ItemStack.EMPTY);
+        markDirty();
     }
 
     private int pullLikeFromProvideSetToBuffer(ItemStack like, int upTo) {

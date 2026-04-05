@@ -262,6 +262,16 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                             (int) Math.min(Integer.MAX_VALUE, need),
                             queueId
                     );
+                    if ("deliver-output".equals(task.metaPurpose)
+                            && task.source != null
+                            && task.source.mode == EndpointRef.AccessMode.BUFFER
+                            && task.source.stagingSlotIndex >= 0) {
+                        LOG.info("[TRANSFER DEBUG] task={} deliver-output consuming from reserved slot={} order={} reservation={}",
+                                task.taskId,
+                                task.source.stagingSlotIndex,
+                                task.orderId,
+                                task.stagingReservationId);
+                    }
 
                     int sourceItemsAfter = manager.countItemAtEndpoint(task.source, task.itemKey);
                     int sourceQueuedAfter = manager.countQueuedForEndpoint(task.source, task.itemKey);
