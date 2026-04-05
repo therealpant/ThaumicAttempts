@@ -174,15 +174,15 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     @net.minecraftforge.fml.relauncher.SideOnly(net.minecraftforge.fml.relauncher.Side.CLIENT) private float pitchTarget;
     @net.minecraftforge.fml.relauncher.SideOnly(net.minecraftforge.fml.relauncher.Side.CLIENT) private final java.util.Random rand = new java.util.Random();
 
-    /* ===== Pending-базовые снимки для выдачи со склада ===== */
-    private final LinkedHashMap<ItemKey, Integer> deliveryBaselines = new LinkedHashMap<>();
 
     /* ===== Черновик/пэндинг (до 9 позиций) ===== */
-    private final LinkedHashMap<ItemKey, Integer> draftDelivery   = new LinkedHashMap<>();
-    private final LinkedHashMap<ItemKey, Integer> draftCraft      = new LinkedHashMap<>();
-    private final LinkedHashMap<ItemKey, Integer> pendingDelivery = new LinkedHashMap<>();
-    private final LinkedHashMap<ItemKey, Integer> pendingCraft    = new LinkedHashMap<>();
-    private final LinkedHashMap<UUID, PendingCraftOrder> pendingCraftOrders = new LinkedHashMap<>();
+    private final List<TerminalOrderSlot> draftDelivery   = new ArrayList<>();
+    private final List<TerminalOrderSlot> draftCraft      = new ArrayList<>();
+    private final List<TerminalOrderSlot> pendingDelivery = new ArrayList<>();
+    private final List<TerminalOrderSlot> pendingCraft    = new ArrayList<>();
+    private final LinkedHashMap<UUID, TerminalOrderBatch> batchesById = new LinkedHashMap<>();
+    private final LinkedHashMap<UUID, TerminalOrderBinding> bindingsByRootOrderId = new LinkedHashMap<>();
+    private final LinkedHashMap<UUID, TerminalOrderBinding> bindingsBySlotId = new LinkedHashMap<>();
 
     private static final class TerminalOrderRequest {
         final BlockPos pos;
@@ -200,16 +200,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         InfusionOrderTarget(BlockPos pos, int slot) {
             this.pos = pos;
             this.slot = slot;
-        }
-    }
-
-    private static final class PendingCraftOrder {
-        final ItemKey key;
-        int remaining;
-
-        PendingCraftOrder(ItemKey key, int requestedAmount) {
-            this.key = key;
-            this.remaining = Math.max(0, requestedAmount);
         }
     }
 
@@ -250,22 +240,45 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     public net.minecraftforge.items.IItemHandler getBufferHandler() { return buffer; }
 
     /* ===== Утилиты ===== */
-    private static void trimTo9(LinkedHashMap<ItemKey, Integer> map) {
-        if (map.size() <= 9) return;
-        Iterator<ItemKey> it = map.keySet().iterator();
-        int i = 0;
-        while (it.hasNext()) {
-            it.next();
-            if (++i > 9) it.remove();
+    private static int totalAmountByKey(List<TerminalOrderSlot> slots, ItemKey key) {
+        if (slots == null || key == null || key == ItemKey.EMPTY) return 0;
+        int out = 0;
+        for (TerminalOrderSlot slot : slots) {
+            if (slot == null || slot.key == null) continue;
+            if (ResourceIdentity.sameResource(slot.key.toStack(1), key.toStack(1))) {
+                out += Math.max(0, slot.amount);
+            }
         }
+        return out;
     }
-    private static void addToMap(Map<ItemKey, Integer> map, ItemKey k, int delta) {
-        if (delta == 0) return;
-        int v = map.getOrDefault(k, 0) + delta;
-        if (v <= 0) map.remove(k); else map.put(k, v);
+
+    private static List<ItemStack> slotsToStacks(List<TerminalOrderSlot> slots) {
+        ArrayList<ItemStack> out = new ArrayList<>(9);
+        if (slots != null) {
+            for (TerminalOrderSlot slot : slots) {
+                if (slot == null || slot.key == null) continue;
+                ItemStack st = slot.key.toStack(Math.max(1, slot.amount));
+                if (st.isEmpty()) continue;
+                st.setCount(Math.max(1, slot.amount));
+                out.add(st);
+                if (out.size() >= 9) break;
+            }
+        }
+        while (out.size() < 9) out.add(ItemStack.EMPTY);
+        return out;
     }
-    private static List<ItemStack> mapToNineStacks(Map<ItemKey, Integer> src) {
-        return slotChunksToStacks(expandToSlotChunks(src));
+
+    private static List<Integer> slotsToCounts(List<TerminalOrderSlot> slots) {
+        ArrayList<Integer> out = new ArrayList<>(9);
+        if (slots != null) {
+            for (TerminalOrderSlot slot : slots) {
+                if (slot == null) continue;
+                out.add(Math.max(1, slot.amount));
+                if (out.size() >= 9) break;
+            }
+        }
+        while (out.size() < 9) out.add(0);
+        return out;
     }
     public void dropContents() {
         if (world == null || world.isRemote) return;
@@ -278,8 +291,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
     }
     private boolean isFrozen(boolean craftTab) {
-        Map<ItemKey, Integer> pend = craftTab ? pendingCraft : pendingDelivery;
-        return !pend.isEmpty();
+        return !(craftTab ? pendingCraft : pendingDelivery).isEmpty();
     }
 
     /* ===== Доступ к MirrorManager ===== */
@@ -294,7 +306,9 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     }
 
     /* ===== Публичные API для GUI ===== */
-    public Map<ItemKey, Integer> getDraftSnapshot(boolean craftTab) { return new LinkedHashMap<>(craftTab ? draftCraft : draftDelivery); }
+    public List<TerminalOrderSlot> getDraftSnapshot(boolean craftTab) {
+        return new ArrayList<>(craftTab ? draftCraft : draftDelivery);
+    }
 
     /* ===== Подсчёты ===== */
     private int getAvailableFromManager(ItemKey k) {
@@ -324,98 +338,103 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         ItemKey k = ItemKey.of(keyOne);
         if (k == null || k == ItemKey.EMPTY) return;
 
-        Map<ItemKey, Integer> map = craftTab ? draftCraft : draftDelivery;
+        List<TerminalOrderSlot> draft = craftTab ? draftCraft : draftDelivery;
+        List<TerminalOrderSlot> pending = craftTab ? pendingCraft : pendingDelivery;
 
         if (delta > 0) {
-            int limitBySlots = getAdditionalCapacityForKey(map, k);
-            if (limitBySlots <= 0) return;
-
-            int allowed = limitBySlots;
-
+            int left = delta;
             if (!craftTab) {
                 int available = getAvailableFromManager(k);
-                int alreadyPlanned = map.getOrDefault(k, 0) + pendingDelivery.getOrDefault(k, 0);
-                int roomByNetwork = Math.max(0, available - alreadyPlanned);
-                if (roomByNetwork <= 0) return;
-                allowed = Math.min(allowed, roomByNetwork);
+                int alreadyPlanned = totalAmountByKey(draft, k) + totalAmountByKey(pending, k);
+                left = Math.min(left, Math.max(0, available - alreadyPlanned));
             }
+            if (left <= 0) return;
 
-            int add = Math.min(delta, allowed);
-            if (add <= 0) return;
-            addToMap(map, k, add);
+            while (left > 0) {
+                TerminalOrderSlot firstPartial = null;
+                for (TerminalOrderSlot slot : draft) {
+                    if (slot == null || slot.key == null) continue;
+                    if (!ResourceIdentity.sameResource(slot.key.toStack(1), k.toStack(1))) continue;
+                    int room = getSlotLimit(slot.key) - Math.max(0, slot.amount);
+                    if (room > 0) {
+                        firstPartial = slot;
+                        break;
+                    }
+                }
+                if (firstPartial != null) {
+                    int room = getSlotLimit(firstPartial.key) - Math.max(0, firstPartial.amount);
+                    int toAdd = Math.min(left, room);
+                    if (toAdd <= 0) break;
+                    firstPartial.amount += toAdd;
+                    left -= toAdd;
+                    continue;
+                }
 
+                if (draft.size() >= 9) break;
+                int amount = Math.min(left, getSlotLimit(k));
+                draft.add(new TerminalOrderSlot(UUID.randomUUID(), k, amount, world == null ? 0L : world.getTotalWorldTime()));
+                left -= amount;
+            }
         } else {
-            int have = Math.max(0, map.getOrDefault(k, 0));
-            if (have <= 0) return;
+            int left = Math.abs(delta);
+            for (int i = draft.size() - 1; i >= 0 && left > 0; i--) {
+                TerminalOrderSlot slot = draft.get(i);
+                if (slot == null || slot.key == null) continue;
+                if (!ResourceIdentity.sameResource(slot.key.toStack(1), k.toStack(1))) continue;
 
-            int remove = Math.min(have, Math.abs(delta));
-            addToMap(map, k, -remove);
+                int take = Math.min(left, Math.max(0, slot.amount));
+                slot.amount -= take;
+                left -= take;
+                if (slot.amount <= 0) draft.remove(i);
+            }
         }
 
         markDirty();
     }
 
     public void submitDraft(boolean craftTab) {
-        Map<ItemKey, Integer> draft = craftTab ? draftCraft : draftDelivery;
-        Map<ItemKey, Integer> pend  = craftTab ? pendingCraft : pendingDelivery;
+        List<TerminalOrderSlot> draft = craftTab ? draftCraft : draftDelivery;
+        List<TerminalOrderSlot> pend  = craftTab ? pendingCraft : pendingDelivery;
         if (draft.isEmpty()) { sendSnapshotToViewers(craftTab); return; }
 
-        int freeSlots = Math.max(0, 9 - expandedSlotCount(pend));
-        List<Map.Entry<ItemKey, Integer>> movedRaw = new ArrayList<>();
         List<TerminalOrderRequest> directTerminalOrders = new ArrayList<>();
         Map<BlockPos, List<Map.Entry<ItemStack, Integer>>> directInfusionOrders = new HashMap<>();
+        List<TerminalOrderSlot> accepted = new ArrayList<>();
 
-        for (Map.Entry<ItemKey, Integer> e : new ArrayList<>(draft.entrySet())) {
-            ItemKey key = e.getKey();
-            int amt = Math.max(1, e.getValue());
+        for (TerminalOrderSlot slot : new ArrayList<>(draft)) {
+            ItemKey key = slot.key;
+            int amt = Math.max(1, slot.amount);
 
             ItemStack keyStack = key.toStack(1);
             if (TerminalOrderApi.isOrderIcon(keyStack)) {
                 BlockPos target = TerminalOrderApi.getOrderIconPos(keyStack);
-                int slot = TerminalOrderApi.getOrderIconSlot(keyStack);
+                int iconSlot = TerminalOrderApi.getOrderIconSlot(keyStack);
                 ItemStack resultLike = TerminalOrderApi.stripOrderIconData(keyStack);
-                if (target != null && slot >= 0) {
+                if (target != null && iconSlot >= 0) {
                     if (!resultLike.isEmpty()) {
                         directInfusionOrders
                                 .computeIfAbsent(target, k -> new ArrayList<>())
                                 .add(new AbstractMap.SimpleEntry<>(resultLike, amt));
                     }
-                    directTerminalOrders.add(new TerminalOrderRequest(target, slot, amt));
+                    directTerminalOrders.add(new TerminalOrderRequest(target, iconSlot, amt));
                 }
-                draft.remove(key);
+                draft.remove(slot);
                 continue;
             }
 
             int toMove = amt;
             if (!craftTab) {
                 int available = getAvailableFromManager(key);
-                int havePend  = pendingDelivery.getOrDefault(key, 0);
+                int havePend  = totalAmountByKey(pendingDelivery, key);
                 int room = Math.max(0, available - havePend);
                 toMove = Math.min(toMove, room);
             }
             if (toMove <= 0) continue;
-
-            int pendingCapacityForKey = getAdditionalCapacityForKey(pend, key);
-            if (pendingCapacityForKey <= 0) continue;
-            toMove = Math.min(toMove, pendingCapacityForKey);
-
-            addToMap(pend, key, toMove);
-
-            if (!craftTab) {
-                int baseNow = countInBufferLike(key.toStack(1));
-                int basePrev = Math.max(0, deliveryBaselines.getOrDefault(key, 0));
-                deliveryBaselines.put(key, Math.max(basePrev, baseNow));
-            }
-
-            int remain = e.getValue() - toMove;
-            if (remain > 0) draft.put(key, remain); else draft.remove(key);
-
-            movedRaw.add(new AbstractMap.SimpleEntry<>(key, toMove));
+            accepted.add(new TerminalOrderSlot(slot.slotId, key, toMove, slot.createdTick));
         }
 
         if (!directTerminalOrders.isEmpty()) {
             markDirty();
-            boolean pendingCraftChanged = false;
             for (TerminalOrderRequest order : directTerminalOrders) {
                 TileEntity te = world.getTileEntity(order.pos);
                 if (te instanceof TileInfusionRequester) {
@@ -423,13 +442,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                     if (infusionOrders != null) {
                         TileInfusionRequester requester = (TileInfusionRequester) te;
                         for (Map.Entry<ItemStack, Integer> orderEntry : infusionOrders) {
-                            int accepted = requester.enqueueCrafterOrder(
+                            int acceptedCount = requester.enqueueCrafterOrder(
                                     managerPos, this.pos, -1, orderEntry.getKey(), orderEntry.getValue());
-                            if (accepted > 0) {
-                                int perCraft = Math.max(1, requester.getPerCraftOutputCountFor(orderEntry.getKey()));
-                                int totalOut = Math.max(1, accepted * perCraft);
-                                addToMap(pendingCraft, ItemKey.of(orderEntry.getKey()), totalOut);
-                                pendingCraftChanged = true;
+                            if (acceptedCount > 0) {
+                                // direct-infusion path is external and does not create terminal root orders.
                             }
                         }
                         continue;
@@ -445,23 +461,16 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                     if (!(te instanceof TileInfusionRequester)) continue;
                     TileInfusionRequester inf = (TileInfusionRequester) te;
                     for (Map.Entry<ItemStack, Integer> infOrder : entry.getValue()) {
-                        int accepted = inf.enqueueCrafterOrder(
+                        int acceptedCount = inf.enqueueCrafterOrder(
                                 managerPos, this.pos, -1, infOrder.getKey(), infOrder.getValue());
-                        if (accepted > 0) {
-                            int perCraft = Math.max(1, inf.getPerCraftOutputCountFor(infOrder.getKey()));
-                            int totalOut = Math.max(1, accepted * perCraft);
-                            addToMap(pendingCraft, ItemKey.of(infOrder.getKey()), totalOut);
-                            pendingCraftChanged = true;
+                        if (acceptedCount > 0) {
+                            // direct-infusion path is external and does not create terminal root orders.
                         }
                     }
                 }
             }
-            if (pendingCraftChanged) {
-                sendSnapshotToViewers(true);
-            }
         }
-
-        if (movedRaw.isEmpty()) {
+        if (accepted.isEmpty()) {
             if (directTerminalOrders.isEmpty()) {
                 markDirty();
             }
@@ -469,32 +478,24 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             return;
         }
 
-        List<SlotChunk> moved = expandToSlotChunks(mergedFromEntries(movedRaw));
-
         markDirty();
 
         TileEntity mte = (managerPos == null) ? null : world.getTileEntity(managerPos);
         if (mte instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) mte;
 
-            for (SlotChunk chunk : moved) {
-                if (chunk == null || chunk.key == null || chunk.amount <= 0) continue;
-
-                ItemKey key = chunk.key;
-                int amount = chunk.amount;
+            UUID batchId = UUID.randomUUID();
+            TerminalOrderBatch batch = new TerminalOrderBatch(batchId, craftTab);
+            for (TerminalOrderSlot acceptedSlot : accepted) {
+                if (acceptedSlot == null || acceptedSlot.key == null || acceptedSlot.amount <= 0) continue;
+                ItemKey key = acceptedSlot.key;
+                int amount = acceptedSlot.amount;
+                UUID orderId;
 
                 if (craftTab) {
-                    UUID orderId = submitCraftRequest(mgr, key, amount);
-
-                    if (orderId != null) {
-                        pendingCraftOrders.put(orderId, new PendingCraftOrder(key, amount));
-                    } else {
-                        addToMap(pendingCraft, key, -amount);
-                        addToMap(draftCraft, key, amount);
-                    }
-
+                    orderId = submitCraftRequest(mgr, key, amount);
                 } else {
-                    mgr.submitOrder(
+                    orderId = mgr.submitOrder(
                             key,
                             amount,
                             OrderSourceType.TERMINAL,
@@ -503,33 +504,24 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                             NetworkOrder.RequestIntent.NORMAL
                     );
                 }
+                if (orderId == null) continue;
+                TerminalOrderSlot pendingSlot = new TerminalOrderSlot(
+                        acceptedSlot.slotId, acceptedSlot.key, acceptedSlot.amount, acceptedSlot.createdTick
+                );
+                pend.add(pendingSlot);
+                draft.removeIf(s -> s.slotId.equals(acceptedSlot.slotId));
+
+                TerminalOrderBinding binding = new TerminalOrderBinding(
+                        acceptedSlot.slotId, batchId, orderId, acceptedSlot.key, acceptedSlot.amount
+                );
+                bindingsByRootOrderId.put(orderId, binding);
+                bindingsBySlotId.put(acceptedSlot.slotId, binding);
+                batch.slotIds.add(acceptedSlot.slotId);
+                batch.rootOrderIds.add(orderId);
             }
+            if (!batch.rootOrderIds.isEmpty()) batchesById.put(batchId, batch);
         }
-
         sendSnapshotToViewers(craftTab);
-    }
-
-    private static LinkedHashMap<ItemKey, Integer> mergedFromEntries(List<Map.Entry<ItemKey, Integer>> entries) {
-        LinkedHashMap<ItemKey, Integer> out = new LinkedHashMap<>();
-        if (entries == null) return out;
-
-        for (Map.Entry<ItemKey, Integer> e : entries) {
-            if (e == null || e.getKey() == null) continue;
-            int amt = Math.max(0, e.getValue());
-            if (amt <= 0) continue;
-            out.merge(e.getKey(), amt, Integer::sum);
-        }
-        return out;
-    }
-
-    private static final class SlotChunk {
-        final ItemKey key;
-        final int amount;
-
-        SlotChunk(ItemKey key, int amount) {
-            this.key = key;
-            this.amount = Math.max(1, amount);
-        }
     }
 
     private static int getSlotLimit(ItemKey key) {
@@ -542,117 +534,20 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         return Math.max(1, max);
     }
 
-    private static int expandedSlotCount(Map<ItemKey, Integer> src) {
-        if (src == null || src.isEmpty()) return 0;
-        int used = 0;
-        for (Map.Entry<ItemKey, Integer> e : src.entrySet()) {
-            int total = Math.max(0, e.getValue());
-            if (total <= 0) continue;
-
-            int perSlot = getSlotLimit(e.getKey());
-            used += (total + perSlot - 1) / perSlot;
-            if (used >= 9) return 9;
-        }
-        return used;
-    }
-
-    private static List<SlotChunk> expandToSlotChunks(Map<ItemKey, Integer> src) {
-        ArrayList<SlotChunk> out = new ArrayList<>(9);
-        if (src == null || src.isEmpty()) return out;
-
-        for (Map.Entry<ItemKey, Integer> e : src.entrySet()) {
-            ItemKey key = e.getKey();
-            int total = Math.max(0, e.getValue());
-            if (key == null || key == ItemKey.EMPTY || total <= 0) continue;
-
-            int perSlot = getSlotLimit(key);
-            while (total > 0 && out.size() < 9) {
-                int take = Math.min(perSlot, total);
-                out.add(new SlotChunk(key, take));
-                total -= take;
-            }
-            if (out.size() >= 9) break;
-        }
-        return out;
-    }
-
-    private static List<ItemStack> slotChunksToStacks(List<SlotChunk> chunks) {
-        ArrayList<ItemStack> out = new ArrayList<>(9);
-        if (chunks != null) {
-            for (SlotChunk c : chunks) {
-                ItemStack s = (c == null || c.key == null) ? ItemStack.EMPTY : c.key.toStack(c.amount);
-                if (s == null || s.isEmpty()) s = ItemStack.EMPTY;
-                else s.setCount(Math.max(1, c.amount));
-                out.add(s);
-                if (out.size() == 9) break;
-            }
-        }
-        while (out.size() < 9) out.add(ItemStack.EMPTY);
-        return out;
-    }
-
-    private static List<Integer> slotChunksToCounts(List<SlotChunk> chunks) {
-        ArrayList<Integer> out = new ArrayList<>(9);
-        if (chunks != null) {
-            for (SlotChunk c : chunks) {
-                out.add(c == null ? 0 : Math.max(1, c.amount));
-                if (out.size() == 9) break;
-            }
-        }
-        while (out.size() < 9) out.add(0);
-        return out;
-    }
-
-    private static int getItemTotal(Map<ItemKey, Integer> map, ItemKey key) {
-        if (map == null || key == null || key == ItemKey.EMPTY) return 0;
-        return Math.max(0, map.getOrDefault(key, 0));
-    }
-
-    private static int getAdditionalCapacityForKey(Map<ItemKey, Integer> map, ItemKey key) {
-        if (map == null || key == null || key == ItemKey.EMPTY) return 0;
-
-        int usedSlots = expandedSlotCount(map);
-        if (usedSlots >= 9) {
-            // если карта уже полная, возможно у этого key есть неполный последний слот
-            int current = getItemTotal(map, key);
-            if (current <= 0) return 0;
-
-            int perSlot = getSlotLimit(key);
-            int mod = current % perSlot;
-            return mod == 0 ? 0 : (perSlot - mod);
-        }
-
-        int current = getItemTotal(map, key);
-        int perSlot = getSlotLimit(key);
-
-        int partialFree = 0;
-        if (current > 0) {
-            int mod = current % perSlot;
-            if (mod != 0) partialFree = perSlot - mod;
-        }
-
-        int freeSlots = 9 - usedSlots;
-        return partialFree + freeSlots * perSlot;
-    }
-
     public List<ItemStack> getDraftSnapshotStacks(boolean craftTab) {
-        Map<ItemKey, Integer> map = craftTab ? draftCraft : draftDelivery;
-        return slotChunksToStacks(expandToSlotChunks(map));
+        return slotsToStacks(craftTab ? draftCraft : draftDelivery);
     }
 
     public List<Integer> getDraftSnapshotCounts(boolean craftTab) {
-        Map<ItemKey, Integer> map = craftTab ? draftCraft : draftDelivery;
-        return slotChunksToCounts(expandToSlotChunks(map));
+        return slotsToCounts(craftTab ? draftCraft : draftDelivery);
     }
 
     public List<ItemStack> getPendingSnapshot(boolean craftTab) {
-        Map<ItemKey, Integer> map = craftTab ? pendingCraft : pendingDelivery;
-        return slotChunksToStacks(expandToSlotChunks(map));
+        return slotsToStacks(craftTab ? pendingCraft : pendingDelivery);
     }
 
     public List<Integer> getPendingSnapshotCounts(boolean craftTab) {
-        Map<ItemKey, Integer> map = craftTab ? pendingCraft : pendingDelivery;
-        return slotChunksToCounts(expandToSlotChunks(map));
+        return slotsToCounts(craftTab ? pendingCraft : pendingDelivery);
     }
 
     @Nullable
@@ -680,14 +575,12 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     }
 
     @Nullable
-    private ItemKey findMatchingKeyRelaxed(Map<ItemKey, Integer> map, ItemStack like) {
-        if (like == null || like.isEmpty() || map == null || map.isEmpty()) return null;
-        ItemKey exact = ItemKey.of(like);
-        if (map.containsKey(exact)) return exact;
-
-        for (ItemKey k : map.keySet()) {
-            ItemStack one = k.toStack(1);
-            if (ResourceIdentity.sameResource(one, like)) return k;
+    private ItemKey findMatchingKeyRelaxed(List<TerminalOrderSlot> slots, ItemStack like) {
+        if (like == null || like.isEmpty() || slots == null || slots.isEmpty()) return null;
+        for (TerminalOrderSlot slot : slots) {
+            if (slot == null || slot.key == null) continue;
+            ItemStack one = slot.key.toStack(1);
+            if (ResourceIdentity.sameResource(one, like)) return slot.key;
         }
         return null;
     }
@@ -695,36 +588,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     public void onDelivered(ItemStack like, int count) {
         if (like == null || like.isEmpty() || count <= 0) return;
 
-
-        ItemKey keyDel = findMatchingKeyRelaxed(pendingDelivery, like);
-        int left = count;
-
-        if (keyDel == null && left > 0) {
-            ItemKey keyCr = findMatchingKeyRelaxed(pendingCraft, like);
-            if (keyCr != null) {
-                int have = Math.max(0, pendingCraft.getOrDefault(keyCr, 0));
-                if (have > 0) {
-                    int take = Math.min(have, left);
-                    addToMap(pendingCraft, keyCr, -take);
-                    consumePendingCraftOrders(keyCr, take);
-                    LOG.info("[OrderTerminal {}] pendingCraft decremented like={} take={} before={} after={}",
-                            pos, like, take, have, Math.max(0, have - take));
-                    left -= take;
-                }
-            }
-        }
-
-        if (world != null && !world.isRemote && managerPos != null && keyDel != null) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) {
-                int remainWantDel = Math.max(0, pendingDelivery.getOrDefault(keyDel, 0));
-                ((TileMirrorManager) te).reconcileForDelivery(this.pos, like, remainWantDel);
-            }
-        }
-
-        markDirty();
-        sendSnapshotToViewers(false);
-        sendSnapshotToViewers(true);
+        refreshPendingOrderStatuses();
     }
 
     /* ===== Capabilities ===== */
@@ -755,81 +619,70 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
 
         ensurePendingWithManager(30);
-        reconcilePendingCraftOrdersWithManager();
-
-        if ((tickCounter % 20) == 0) autoReconcilePendingByBuffer();
+        refreshPendingOrderStatuses();
     }
 
-    private void reconcilePendingCraftOrdersWithManager() {
-        if (pendingCraftOrders.isEmpty() || managerPos == null) return;
+    private void refreshPendingOrderStatuses() {
+        if (bindingsByRootOrderId.isEmpty() || managerPos == null) return;
 
         TileEntity te = world.getTileEntity(managerPos);
         if (!(te instanceof TileMirrorManager)) return;
         TileMirrorManager manager = (TileMirrorManager) te;
 
-        boolean pendingChanged = false;
+        boolean draftChangedDelivery = false;
+        boolean draftChangedCraft = false;
+        for (TerminalOrderBinding binding : new ArrayList<>(bindingsByRootOrderId.values())) {
+            if (binding == null || binding.rootOrderId == null) continue;
+            if (binding.completed || binding.failed) continue;
 
-        Iterator<Map.Entry<UUID, PendingCraftOrder>> it = pendingCraftOrders.entrySet().iterator();
-        while (it.hasNext()) {
-            Map.Entry<UUID, PendingCraftOrder> entry = it.next();
-            UUID orderId = entry.getKey();
-            PendingCraftOrder tracked = entry.getValue();
-            OrderStatus status = manager.getOrderStatus(orderId);
+            OrderStatus status = manager.getOrderStatus(binding.rootOrderId);
+            if (status == null) continue;
+            if (status != OrderStatus.DONE && status != OrderStatus.FAILED && status != OrderStatus.CANCELED) continue;
 
-            if (status == null) {
-                continue;
-            }
+            binding.completed = (status == OrderStatus.DONE);
+            binding.failed = !binding.completed;
+            boolean craftTab = removePendingSlotById(binding.slotId);
+            updateBatchDone(binding.batchId);
 
-            if (status == OrderStatus.DONE) {
-                it.remove();
-                continue;
-            }
-
-            if (status != OrderStatus.FAILED && status != OrderStatus.CANCELED) {
-                continue;
-            }
-
-            int havePending = Math.max(0, pendingCraft.getOrDefault(tracked.key, 0));
-            int unresolved = Math.min(havePending, Math.max(0, tracked.remaining));
-            if (unresolved > 0) {
-                addToMap(pendingCraft, tracked.key, -unresolved);
-                pendingChanged = true;
-            }
-
-            /*
-             * ВАЖНО:
-             * Для craft-only заказов, которые невозможно выполнить (например без planner или
-             * без сгенерированных planner suborders), терминал НЕ должен:
-             *  - слать сообщение в чат
-             *  - возвращать предмет обратно в draft/page
-             *
-             * Он должен просто тихо убрать запись из pending.
-             */
-            it.remove();
+            if (craftTab) draftChangedCraft = true;
+            else draftChangedDelivery = true;
         }
 
-        if (pendingChanged) {
+        if (draftChangedDelivery || draftChangedCraft) {
             markDirty();
-            sendSnapshotToViewers(true);
+            if (draftChangedDelivery) sendSnapshotToViewers(false);
+            if (draftChangedCraft) sendSnapshotToViewers(true);
         }
     }
 
-    private void consumePendingCraftOrders(ItemKey deliveredKey, int amount) {
-        if (amount <= 0 || deliveredKey == null || deliveredKey == ItemKey.EMPTY || pendingCraftOrders.isEmpty()) return;
-        int left = amount;
-
-        Iterator<Map.Entry<UUID, PendingCraftOrder>> it = pendingCraftOrders.entrySet().iterator();
-        while (it.hasNext() && left > 0) {
-            PendingCraftOrder tracked = it.next().getValue();
-            if (tracked == null || tracked.key == null || tracked.key == ItemKey.EMPTY) continue;
-            if (!ResourceIdentity.sameResource(tracked.key.toStack(1), deliveredKey.toStack(1))) continue;
-
-            int take = Math.min(left, Math.max(0, tracked.remaining));
-            tracked.remaining = Math.max(0, tracked.remaining - take);
-            left -= take;
-
-            if (tracked.remaining <= 0) it.remove();
+    private boolean removePendingSlotById(UUID slotId) {
+        if (slotId == null) return false;
+        for (int i = 0; i < pendingDelivery.size(); i++) {
+            TerminalOrderSlot slot = pendingDelivery.get(i);
+            if (slot != null && slot.slotId.equals(slotId)) {
+                pendingDelivery.remove(i);
+                return false;
+            }
         }
+        for (int i = 0; i < pendingCraft.size(); i++) {
+            TerminalOrderSlot slot = pendingCraft.get(i);
+            if (slot != null && slot.slotId.equals(slotId)) {
+                pendingCraft.remove(i);
+                return true;
+            }
+        }
+        return false;
+    }
+
+    private void updateBatchDone(UUID batchId) {
+        if (batchId == null) return;
+        TerminalOrderBatch batch = batchesById.get(batchId);
+        if (batch == null || batch.done) return;
+        for (UUID rootOrderId : batch.rootOrderIds) {
+            TerminalOrderBinding binding = bindingsByRootOrderId.get(rootOrderId);
+            if (binding == null || (!binding.completed && !binding.failed)) return;
+        }
+        batch.done = true;
     }
 
     private boolean isCraftRequestPossible(ItemStack stack, int requestedAmount) {
@@ -888,58 +741,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     }
 
     private void reconcilePendingByBufferInstant() {
-        if (pendingDelivery.isEmpty()) return;
-
-        boolean changed = false;
-
-        TileMirrorManager mgr = null;
-        if (managerPos != null) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) mgr = (TileMirrorManager) te;
-        }
-
-        final boolean outerCall = !inRecon;
-        inRecon = true;
-        try {
-            List<Map.Entry<ItemKey,Integer>> snapshot = new ArrayList<>(pendingDelivery.entrySet());
-            Map<ItemKey,Integer> toPut   = new LinkedHashMap<>();
-            Set<ItemKey>         toRemove = new HashSet<>();
-
-            for (Map.Entry<ItemKey, Integer> e : snapshot) {
-                ItemKey k = e.getKey();
-                int pending = Math.max(0, e.getValue());
-                if (pending <= 0) { toRemove.add(k); continue; }
-
-                ItemStack like1 = k.toStack(1);
-                int baseline = Math.max(0, deliveryBaselines.getOrDefault(k, 0));
-                int have = Math.max(0, countInBufferLike(like1));
-                int delta = Math.max(0, have - baseline);
-
-                if (delta > 0) {
-                    int take = Math.min(delta, pending);
-                    int left = pending - take;
-
-                    if (left > 0) toPut.put(k, left); else toRemove.add(k);
-
-                    int newBase = Math.min(baseline + take, have);
-                    deliveryBaselines.put(k, newBase);
-
-                    if (mgr != null) {
-                        if (outerCall) mgr.reconcileForDelivery(this.pos, like1, Math.max(0, left));
-                        else needEnsureWithManager = true;
-                    }
-                    changed = true;
-                }
-            }
-
-            for (ItemKey k : toRemove) { pendingDelivery.remove(k); deliveryBaselines.remove(k); }
-            for (Map.Entry<ItemKey,Integer> put : toPut.entrySet()) pendingDelivery.put(put.getKey(), put.getValue());
-
-        } finally {
-            inRecon = false;
-        }
-
-        if (changed) { markDirty(); sendSnapshotToViewers(false); }
+        refreshPendingOrderStatuses();
     }
 
     private void autoReconcilePendingByBuffer() { reconcilePendingByBufferInstant(); }
@@ -967,20 +769,12 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         nbt.setTag("buffer", buffer.serializeNBT());
         if (managerPos != null) nbt.setLong("manager", managerPos.toLong());
 
-        nbt.setTag("draftD", writeMap(draftDelivery));
-        nbt.setTag("draftC", writeMap(draftCraft));
-        nbt.setTag("pendD",  writeMap(pendingDelivery));
-        nbt.setTag("pendC",  writeMap(pendingCraft));
-        nbt.setTag("pendCraftOrders", writePendingCraftOrders());
-
-        NBTTagList bl = new NBTTagList();
-        for (Map.Entry<ItemKey, Integer> e : deliveryBaselines.entrySet()) {
-            NBTTagCompound t = new NBTTagCompound();
-            t.setTag("k", e.getKey().toStack(1).serializeNBT());
-            t.setInteger("b", Math.max(0, e.getValue()));
-            bl.appendTag(t);
-        }
-        nbt.setTag("deliveryBaselines", bl);
+        nbt.setTag("draftD", writeSlots(draftDelivery));
+        nbt.setTag("draftC", writeSlots(draftCraft));
+        nbt.setTag("pendD",  writeSlots(pendingDelivery));
+        nbt.setTag("pendC",  writeSlots(pendingCraft));
+        nbt.setTag("terminalBatches", writeBatches());
+        nbt.setTag("terminalBindings", writeBindings());
 
         return nbt;
     }
@@ -992,22 +786,12 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         if (nbt.hasKey("buffer")) buffer.deserializeNBT(nbt.getCompoundTag("buffer"));
         managerPos = nbt.hasKey("manager") ? BlockPos.fromLong(nbt.getLong("manager")) : null;
 
-        readMap(nbt.getTagList("draftD", 10), draftDelivery);
-        readMap(nbt.getTagList("draftC", 10), draftCraft);
-        readMap(nbt.getTagList("pendD",  10), pendingDelivery);
-        readMap(nbt.getTagList("pendC",  10), pendingCraft);
-        readPendingCraftOrders(nbt.getTagList("pendCraftOrders", 10));
-
-        deliveryBaselines.clear();
-        if (nbt.hasKey("deliveryBaselines")) {
-            NBTTagList bl = nbt.getTagList("deliveryBaselines", 10);
-            for (int i = 0; i < bl.tagCount(); i++) {
-                NBTTagCompound t = bl.getCompoundTagAt(i);
-                ItemStack st = new ItemStack(t.getCompoundTag("k"));
-                int b = Math.max(0, t.getInteger("b"));
-                if (!st.isEmpty()) deliveryBaselines.put(ItemKey.of(st), b);
-            }
-        }
+        readSlots(nbt.getTagList("draftD", 10), draftDelivery);
+        readSlots(nbt.getTagList("draftC", 10), draftCraft);
+        readSlots(nbt.getTagList("pendD",  10), pendingDelivery);
+        readSlots(nbt.getTagList("pendC",  10), pendingCraft);
+        readBatches(nbt.getTagList("terminalBatches", 10));
+        readBindings(nbt.getTagList("terminalBindings", 10));
     }
 
     private void triggerInfusionOrder(InfusionOrderTarget target, int count) {
@@ -1018,59 +802,58 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
     }
 
-    private static NBTTagList writeMap(LinkedHashMap<ItemKey, Integer> map) {
+    private static NBTTagList writeSlots(List<TerminalOrderSlot> slots) {
         NBTTagList lst = new NBTTagList();
-        for (Map.Entry<ItemKey, Integer> e : map.entrySet()) {
-            NBTTagCompound t = new NBTTagCompound();
-            t.setTag("k", e.getKey().toStack(1).serializeNBT());
-            t.setInteger("c", e.getValue());
-            lst.appendTag(t);
+        for (TerminalOrderSlot slot : slots) {
+            if (slot == null || slot.key == null || slot.key == ItemKey.EMPTY) continue;
+            lst.appendTag(slot.writeToNbt());
         }
         return lst;
     }
-    private static void readMap(NBTTagList lst, LinkedHashMap<ItemKey, Integer> out) {
+
+    private static void readSlots(NBTTagList lst, List<TerminalOrderSlot> out) {
         out.clear();
         for (int i = 0; i < lst.tagCount(); i++) {
-            NBTTagCompound t = lst.getCompoundTagAt(i);
-            ItemStack st = new ItemStack(t.getCompoundTag("k"));
-            int c = t.getInteger("c");
-            if (!st.isEmpty() && c > 0) out.put(ItemKey.of(st), c);
+            TerminalOrderSlot slot = TerminalOrderSlot.readFromNbt(lst.getCompoundTagAt(i));
+            if (slot != null) out.add(slot);
+            if (out.size() >= 9) break;
         }
-        trimTo9(out);
     }
 
-    private NBTTagList writePendingCraftOrders() {
+    private NBTTagList writeBatches() {
         NBTTagList list = new NBTTagList();
-        for (Map.Entry<UUID, PendingCraftOrder> e : pendingCraftOrders.entrySet()) {
-            PendingCraftOrder tracked = e.getValue();
-            if (tracked == null || tracked.key == null || tracked.key == ItemKey.EMPTY) continue;
-            NBTTagCompound t = new NBTTagCompound();
-            t.setString("id", e.getKey().toString());
-            t.setTag("k", tracked.key.toStack(1).serializeNBT());
-            t.setInteger("r", Math.max(0, tracked.remaining));
-            list.appendTag(t);
+        for (TerminalOrderBatch batch : batchesById.values()) {
+            if (batch == null) continue;
+            list.appendTag(batch.writeToNbt());
         }
         return list;
     }
 
-    private void readPendingCraftOrders(NBTTagList list) {
-        pendingCraftOrders.clear();
-        if (list == null) return;
+    private NBTTagList writeBindings() {
+        NBTTagList list = new NBTTagList();
+        for (TerminalOrderBinding binding : bindingsByRootOrderId.values()) {
+            if (binding == null) continue;
+            list.appendTag(binding.writeToNbt());
+        }
+        return list;
+    }
 
+    private void readBatches(NBTTagList list) {
+        batchesById.clear();
         for (int i = 0; i < list.tagCount(); i++) {
-            NBTTagCompound t = list.getCompoundTagAt(i);
-            if (!t.hasKey("id")) continue;
-            UUID id;
-            try {
-                id = UUID.fromString(t.getString("id"));
-            } catch (IllegalArgumentException ex) {
-                continue;
-            }
+            TerminalOrderBatch batch = TerminalOrderBatch.readFromNbt(list.getCompoundTagAt(i));
+            if (batch != null) batchesById.put(batch.batchId, batch);
+        }
+    }
 
-            ItemStack st = new ItemStack(t.getCompoundTag("k"));
-            if (st.isEmpty()) continue;
-            int remaining = Math.max(0, t.getInteger("r"));
-            pendingCraftOrders.put(id, new PendingCraftOrder(ItemKey.of(st), remaining));
+    private void readBindings(NBTTagList list) {
+        bindingsByRootOrderId.clear();
+        bindingsBySlotId.clear();
+        for (int i = 0; i < list.tagCount(); i++) {
+            TerminalOrderBinding binding = TerminalOrderBinding.readFromNbt(list.getCompoundTagAt(i));
+            if (binding == null) continue;
+            bindingsByRootOrderId.put(binding.rootOrderId, binding);
+            bindingsBySlotId.put(binding.slotId, binding);
         }
     }
 
