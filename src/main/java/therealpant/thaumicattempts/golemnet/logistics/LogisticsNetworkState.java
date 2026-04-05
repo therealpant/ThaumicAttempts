@@ -48,7 +48,9 @@ public class LogisticsNetworkState {
         public UUID orderId;
         public ItemKey itemKey;
         public int requestedAmount;
-        public int stagedAmount;
+        public int stagedOwned;
+        public int consumedOwned;
+        public int incomingQueued;
         public int slotIndex;
         public boolean readyForDispatch;
         public boolean released;
@@ -61,7 +63,9 @@ public class LogisticsNetworkState {
             tag.setString("orderId", orderId.toString());
             tag.setTag("itemKey", itemKey.toStack(1).writeToNBT(new NBTTagCompound()));
             tag.setInteger("requestedAmount", requestedAmount);
-            tag.setInteger("stagedAmount", stagedAmount);
+            tag.setInteger("stagedOwned", stagedOwned);
+            tag.setInteger("consumedOwned", consumedOwned);
+            tag.setInteger("incomingQueued", incomingQueued);
             tag.setInteger("slotIndex", slotIndex);
             tag.setBoolean("readyForDispatch", readyForDispatch);
             tag.setBoolean("released", released);
@@ -82,7 +86,13 @@ public class LogisticsNetworkState {
             }
             reservation.itemKey = ItemKey.of(new ItemStack(tag.getCompoundTag("itemKey")));
             reservation.requestedAmount = Math.max(1, tag.getInteger("requestedAmount"));
-            reservation.stagedAmount = Math.max(0, tag.getInteger("stagedAmount"));
+            if (tag.hasKey("stagedOwned", Constants.NBT.TAG_INT)) {
+                reservation.stagedOwned = Math.max(0, tag.getInteger("stagedOwned"));
+            } else {
+                reservation.stagedOwned = Math.max(0, tag.getInteger("stagedAmount"));
+            }
+            reservation.consumedOwned = Math.max(0, tag.getInteger("consumedOwned"));
+            reservation.incomingQueued = Math.max(0, tag.getInteger("incomingQueued"));
             reservation.slotIndex = Math.max(0, tag.getInteger("slotIndex"));
             reservation.readyForDispatch = tag.getBoolean("readyForDispatch");
             reservation.released = tag.getBoolean("released");
@@ -96,7 +106,7 @@ public class LogisticsNetworkState {
         public final UUID reservationId;
         public final UUID orderId;
         public final int slotIndex;
-        public final int stagedAmount;
+        public final int stagedOwned;
         public final int requestedAmount;
         public final int requiredAmount;
         public final boolean readyForDispatch;
@@ -104,14 +114,14 @@ public class LogisticsNetworkState {
         public ReservationDispatchSnapshot(@Nullable UUID reservationId,
                                            @Nullable UUID orderId,
                                            int slotIndex,
-                                           int stagedAmount,
+                                           int stagedOwned,
                                            int requestedAmount,
                                            int requiredAmount,
                                            boolean readyForDispatch) {
             this.reservationId = reservationId;
             this.orderId = orderId;
             this.slotIndex = slotIndex;
-            this.stagedAmount = stagedAmount;
+            this.stagedOwned = stagedOwned;
             this.requestedAmount = requestedAmount;
             this.requiredAmount = requiredAmount;
             this.readyForDispatch = readyForDispatch;
@@ -389,7 +399,9 @@ public class LogisticsNetworkState {
         reservation.orderId = order.orderId;
         reservation.itemKey = order.requestedKey;
         reservation.requestedAmount = Math.max(1, order.requestedAmount);
-        reservation.stagedAmount = 0;
+        reservation.stagedOwned = 0;
+        reservation.consumedOwned = 0;
+        reservation.incomingQueued = 0;
         reservation.slotIndex = freeSlot;
         reservation.readyForDispatch = false;
         reservation.released = false;
@@ -523,10 +535,32 @@ public class LogisticsNetworkState {
         for (Map.Entry<UUID, BufferReservation> e : bufferReservations.entrySet()) {
             BufferReservation reservation = e.getValue();
             if (reservation == null) continue;
-            stagedBefore.put(e.getKey(), Math.max(0, reservation.stagedAmount));
+            stagedBefore.put(e.getKey(), Math.max(0, reservation.stagedOwned));
             readyBefore.put(e.getKey(), reservation.readyForDispatch);
         }
-
+        if (matchedByTask != null && !matchedByTask.released) {
+            int deliveredOwned = Math.max(0, deliveredCount);
+            matchedByTask.stagedOwned = Math.max(0, matchedByTask.stagedOwned + deliveredOwned);
+            matchedByTask.incomingQueued = Math.max(0, matchedByTask.incomingQueued - deliveredOwned);
+            matchedByTask.readyForDispatch = matchedByTask.stagedOwned >= matchedByTask.requestedAmount;
+            matchedByTask.updatedTick = manager.getServerTickCounter();
+            LOG.info("[InboundAssign] task={} order={} addedToReservation={} newStaged={}",
+                    matchedTask == null ? null : matchedTask.taskId,
+                    matchedByTask.orderId,
+                    deliveredOwned,
+                    matchedByTask.stagedOwned);
+        } else if (matchedBySlot != null && !matchedBySlot.released) {
+            int deliveredOwned = Math.max(0, deliveredCount);
+            matchedBySlot.stagedOwned = Math.max(0, matchedBySlot.stagedOwned + deliveredOwned);
+            matchedBySlot.incomingQueued = Math.max(0, matchedBySlot.incomingQueued - deliveredOwned);
+            matchedBySlot.readyForDispatch = matchedBySlot.stagedOwned >= matchedBySlot.requestedAmount;
+            matchedBySlot.updatedTick = manager.getServerTickCounter();
+            LOG.info("[InboundAssign] task={} order={} addedToReservation={} newStaged={}",
+                    matchedTask == null ? null : matchedTask.taskId,
+                    matchedBySlot.orderId,
+                    deliveredOwned,
+                    matchedBySlot.stagedOwned);
+        }
         refreshReservationState(manager);
 
         BufferReservation updatedByTask = matchedByTask == null ? null : bufferReservations.get(matchedByTask.reservationId);
@@ -536,7 +570,7 @@ public class LogisticsNetworkState {
         if (updated != null) {
             int before = stagedBefore.containsKey(updated.reservationId) ? stagedBefore.get(updated.reservationId) : 0;
             boolean readyWas = readyBefore.containsKey(updated.reservationId) && readyBefore.get(updated.reservationId);
-            int after = Math.max(0, updated.stagedAmount);
+            int after = Math.max(0, updated.stagedOwned);
             boolean readyNow = updated.readyForDispatch;
             LOG.info("[ReservationUpdate] manager={} order={} reservation={} reservationSlot={} physicalSlot={} stagedBefore={} stagedAfter={} requiredAmount={} readyBefore={} readyAfter={}",
                     manager.getPos(),
@@ -614,10 +648,10 @@ public class LogisticsNetworkState {
             );
         }
 
-        int stagedAmount = Math.max(0, reservation.stagedAmount);
+        int stagedOwned = Math.max(0, reservation.stagedOwned);
         int requestedAmount = Math.max(1, reservation.requestedAmount);
         boolean readyForDispatch = reservation.readyForDispatch
-                && stagedAmount >= requiredAmount
+                && stagedOwned >= requiredAmount
                 && reservation.orderId != null
                 && reservation.orderId.equals(task.orderId)
                 && reservation.slotIndex == task.stagingSlotIndex;
@@ -625,7 +659,7 @@ public class LogisticsNetworkState {
                 reservation.reservationId,
                 reservation.orderId,
                 reservation.slotIndex,
-                stagedAmount,
+                stagedOwned,
                 requestedAmount,
                 requiredAmount,
                 readyForDispatch
@@ -633,7 +667,7 @@ public class LogisticsNetworkState {
     }
 
     public int getReservationStagedAmount(@Nullable TransferTask task) {
-        return getReservationDispatchSnapshot(task).stagedAmount;
+        return getReservationDispatchSnapshot(task).stagedOwned;
     }
 
     public int getReservationRequestedAmount(@Nullable TransferTask task) {
@@ -667,7 +701,7 @@ public class LogisticsNetworkState {
                 && task.orderId.equals(reservation.orderId)
                 && reservation.slotIndex == task.stagingSlotIndex
                 && (task.stagingReservationId == null || task.stagingReservationId.equals(reservation.reservationId));
-        int stagedBefore = Math.max(0, reservation.stagedAmount);
+        int stagedBefore = Math.max(0, reservation.stagedOwned);
         boolean readyBefore = reservation.readyForDispatch;
         if (!mapped || stagedBefore <= 0 || stagedBefore < requiredAmount || !readyBefore) {
             LOG.warn("[Logistics {}] reservation consume denied reason=invariant-failed reservationId={} orderId={} slotIndex={} taskId={} consumed={} stagedBefore={} required={} readyBefore={} taskOrderId={} taskReservationId={} taskSlotIndex={}",
@@ -686,13 +720,19 @@ public class LogisticsNetworkState {
             return false;
         }
 
-        reservation.stagedAmount = Math.max(0, stagedBefore - (int) Math.min(Integer.MAX_VALUE, consumedDelta));
-        reservation.readyForDispatch = reservation.stagedAmount >= reservation.requestedAmount;
+        reservation.stagedOwned = Math.max(0, stagedBefore - (int) Math.min(Integer.MAX_VALUE, consumedDelta));
+        reservation.consumedOwned = Math.max(0, reservation.consumedOwned + (int) Math.min(Integer.MAX_VALUE, consumedDelta));
+        reservation.readyForDispatch = reservation.stagedOwned >= reservation.requestedAmount;
         reservation.updatedTick = manager.getServerTickCounter();
-        int stagedAfter = reservation.stagedAmount;
+        int stagedAfter = reservation.stagedOwned;
 
-        LOG.info("[Logistics {}] reservation stagedAmount consumed by output task reservationId={} orderId={} slotIndex={} taskId={} consumed={} stagedBefore={} stagedAfter={} deliverCompleted={} required={} ready={}",
-                manager.getPos(),
+        LOG.info("[OutputConsume] task={} order={} consumed={} stagedBefore={} stagedAfter={}",
+                task.taskId,
+                reservation.orderId,
+                consumedDelta,
+                stagedBefore,
+                stagedAfter);
+        LOG.info("[Logistics {}] reservation stagedOwned consumed by output task reservationId={} orderId={} slotIndex={} taskId={} consumed={} stagedBefore={} stagedAfter={} deliverCompleted={} required={} ready={}",
                 reservation.reservationId,
                 reservation.orderId,
                 reservation.slotIndex,
@@ -702,7 +742,7 @@ public class LogisticsNetworkState {
                 stagedAfter,
                 completedNow,
                 requiredAmount,
-                reservation.readyForDispatch && reservation.stagedAmount >= requiredAmount);
+                reservation.readyForDispatch && reservation.stagedOwned >= requiredAmount);
         return true;
     }
 
@@ -1467,18 +1507,54 @@ public class LogisticsNetworkState {
         if (manager == null) return;
         for (BufferReservation reservation : bufferReservations.values()) {
             if (reservation == null || reservation.released) continue;
-            int staged = manager.countItemAtEndpoint(EndpointRef.managerBufferSlot(manager.getPos(), reservation.slotIndex), reservation.itemKey);
-            reservation.stagedAmount = Math.max(0, staged);
-            boolean readyNow = reservation.stagedAmount >= reservation.requestedAmount;
+            reservation.stagedOwned = Math.max(0, reservation.stagedOwned);
+            reservation.consumedOwned = Math.max(0, reservation.consumedOwned);
+            reservation.incomingQueued = Math.max(0, reservation.incomingQueued);
+            boolean readyNow = reservation.stagedOwned >= reservation.requestedAmount;
             if (readyNow && !reservation.readyForDispatch) {
                 LOG.info("[Logistics {}] reservation ready reservation={} order={} slotIndex={} staged={}/{}",
-                        manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reservation.stagedAmount, reservation.requestedAmount);
+                        manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reservation.stagedOwned, reservation.requestedAmount);
             }
             reservation.readyForDispatch = readyNow;
             reservation.updatedTick = manager.getServerTickCounter();
-            LOG.info("[Logistics {}] reservation fill-progress reservation={} order={} slotIndex={} staged={}/{}",
-                    manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reservation.stagedAmount, reservation.requestedAmount);
+            LOG.info("[ReservationState] order={} key={} stagedOwned={} consumed={} requested={}",
+                    reservation.orderId, reservation.itemKey, reservation.stagedOwned, reservation.consumedOwned, reservation.requestedAmount);
         }
+    }
+
+    public int getReservationIncomingQueued(@Nullable TransferTask task) {
+        BufferReservation reservation = findReservationForTask(task);
+        if (reservation == null || reservation.released) return 0;
+        return Math.max(0, reservation.incomingQueued);
+    }
+
+    public int getReservationNeed(@Nullable TransferTask task) {
+        BufferReservation reservation = findReservationForTask(task);
+        if (reservation == null || reservation.released) return 0;
+        int coverage = Math.max(0, reservation.stagedOwned + reservation.incomingQueued);
+        return Math.max(0, reservation.requestedAmount - coverage);
+    }
+
+    public void logCoverageCheck(TileMirrorManager manager, @Nullable TransferTask task) {
+        BufferReservation reservation = findReservationForTask(task);
+        if (manager == null || reservation == null || reservation.released) return;
+        int coverage = Math.max(0, reservation.stagedOwned + reservation.incomingQueued);
+        boolean covered = coverage >= reservation.requestedAmount;
+        LOG.info("[CoverageCheck] order={} stagedOwned={} incomingQueued={} requested={} covered={}",
+                reservation.orderId, reservation.stagedOwned, reservation.incomingQueued, reservation.requestedAmount, covered);
+    }
+
+    public void markReservationInboundQueued(TileMirrorManager manager, @Nullable TransferTask task, int queuedAmount) {
+        BufferReservation reservation = findReservationForTask(task);
+        if (manager == null || reservation == null || reservation.released || queuedAmount <= 0) return;
+        reservation.incomingQueued = Math.max(0, reservation.incomingQueued + queuedAmount);
+        reservation.updatedTick = manager.getServerTickCounter();
+        LOG.info("[CoverageCheck] order={} stagedOwned={} incomingQueued={} requested={} covered={}",
+                reservation.orderId,
+                reservation.stagedOwned,
+                reservation.incomingQueued,
+                reservation.requestedAmount,
+                (reservation.stagedOwned + reservation.incomingQueued) >= reservation.requestedAmount);
     }
 
     private void releaseReservationsForInactiveOrders(TileMirrorManager manager) {

@@ -167,7 +167,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         if (task.orderId == null || !task.orderId.equals(dispatch.orderId)) return false;
         if (task.stagingReservationId != null && !task.stagingReservationId.equals(dispatch.reservationId)) return false;
         if (task.stagingSlotIndex < 0 || dispatch.slotIndex != task.stagingSlotIndex) return false;
-        if (dispatch.stagedAmount < dispatch.requiredAmount) return false;
+        if (dispatch.stagedOwned < dispatch.requiredAmount) return false;
         return dispatch.readyForDispatch;
     }
 
@@ -319,7 +319,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                             dispatch.orderId != null ? dispatch.orderId : task.orderId,
                             dispatch.reservationId != null ? dispatch.reservationId : task.stagingReservationId,
                             dispatch.slotIndex >= 0 ? dispatch.slotIndex : task.stagingSlotIndex,
-                            dispatch.stagedAmount,
+                            dispatch.stagedOwned,
                             dispatch.requestedAmount,
                             dispatch.requiredAmount,
                             dispatch.readyForDispatch);
@@ -338,17 +338,25 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
                     if (managerInboundProvisionTask) {
                         int queueId = ensureQueueId(task);
-                        int sourceCoveredBefore = sourceItemsBefore + sourceQueuedBefore;
                         int needForBuffer = (int) Math.min(Integer.MAX_VALUE, need);
-                        int inboundNeed = Math.max(0, needForBuffer - sourceCoveredBefore);
+                        int inboundNeed = needForBuffer;
+                        int incomingBefore = 0;
+                        if (logistics != null) {
+                            incomingBefore = logistics.getReservationIncomingQueued(task);
+                            inboundNeed = logistics.getReservationNeed(task);
+                            logistics.logCoverageCheck(manager, task);
+                        }
                         boolean attemptedInboundProvisioning = inboundNeed > 0;
                         boolean inboundAccepted = false;
 
-                        LOG.info("[TRANSFER MODE] task={} inbound-mode=golem-request purpose={} source={} target={} need={} sourceCoveredBefore={} queueId={}",
-                                task.taskId, task.metaPurpose, task.source, task.target, needForBuffer, sourceCoveredBefore, queueId);
+                        LOG.info("[TRANSFER MODE] task={} inbound-mode=golem-request purpose={} source={} target={} need={} reservationNeed={} incomingQueued={} queueId={}",
+                                task.taskId, task.metaPurpose, task.source, task.target, needForBuffer, inboundNeed, incomingBefore, queueId);
 
                         if (attemptedInboundProvisioning) {
                             inboundAccepted = manager.dispatchInboundToManagerByGolems(task.source, task.itemKey, inboundNeed, queueId);
+                            if (inboundAccepted && logistics != null) {
+                                logistics.markReservationInboundQueued(manager, task, inboundNeed);
+                            }
                             LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request request={} key={} amount={} queueId={}",
                                     task.taskId,
                                     inboundAccepted ? "accepted" : "rejected",
@@ -356,10 +364,10 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                                     inboundNeed,
                                     queueId);
                         } else {
-                            LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request request=skipped-covered-by-buffer need={} sourceCoveredBefore={} queueId={}",
+                            LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request request=skipped-covered-by-reservation need={} reservationNeed={} queueId={}",
                                     task.taskId,
                                     needForBuffer,
-                                    sourceCoveredBefore,
+                                    inboundNeed,
                                     queueId);
                         }
 
