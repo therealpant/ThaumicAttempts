@@ -877,10 +877,21 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
             if (stack.isEmpty()) return stack;
             ItemStack before = stack.copy();
+            ItemStack slotBefore = buffer.getStackInSlot(slot).copy();
             ItemStack rem = buffer.insertItem(slot, stack, simulate);
             if (!simulate) {
                 int accepted = before.getCount() - (rem.isEmpty() ? 0 : rem.getCount());
                 if (accepted > 0) {
+                    ItemStack slotAfter = buffer.getStackInSlot(slot).copy();
+                    if (logistics != null) {
+                        logistics.onManagerBufferSlotFilled(TileMirrorManager.this, before, accepted, slot, slotBefore, slotAfter);
+                    }
+                    ItemStack verifyStack = buffer.getStackInSlot(slot);
+                    if (!ResourceIdentity.sameResource(verifyStack, slotAfter)
+                            || verifyStack.getCount() != slotAfter.getCount()) {
+                        LOG.error("[ManagerSlotVerifyError] manager={} physicalSlot={} expected={} actual={}",
+                                pos, slot, debugStack(slotAfter), debugStack(verifyStack));
+                    }
                     onArrivedToBuffer(before, accepted);
                     Batch b = peekNextBatch();
                     if (b != null) processBatchHead(b);
@@ -889,6 +900,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             return rem;
         }
     };
+
+    private static String debugStack(@Nullable ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return "empty";
+        return ItemKey.of(stack) + "x" + stack.getCount();
+    }
 
     @Override
     public void onLoad() {

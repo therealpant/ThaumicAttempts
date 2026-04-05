@@ -433,6 +433,163 @@ public class LogisticsNetworkState {
         return null;
     }
 
+    public void onManagerBufferSlotFilled(TileMirrorManager manager,
+                                          ItemStack deliveredStack,
+                                          int deliveredCount,
+                                          int physicalSlot,
+                                          ItemStack slotBefore,
+                                          ItemStack slotAfter) {
+        if (manager == null || deliveredStack == null || deliveredStack.isEmpty() || deliveredCount <= 0) return;
+
+        ItemKey deliveredKey = ItemKey.of(deliveredStack);
+        TransferTask matchedTask = null;
+        BufferReservation matchedByTask = null;
+        BufferReservation matchedBySlot = null;
+
+        for (RuntimeTask runtimeTask : runtimeTasks.values()) {
+            if (!(runtimeTask instanceof TransferTask)) continue;
+            TransferTask task = (TransferTask) runtimeTask;
+            if (task.target == null
+                    || task.target.mode != EndpointRef.AccessMode.BUFFER
+                    || task.target.pos == null
+                    || !manager.getPos().equals(task.target.pos)) {
+                continue;
+            }
+            if (task.itemKey == null || task.itemKey == ItemKey.EMPTY || !task.itemKey.equals(deliveredKey)) continue;
+
+            BufferReservation reservation = findReservationForTask(task);
+            LOG.info("[ReservationLookup] manager={} queueId={} taskId={} orderId={} reservationId={} slotIndex={} itemKey={} amount={}",
+                    manager.getPos(),
+                    task.legacyDeliveryQueueId,
+                    task.taskId,
+                    task.orderId,
+                    reservation == null ? null : reservation.reservationId,
+                    reservation == null ? task.stagingSlotIndex : reservation.slotIndex,
+                    deliveredKey,
+                    deliveredCount);
+
+            if (matchedTask == null && task.status != TaskStatus.DONE && task.status != TaskStatus.CANCELED && task.status != TaskStatus.FAILED) {
+                matchedTask = task;
+                matchedByTask = reservation;
+            }
+        }
+
+        for (BufferReservation reservation : bufferReservations.values()) {
+            if (reservation == null || reservation.released) continue;
+            if (reservation.slotIndex != physicalSlot) continue;
+            if (reservation.itemKey == null || !reservation.itemKey.equals(deliveredKey)) continue;
+            matchedBySlot = reservation;
+            break;
+        }
+
+        if (matchedTask != null) {
+            LOG.info("[ManagerSlotAssign] manager={} item={} amount={} orderId={} reservationId={} expectedSlot={} reason={}",
+                    manager.getPos(),
+                    deliveredKey,
+                    deliveredCount,
+                    matchedTask.orderId,
+                    matchedByTask == null ? matchedTask.stagingReservationId : matchedByTask.reservationId,
+                    matchedByTask == null ? matchedTask.stagingSlotIndex : matchedByTask.slotIndex,
+                    matchedByTask != null ? "task-reservation-lookup" : "task-fallback-staging-fields");
+        } else if (matchedBySlot != null) {
+            LOG.info("[ManagerSlotAssign] manager={} item={} amount={} orderId={} reservationId={} expectedSlot={} reason={}",
+                    manager.getPos(),
+                    deliveredKey,
+                    deliveredCount,
+                    matchedBySlot.orderId,
+                    matchedBySlot.reservationId,
+                    matchedBySlot.slotIndex,
+                    "slot-based-fallback");
+        }
+
+        int slotCountAfter = manager.countItemAtEndpoint(
+                EndpointRef.managerBufferSlot(manager.getPos(), physicalSlot),
+                deliveredKey
+        );
+        boolean verifyIdentity = ResourceIdentity.sameResource(slotAfter, deliveredStack);
+        if (!verifyIdentity || slotCountAfter < deliveredCount) {
+            LOG.error("[ManagerSlotVerifyError] manager={} item={} deliveredCount={} physicalSlot={} slotAfter={} verifiedSlotCount={} identityMatch={}",
+                    manager.getPos(),
+                    deliveredKey,
+                    deliveredCount,
+                    physicalSlot,
+                    slotAfter,
+                    slotCountAfter,
+                    verifyIdentity);
+        }
+
+        LinkedHashMap<UUID, Integer> stagedBefore = new LinkedHashMap<UUID, Integer>();
+        LinkedHashMap<UUID, Boolean> readyBefore = new LinkedHashMap<UUID, Boolean>();
+        for (Map.Entry<UUID, BufferReservation> e : bufferReservations.entrySet()) {
+            BufferReservation reservation = e.getValue();
+            if (reservation == null) continue;
+            stagedBefore.put(e.getKey(), Math.max(0, reservation.stagedAmount));
+            readyBefore.put(e.getKey(), reservation.readyForDispatch);
+        }
+
+        refreshReservationState(manager);
+
+        BufferReservation updatedByTask = matchedByTask == null ? null : bufferReservations.get(matchedByTask.reservationId);
+        BufferReservation updatedBySlot = matchedBySlot == null ? null : bufferReservations.get(matchedBySlot.reservationId);
+        BufferReservation updated = updatedByTask != null ? updatedByTask : updatedBySlot;
+
+        if (updated != null) {
+            int before = stagedBefore.containsKey(updated.reservationId) ? stagedBefore.get(updated.reservationId) : 0;
+            boolean readyWas = readyBefore.containsKey(updated.reservationId) && readyBefore.get(updated.reservationId);
+            int after = Math.max(0, updated.stagedAmount);
+            boolean readyNow = updated.readyForDispatch;
+            LOG.info("[ReservationUpdate] manager={} order={} reservation={} reservationSlot={} physicalSlot={} stagedBefore={} stagedAfter={} requiredAmount={} readyBefore={} readyAfter={}",
+                    manager.getPos(),
+                    updated.orderId,
+                    updated.reservationId,
+                    updated.slotIndex,
+                    physicalSlot,
+                    before,
+                    after,
+                    updated.requestedAmount,
+                    readyWas,
+                    readyNow);
+            if (updated.slotIndex != physicalSlot || after <= before) {
+                LOG.warn("[ReservationMismatch] manager={} item={} count={} expectedReservation={} expectedSlot={} actualPhysicalSlot={} updatedReservation={} stagedUnchanged={} taskId={} queueId={}",
+                        manager.getPos(),
+                        deliveredKey,
+                        deliveredCount,
+                        matchedByTask == null ? null : matchedByTask.reservationId,
+                        matchedByTask == null ? (matchedTask == null ? -1 : matchedTask.stagingSlotIndex) : matchedByTask.slotIndex,
+                        physicalSlot,
+                        updated.reservationId,
+                        after <= before,
+                        matchedTask == null ? null : matchedTask.taskId,
+                        matchedTask == null ? -1 : matchedTask.legacyDeliveryQueueId);
+            }
+        } else {
+            LOG.warn("[ReservationMismatch] manager={} item={} count={} expectedReservation={} expectedSlot={} actualPhysicalSlot={} updatedReservation={} stagedUnchanged={} taskId={} queueId={}",
+                    manager.getPos(),
+                    deliveredKey,
+                    deliveredCount,
+                    matchedByTask == null ? null : matchedByTask.reservationId,
+                    matchedByTask == null ? (matchedTask == null ? -1 : matchedTask.stagingSlotIndex) : matchedByTask.slotIndex,
+                    physicalSlot,
+                    null,
+                    true,
+                    matchedTask == null ? null : matchedTask.taskId,
+                    matchedTask == null ? -1 : matchedTask.legacyDeliveryQueueId);
+        }
+
+        LOG.info("[ManagerSlotFill] manager={} golem={} item={} count={} physicalSlot={} before={} after={} order={} reservation={} queueId={} taskId={}",
+                manager.getPos(),
+                "unknown",
+                deliveredKey,
+                deliveredCount,
+                physicalSlot,
+                slotBefore,
+                slotAfter,
+                matchedTask == null ? null : matchedTask.orderId,
+                matchedByTask == null ? (matchedBySlot == null ? null : matchedBySlot.reservationId) : matchedByTask.reservationId,
+                matchedTask == null ? -1 : matchedTask.legacyDeliveryQueueId,
+                matchedTask == null ? null : matchedTask.taskId);
+    }
+
     private boolean isReservationMappedToTask(@Nullable TransferTask task, @Nullable BufferReservation reservation) {
         if (task == null || reservation == null || reservation.released) return false;
         if (task.orderId == null || !task.orderId.equals(reservation.orderId)) return false;
@@ -966,6 +1123,20 @@ public class LogisticsNetworkState {
                 endpointPos(task.target),
                 task.metaPurpose
         );
+
+        if (task.target != null
+                && task.target.mode == EndpointRef.AccessMode.BUFFER
+                && task.target.stagingSlotIndex >= 0
+                && managerPos.equals(task.target.pos)) {
+            LOG.info("[ManagerSlotAssign] manager={} item={} amount={} orderId={} reservationId={} expectedSlot={} reason={}",
+                    managerPos,
+                    key,
+                    amount,
+                    task.orderId,
+                    task.stagingReservationId,
+                    task.target.stagingSlotIndex,
+                    "transfer-task-target-buffer-slot");
+        }
 
         int targetPresent = countExactInTargetInventory(manager, task.target, task.itemKey);
         int targetNeedNow = Math.max(0, amount - targetPresent);
