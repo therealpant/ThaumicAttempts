@@ -12,10 +12,12 @@ import static therealpant.thaumicattempts.integration.ThaumcraftCompat.LOG;
 
 public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
+    private static final int DISPATCH_COOLDOWN_TICKS = 10;
+    private static final int STALLED_LIMIT_TICKS = 100;
+
     private TileMirrorManager manager;
     private final LinkedHashMap<UUID, TransferTask> running = new LinkedHashMap<UUID, TransferTask>();
     private final LinkedHashMap<UUID, TaskExecutionSnapshot> snapshots = new LinkedHashMap<UUID, TaskExecutionSnapshot>();
-    private final LinkedHashMap<UUID, Integer> inboundBaseline = new LinkedHashMap<UUID, Integer>();
 
     public void bind(TileMirrorManager manager) {
         this.manager = manager;
@@ -44,6 +46,12 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         task.legacyDeliveryQueued = false;
         task.legacyDeliveryQueueId = -1;
 
+        long nowTick = manager == null ? 0L : manager.getServerTickCounter();
+        task.lastProgressTick = nowTick;
+        task.lastDispatchTick = 0L;
+        task.stalledTicks = 0;
+        task.lastRemaining = -1L;
+
         running.put(task.taskId, task);
         snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.DISPATCHED, task.completedAmount));
         LOG.info("[ManagerExecutor {}] task={} transfer accepted", manager != null ? manager.getPos() : null, task.taskId);
@@ -71,12 +79,9 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 continue;
             }
 
-            if (task.status == TaskStatus.DONE
-                    || task.status == TaskStatus.FAILED
-                    || task.status == TaskStatus.CANCELED) {
+            if (isTerminal(task.status)) {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
-                inboundBaseline.remove(task.taskId);
                 continue;
             }
 
@@ -86,82 +91,100 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                         manager.getPos(), task.taskId, task.source, task.target, task.itemKey);
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
-                inboundBaseline.remove(task.taskId);
                 continue;
             }
 
-            if (task.sourceBaseline < 0) {
-                task.sourceBaseline = manager.countItemAtEndpoint(task.source, task.itemKey);
-            }
-            if (task.targetBaseline < 0) {
-                task.targetBaseline = manager.countItemAtEndpoint(task.target, task.itemKey);
-            }
-
-            /*
-             * completedAmount считаем только по реально наблюдаемому количеству в target.
-             * queuedToTarget используем только как защиту от повторной отправки.
-             */
+            long previousCompleted = task.completedAmount;
             task.completedAmount = calculateDeliveredToTarget(task);
 
-            int queuedToTarget = manager.countQueuedForEndpoint(task.target, task.itemKey);
-            int stillNeed = (int) Math.max(0L, task.amount - task.completedAmount - queuedToTarget);
-
-            if (stillNeed > 0) {
-                int queueId = ensureQueueId(task);
-                boolean accepted = manager.dispatchTransferTask(
-                        task.source,
-                        task.target,
-                        task.itemKey,
-                        stillNeed,
-                        queueId
-                );
-
-                if (!accepted) {
-                    task.status = TaskStatus.BLOCKED;
-                    LOG.info("[ManagerExecutor {}] task={} status=BLOCKED reason=dispatch-rejected amount={} completed={} queued={} remaining={}",
-                            manager.getPos(), task.taskId, task.amount, task.completedAmount, queuedToTarget,
-                            Math.max(0L, task.amount - task.completedAmount));
-                    snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                    continue;
-                }
-
-                task.dispatchQueued = true;
-                task.dispatchQueueId = queueId;
-                task.updatedTick = manager.getServerTickCounter();
-
-                LOG.info("[ManagerExecutor {}] task={} dispatch amount={} completed={} queued={} remaining={}",
-                        manager.getPos(), task.taskId, task.amount, task.completedAmount, queuedToTarget,
-                        Math.max(0L, task.amount - task.completedAmount));
+            if (task.completedAmount > previousCompleted) {
+                task.lastProgressTick = manager.getServerTickCounter();
             }
 
-            task.completedAmount = calculateDeliveredToTarget(task);
+            long remaining = Math.max(0L, task.amount - task.completedAmount);
+            int queued = manager.countQueuedForEndpoint(task.target, task.itemKey);
+
+            if (remaining == task.lastRemaining) {
+                task.stalledTicks++;
+            } else {
+                task.stalledTicks = 0;
+                task.lastRemaining = remaining;
+                task.lastProgressTick = manager.getServerTickCounter();
+            }
 
             if (task.completedAmount >= task.amount) {
-                task.status = TaskStatus.DONE;
-                LOG.info("[ManagerExecutor {}] task={} status=DONE reason=target-amount-reached amount={} completed={} queued={} remaining=0",
-                        manager.getPos(), task.taskId, task.amount, task.completedAmount,
-                        manager.countQueuedForEndpoint(task.target, task.itemKey));
+                transitionStatus(task, TaskStatus.DONE, "target-reached");
+                logTransferDebug(task, remaining, queued);
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
-                inboundBaseline.remove(task.taskId);
-            } else {
-                task.status = TaskStatus.IN_PROGRESS;
-                LOG.info("[ManagerExecutor {}] task={} wait amount={} completed={} queued={} remaining={}",
-                        manager.getPos(), task.taskId, task.amount, task.completedAmount,
-                        manager.countQueuedForEndpoint(task.target, task.itemKey),
-                        Math.max(0L, task.amount - task.completedAmount));
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                continue;
             }
+
+            if (task.stalledTicks > STALLED_LIMIT_TICKS) {
+                transitionStatus(task, TaskStatus.BLOCKED, "stalled");
+                logTransferDebug(task, remaining, queued);
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                continue;
+            }
+            boolean sourceReady = manager.hasAvailableItems(task.source, task.itemKey);
+            if (!sourceReady) {
+                transitionStatus(task, TaskStatus.WAITING_SOURCE, "source-empty");
+                logTransferDebug(task, remaining, queued);
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                continue;
+            }
+
+            long nowTick = manager.getServerTickCounter();
+            if (nowTick - task.lastDispatchTick >= DISPATCH_COOLDOWN_TICKS) {
+                long need = Math.max(0L, remaining - queued);
+                if (need > 0L) {
+                    int queueId = ensureQueueId(task);
+                    boolean accepted = manager.dispatchTransferTask(task.source, task.target, task.itemKey, (int) Math.min(Integer.MAX_VALUE, need), queueId);
+                    if (accepted) {
+                        task.lastDispatchTick = nowTick;
+                        transitionStatus(task, TaskStatus.DISPATCHED, "dispatch-accepted");
+                    } else {
+                        transitionStatus(task, TaskStatus.BLOCKED, "dispatch-rejected");
+                    }
+                }
+            }
+
+            if (!isTerminal(task.status) && task.status != TaskStatus.DISPATCHED && task.status != TaskStatus.WAITING_SOURCE) {
+                transitionStatus(task, TaskStatus.IN_PROGRESS, "awaiting-delivery");
+            }
+
+            logTransferDebug(task, remaining, queued);
+            snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
         }
     }
 
     @Override
     public boolean accepts(RuntimeTask task) { return task instanceof TransferTask; }
 
-    private void LOG(TransferTask task, String msg) {
-        if (manager == null || task == null) return;
-        org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/ManagerExecutor")
-                .info("[ManagerExecutor {}] task={} {}", manager.getPos(), task.taskId, msg);
+    private void transitionStatus(TransferTask task, TaskStatus next, String reason) {
+        if (task == null || next == null) return;
+        TaskStatus prev = task.status;
+        if (prev == next) return;
+        task.status = next;
+        task.updatedTick = manager != null ? manager.getServerTickCounter() : task.updatedTick;
+        LOG.info("[TRANSFER STATE] task={} {} -> {} reason={} item={}",
+                task.taskId,
+                prev,
+                next,
+                reason,
+                task.itemKey);
+    }
+
+    private void logTransferDebug(TransferTask task, long remaining, int queued) {
+        if (task == null || manager == null) return;
+        LOG.info("[TRANSFER DEBUG] task={} item={} remaining={} queued={} delivered={} stalledTicks={} state={}",
+                task.taskId,
+                task.itemKey,
+                Math.max(0L, remaining),
+                Math.max(0, queued),
+                task.completedAmount,
+                task.stalledTicks,
+                task.status);
     }
 
     private int ensureQueueId(TransferTask task) {
@@ -172,21 +195,18 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         return queueId;
     }
 
-    private boolean isInboundDone(TransferTask task) {
-        if (task == null) return false;
-        long delivered = calculateDeliveredToTarget(task);
-        return delivered >= Math.max(1L, task.amount);
-    }
-
     private long calculateDeliveredToTarget(TransferTask task) {
-        if (task == null || task.target == null || task.itemKey == null) return 0L;
+        if (task == null || task.target == null || task.itemKey == null || manager == null) return 0L;
 
         int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
-        int movedToTarget = Math.max(0, nowAtTarget - Math.max(0, task.targetBaseline));
+        if (task.targetBaseline < 0) {
+            task.targetBaseline = nowAtTarget;
+        }
 
-        long observedAtTarget = movedToTarget;
-        observedAtTarget = Math.max(observedAtTarget, task.completedAmount);
-
-        return Math.min(task.amount, observedAtTarget);
+        long delivered = Math.max(0, nowAtTarget - task.targetBaseline);
+        return Math.min(task.amount, delivered);
+    }
+        private boolean isTerminal(TaskStatus status) {
+            return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
     }
 }

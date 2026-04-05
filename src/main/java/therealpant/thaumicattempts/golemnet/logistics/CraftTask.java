@@ -48,6 +48,8 @@ public class CraftTask extends RuntimeTask {
      * Входы на весь объём этого craft-task.
      */
     public final LinkedHashMap<ItemKey, Integer> requiredInputs = new LinkedHashMap<ItemKey, Integer>();
+    public int lastOutputCount = 0;
+    public int noProgressTicks = 0;
 
     public String validationError() {
         if (taskId == null) return "missing-task-id";
@@ -82,6 +84,8 @@ public class CraftTask extends RuntimeTask {
 
         tag.setInteger("outputPerCycle", Math.max(1, outputPerCycle));
         tag.setInteger("scheduledCycles", Math.max(0, scheduledCycles));
+        tag.setInteger("lastOutputCount", Math.max(0, lastOutputCount));
+        tag.setInteger("noProgressTicks", Math.max(0, noProgressTicks));
 
         if (crafter != null) {
             tag.setTag("crafter", crafter.writeToNbt());
@@ -122,6 +126,8 @@ public class CraftTask extends RuntimeTask {
 
         outputPerCycle = Math.max(1, tag.getInteger("outputPerCycle"));
         scheduledCycles = Math.max(0, tag.getInteger("scheduledCycles"));
+        lastOutputCount = Math.max(0, tag.getInteger("lastOutputCount"));
+        noProgressTicks = Math.max(0, tag.getInteger("noProgressTicks"));
 
         crafter = tag.hasKey("crafter", Constants.NBT.TAG_COMPOUND)
                 ? EndpointRef.readFromNbt(tag.getCompoundTag("crafter"))

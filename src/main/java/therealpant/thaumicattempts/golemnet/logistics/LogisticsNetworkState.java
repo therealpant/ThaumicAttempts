@@ -534,6 +534,11 @@ public class LogisticsNetworkState {
             }
         }
 
+        RuntimeTask existing = existsActiveTask(orderId, key, safeSource, safeTarget, purpose);
+        if (existing instanceof TransferTask) {
+            return (TransferTask) existing;
+        }
+
         TransferTask task = new TransferTask();
         task.taskId = UUID.randomUUID();
         task.orderId = orderId;
@@ -611,6 +616,11 @@ public class LogisticsNetworkState {
                 ? EndpointRef.of(crafter.pos, EndpointRef.AccessMode.OUTPUT)
                 : crafterOutput;
 
+        RuntimeTask existing = existsActiveTask(orderId, recipeKey, crafter, safeOutput, purpose);
+        if (existing instanceof CraftTask) {
+            return (CraftTask) existing;
+        }
+
         CraftTask task = new CraftTask();
         task.taskId = UUID.randomUUID();
         task.orderId = orderId;
@@ -655,6 +665,42 @@ public class LogisticsNetworkState {
         }
 
         return task;
+    }
+
+    @Nullable
+    private RuntimeTask existsActiveTask(UUID orderId,
+                                         ItemKey itemKey,
+                                         EndpointRef source,
+                                         EndpointRef target,
+                                         String purpose) {
+        if (orderId == null || itemKey == null || itemKey == ItemKey.EMPTY || source == null || target == null) {
+            return null;
+        }
+
+        String safePurpose = purpose == null ? "" : purpose;
+        for (RuntimeTask rt : runtimeTasks.values()) {
+            if (rt == null || isTerminalTask(rt.status)) continue;
+            if (!orderId.equals(rt.orderId)) continue;
+
+            if (rt instanceof TransferTask) {
+                TransferTask tt = (TransferTask) rt;
+                if (!itemKey.equals(tt.itemKey)) continue;
+                if (tt.source == null || tt.target == null) continue;
+                if (source.mode != tt.source.mode || !source.pos.equals(tt.source.pos)) continue;
+                if (target.mode != tt.target.mode || !target.pos.equals(tt.target.pos)) continue;
+                if (!safePurpose.equals(tt.metaPurpose == null ? "" : tt.metaPurpose)) continue;
+                return rt;
+            }
+
+            if (rt instanceof CraftTask) {
+                CraftTask ct = (CraftTask) rt;
+                if (!itemKey.equals(ct.recipeKey)) continue;
+                if (source.pos != null && ct.crafter != null && !source.pos.equals(ct.crafter.pos)) continue;
+                if (!safePurpose.equals(ct.metaPurpose == null ? "" : ct.metaPurpose)) continue;
+                return rt;
+            }
+        }
+        return null;
     }
 
     private EndpointRef resolveCrafterOutputEndpoint(TileMirrorManager manager, BlockPos sourcePos) {
@@ -930,7 +976,10 @@ public class LogisticsNetworkState {
                     actualCompleted += Math.max(0L, t.completedAmount);
                 }
 
-                if (t.status == TaskStatus.FAILED || t.status == TaskStatus.CANCELED) {
+                if (t.status == TaskStatus.FAILED
+                        || t.status == TaskStatus.CANCELED
+                        || t.status == TaskStatus.STALLED_OUTPUT
+                        || t.status == TaskStatus.BLOCKED) {
                     order.status = OrderStatus.FAILED;
                     Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                     while (it.hasNext()) {
@@ -939,7 +988,7 @@ public class LogisticsNetworkState {
                             it.remove();
                         }
                     }
-                    order.lastError = "task-failed:" + tid;
+                    order.lastError = "task-failed:" + tid + ":" + t.status;
                     LOG.warn("[Logistics {}] order failed={} task={} status={}",
                             manager.getPos(), order.orderId, tid, t.status);
                     LOG.warn("[Logistics {}] order={} reason=task-terminal amount={} completed={} runningTasks={}",
@@ -1076,7 +1125,10 @@ public class LogisticsNetworkState {
     }
 
     private static boolean isTerminalTask(TaskStatus status) {
-        return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
+        return status == TaskStatus.DONE
+                || status == TaskStatus.FAILED
+                || status == TaskStatus.CANCELED
+                || status == TaskStatus.STALLED_OUTPUT;
     }
 
     private static boolean isActiveOrder(OrderStatus status) {

@@ -1374,6 +1374,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     /* ===================== BATCH-очереди ===================== */
 
     private static final class Line {
+        enum State {PENDING, DISPATCHED, IN_FLIGHT, DELIVERED, STALLED, FAILED}
         final ItemStack wanted1;
         public int craftsScheduled;
         int craftsExpected;
@@ -1387,12 +1388,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         // НОВОЕ:
         @Nullable
         UUID golemId; // закреплённый курьер для этой линии (только для DELIVERY от менеджера)
+        State state = State.PENDING;
+        int lastStateTick = -1;
+        int lastRemainingSnapshot = -1;
 
         Line(ItemStack like1, int amount) {
             this.wanted1 = like1.copy();
             this.wanted1.setCount(1);
             this.remaining = Math.max(1, amount);
             this.reserved = 0;
+            this.lastRemainingSnapshot = this.remaining;
         }
     }
 
@@ -2801,6 +2806,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return countQueuedFor(resolveEndpointPos(endpoint), key.toStack(1));
     }
 
+    public boolean hasAvailableItems(EndpointRef source, ItemKey key) {
+        if (source == null || key == null || key == ItemKey.EMPTY) return false;
+        int atSource = countItemAtEndpoint(source, key);
+        if (atSource > 0) return true;
+        int queuedToSource = countQueuedForEndpoint(source, key);
+        return queuedToSource > 0;
+    }
+
     public boolean dispatchInboundToManagerByGolems(EndpointRef source, ItemKey key, int amount, int queueId) {
         if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return false;
         LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
@@ -3003,6 +3016,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return moved;
     }
 
+    private void transitionLineState(Line line, Line.State next, String reason) {
+        if (line == null || next == null) return;
+        Line.State prev = line.state;
+        if (prev == next) return;
+        line.state = next;
+        line.lastStateTick = tickCounter;
+        LOG.info("[Manager {}] LINE STATE {} -> {} reason={} wanted={} remaining={}",
+                pos, prev, next, reason, line.wanted1, line.remaining);
+    }
+
     private void processBatchHead(Batch b) {
         if (b == null) {
             LOG.warn("[Manager {}] processBatchHead called with null batch", pos);
@@ -3034,6 +3057,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             return;
         }
         if (!hasItemCapAt(b.dest, b.destSide)) {
+            for (Line ln : b.lines) {
+                transitionLineState(ln, Line.State.FAILED, "destination-cap-missing");
+            }
             LOG.warn("[Manager {}] processBatchHead pop batch: no item capability at dest={} side={} queue={}",
                     pos, b.dest, b.destSide, activeQueue);
             popBatch(b);
@@ -3064,6 +3090,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         while (index < b.lines.size()) {
             Line ln = b.lines.get(index);
+            int remainingBefore = ln.remaining;
 
             LOG.info("[Manager {}] processBatchHead line queue={} idx={} wanted={} remaining={} requester={} dest={} kind={}",
                     pos,
@@ -3074,6 +3101,19 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     ln.requester,
                     b.dest,
                     b.kind);
+
+            if (ln.remaining <= 0) {
+                transitionLineState(ln, Line.State.DELIVERED, "empty-remaining");
+            } else if (ln.state == Line.State.PENDING) {
+                transitionLineState(ln, Line.State.DISPATCHED, "line-selected");
+            }
+
+            if (ln.remaining == ln.lastRemainingSnapshot
+                    && (ln.state == Line.State.DISPATCHED || ln.state == Line.State.IN_FLIGHT)
+                    && ln.lastStateTick >= 0
+                    && (tickCounter - ln.lastStateTick) > 100) {
+                transitionLineState(ln, Line.State.STALLED, "no-progress");
+            }
 
             LineProcessResult result;
             if (b.kind == Batch.Kind.DELIVERY) {
@@ -3101,6 +3141,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     result.done,
                     result.dispatcherSlotsUsed,
                     ln.remaining);
+
+            if (result.done) {
+                transitionLineState(ln, Line.State.DELIVERED, "line-done");
+            } else if (ln.remaining < remainingBefore) {
+                transitionLineState(ln, Line.State.IN_FLIGHT, "remaining-decreased");
+            } else if (ln.state == Line.State.PENDING) {
+                transitionLineState(ln, Line.State.DISPATCHED, "dispatch-attempted");
+            }
+
+            ln.lastRemainingSnapshot = ln.remaining;
 
             if (result.dispatcherSlotsUsed > 0 && dispatcherBudget != Integer.MAX_VALUE) {
                 dispatcherBudget = Math.max(0, dispatcherBudget - result.dispatcherSlotsUsed);

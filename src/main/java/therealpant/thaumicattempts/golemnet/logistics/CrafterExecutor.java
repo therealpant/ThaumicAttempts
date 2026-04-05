@@ -28,7 +28,6 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
     private final LinkedHashMap<UUID, Boolean> started = new LinkedHashMap<UUID, Boolean>();
     private final LinkedHashMap<UUID, Integer> outputBaseline = new LinkedHashMap<UUID, Integer>();
     private final LinkedHashMap<UUID, Long> scheduledAmount = new LinkedHashMap<UUID, Long>();
-    private final LinkedHashMap<UUID, Integer> stalledTicks = new LinkedHashMap<UUID, Integer>();
 
     public void bind(TileMirrorManager manager) {
         this.manager = manager;
@@ -68,7 +67,8 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
         int baseline = manager.countItemAtEndpoint(task.outputEndpoint, task.recipeKey);
         outputBaseline.put(task.taskId, baseline);
         scheduledAmount.put(task.taskId, 0L);
-        stalledTicks.put(task.taskId, 0);
+        task.lastOutputCount = 0;
+        task.noProgressTicks = 0;
 
         LOG.info("[CrafterExecutor {}] task={} craft accepted crafter={} key={} amount={} output={} baseline={} perCycle={}",
                 manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, task.amount,
@@ -113,7 +113,7 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                 started.remove(task.taskId);
                 outputBaseline.remove(task.taskId);
                 scheduledAmount.remove(task.taskId);
-                stalledTicks.remove(task.taskId);
+
                 continue;
             }
 
@@ -175,16 +175,17 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
             long prevCompleted = task.completedAmount;
             task.completedAmount = Math.max(task.completedAmount, produced);
 
-            if (task.completedAmount > prevCompleted) {
-                stalledTicks.put(task.taskId, 0);
+            int now = produced;
+            if (now > task.lastOutputCount) {
+                task.lastOutputCount = now;
+                task.noProgressTicks = 0;
                 LOG.info("[CrafterExecutor {}] task={} craft output progress key={} produced={} ready={} baseline={} output={} scheduledItems={} outputPerCycle={}",
                         manager.getPos(), task.taskId, task.recipeKey, produced, readyOut, baseOut,
                         task.outputEndpoint, scheduledAmount.getOrDefault(task.taskId, 0L), outputPerCycle);
             } else if (scheduledAmount.getOrDefault(task.taskId, 0L) > 0L) {
-                int stalled = stalledTicks.getOrDefault(task.taskId, 0) + 1;
-                stalledTicks.put(task.taskId, stalled);
+                task.noProgressTicks++;
 
-                if (stalled == 20 || stalled == 100 || stalled % 200 == 0) {
+                if (task.noProgressTicks == 20 || task.noProgressTicks == 100 || task.noProgressTicks % 200 == 0) {
                     LOG.warn("[CrafterExecutor {}] task={} craft no new output yet key={} crafter={} output={} scheduledItems={} completedItems={} ready={} baseline={} backlogItems={}",
                             manager.getPos(),
                             task.taskId,
@@ -199,6 +200,15 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                 }
             }
 
+            if (task.noProgressTicks > 100 && scheduledAmount.getOrDefault(task.taskId, 0L) > 0L) {
+                task.status = TaskStatus.STALLED_OUTPUT;
+                LOG.warn("[CrafterExecutor {}] task={} craft stalled-output key={} noProgressTicks={} scheduledItems={} completedItems={}",
+                        manager.getPos(), task.taskId, task.recipeKey, task.noProgressTicks,
+                        scheduledAmount.getOrDefault(task.taskId, 0L), task.completedAmount);
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                continue;
+            }
+
             if (task.completedAmount >= task.amount) {
                 task.status = TaskStatus.DONE;
 
@@ -211,7 +221,6 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                 started.remove(task.taskId);
                 outputBaseline.remove(task.taskId);
                 scheduledAmount.remove(task.taskId);
-                stalledTicks.remove(task.taskId);
                 continue;
             }
 
