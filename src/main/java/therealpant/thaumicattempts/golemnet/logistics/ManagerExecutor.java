@@ -75,8 +75,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     }
 
     private boolean isTerminalDeliverOutput(TransferTask task) {
-        if (task == null) return false;
-        if (!"deliver-output".equals(task.metaPurpose)) return false;
+        if (!isOutputStageTask(task)) return false;
 
         NetworkOrder order = getOrder(task);
         return order != null
@@ -93,9 +92,26 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     }
 
     private boolean isManagerInboundProvisionTask(TransferTask task) {
-        if (task == null) return false;
-        if (!"deliver".equals(task.metaPurpose)) return false;
+        if (!isInboundStageTask(task)) return false;
         return isManagerBufferEndpoint(task.target);
+    }
+
+    private boolean isInboundStageTask(TransferTask task) {
+        return task != null && "deliver".equals(task.metaPurpose);
+    }
+
+    private boolean isOutputStageTask(TransferTask task) {
+        return task != null && "deliver-output".equals(task.metaPurpose);
+    }
+
+    private boolean assertOutputStageTask(TransferTask task, String context) {
+        if (isOutputStageTask(task)) return true;
+        LOG.error("[ManagerExecutor {}] ERROR output logic invoked for non-output task task={} purpose={} context={}",
+                manager != null ? manager.getPos() : null,
+                task != null ? task.taskId : null,
+                task != null ? task.metaPurpose : null,
+                context);
+        return false;
     }
 
     private boolean sameEndpoint(EndpointRef a, EndpointRef b) {
@@ -133,8 +149,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     }
 
     private boolean isTerminalInboundToReservedSlot(TransferTask task) {
-        if (task == null) return false;
-        if (!"deliver".equals(task.metaPurpose)) return false;
+        if (!isInboundStageTask(task)) return false;
         NetworkOrder order = getOrder(task);
         if (order == null || order.sourceType != OrderSourceType.TERMINAL || order.orderKind != NetworkOrder.OrderKind.DELIVERY) {
             return false;
@@ -146,7 +161,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     }
 
     private boolean isReservationDispatchAllowed(@Nullable LogisticsNetworkState logistics, @Nullable TransferTask task) {
-        if (logistics == null || task == null) return false;
+        if (logistics == null || !isOutputStageTask(task)) return false;
         LogisticsNetworkState.ReservationDispatchSnapshot dispatch = logistics.getReservationDispatchSnapshot(task);
         if (dispatch.reservationId == null || dispatch.orderId == null) return false;
         if (task.orderId == null || !task.orderId.equals(dispatch.orderId)) return false;
@@ -187,6 +202,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
             boolean terminalDeliverOutput = isTerminalDeliverOutput(task);
             boolean terminalInboundReserved = isTerminalInboundToReservedSlot(task);
+            boolean outputStageTask = isOutputStageTask(task);
             LogisticsNetworkState logistics = manager.getLogisticsState();
 
             /*
@@ -210,8 +226,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             }
 
             long previousCompleted = task.completedAmount;
-            boolean dispatchAllowed = !terminalDeliverOutput || isReservationDispatchAllowed(logistics, task);
-            if (!terminalDeliverOutput || dispatchAllowed) {
+            boolean dispatchAllowed = !outputStageTask || isReservationDispatchAllowed(logistics, task);
+            if (!outputStageTask || dispatchAllowed) {
                 task.completedAmount = calculateDeliveredToTarget(task);
             } else {
                 task.completedAmount = previousCompleted;
@@ -226,7 +242,12 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
             if (task.completedAmount > previousCompleted) {
                 task.lastProgressTick = manager.getServerTickCounter();
-                if (terminalDeliverOutput && logistics != null) {
+                if (outputStageTask && logistics != null) {
+                    if (!assertOutputStageTask(task, "reservation-consume")) {
+                        task.completedAmount = previousCompleted;
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                        continue;
+                    }
                     boolean consumed = logistics.logReservationOutputConsumption(
                             manager,
                             task,
@@ -283,7 +304,11 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
             long nowTick = manager.getServerTickCounter();
             if (nowTick - task.lastDispatchTick >= DISPATCH_COOLDOWN_TICKS) {
-                if (terminalDeliverOutput && logistics != null && !isReservationDispatchAllowed(logistics, task)) {
+                if (outputStageTask && logistics != null && !isReservationDispatchAllowed(logistics, task)) {
+                    if (!assertOutputStageTask(task, "reservation-ready-check")) {
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                        continue;
+                    }
                     LogisticsNetworkState.ReservationDispatchSnapshot dispatch = logistics.getReservationDispatchSnapshot(task);
                     transitionStatus(task, TaskStatus.BLOCKED, "waiting-reservation-ready");
                     task.stalledTicks = 0;
@@ -331,18 +356,11 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                                     inboundNeed,
                                     queueId);
                         } else {
-                            LogisticsNetworkState.ReservationDispatchSnapshot dispatch = logistics == null
-                                    ? new LogisticsNetworkState.ReservationDispatchSnapshot(task.stagingReservationId, task.orderId, task.stagingSlotIndex, 0, 0, needForBuffer, false)
-                                    : logistics.getReservationDispatchSnapshot(task);
-                            LOG.info("[TRANSFER DEBUG] deliver-output start check task={} order={} reservation={} slotIndex={} staged={} requested={} required={} ready={}",
+                            LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request request=skipped-covered-by-buffer need={} sourceCoveredBefore={} queueId={}",
                                     task.taskId,
-                                    dispatch.orderId != null ? dispatch.orderId : task.orderId,
-                                    dispatch.reservationId != null ? dispatch.reservationId : task.stagingReservationId,
-                                    dispatch.slotIndex >= 0 ? dispatch.slotIndex : task.stagingSlotIndex,
-                                    dispatch.stagedAmount,
-                                    dispatch.requestedAmount,
-                                    dispatch.requiredAmount,
-                                    dispatch.readyForDispatch);
+                                    needForBuffer,
+                                    sourceCoveredBefore,
+                                    queueId);
                         }
 
 
@@ -387,10 +405,13 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                                 (int) Math.min(Integer.MAX_VALUE, need),
                                 queueId
                         );
-                        if ("deliver-output".equals(task.metaPurpose)
-                                && task.source != null
+                        if (isOutputStageTask(task) && task.source != null
                                 && task.source.mode == EndpointRef.AccessMode.BUFFER
                                 && task.source.stagingSlotIndex >= 0) {
+                            if (!assertOutputStageTask(task, "output-dispatch-path")) {
+                                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                                continue;
+                            }
                             LOG.info("[TRANSFER DEBUG] task={} deliver-output consuming from reserved slot={} order={} reservation={}",
                                     task.taskId,
                                     task.source.stagingSlotIndex,
