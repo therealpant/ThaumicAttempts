@@ -22,6 +22,7 @@ public class NetworkOrder {
     public ItemKey requestedKey;
     public int requestedAmount;
     public int completedAmount;
+    public int operationalNeeded;
     public OrderStatus status;
     public long createdTick;
     public long updatedTick;
@@ -54,6 +55,7 @@ public class NetworkOrder {
         if (returnDestination != null) tag.setLong("returnPos", returnDestination.toLong());
         tag.setTag("key", requestedKey.toStack(1).writeToNBT(new NBTTagCompound()));
         tag.setInteger("requested", requestedAmount);
+        tag.setInteger("operationalNeeded", operationalNeeded);
         tag.setInteger("completed", completedAmount);
         tag.setString("status", status.name());
         tag.setLong("created", createdTick);
@@ -97,6 +99,9 @@ public class NetworkOrder {
             o.returnDestination = BlockPos.fromLong(tag.getLong("returnPos"));
         o.requestedKey = ItemKey.of(new net.minecraft.item.ItemStack(tag.getCompoundTag("key")));
         o.requestedAmount = Math.max(1, tag.getInteger("requested"));
+        o.operationalNeeded = tag.hasKey("operationalNeeded", Constants.NBT.TAG_INT)
+                ? Math.max(0, tag.getInteger("operationalNeeded"))
+                : o.requestedAmount;
         o.completedAmount = Math.max(0, tag.getInteger("completed"));
         try {
             o.status = OrderStatus.valueOf(tag.getString("status"));

@@ -101,8 +101,9 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 task.lastProgressTick = manager.getServerTickCounter();
             }
 
-            long remaining = Math.max(0L, task.amount - task.completedAmount);
+
             int queued = manager.countQueuedForEndpoint(task.target, task.itemKey);
+            long remaining = Math.max(0L, task.amount - task.completedAmount);
 
             if (remaining == task.lastRemaining) {
                 task.stalledTicks++;
@@ -114,6 +115,12 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
             if (task.completedAmount >= task.amount) {
                 transitionStatus(task, TaskStatus.DONE, "target-reached");
+                LOG.info("[TRANSFER COMPLETE] task={} requested={} targetNow={} queuedToTarget={} needNow={} releasedBufferedOverage=true",
+                        task.taskId,
+                        task.amount,
+                        manager.countItemAtEndpoint(task.target, task.itemKey),
+                        queued,
+                        remaining);
                 logTransferDebug(task, remaining, queued);
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
@@ -181,6 +188,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                     if (accepted) {
                         task.lastDispatchTick = nowTick;
                         transitionStatus(task, TaskStatus.DISPATCHED, "dispatch-accepted");
+                        LOG.info("[TRANSFER ACCEPT] task={} requested={} targetPresent={} targetNeedNow={} accepted={}",
+                                task.taskId, task.amount, targetItemsBefore, need, true);
                     } else {
                         boolean sourceReadyAfterAttempt = manager.hasAvailableItems(task.source, task.itemKey);
                         if (!movedNow && !queuedNow && !anyCoverageAppeared) {

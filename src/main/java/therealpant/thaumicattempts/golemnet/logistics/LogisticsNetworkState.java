@@ -31,6 +31,14 @@ public class LogisticsNetworkState {
     private final ManagerExecutor managerExecutor = new ManagerExecutor();
     private final CrafterExecutor crafterExecutor = new CrafterExecutor();
 
+    private static final class EffectiveNeedSnapshot {
+        int requested;
+        int presentAtTarget;
+        int reservedInbound;
+        int availableInNetwork;
+        int missingNow;
+        int craftNeeded;
+    }
     @Nullable
     public OrderStatus getOrderStatus(@Nullable UUID orderId) {
         if (orderId == null) return null;
@@ -172,6 +180,7 @@ public class LogisticsNetworkState {
         order.returnDestination = returnDestination == null ? null : returnDestination.toImmutable();
         order.requestedKey = key;
         order.requestedAmount = Math.max(1, amount);
+        order.operationalNeeded = order.requestedAmount;
         order.completedAmount = 0;
         order.status = OrderStatus.NEW;
         order.createdTick = now;
@@ -209,24 +218,45 @@ public class LogisticsNetworkState {
                 EndpointRef.AccessMode.INPUT
         );
 
-        if (order.orderKind == NetworkOrder.OrderKind.CREATION) {
-            order.recipePath = true;
-            planCreationOrder(manager, order, catalog, finalTarget, managerBuffer);
+
+        EffectiveNeedSnapshot need = computeEffectiveTargetNeed(manager, order.requestedKey, order.requestedAmount, finalTarget, order.orderId, true);
+        order.operationalNeeded = need.missingNow;
+
+        LOG.info("[Logistics {}] order={} effective-need rawRequested={} presentAtTarget={} inboundReserved={} directAvailable={} effectiveMissing={} kind={}",
+                manager.getPos(),
+                order.orderId,
+                order.requestedAmount,
+                need.presentAtTarget,
+                need.reservedInbound,
+                need.availableInNetwork,
+                need.missingNow,
+                order.orderKind);
+
+        if (need.missingNow <= 0) {
+            order.completedAmount = 0;
+            order.status = OrderStatus.DONE;
+            removeOrderFromDedup(order.orderId);
+            LOG.info("[Logistics {}] order={} status=DONE reason=already-satisfied key={} requested={}",
+                    manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount);
             return;
         }
 
-        planDeliveryOrder(manager, order, catalog, finalTarget, managerBuffer);
+        if (order.orderKind == NetworkOrder.OrderKind.CREATION) {
+            order.recipePath = true;
+            planCreationOrder(manager, order, catalog, finalTarget, managerBuffer, need);
+            return;
+        }
+
+        planDeliveryOrder(manager, order, catalog, finalTarget, managerBuffer, need);
     }
 
     private void planDeliveryOrder(TileMirrorManager manager,
                                    NetworkOrder order,
                                    LinkedHashMap<ItemKey, Integer> catalog,
                                    EndpointRef finalTarget,
-                                   EndpointRef managerBuffer) {
-        int totalReachable = Math.max(0, catalog.getOrDefault(order.requestedKey, 0));
-        int reserved = reservationBook.getReservedAmount(order.requestedKey);
-        int totalAvailable = Math.max(0, totalReachable - reserved);
-        int deliverAmount = Math.min(order.requestedAmount, totalAvailable);
+                                   EndpointRef managerBuffer,
+                                   EffectiveNeedSnapshot need) {
+        int deliverAmount = Math.min(Math.max(0, need.missingNow), Math.max(0, need.availableInNetwork));
 
         if (deliverAmount <= 0) {
             order.status = OrderStatus.FAILED;
@@ -280,7 +310,7 @@ public class LogisticsNetworkState {
             remaining -= chunk;
         }
 
-        if (order.requestedAmount > deliverAmount) {
+        if (need.missingNow > deliverAmount) {
             order.status = OrderStatus.FAILED;
             order.lastError = "delivery-partial-stock:" + order.requestedKey;
             return;
@@ -293,8 +323,57 @@ public class LogisticsNetworkState {
                                    NetworkOrder order,
                                    LinkedHashMap<ItemKey, Integer> catalog,
                                    EndpointRef finalTarget,
-                                   EndpointRef managerBuffer) {
-        int stillNeed = Math.max(0, order.requestedAmount);
+                                   EndpointRef managerBuffer,
+                                   EffectiveNeedSnapshot need) {
+        int missingAfterTargetAdjust = Math.max(0, need.missingNow);
+        int directAvailable = Math.min(Math.max(0, need.availableInNetwork), missingAfterTargetAdjust);
+        int stillNeed = Math.max(0, missingAfterTargetAdjust - directAvailable);
+
+        LOG.info("[Logistics {}] order={} creation-need requested={} afterTargetSubtract={} directAvailable={} craftResidual={}",
+                manager.getPos(),
+                order.orderId,
+                order.requestedAmount,
+                missingAfterTargetAdjust,
+                directAvailable,
+                stillNeed);
+
+        if (directAvailable > 0) {
+            int remainingDirect = directAvailable;
+            ItemStack like = order.requestedKey.toStack(1);
+            int stackLimit = Math.max(1, like.getMaxStackSize());
+            while (remainingDirect > 0) {
+                int chunk = Math.min(stackLimit, remainingDirect);
+                TransferTask stageToManager = createTransferTask(
+                        manager,
+                        order.orderId,
+                        stockSource(manager),
+                        managerBuffer,
+                        order.requestedKey,
+                        chunk,
+                        null,
+                        "deliver"
+                );
+                if (stageToManager != null) {
+                    stageToManager.status = TaskStatus.NEW;
+                    stageToManager.updatedTick = manager.getServerTickCounter();
+                    TransferTask deliverDirect = createTransferTask(
+                            manager,
+                            order.orderId,
+                            managerBuffer,
+                            finalTarget,
+                            order.requestedKey,
+                            chunk,
+                            Collections.singletonList(stageToManager.taskId),
+                            "deliver-output"
+                    );
+                    if (deliverDirect != null) {
+                        deliverDirect.status = TaskStatus.NEW;
+                        deliverDirect.updatedTick = manager.getServerTickCounter();
+                    }
+                }
+                remainingDirect -= chunk;
+            }
+        }
         if (stillNeed <= 0) {
             order.status = OrderStatus.RUNNING;
             return;
@@ -581,6 +660,11 @@ public class LogisticsNetworkState {
                 endpointPos(task.target),
                 task.metaPurpose
         );
+
+        int targetPresent = countExactInTargetInventory(manager, task.target, task.itemKey);
+        int targetNeedNow = Math.max(0, amount - targetPresent);
+        LOG.info("[Logistics {}] transfer task details task={} requested={} targetPresent={} targetNeedNow={} accepted=true",
+                managerPos, task.taskId, amount, targetPresent, targetNeedNow);
 
         return task;
     }
@@ -918,7 +1002,9 @@ public class LogisticsNetworkState {
                     EndpointRef.AccessMode.INPUT
             );
 
-            planCreationOrder(manager, order, catalog, finalTarget, managerBuffer);
+            EffectiveNeedSnapshot need = computeEffectiveTargetNeed(manager, order.requestedKey, order.requestedAmount, finalTarget, order.orderId, true);
+            order.operationalNeeded = need.missingNow;
+            planCreationOrder(manager, order, catalog, finalTarget, managerBuffer, need);
         }
     }
 
@@ -952,7 +1038,6 @@ public class LogisticsNetworkState {
     }
 
     private void updateOrders(TileMirrorManager manager) {
-        LinkedHashMap<ItemKey, Integer> catalog = manager.getReachableCatalog();
         for (NetworkOrder order : orders.values()) {
             if (!isActiveOrder(order.status)) {
                 removeOrderFromDedup(order.orderId);
@@ -965,6 +1050,11 @@ public class LogisticsNetworkState {
             boolean outputDone = !order.recipePath || order.creationOutputMode == CreationOutputMode.LEAVE_IN_CRAFTER;
             long actualCompleted = 0L;
             int runningTasks = 0;
+            EndpointRef finalTarget = EndpointRef.of(
+                    order.returnDestination != null ? order.returnDestination : order.sourcePos,
+                    EndpointRef.AccessMode.INPUT
+            );
+            EffectiveNeedSnapshot needNow = computeEffectiveTargetNeed(manager, order.requestedKey, order.requestedAmount, finalTarget, order.orderId, true);
 
             for (UUID tid : order.taskIds) {
                 RuntimeTask t = runtimeTasks.get(tid);
@@ -1007,8 +1097,24 @@ public class LogisticsNetworkState {
                 continue;
             }
 
-            order.completedAmount = (int) Math.min(order.requestedAmount, Math.max(0L, actualCompleted));
-            int remaining = Math.max(0, order.requestedAmount - order.completedAmount);
+            if (needNow.missingNow <= 0) {
+                order.completedAmount = order.requestedAmount;
+                order.status = OrderStatus.DONE;
+                removeOrderFromDedup(order.orderId);
+                LOG.info("[Logistics {}] order={} status=DONE reason=effective-need-zero rawRequested={} presentAtTarget={} inboundReserved={} directAvailable={}",
+                        manager.getPos(),
+                        order.orderId,
+                        order.requestedAmount,
+                        needNow.presentAtTarget,
+                        needNow.reservedInbound,
+                        needNow.availableInNetwork);
+                order.updatedTick = manager.getServerTickCounter();
+                continue;
+            }
+
+            int effectiveGoal = Math.max(0, order.operationalNeeded);
+            order.completedAmount = (int) Math.min(effectiveGoal, Math.max(0L, actualCompleted));
+            int remaining = Math.max(0, effectiveGoal - order.completedAmount);
 
             if (!hasTasks) {
                 order.status = OrderStatus.FAILED;
@@ -1026,7 +1132,7 @@ public class LogisticsNetworkState {
                         manager.getPos(), order.orderId, order.requestedAmount, order.completedAmount, remaining, runningTasks);
             } else if (order.recipePath && (!craftDone || !outputDone)) {
                 allDone = false;
-            } else if (allDone && order.completedAmount >= order.requestedAmount) {
+            } else if (allDone && order.completedAmount >= effectiveGoal) {
                 order.status = OrderStatus.DONE;
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
@@ -1037,13 +1143,13 @@ public class LogisticsNetworkState {
                 }
                 removeOrderFromDedup(order.orderId);
                 LOG.info("[Logistics {}] order={} status=DONE reason=completed-amount-reached key={} amount={} completed={} remaining=0 recipePath={}",
-                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.completedAmount, order.recipePath);
+                        manager.getPos(), order.orderId, order.requestedKey, effectiveGoal, order.completedAmount, order.recipePath);
             } else if (allDone) {
                 order.status = OrderStatus.FAILED;
-                order.lastError = "incomplete-delivery:" + order.requestedKey + ":" + order.completedAmount + "/" + order.requestedAmount;
+                order.lastError = "incomplete-delivery:" + order.requestedKey + ":" + order.completedAmount + "/" + effectiveGoal;
                 removeOrderFromDedup(order.orderId);
                 LOG.warn("[Logistics {}] order={} status=FAILED reason=incomplete-after-all-tasks key={} amount={} completed={} remaining={} recipePath={}",
-                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.completedAmount, remaining, order.recipePath);
+                        manager.getPos(), order.orderId, order.requestedKey, effectiveGoal, order.completedAmount, remaining, order.recipePath);
             } else if (order.status == OrderStatus.FAILED || order.status == OrderStatus.CANCELED) {
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
@@ -1058,8 +1164,8 @@ public class LogisticsNetworkState {
             }
 
             if (order.status == OrderStatus.RUNNING || order.status == OrderStatus.WAITING_INPUTS) {
-                LOG.info("[Logistics {}] order={} status={} amount={} completed={} remaining={} runningTasks={} recipePath={}",
-                        manager.getPos(), order.orderId, order.status, order.requestedAmount, order.completedAmount, remaining, runningTasks, order.recipePath);
+                LOG.info("[Logistics {}] order={} status={} rawRequested={} effectiveGoal={} completed={} remaining={} runningTasks={} recipePath={}",
+                        manager.getPos(), order.orderId, order.status, order.requestedAmount, effectiveGoal, order.completedAmount, remaining, runningTasks, order.recipePath);
             }
 
             order.updatedTick = manager.getServerTickCounter();
@@ -1073,6 +1179,95 @@ public class LogisticsNetworkState {
             return "execute-craft".equals(task.metaPurpose);
         }
         return "deliver-output".equals(task.metaPurpose);
+    }
+
+    public int countExactInEndpoint(TileMirrorManager manager, EndpointRef endpoint, ItemKey key) {
+        if (manager == null || endpoint == null || key == null || key == ItemKey.EMPTY) return 0;
+        return Math.max(0, manager.countItemAtEndpoint(endpoint, key));
+    }
+
+    public int countExactInTargetInventory(TileMirrorManager manager, EndpointRef endpoint, ItemKey key) {
+        return countExactInEndpoint(manager, endpoint, key);
+    }
+
+    public int countInboundReservedForTarget(ItemKey key,
+                                             EndpointRef target,
+                                             @Nullable UUID excludeOrder,
+                                             @Nullable UUID excludeTask) {
+        if (key == null || key == ItemKey.EMPTY || target == null) return 0;
+        int total = 0;
+        for (RuntimeTask task : runtimeTasks.values()) {
+            if (!(task instanceof TransferTask) || isTerminalTask(task.status)) continue;
+            if (excludeTask != null && excludeTask.equals(task.taskId)) continue;
+            if (excludeOrder != null && excludeOrder.equals(task.orderId)) continue;
+
+            TransferTask transfer = (TransferTask) task;
+            if (transfer.itemKey == null || !key.equals(transfer.itemKey)) continue;
+            if (transfer.target == null) continue;
+            if (transfer.target.mode != target.mode || !transfer.target.pos.equals(target.pos)) continue;
+
+            long outstanding = Math.max(0L, transfer.amount - transfer.completedAmount);
+            if (outstanding > 0L) {
+                total += (int) Math.min(Integer.MAX_VALUE, outstanding);
+            }
+        }
+        return Math.max(0, total);
+    }
+
+    public int countDirectAvailableInNetwork(TileMirrorManager manager, ItemKey key, @Nullable UUID excludeOrder) {
+        if (manager == null || key == null || key == ItemKey.EMPTY) return 0;
+        int reachable = Math.max(0, manager.getReachableCatalog().getOrDefault(key, 0));
+        int reserved = reservationBook.getReservedAmount(key);
+        return Math.max(0, reachable - reserved);
+    }
+
+    public int computeEffectiveMissing(TileMirrorManager manager,
+                                       ItemKey key,
+                                       int requestedAmount,
+                                       EndpointRef target,
+                                       @Nullable UUID excludeOrder,
+                                       boolean includeInboundReservations) {
+        EffectiveNeedSnapshot snapshot = computeEffectiveTargetNeed(manager, key, requestedAmount, target, excludeOrder, includeInboundReservations);
+        return snapshot.missingNow;
+    }
+
+    private EffectiveNeedSnapshot computeEffectiveTargetNeed(TileMirrorManager manager,
+                                                             ItemKey key,
+                                                             int requestedAmount,
+                                                             EndpointRef target,
+                                                             @Nullable UUID excludeOrder,
+                                                             boolean includeInboundReservations) {
+        EffectiveNeedSnapshot snapshot = new EffectiveNeedSnapshot();
+        snapshot.requested = Math.max(0, requestedAmount);
+        snapshot.presentAtTarget = countExactInTargetInventory(manager, target, key);
+        snapshot.reservedInbound = includeInboundReservations
+                ? countInboundReservedForTarget(key, target, excludeOrder, null)
+                : 0;
+        snapshot.availableInNetwork = countDirectAvailableInNetwork(manager, key, excludeOrder);
+        snapshot.missingNow = Math.max(0, snapshot.requested - snapshot.presentAtTarget - snapshot.reservedInbound);
+        snapshot.craftNeeded = Math.max(0, snapshot.missingNow - snapshot.availableInNetwork);
+        return snapshot;
+    }
+
+    public boolean isTargetSatisfied(TileMirrorManager manager, TransferTask task) {
+        if (manager == null || task == null || task.target == null || task.itemKey == null || task.itemKey == ItemKey.EMPTY) {
+            return false;
+        }
+        int atTarget = countExactInTargetInventory(manager, task.target, task.itemKey);
+        int inbound = countInboundReservedForTarget(task.itemKey, task.target, task.orderId, task.taskId);
+        long requested = Math.max(0L, task.amount);
+        boolean satisfied = atTarget >= requested || (atTarget + inbound) >= requested;
+        if (satisfied) {
+            task.completedAmount = Math.min(task.amount, Math.max(task.completedAmount, atTarget));
+        }
+        return satisfied;
+    }
+
+    public void releaseBufferedOverageForTask(TileMirrorManager manager, TransferTask task) {
+        if (manager == null || task == null || task.itemKey == null) return;
+        int buffered = manager.countItemAtEndpoint(EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER), task.itemKey);
+        LOG.info("[Logistics {}] manager-buffer-overage-release task={} key={} buffered={} action=release-to-buffer",
+                manager.getPos(), task.taskId, task.itemKey, Math.max(0, buffered));
     }
 
     private void removeOrderFromDedup(UUID orderId) {
