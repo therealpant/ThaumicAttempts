@@ -140,7 +140,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                     boolean inboundAccepted = false;
                     int queueId = ensureQueueId(task);
 
-                    if (task.isDeliverTask()) {
+                    if (task.isDeliverTask() && !isCraftOutputDelivery(task)) {
                         int sourceCoveredBefore = sourceItemsBefore + sourceQueuedBefore;
                         int needForBuffer = (int) Math.min(Integer.MAX_VALUE, need);
                         if (sourceCoveredBefore < needForBuffer) {
@@ -242,6 +242,12 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         if (queueId == 0) queueId = 1;
         task.legacyDeliveryQueueId = queueId;
         return queueId;
+    }
+
+    private static boolean isCraftOutputDelivery(TransferTask task) {
+        if (task == null) return false;
+        String purpose = task.metaPurpose == null ? "" : task.metaPurpose;
+        return "deliver-output".equals(purpose);
     }
 
     private long calculateDeliveredToTarget(TransferTask task) {

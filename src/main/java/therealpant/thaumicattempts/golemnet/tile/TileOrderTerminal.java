@@ -389,9 +389,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
             addToMap(pend, key, toMove);
 
-            if (!craftTab && !alreadyInPend && !deliveryBaselines.containsKey(key)) {
-                int base = countInBufferLike(key.toStack(1));
-                deliveryBaselines.put(key, base);
+            if (!craftTab) {
+                int baseNow = countInBufferLike(key.toStack(1));
+                int basePrev = Math.max(0, deliveryBaselines.getOrDefault(key, 0));
+                deliveryBaselines.put(key, Math.max(basePrev, baseNow));
             }
 
             int remain = e.getValue() - toMove;
