@@ -264,19 +264,20 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             long nowTick = manager.getServerTickCounter();
             if (nowTick - task.lastDispatchTick >= DISPATCH_COOLDOWN_TICKS) {
                 if (terminalDeliverOutput && logistics != null && !logistics.isReservationReadyForDispatch(task)) {
-                    int stagedNow = logistics.getReservationStagedAmount(task);
-                    int requested = logistics.getReservationRequestedAmount(task);
+                    LogisticsNetworkState.ReservationDispatchSnapshot dispatch = logistics.getReservationDispatchSnapshot(task);
                     transitionStatus(task, TaskStatus.BLOCKED, "waiting-reservation-ready");
                     task.stalledTicks = 0;
                     task.lastRemaining = remaining;
                     task.lastProgressTick = nowTick;
-                    LOG.info("[TRANSFER DEBUG] task={} deliver-output waiting because reservation not ready order={} reservation={} slotIndex={} staged={}/{}",
+                    LOG.info("[TRANSFER DEBUG] task={} deliver-output waiting because reservation not ready order={} reservation={} slotIndex={} staged={} requested={} required={} ready={}",
                             task.taskId,
-                            task.orderId,
-                            task.stagingReservationId,
-                            task.source != null ? task.source.stagingSlotIndex : -1,
-                            stagedNow,
-                            requested);
+                            dispatch.orderId != null ? dispatch.orderId : task.orderId,
+                            dispatch.reservationId != null ? dispatch.reservationId : task.stagingReservationId,
+                            dispatch.slotIndex >= 0 ? dispatch.slotIndex : task.stagingSlotIndex,
+                            dispatch.stagedAmount,
+                            dispatch.requestedAmount,
+                            dispatch.requiredAmount,
+                            dispatch.readyForDispatch);
                     logTransferDebug(task, remaining, queued);
                     snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                     continue;
@@ -310,11 +311,18 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                                     inboundNeed,
                                     queueId);
                         } else {
-                            LOG.info("[TRANSFER DEBUG] task={} deliver-output started because reservation ready slot={} order={} reservation={}",
+                            LogisticsNetworkState.ReservationDispatchSnapshot dispatch = logistics == null
+                                    ? new LogisticsNetworkState.ReservationDispatchSnapshot(task.stagingReservationId, task.orderId, task.stagingSlotIndex, 0, 0, needForBuffer, false)
+                                    : logistics.getReservationDispatchSnapshot(task);
+                            LOG.info("[TRANSFER DEBUG] deliver-output start check task={} order={} reservation={} slotIndex={} staged={} requested={} required={} ready={}",
                                     task.taskId,
-                                    task.itemKey,
-                                    needForBuffer,
-                                    sourceCoveredBefore);
+                                    dispatch.orderId != null ? dispatch.orderId : task.orderId,
+                                    dispatch.reservationId != null ? dispatch.reservationId : task.stagingReservationId,
+                                    dispatch.slotIndex >= 0 ? dispatch.slotIndex : task.stagingSlotIndex,
+                                    dispatch.stagedAmount,
+                                    dispatch.requestedAmount,
+                                    dispatch.requiredAmount,
+                                    dispatch.readyForDispatch);
                         }
 
 

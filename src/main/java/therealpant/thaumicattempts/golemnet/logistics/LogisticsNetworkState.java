@@ -92,6 +92,32 @@ public class LogisticsNetworkState {
         }
     }
 
+    public static final class ReservationDispatchSnapshot {
+        public final UUID reservationId;
+        public final UUID orderId;
+        public final int slotIndex;
+        public final int stagedAmount;
+        public final int requestedAmount;
+        public final int requiredAmount;
+        public final boolean readyForDispatch;
+
+        public ReservationDispatchSnapshot(@Nullable UUID reservationId,
+                                           @Nullable UUID orderId,
+                                           int slotIndex,
+                                           int stagedAmount,
+                                           int requestedAmount,
+                                           int requiredAmount,
+                                           boolean readyForDispatch) {
+            this.reservationId = reservationId;
+            this.orderId = orderId;
+            this.slotIndex = slotIndex;
+            this.stagedAmount = stagedAmount;
+            this.requestedAmount = requestedAmount;
+            this.requiredAmount = requiredAmount;
+            this.readyForDispatch = readyForDispatch;
+        }
+    }
+
     @Nullable
     public OrderStatus getOrderStatus(@Nullable UUID orderId) {
         if (orderId == null) return null;
@@ -396,29 +422,69 @@ public class LogisticsNetworkState {
         BufferReservation byReservationId = null;
         if (task.stagingReservationId != null) {
             byReservationId = bufferReservations.get(task.stagingReservationId);
-            if (byReservationId != null && !byReservationId.released) {
+            if (isReservationMappedToTask(task, byReservationId)) {
                 return byReservationId;
             }
         }
-        return findReservationByOrder(task.orderId);
+        BufferReservation byOrder = findReservationByOrder(task.orderId);
+        if (isReservationMappedToTask(task, byOrder)) {
+            return byOrder;
+        }
+        return null;
+    }
+
+    private boolean isReservationMappedToTask(@Nullable TransferTask task, @Nullable BufferReservation reservation) {
+        if (task == null || reservation == null || reservation.released) return false;
+        if (task.orderId == null || !task.orderId.equals(reservation.orderId)) return false;
+        if (task.stagingReservationId != null && !task.stagingReservationId.equals(reservation.reservationId)) return false;
+        if (task.stagingSlotIndex >= 0 && task.stagingSlotIndex != reservation.slotIndex) return false;
+        if (task.itemKey != null && task.itemKey != ItemKey.EMPTY && !task.itemKey.equals(reservation.itemKey)) return false;
+        return true;
+    }
+
+    public ReservationDispatchSnapshot getReservationDispatchSnapshot(@Nullable TransferTask task) {
+        BufferReservation reservation = findReservationForTask(task);
+        int requiredAmount = task == null ? 0 : Math.max(1, (int) Math.min(Integer.MAX_VALUE, task.amount));
+        if (reservation == null || reservation.released) {
+            return new ReservationDispatchSnapshot(
+                    null,
+                    task == null ? null : task.orderId,
+                    task == null ? -1 : task.stagingSlotIndex,
+                    0,
+                    0,
+                    requiredAmount,
+                    false
+            );
+        }
+
+        int stagedAmount = Math.max(0, reservation.stagedAmount);
+        int requestedAmount = Math.max(1, reservation.requestedAmount);
+        boolean readyForDispatch = reservation.readyForDispatch
+                && stagedAmount >= requiredAmount
+                && reservation.orderId != null
+                && reservation.orderId.equals(task.orderId)
+                && reservation.slotIndex == task.stagingSlotIndex;
+        return new ReservationDispatchSnapshot(
+                reservation.reservationId,
+                reservation.orderId,
+                reservation.slotIndex,
+                stagedAmount,
+                requestedAmount,
+                requiredAmount,
+                readyForDispatch
+        );
     }
 
     public int getReservationStagedAmount(@Nullable TransferTask task) {
-        BufferReservation reservation = findReservationForTask(task);
-        if (reservation == null || reservation.released) return 0;
-        return Math.max(0, reservation.stagedAmount);
+        return getReservationDispatchSnapshot(task).stagedAmount;
     }
 
     public int getReservationRequestedAmount(@Nullable TransferTask task) {
-        BufferReservation reservation = findReservationForTask(task);
-        if (reservation == null || reservation.released) return 0;
-        return Math.max(0, reservation.requestedAmount);
+        return getReservationDispatchSnapshot(task).requestedAmount;
     }
 
     public boolean isReservationReadyForDispatch(@Nullable TransferTask task) {
-        BufferReservation reservation = findReservationForTask(task);
-        if (reservation == null || reservation.released) return false;
-        return reservation.readyForDispatch && reservation.stagedAmount > 0;
+        return getReservationDispatchSnapshot(task).readyForDispatch;
     }
 
     public void logReservationOutputConsumption(TileMirrorManager manager,
@@ -437,16 +503,18 @@ public class LogisticsNetworkState {
         reservation.readyForDispatch = reservation.stagedAmount >= reservation.requestedAmount;
         reservation.updatedTick = manager.getServerTickCounter();
 
-        LOG.info("[Logistics {}] reservation stagedAmount consumed by output task reservation={} order={} task={} consumed={} deliverCompleted={} stagedNow={}/{} ready={}",
+        LOG.info("[Logistics {}] reservation stagedAmount consumed by output task reservation={} order={} slotIndex={} task={} consumed={} deliverCompleted={} stagedNow={}/{} required={} ready={}",
                 manager.getPos(),
                 reservation.reservationId,
                 reservation.orderId,
                 task.taskId,
+                reservation.slotIndex,
                 consumedDelta,
                 completedNow,
                 reservation.stagedAmount,
                 reservation.requestedAmount,
-                reservation.readyForDispatch);
+                Math.max(1, (int) Math.min(Integer.MAX_VALUE, task.amount)),
+                reservation.readyForDispatch && reservation.stagedAmount >= Math.max(1, (int) Math.min(Integer.MAX_VALUE, task.amount)));
     }
 
     private EndpointRef resolveOrderManagerBuffer(TileMirrorManager manager, @Nullable NetworkOrder order) {
