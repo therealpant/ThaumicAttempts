@@ -132,6 +132,19 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         return false;
     }
 
+    private boolean isTerminalInboundToReservedSlot(TransferTask task) {
+        if (task == null) return false;
+        if (!"deliver".equals(task.metaPurpose)) return false;
+        NetworkOrder order = getOrder(task);
+        if (order == null || order.sourceType != OrderSourceType.TERMINAL || order.orderKind != NetworkOrder.OrderKind.DELIVERY) {
+            return false;
+        }
+        return task.target != null
+                && task.target.mode == EndpointRef.AccessMode.BUFFER
+                && task.target.stagingSlotIndex >= 0
+                && task.stagingReservationId != null;
+    }
+
     @Override
     public void tick() {
         if (manager == null) return;
@@ -162,6 +175,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             }
 
             boolean terminalDeliverOutput = isTerminalDeliverOutput(task);
+            boolean terminalInboundReserved = isTerminalInboundToReservedSlot(task);
+            LogisticsNetworkState logistics = manager.getLogisticsState();
 
             /*
              * КРИТИЧЕСКАЯ ПРАВКА:
@@ -186,8 +201,23 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             long previousCompleted = task.completedAmount;
             task.completedAmount = calculateDeliveredToTarget(task);
 
+            if (terminalInboundReserved && logistics != null) {
+                int stagedAmount = logistics.getReservationStagedAmount(task);
+                if (stagedAmount >= task.amount) {
+                    task.completedAmount = task.amount;
+                }
+            }
+
             if (task.completedAmount > previousCompleted) {
                 task.lastProgressTick = manager.getServerTickCounter();
+                if (terminalDeliverOutput && logistics != null) {
+                    logistics.logReservationOutputConsumption(
+                            manager,
+                            task,
+                            task.completedAmount - previousCompleted,
+                            task.completedAmount
+                    );
+                }
             }
 
             int queued = manager.countQueuedForEndpoint(task.target, task.itemKey);
@@ -233,6 +263,25 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
             long nowTick = manager.getServerTickCounter();
             if (nowTick - task.lastDispatchTick >= DISPATCH_COOLDOWN_TICKS) {
+                if (terminalDeliverOutput && logistics != null && !logistics.isReservationReadyForDispatch(task)) {
+                    int stagedNow = logistics.getReservationStagedAmount(task);
+                    int requested = logistics.getReservationRequestedAmount(task);
+                    transitionStatus(task, TaskStatus.BLOCKED, "waiting-reservation-ready");
+                    task.stalledTicks = 0;
+                    task.lastRemaining = remaining;
+                    task.lastProgressTick = nowTick;
+                    LOG.info("[TRANSFER DEBUG] task={} deliver-output waiting because reservation not ready order={} reservation={} slotIndex={} staged={}/{}",
+                            task.taskId,
+                            task.orderId,
+                            task.stagingReservationId,
+                            task.source != null ? task.source.stagingSlotIndex : -1,
+                            stagedNow,
+                            requested);
+                    logTransferDebug(task, remaining, queued);
+                    snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                    continue;
+                }
+
                 long need = Math.max(0L, remaining - queued);
                 if (need > 0L) {
                     int sourceItemsBefore = manager.countItemAtEndpoint(task.source, task.itemKey);
@@ -261,7 +310,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                                     inboundNeed,
                                     queueId);
                         } else {
-                            LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request request=skipped reason=already-covered key={} need={} covered={}",
+                            LOG.info("[TRANSFER DEBUG] task={} deliver-output started because reservation ready slot={} order={} reservation={}",
                                     task.taskId,
                                     task.itemKey,
                                     needForBuffer,

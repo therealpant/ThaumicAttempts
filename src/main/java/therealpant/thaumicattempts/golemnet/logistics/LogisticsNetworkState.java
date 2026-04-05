@@ -390,6 +390,65 @@ public class LogisticsNetworkState {
         return bufferReservations.get(reservationId);
     }
 
+    @Nullable
+    public BufferReservation findReservationForTask(@Nullable TransferTask task) {
+        if (task == null) return null;
+        BufferReservation byReservationId = null;
+        if (task.stagingReservationId != null) {
+            byReservationId = bufferReservations.get(task.stagingReservationId);
+            if (byReservationId != null && !byReservationId.released) {
+                return byReservationId;
+            }
+        }
+        return findReservationByOrder(task.orderId);
+    }
+
+    public int getReservationStagedAmount(@Nullable TransferTask task) {
+        BufferReservation reservation = findReservationForTask(task);
+        if (reservation == null || reservation.released) return 0;
+        return Math.max(0, reservation.stagedAmount);
+    }
+
+    public int getReservationRequestedAmount(@Nullable TransferTask task) {
+        BufferReservation reservation = findReservationForTask(task);
+        if (reservation == null || reservation.released) return 0;
+        return Math.max(0, reservation.requestedAmount);
+    }
+
+    public boolean isReservationReadyForDispatch(@Nullable TransferTask task) {
+        BufferReservation reservation = findReservationForTask(task);
+        if (reservation == null || reservation.released) return false;
+        return reservation.readyForDispatch && reservation.stagedAmount > 0;
+    }
+
+    public void logReservationOutputConsumption(TileMirrorManager manager,
+                                                @Nullable TransferTask task,
+                                                long consumedDelta,
+                                                long completedNow) {
+        if (manager == null || task == null || consumedDelta <= 0L) return;
+        BufferReservation reservation = findReservationForTask(task);
+        if (reservation == null || reservation.released) return;
+
+        int stagedNow = manager.countItemAtEndpoint(
+                EndpointRef.managerBufferSlot(manager.getPos(), reservation.slotIndex),
+                reservation.itemKey
+        );
+        reservation.stagedAmount = Math.max(0, stagedNow);
+        reservation.readyForDispatch = reservation.stagedAmount >= reservation.requestedAmount;
+        reservation.updatedTick = manager.getServerTickCounter();
+
+        LOG.info("[Logistics {}] reservation stagedAmount consumed by output task reservation={} order={} task={} consumed={} deliverCompleted={} stagedNow={}/{} ready={}",
+                manager.getPos(),
+                reservation.reservationId,
+                reservation.orderId,
+                task.taskId,
+                consumedDelta,
+                completedNow,
+                reservation.stagedAmount,
+                reservation.requestedAmount,
+                reservation.readyForDispatch);
+    }
+
     private EndpointRef resolveOrderManagerBuffer(TileMirrorManager manager, @Nullable NetworkOrder order) {
         if (manager == null) return EndpointRef.of(BlockPos.ORIGIN, EndpointRef.AccessMode.BUFFER);
         if (order != null && order.stagingSlotIndex >= 0) {
