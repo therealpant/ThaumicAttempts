@@ -126,25 +126,74 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 continue;
             }
-            boolean sourceReady = manager.hasAvailableItems(task.source, task.itemKey);
-            if (!sourceReady) {
-                transitionStatus(task, TaskStatus.WAITING_SOURCE, "source-empty");
-                logTransferDebug(task, remaining, queued);
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                continue;
-            }
 
             long nowTick = manager.getServerTickCounter();
             if (nowTick - task.lastDispatchTick >= DISPATCH_COOLDOWN_TICKS) {
                 long need = Math.max(0L, remaining - queued);
                 if (need > 0L) {
+                    int sourceItemsBefore = manager.countItemAtEndpoint(task.source, task.itemKey);
+                    int sourceQueuedBefore = manager.countQueuedForEndpoint(task.source, task.itemKey);
+                    int targetItemsBefore = manager.countItemAtEndpoint(task.target, task.itemKey);
+                    int targetQueuedBefore = manager.countQueuedForEndpoint(task.target, task.itemKey);
+
+                    boolean attemptedInboundProvisioning = false;
+                    boolean inboundAccepted = false;
                     int queueId = ensureQueueId(task);
+
+                    if (task.isDeliverTask()) {
+                        int sourceCoveredBefore = sourceItemsBefore + sourceQueuedBefore;
+                        int needForBuffer = (int) Math.min(Integer.MAX_VALUE, need);
+                        if (sourceCoveredBefore < needForBuffer) {
+                            int inboundNeed = Math.max(0, needForBuffer - sourceCoveredBefore);
+                            if (inboundNeed > 0) {
+                                attemptedInboundProvisioning = true;
+                                LOG.info("[TRANSFER DEBUG] task={} attempted inbound provisioning key={} amount={} queueId={} source={} target={}",
+                                        task.taskId, task.itemKey, inboundNeed, queueId, task.source, task.target);
+                                inboundAccepted = manager.dispatchInboundToManagerByGolems(task.source, task.itemKey, inboundNeed, queueId);
+                                LOG.info("[TRANSFER DEBUG] task={} {} inbound provisioning key={} amount={} queueId={}",
+                                        task.taskId,
+                                        inboundAccepted ? "accepted" : "rejected",
+                                        task.itemKey,
+                                        inboundNeed,
+                                        queueId);
+                                if (inboundAccepted) {
+                                    int queuedToManager = manager.countQueuedForEndpoint(task.source, task.itemKey);
+                                    LOG.info("[TRANSFER DEBUG] task={} queued amount to manager buffer key={} queued={}",
+                                            task.taskId, task.itemKey, queuedToManager);
+                                }
+                            }
+                        }
+                    }
                     boolean accepted = manager.dispatchTransferTask(task.source, task.target, task.itemKey, (int) Math.min(Integer.MAX_VALUE, need), queueId);
+                    int sourceItemsAfter = manager.countItemAtEndpoint(task.source, task.itemKey);
+                    int sourceQueuedAfter = manager.countQueuedForEndpoint(task.source, task.itemKey);
+                    int targetItemsAfter = manager.countItemAtEndpoint(task.target, task.itemKey);
+                    int targetQueuedAfter = manager.countQueuedForEndpoint(task.target, task.itemKey);
+
+                    boolean movedNow = targetItemsAfter > targetItemsBefore;
+                    boolean queuedNow = targetQueuedAfter > targetQueuedBefore
+                            || sourceQueuedAfter > sourceQueuedBefore
+                            || (task.isDeliverTask() && sourceQueuedAfter > 0 && sourceQueuedAfter != sourceQueuedBefore);
+                    boolean sourceCoverageAppeared = (sourceItemsAfter + sourceQueuedAfter) > (sourceItemsBefore + sourceQueuedBefore);
+                    boolean targetCoverageAppeared = (targetItemsAfter + targetQueuedAfter) > (targetItemsBefore + targetQueuedBefore);
+                    boolean anyCoverageAppeared = sourceCoverageAppeared || targetCoverageAppeared;
+
                     if (accepted) {
                         task.lastDispatchTick = nowTick;
                         transitionStatus(task, TaskStatus.DISPATCHED, "dispatch-accepted");
                     } else {
-                        transitionStatus(task, TaskStatus.BLOCKED, "dispatch-rejected");
+                        boolean sourceReadyAfterAttempt = manager.hasAvailableItems(task.source, task.itemKey);
+                        if (!movedNow && !queuedNow && !anyCoverageAppeared) {
+                            if (!sourceReadyAfterAttempt) {
+                                LOG.info("[TRANSFER DEBUG] task={} transition to WAITING_SOURCE only after failed provisioning attempt attemptedInbound={} inboundAccepted={}",
+                                        task.taskId, attemptedInboundProvisioning, inboundAccepted);
+                                transitionStatus(task, TaskStatus.WAITING_SOURCE, "source-empty-after-provision-attempt");
+                            } else {
+                                transitionStatus(task, TaskStatus.BLOCKED, "dispatch-rejected-after-attempt");
+                            }
+                        } else {
+                            transitionStatus(task, TaskStatus.IN_PROGRESS, "dispatch-pending");
+                        }
                     }
                 }
             }
