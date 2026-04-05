@@ -2869,31 +2869,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 return true;
             }
 
-            int pulled = 0;
-            if (!src.equals(this.pos)) {
-                if (source.mode == EndpointRef.AccessMode.OUTPUT && world.getTileEntity(src) instanceof TileEntityGolemCrafter) {
-                    pulled = harvestLikeToBufferFromOutputCrafter(
-                            (TileEntityGolemCrafter) world.getTileEntity(src),
-                            like,
-                            remainingNeedForBuffer
-                    );
-                } else {
-                    pulled = harvestLikeToBufferFromHandler(src, -1, like, remainingNeedForBuffer);
-                }
-            } else {
-                pulled = pullLikeFromProvideSetToBuffer(like, remainingNeedForBuffer);
-            }
+            LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
+            needs.put(key, remainingNeedForBuffer);
+            ensureDeliveryForExact(this.pos, needs, queueId);
 
-            int coveredAfterPull = countCoveredForManagerBuffer(key, amount);
-            int stillNeed = Math.max(0, amount - coveredAfterPull);
-
-            if (stillNeed > 0) {
-                LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
-                needs.put(key, stillNeed);
-                ensureDeliveryForExact(this.pos, needs, queueId);
-            }
-
-            return pulled > 0 || countQueuedFor(this.pos, like) > 0 || countCoveredForManagerBuffer(key, amount) >= amount;
+            return countQueuedFor(this.pos, like) > 0 || countCoveredForManagerBuffer(key, amount) >= amount;
         }
 
         /*
@@ -2906,21 +2886,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         int bufferedNow = countInManagerBufferLike(like);
         int needAfterBuffer = Math.max(0, remainingNeedAtTarget - bufferedNow);
 
-        int pulled = 0;
         if (needAfterBuffer > 0) {
-            if (!src.equals(this.pos)) {
-                if (source.mode == EndpointRef.AccessMode.OUTPUT && world.getTileEntity(src) instanceof TileEntityGolemCrafter) {
-                    pulled = harvestLikeToBufferFromOutputCrafter(
-                            (TileEntityGolemCrafter) world.getTileEntity(src),
-                            like,
-                            needAfterBuffer
-                    );
-                } else {
-                    pulled = harvestLikeToBufferFromHandler(src, -1, like, needAfterBuffer);
-                }
-            } else {
-                pulled = pullLikeFromProvideSetToBuffer(like, needAfterBuffer);
-            }
+
+        LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
+        needs.put(key, needAfterBuffer);
+        ensureDeliveryForExact(this.pos, needs, queueId);
         }
 
         int bufferedAfterPull = countInManagerBufferLike(like);
@@ -2940,7 +2910,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             ensureDeliveryForExact(dst, needs, queueId);
         }
 
-        return pulled > 0 || movedNow > 0 || countQueuedFor(dst, like) > 0;
+        return movedNow > 0 || countQueuedFor(this.pos, like) > 0 || countQueuedFor(dst, like) > 0;
     }
 
     public int startCraftTask(BlockPos crafterPos, ItemKey key, int amount) {
