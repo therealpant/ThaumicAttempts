@@ -351,25 +351,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             if (left <= 0) return;
 
             while (left > 0) {
-                TerminalOrderSlot firstPartial = null;
-                for (TerminalOrderSlot slot : draft) {
-                    if (slot == null || slot.key == null) continue;
-                    if (!ResourceIdentity.sameResource(slot.key.toStack(1), k.toStack(1))) continue;
-                    int room = getSlotLimit(slot.key) - Math.max(0, slot.amount);
-                    if (room > 0) {
-                        firstPartial = slot;
-                        break;
-                    }
-                }
-                if (firstPartial != null) {
-                    int room = getSlotLimit(firstPartial.key) - Math.max(0, firstPartial.amount);
-                    int toAdd = Math.min(left, room);
-                    if (toAdd <= 0) break;
-                    firstPartial.amount += toAdd;
-                    left -= toAdd;
-                    continue;
-                }
-
                 if (draft.size() >= 9) break;
                 int amount = Math.min(left, getSlotLimit(k));
                 draft.add(new TerminalOrderSlot(UUID.randomUUID(), k, amount, world == null ? 0L : world.getTotalWorldTime()));

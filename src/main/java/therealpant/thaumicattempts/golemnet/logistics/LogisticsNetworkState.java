@@ -1341,6 +1341,10 @@ public class LogisticsNetworkState {
             return task.completedAmount >= task.amount;
         }
 
+        if (order != null && isTerminalSourceOrder(order)) {
+            return task.completedAmount >= task.amount;
+        }
+
         int atTarget = countExactInTargetInventory(manager, task.target, task.itemKey);
         int inbound = countInboundReservedForTarget(task.itemKey, task.target, task.orderId, task.taskId);
         long requested = Math.max(0L, task.amount);
