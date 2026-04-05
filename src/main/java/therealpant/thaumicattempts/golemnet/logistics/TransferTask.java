@@ -38,6 +38,7 @@ public class TransferTask extends RuntimeTask {
     public long lastDispatchTick = 0L;
     public int stalledTicks = 0;
     public long lastRemaining = -1L;
+    public long creditedAmount = 0L;
 
     @Override
     public String getTaskType() {
@@ -58,6 +59,7 @@ public class TransferTask extends RuntimeTask {
         tag.setBoolean("InboundQueued", inboundQueued);
         tag.setBoolean("InboundDone", inboundDone);
         tag.setBoolean("OutboundDone", outboundDone);
+        tag.setLong("creditedAmount", creditedAmount);
 
         if (legacyDeliveryId != null) {
             tag.setString("LegacyDeliveryId", legacyDeliveryId.toString());
@@ -99,6 +101,7 @@ public class TransferTask extends RuntimeTask {
             }
         }
 
+
         dispatchQueued = tag.hasKey("DispatchQueued") && tag.getBoolean("DispatchQueued");
         dispatchQueueId = tag.hasKey("DispatchQueueId") ? tag.getInteger("DispatchQueueId") : -1;
         sourceBaseline = tag.hasKey("SourceBaseline") ? tag.getInteger("SourceBaseline") : -1;
@@ -109,5 +112,8 @@ public class TransferTask extends RuntimeTask {
         lastDispatchTick = tag.hasKey("LastDispatchTick") ? tag.getLong("LastDispatchTick") : 0L;
         stalledTicks = tag.hasKey("StalledTicks") ? tag.getInteger("StalledTicks") : 0;
         lastRemaining = tag.hasKey("LastRemaining") ? tag.getLong("LastRemaining") : -1L;
+        creditedAmount = tag.hasKey("creditedAmount", Constants.NBT.TAG_LONG)
+                ? tag.getLong("creditedAmount")
+                : 0L;
     }
 }

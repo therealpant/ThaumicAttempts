@@ -148,6 +148,8 @@ public class LogisticsNetworkState {
         NetworkOrder.OrderKind safeKind = (orderKind == null ? NetworkOrder.OrderKind.DELIVERY : orderKind);
         CreationOutputMode safeOutputMode = (creationOutputMode == null ? CreationOutputMode.RETURN_TO_REQUESTER : creationOutputMode);
 
+        boolean dedupeAllowed = sourceType != OrderSourceType.TERMINAL;
+
         String dedupeKey = sourceType.name()
                 + "|" + sourcePos.toLong()
                 + "|" + key.hashCode()
@@ -158,16 +160,18 @@ public class LogisticsNetworkState {
                 + "|" + safeKind.name()
                 + "|" + safeOutputMode.name();
 
-        UUID existing = activeOrderDedup.get(dedupeKey);
-        if (existing != null) {
-            NetworkOrder existingOrder = orders.get(existing);
-            if (existingOrder != null
-                    && existingOrder.status != OrderStatus.DONE
-                    && existingOrder.status != OrderStatus.FAILED
-                    && existingOrder.status != OrderStatus.CANCELED) {
-                return existing;
+        if (dedupeAllowed) {
+            UUID existing = activeOrderDedup.get(dedupeKey);
+            if (existing != null) {
+                NetworkOrder existingOrder = orders.get(existing);
+                if (existingOrder != null
+                        && existingOrder.status != OrderStatus.DONE
+                        && existingOrder.status != OrderStatus.FAILED
+                        && existingOrder.status != OrderStatus.CANCELED) {
+                    return existing;
+                }
+                activeOrderDedup.remove(dedupeKey);
             }
-            activeOrderDedup.remove(dedupeKey);
         }
 
         long now = manager.getServerTickCounter();
@@ -192,10 +196,13 @@ public class LogisticsNetworkState {
         order.recipePath = false;
 
         orders.put(order.orderId, order);
-        activeOrderDedup.put(dedupeKey, order.orderId);
 
-        LOG.info("[Logistics {}] request accepted order={} source={} key={} amount={} reason={} intent={} kind={} outputMode={}",
-                manager.getPos(), order.orderId, sourceType, key, amount, reason, order.intent, order.orderKind, order.creationOutputMode);
+        if (dedupeAllowed) {
+            activeOrderDedup.put(dedupeKey, order.orderId);
+        }
+
+        LOG.info("[Logistics {}] request accepted order={} source={} key={} amount={} reason={} intent={} kind={} outputMode={} dedupeAllowed={}",
+                manager.getPos(), order.orderId, sourceType, key, amount, reason, order.intent, order.orderKind, order.creationOutputMode, dedupeAllowed);
 
         if (parentOrderId != null) {
             NetworkOrder parent = orders.get(parentOrderId);
@@ -1098,7 +1105,7 @@ public class LogisticsNetworkState {
                 continue;
             }
 
-            if (needNow.missingNow <= 0) {
+            if (!isTerminalSourceOrder(order) && needNow.missingNow <= 0) {
                 order.completedAmount = order.requestedAmount;
                 order.status = OrderStatus.DONE;
                 removeOrderFromDedup(order.orderId);
@@ -1114,7 +1121,18 @@ public class LogisticsNetworkState {
             }
 
             int effectiveGoal = Math.max(0, order.operationalNeeded);
-            order.completedAmount = (int) Math.min(effectiveGoal, Math.max(0L, actualCompleted));
+
+            if (isTerminalDeliveryOrder(order)) {
+                refreshTerminalDeliveredAmount(order);
+                order.completedAmount = (int) Math.min(
+                        Math.max(0L, order.deliveredAmount),
+                        (long) order.requestedAmount
+                );
+                effectiveGoal = Math.max(0, order.requestedAmount);
+            } else {
+                order.completedAmount = (int) Math.min(effectiveGoal, Math.max(0L, actualCompleted));
+            }
+
             int remaining = Math.max(0, effectiveGoal - order.completedAmount);
 
             if (!hasTasks) {
@@ -1143,14 +1161,35 @@ public class LogisticsNetworkState {
                     }
                 }
                 removeOrderFromDedup(order.orderId);
-                LOG.info("[Logistics {}] order={} status=DONE reason=completed-amount-reached key={} amount={} completed={} remaining=0 recipePath={}",
-                        manager.getPos(), order.orderId, order.requestedKey, effectiveGoal, order.completedAmount, order.recipePath);
+
+                if (isTerminalDeliveryOrder(order)) {
+                    LOG.info("[Logistics {}] order={} status=DONE reason=terminal-delivered-amount-reached key={} requested={} delivered={} remaining=0",
+                            manager.getPos(),
+                            order.orderId,
+                            order.requestedKey,
+                            order.requestedAmount,
+                            order.deliveredAmount);
+                } else {
+                    LOG.info("[Logistics {}] order={} status=DONE reason=completed-amount-reached key={} amount={} completed={} remaining=0 recipePath={}",
+                            manager.getPos(), order.orderId, order.requestedKey, effectiveGoal, order.completedAmount, order.recipePath);
+                }
             } else if (allDone) {
                 order.status = OrderStatus.FAILED;
                 order.lastError = "incomplete-delivery:" + order.requestedKey + ":" + order.completedAmount + "/" + effectiveGoal;
                 removeOrderFromDedup(order.orderId);
-                LOG.warn("[Logistics {}] order={} status=FAILED reason=incomplete-after-all-tasks key={} amount={} completed={} remaining={} recipePath={}",
-                        manager.getPos(), order.orderId, order.requestedKey, effectiveGoal, order.completedAmount, remaining, order.recipePath);
+
+                if (isTerminalDeliveryOrder(order)) {
+                    LOG.warn("[Logistics {}] order={} status=FAILED reason=terminal-incomplete-after-all-tasks key={} requested={} delivered={} remaining={}",
+                            manager.getPos(),
+                            order.orderId,
+                            order.requestedKey,
+                            order.requestedAmount,
+                            order.deliveredAmount,
+                            remaining);
+                } else {
+                    LOG.warn("[Logistics {}] order={} status=FAILED reason=incomplete-after-all-tasks key={} amount={} completed={} remaining={} recipePath={}",
+                            manager.getPos(), order.orderId, order.requestedKey, effectiveGoal, order.completedAmount, remaining, order.recipePath);
+                }
             } else if (order.status == OrderStatus.FAILED || order.status == OrderStatus.CANCELED) {
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
@@ -1165,21 +1204,55 @@ public class LogisticsNetworkState {
             }
 
             if (order.status == OrderStatus.RUNNING || order.status == OrderStatus.WAITING_INPUTS) {
-                LOG.info("[Logistics {}] order={} status={} rawRequested={} effectiveGoal={} completed={} remaining={} runningTasks={} recipePath={}",
-                        manager.getPos(), order.orderId, order.status, order.requestedAmount, effectiveGoal, order.completedAmount, remaining, runningTasks, order.recipePath);
+                if (isTerminalDeliveryOrder(order)) {
+                    LOG.info("[Logistics {}] order={} status={} rawRequested={} effectiveGoal={} completed={} deliveredAmount={} remaining={} runningTasks={} recipePath={}",
+                            manager.getPos(),
+                            order.orderId,
+                            order.status,
+                            order.requestedAmount,
+                            effectiveGoal,
+                            order.completedAmount,
+                            order.deliveredAmount,
+                            remaining,
+                            runningTasks,
+                            order.recipePath);
+                } else {
+                    LOG.info("[Logistics {}] order={} status={} rawRequested={} effectiveGoal={} completed={} remaining={} runningTasks={} recipePath={}",
+                            manager.getPos(), order.orderId, order.status, order.requestedAmount, effectiveGoal, order.completedAmount, remaining, runningTasks, order.recipePath);
+                }
             }
-
             order.updatedTick = manager.getServerTickCounter();
         }
     }
 
+    @Nullable
+    public NetworkOrder getOrder(@Nullable UUID orderId) {
+        if (orderId == null) return null;
+        return orders.get(orderId);
+    }
+
+
     private boolean contributesToOrderProgress(NetworkOrder order, RuntimeTask task) {
         if (order == null || task == null) return false;
+
+        if (isTerminalDeliveryOrder(order)) {
+            return false;
+        }
+
         if (order.orderKind == NetworkOrder.OrderKind.CREATION
                 && order.creationOutputMode == CreationOutputMode.LEAVE_IN_CRAFTER) {
             return "execute-craft".equals(task.metaPurpose);
         }
+
         return "deliver-output".equals(task.metaPurpose);
+    }
+
+    private boolean isTerminalSourceOrder(@Nullable NetworkOrder order) {
+        return order != null && order.sourceType == OrderSourceType.TERMINAL;
+    }
+
+    private boolean isTerminalDeliveryOrder(@Nullable NetworkOrder order) {
+        return isTerminalSourceOrder(order) && order.orderKind == NetworkOrder.OrderKind.DELIVERY;
     }
 
     public int countExactInEndpoint(TileMirrorManager manager, EndpointRef endpoint, ItemKey key) {
@@ -1240,16 +1313,15 @@ public class LogisticsNetworkState {
                                                              boolean includeInboundReservations) {
         EffectiveNeedSnapshot snapshot = new EffectiveNeedSnapshot();
         snapshot.requested = Math.max(0, requestedAmount);
+        NetworkOrder order = excludeOrder == null ? null : orders.get(excludeOrder);
+        boolean terminalScopedNeed = isTerminalSourceOrder(order);
         int rawPresentAtTarget = countExactInTargetInventory(manager, target, key);
         int targetBaseline = 0;
-        if (excludeOrder != null) {
-            NetworkOrder order = orders.get(excludeOrder);
-            if (order != null && order.targetSnapshotAmount >= 0) {
-                targetBaseline = order.targetSnapshotAmount;
-            }
+        if (excludeOrder != null && order != null && order.targetSnapshotAmount >= 0) {
+            targetBaseline = order.targetSnapshotAmount;
         }
-        snapshot.presentAtTarget = Math.max(0, rawPresentAtTarget - targetBaseline);
-        snapshot.reservedInbound = includeInboundReservations
+        snapshot.presentAtTarget = terminalScopedNeed ? 0 : Math.max(0, rawPresentAtTarget - targetBaseline);
+        snapshot.reservedInbound = (includeInboundReservations && !terminalScopedNeed)
                 ? countInboundReservedForTarget(key, target, excludeOrder, null)
                 : 0;
         snapshot.availableInNetwork = countDirectAvailableInNetwork(manager, key, excludeOrder);
@@ -1262,13 +1334,22 @@ public class LogisticsNetworkState {
         if (manager == null || task == null || task.target == null || task.itemKey == null || task.itemKey == ItemKey.EMPTY) {
             return false;
         }
+
+        NetworkOrder order = task.orderId == null ? null : orders.get(task.orderId);
+
+        if (isTerminalDeliveryOrder(order) && "deliver-output".equals(task.metaPurpose)) {
+            return task.completedAmount >= task.amount;
+        }
+
         int atTarget = countExactInTargetInventory(manager, task.target, task.itemKey);
         int inbound = countInboundReservedForTarget(task.itemKey, task.target, task.orderId, task.taskId);
         long requested = Math.max(0L, task.amount);
         boolean satisfied = atTarget >= requested || (atTarget + inbound) >= requested;
+
         if (satisfied) {
             task.completedAmount = Math.min(task.amount, Math.max(task.completedAmount, atTarget));
         }
+
         return satisfied;
     }
 
@@ -1386,7 +1467,7 @@ public class LogisticsNetworkState {
         for (int i = 0; i < ord.tagCount(); i++) {
             NetworkOrder o = NetworkOrder.readFromNbt(ord.getCompoundTagAt(i));
             orders.put(o.orderId, o);
-            if (isActiveOrder(o.status)) {
+            if (isActiveOrder(o.status) && o.sourceType != OrderSourceType.TERMINAL) {
                 String dedupeKey = o.sourceType.name()
                         + "|" + o.sourcePos.toLong()
                         + "|" + o.requestedKey.hashCode()
@@ -1429,6 +1510,36 @@ public class LogisticsNetworkState {
         if (tag.hasKey("reservations", Constants.NBT.TAG_COMPOUND)) {
             reservationBook.readFromNbt(tag.getCompoundTag("reservations"));
         }
+    }
+
+    private void refreshTerminalDeliveredAmount(NetworkOrder order) {
+        if (order == null) return;
+        if (!isTerminalDeliveryOrder(order)) return;
+
+        long creditedTotal = 0L;
+
+        for (UUID tid : order.taskIds) {
+            RuntimeTask rt = runtimeTasks.get(tid);
+            if (!(rt instanceof TransferTask)) continue;
+
+            TransferTask tt = (TransferTask) rt;
+            if (!"deliver-output".equals(tt.metaPurpose)) continue;
+
+            long completedNow = Math.max(0L, tt.completedAmount);
+            long alreadyCredited = Math.max(0L, tt.creditedAmount);
+
+            if (completedNow > alreadyCredited) {
+                long delta = completedNow - alreadyCredited;
+                tt.creditedAmount = completedNow;
+
+                LOG.info("[Logistics] terminal delivery progress credited order={} task={} delta={} completedNow={} requestedTaskAmount={}",
+                        order.orderId, tt.taskId, delta, completedNow, tt.amount);
+            }
+
+            creditedTotal += Math.max(0L, tt.creditedAmount);
+        }
+
+        order.deliveredAmount = creditedTotal;
     }
 
     private EndpointRef stockSource(TileMirrorManager manager) {

@@ -24,6 +24,7 @@ public class NetworkOrder {
     public int completedAmount;
     public int operationalNeeded;
     public OrderStatus status;
+    public long deliveredAmount = 0L;
     public long createdTick;
     public long updatedTick;
     public final List<UUID> childOrderIds = new ArrayList<UUID>();
@@ -60,6 +61,7 @@ public class NetworkOrder {
         tag.setInteger("operationalNeeded", operationalNeeded);
         tag.setInteger("completed", completedAmount);
         tag.setString("status", status.name());
+        tag.setLong("deliveredAmount", deliveredAmount);
         tag.setLong("created", createdTick);
         tag.setLong("updated", updatedTick);
         tag.setString("debug", debugReason == null ? "" : debugReason);
@@ -103,6 +105,9 @@ public class NetworkOrder {
             o.returnDestination = BlockPos.fromLong(tag.getLong("returnPos"));
         o.requestedKey = ItemKey.of(new net.minecraft.item.ItemStack(tag.getCompoundTag("key")));
         o.requestedAmount = Math.max(1, tag.getInteger("requested"));
+        o.deliveredAmount = tag.hasKey("deliveredAmount", Constants.NBT.TAG_LONG)
+                ? tag.getLong("deliveredAmount")
+                : 0L;
         o.operationalNeeded = tag.hasKey("operationalNeeded", Constants.NBT.TAG_INT)
                 ? Math.max(0, tag.getInteger("operationalNeeded"))
                 : o.requestedAmount;

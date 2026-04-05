@@ -3,6 +3,7 @@ package therealpant.thaumicattempts.golemnet.logistics;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.ItemKey;
 
+import javax.annotation.Nullable;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -65,6 +66,58 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     @Override
     public TaskExecutionSnapshot getSnapshot(UUID taskId) { return snapshots.get(taskId); }
 
+    @Nullable
+    private NetworkOrder getOrder(TransferTask task) {
+        if (manager == null || task == null || task.orderId == null) return null;
+        LogisticsNetworkState state = manager.getLogisticsState();
+        if (state == null) return null;
+        return state.getOrder(task.orderId);
+    }
+
+    private boolean isTerminalDeliverOutput(TransferTask task) {
+        if (task == null) return false;
+        if (!"deliver-output".equals(task.metaPurpose)) return false;
+
+        NetworkOrder order = getOrder(task);
+        return order != null
+                && order.sourceType == OrderSourceType.TERMINAL
+                && order.orderKind == NetworkOrder.OrderKind.DELIVERY;
+    }
+
+    private boolean sameEndpoint(EndpointRef a, EndpointRef b) {
+        if (a == null || b == null) return false;
+        if (a.mode != b.mode) return false;
+        return a.pos != null && a.pos.equals(b.pos);
+    }
+
+    private boolean sameResource(ItemKey a, ItemKey b) {
+        return a != null && b != null && a.equals(b);
+    }
+
+    private boolean hasEarlierTerminalDeliverSibling(TransferTask task) {
+        if (!isTerminalDeliverOutput(task)) return false;
+
+        for (TransferTask other : running.values()) {
+            if (other == null || other == task) continue;
+            if (!isTerminalDeliverOutput(other)) continue;
+            if (!sameEndpoint(task.target, other.target)) continue;
+            if (!sameResource(task.itemKey, other.itemKey)) continue;
+
+            if (isTerminal(other.status)) continue;
+
+            // Более ранняя задача в той же "линии" держит эксклюзив
+            if (other.createdTick < task.createdTick) return true;
+            if (other.createdTick == task.createdTick
+                    && other.taskId != null
+                    && task.taskId != null
+                    && other.taskId.toString().compareTo(task.taskId.toString()) < 0) {
+                return true;
+            }
+        }
+
+        return false;
+    }
+
     @Override
     public void tick() {
         if (manager == null) return;
@@ -94,13 +147,34 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 continue;
             }
 
+            boolean terminalDeliverOutput = isTerminalDeliverOutput(task);
+
+            /*
+             * КРИТИЧЕСКАЯ ПРАВКА:
+             * одинаковые terminal deliver-output задачи не должны одновременно
+             * смотреть на один и тот же target inventory.
+             * Иначе обе снимут baseline=0 и обе зачтут первый стак.
+             *
+             * Поэтому в одной линии (target + itemKey + deliver-output + TERMINAL)
+             * одновременно активна только самая ранняя задача.
+             */
+            if (terminalDeliverOutput && hasEarlierTerminalDeliverSibling(task)) {
+                transitionStatus(task, TaskStatus.BLOCKED, "waiting-terminal-lane");
+
+                long remainingBlocked = Math.max(0L, task.amount - task.completedAmount);
+                int queuedBlocked = manager.countQueuedForEndpoint(task.target, task.itemKey);
+                logTransferDebug(task, remainingBlocked, queuedBlocked);
+
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                continue;
+            }
+
             long previousCompleted = task.completedAmount;
             task.completedAmount = calculateDeliveredToTarget(task);
 
             if (task.completedAmount > previousCompleted) {
                 task.lastProgressTick = manager.getServerTickCounter();
             }
-
 
             int queued = manager.countQueuedForEndpoint(task.target, task.itemKey);
             long remaining = Math.max(0L, task.amount - task.completedAmount);
@@ -114,13 +188,22 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             }
 
             if (task.completedAmount >= task.amount) {
-                transitionStatus(task, TaskStatus.DONE, "target-reached");
-                LOG.info("[TRANSFER COMPLETE] task={} requested={} targetNow={} queuedToTarget={} needNow={} releasedBufferedOverage=true",
-                        task.taskId,
-                        task.amount,
-                        manager.countItemAtEndpoint(task.target, task.itemKey),
-                        queued,
-                        remaining);
+                if (terminalDeliverOutput) {
+                    transitionStatus(task, TaskStatus.DONE, "terminal-task-progress-reached");
+                    LOG.info("[TRANSFER COMPLETE] task={} requested={} deliveredByTask={} reason=terminal-task-progress-reached",
+                            task.taskId,
+                            task.amount,
+                            task.completedAmount);
+                } else {
+                    transitionStatus(task, TaskStatus.DONE, "target-reached");
+                    LOG.info("[TRANSFER COMPLETE] task={} requested={} targetNow={} queuedToTarget={} needNow={} releasedBufferedOverage=true",
+                            task.taskId,
+                            task.amount,
+                            manager.countItemAtEndpoint(task.target, task.itemKey),
+                            queued,
+                            remaining);
+                }
+
                 logTransferDebug(task, remaining, queued);
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
@@ -171,7 +254,15 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                             }
                         }
                     }
-                    boolean accepted = manager.dispatchTransferTask(task.source, task.target, task.itemKey, (int) Math.min(Integer.MAX_VALUE, need), queueId);
+
+                    boolean accepted = manager.dispatchTransferTask(
+                            task.source,
+                            task.target,
+                            task.itemKey,
+                            (int) Math.min(Integer.MAX_VALUE, need),
+                            queueId
+                    );
+
                     int sourceItemsAfter = manager.countItemAtEndpoint(task.source, task.itemKey);
                     int sourceQueuedAfter = manager.countQueuedForEndpoint(task.source, task.itemKey);
                     int targetItemsAfter = manager.countItemAtEndpoint(task.target, task.itemKey);
@@ -214,6 +305,10 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             logTransferDebug(task, remaining, queued);
             snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
         }
+    }
+
+    private boolean isTerminal(TaskStatus status) {
+        return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
     }
 
     @Override
@@ -269,8 +364,5 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
         long delivered = Math.max(0, nowAtTarget - task.targetBaseline);
         return Math.min(task.amount, delivered);
-    }
-        private boolean isTerminal(TaskStatus status) {
-            return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
     }
 }

@@ -90,6 +90,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private int dispatcherSealColor = DEFAULT_DISPATCHER_COLOR;
     private final ArrayDeque<BlockPos> dispatcherBusyQueue = new ArrayDeque<>();
 
+    private LogisticsNetworkState logisticsState;
+
     /**
      * Логический ключ зеркала (номер кольца + слот).
      * Используем для жёсткой привязки к потребителям.
@@ -195,6 +197,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     private final Set<String> allowedOwners = new HashSet<>();
     private @Nullable String ownerUuid;
+
+    @Nullable
+    public LogisticsNetworkState getLogisticsState() {
+        return logisticsState;
+    }
 
     public @Nullable String getOwnerUuid() {
         return ownerUuid;

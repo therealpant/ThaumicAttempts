@@ -425,8 +425,17 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             int toMove = amt;
             if (!craftTab) {
                 int available = getAvailableFromManager(key);
-                int havePend  = totalAmountByKey(pendingDelivery, key);
-                int room = Math.max(0, available - havePend);
+
+                int acceptedSameKey = 0;
+                for (TerminalOrderSlot alreadyAccepted : accepted) {
+                    if (alreadyAccepted == null || alreadyAccepted.key == null) continue;
+                    if (ResourceIdentity.sameResource(alreadyAccepted.key.toStack(1), key.toStack(1))) {
+                        acceptedSameKey += Math.max(0, alreadyAccepted.amount);
+                    }
+                }
+
+                int havePend = totalAmountByKey(pendingDelivery, key);
+                int room = Math.max(0, available - havePend - acceptedSameKey);
                 toMove = Math.min(toMove, room);
             }
             if (toMove <= 0) continue;
