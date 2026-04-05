@@ -292,7 +292,11 @@ public class TileSequentialCraftPlanner extends TileEntity implements ITickable 
             }
         }
 
-        steps.merge(requested, remaining, Integer::sum);
+        // ВАЖНО:
+        // фиксируем в плане именно тот объём, который реально будет выпущен крафтером.
+        // Иначе в multi-output цепочках подзаказы начинают "съезжать".
+        steps.merge(requested, producedAmount, Integer::sum);
+
         workingStock.merge(requested, producedAmount, Integer::sum);
         consumeAvailable(workingStock, requested, remaining);
         return true;

@@ -19,6 +19,9 @@ public class TransferTask extends RuntimeTask {
     public boolean dispatchQueued = false;
     public int dispatchQueueId = -1;
 
+    public boolean isDeliverTask() {
+        return source != null && source.mode == EndpointRef.AccessMode.BUFFER;
+    }
     /*
      * baseline на момент первого запуска задачи.
      * Нужен, чтобы считать прогресс по дельте, а не по абсолютному количеству.

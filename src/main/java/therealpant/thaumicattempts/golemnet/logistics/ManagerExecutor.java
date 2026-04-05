@@ -1,6 +1,7 @@
 package therealpant.thaumicattempts.golemnet.logistics;
 
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
+import therealpant.thaumicattempts.util.ItemKey;
 
 import java.util.Iterator;
 import java.util.LinkedHashMap;
@@ -79,181 +80,31 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 continue;
             }
 
-            task.status = TaskStatus.IN_PROGRESS;
-
-            /*
-             * Инициализация baseline один раз.
-             */
-            if (task.targetBaseline < 0) {
-                task.targetBaseline = manager.countItemAtEndpoint(task.target, task.itemKey);
-            }
-            if (task.sourceBaseline < 0) {
-                task.sourceBaseline = manager.countItemAtEndpoint(task.source, task.itemKey);
-            }
-            if (task.bufferBaseline < 0) {
-                task.bufferBaseline = manager.countItemAtEndpoint(
-                        EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
-                        task.itemKey
-                );
-            }
-
-            task.completedAmount = calculateDeliveredToTarget(task);
-            long remaining = Math.max(0L, task.amount - task.completedAmount);
-
-            if (remaining <= 0L) {
-                task.status = TaskStatus.DONE;
-                task.outboundDone = true;
-                LOG.info("[ManagerExecutor {}] task={} status=DONE reason=target-amount-reached amount={} completed={} remaining=0",
-                        manager.getPos(), task.taskId, task.amount, task.completedAmount);
+            if (task.itemKey == null || task.itemKey == ItemKey.EMPTY || task.source == null || task.target == null) {
+                task.status = TaskStatus.FAILED;
+                LOG.warn("[ManagerExecutor {}] task={} status=FAILED reason=invalid-task source={} target={} key={}",
+                        manager.getPos(), task.taskId, task.source, task.target, task.itemKey);
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
                 inboundBaseline.remove(task.taskId);
                 continue;
             }
 
-            /*
-             * ===== SPECIAL CASE: обычная доставка в terminal/requester =====
-             */
-            if ("deliver".equals(task.metaPurpose)) {
-                int bufferedNow = manager.countItemAtEndpoint(
-                        EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
-                        task.itemKey
-                );
-                int movedIntoBuffer = Math.max(0, bufferedNow - task.bufferBaseline);
-                int queuedToBuffer = manager.countQueuedForEndpoint(
-                        EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
-                        task.itemKey
-                );
-                int inboundCovered = movedIntoBuffer + queuedToBuffer;
-
-                // ---- inbound phase ----
-                if (!task.inboundDone) {
-                    int inboundStillNeed = (int) Math.max(0L, task.amount - inboundCovered);
-
-                    /*
-                     * Повторяем inbound-dispatch до полного покрытия amount.
-                     * Дополнительное дублирование защищено проверкой queuedToBuffer выше.
-                     */
-                    if (inboundStillNeed > 0) {
-                        int queueId = ensureQueueId(task);
-                        boolean queued = manager.dispatchInboundToManagerByGolems(
-                                task.source,
-                                task.itemKey,
-                                inboundStillNeed,
-                                queueId
-                        );
-
-                        if (!queued) {
-                            task.status = TaskStatus.BLOCKED;
-                            LOG.info("[ManagerExecutor {}] task={} status=BLOCKED reason=inbound-dispatch-rejected amount={} completed={} buffered={} queued={} remaining={}",
-                                    manager.getPos(), task.taskId, task.amount, task.completedAmount, movedIntoBuffer, queuedToBuffer, remaining);
-                            snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                            it.remove();
-                            inboundBaseline.remove(task.taskId);
-                            continue;
-                        }
-
-                        task.inboundQueued = true;
-                        task.legacyDeliveryQueued = true;
-                        task.legacyDeliveryQueueId = queueId;
-                        inboundBaseline.put(task.taskId, manager.countBuffered(task.itemKey));
-                        if (task.legacyDeliveryId == null) {
-                            task.legacyDeliveryId = UUID.nameUUIDFromBytes(
-                                    ("legacy-deliver-" + task.taskId.toString()).getBytes(java.nio.charset.StandardCharsets.UTF_8)
-                            );
-                        }
-                        task.updatedTick = manager.getServerTickCounter();
-
-                        LOG.info("[ManagerExecutor {}] task={} inbound-dispatch amount={} completed={} buffered={} queued={} remaining={}",
-                                manager.getPos(), task.taskId, task.amount, task.completedAmount, movedIntoBuffer, queuedToBuffer, remaining);
-                    }
-
-                    /*
-                     * inbound phase done — только когда реально покрыт весь amount.
-                     */
-                    if (movedIntoBuffer >= task.amount || inboundCovered >= task.amount || isInboundDone(task)) {
-                        task.inboundDone = true;
-                        task.updatedTick = manager.getServerTickCounter();
-                        LOG.info("[ManagerExecutor {}] task={} inbound-done amount={} completed={} buffered={} queued={} remaining={}",
-                                manager.getPos(), task.taskId, task.amount, task.completedAmount, movedIntoBuffer, queuedToBuffer, remaining);
-                    } else {
-                        LOG.info("[ManagerExecutor {}] task={} inbound-wait amount={} completed={} buffered={} queued={} remaining={}",
-                                manager.getPos(), task.taskId, task.amount, task.completedAmount, movedIntoBuffer, queuedToBuffer, remaining);
-                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.IN_PROGRESS, task.completedAmount));
-                        continue;
-                    }
-                }
-
-                // ---- outbound phase ----
-                if (!task.outboundDone) {
-                    task.completedAmount = calculateDeliveredToTarget(task);
-
-                    int queuedToTarget = manager.countQueuedForEndpoint(task.target, task.itemKey);
-                    int coveredAtTarget = (int) Math.min(task.amount, task.completedAmount + queuedToTarget);
-                    int outboundStillNeed = (int) Math.max(0L, task.amount - coveredAtTarget);
-
-                    /*
-                     * Повторяем outbound-dispatch до полного покрытия amount.
-                     * Дополнительное дублирование защищено проверкой queuedToTarget выше.
-                     */
-                    if (outboundStillNeed > 0) {
-                        int queueId = ensureQueueId(task);
-                        boolean accepted = manager.dispatchTransferTask(
-                                EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
-                                task.target,
-                                task.itemKey,
-                                outboundStillNeed,
-                                queueId
-                        );
-
-                        if (!accepted) {
-                            task.status = TaskStatus.BLOCKED;
-                            LOG.info("[ManagerExecutor {}] task={} status=BLOCKED reason=outbound-dispatch-rejected amount={} completed={} buffered={} queued={} remaining={}",
-                                    manager.getPos(), task.taskId, task.amount, task.completedAmount, movedIntoBuffer, queuedToTarget, remaining);
-                            snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                            it.remove();
-                            inboundBaseline.remove(task.taskId);
-                            continue;
-                        }
-
-                        task.outboundQueued = true;
-                        task.updatedTick = manager.getServerTickCounter();
-                        LOG.info("[ManagerExecutor {}] task={} outbound-dispatch amount={} completed={} buffered={} queued={} remaining={}",
-                                manager.getPos(), task.taskId, task.amount, task.completedAmount, movedIntoBuffer, queuedToTarget, remaining);
-                    }
-
-                    task.completedAmount = calculateDeliveredToTarget(task);
-
-                    if (task.completedAmount >= task.amount) {
-                        task.outboundDone = true;
-                        task.status = TaskStatus.DONE;
-                        LOG.info("[ManagerExecutor {}] task={} status=DONE reason=target-amount-reached amount={} completed={} buffered={} queued={} remaining=0",
-                                manager.getPos(), task.taskId, task.amount, task.completedAmount, movedIntoBuffer, 0);
-                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                        it.remove();
-                        inboundBaseline.remove(task.taskId);
-                        continue;
-                    }
-
-                    LOG.info("[ManagerExecutor {}] task={} outbound-wait amount={} completed={} buffered={} queued={} remaining={}",
-                            manager.getPos(), task.taskId, task.amount, task.completedAmount, movedIntoBuffer, queuedToTarget, Math.max(0L, task.amount - task.completedAmount));
-                    snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.IN_PROGRESS, task.completedAmount));
-                    continue;
-                }
+            if (task.sourceBaseline < 0) {
+                task.sourceBaseline = manager.countItemAtEndpoint(task.source, task.itemKey);
+            }
+            if (task.targetBaseline < 0) {
+                task.targetBaseline = manager.countItemAtEndpoint(task.target, task.itemKey);
             }
 
             /*
-             * ===== Обычные transfer-задачи =====
-             * craft-input / pickup-output / deliver-output
-             *
-             * dispatchTransferTask(...) повторяется до полного покрытия amount.
-             * Это нужно для задач, где доставка приходит частями.
+             * completedAmount считаем только по реально наблюдаемому количеству в target.
+             * queuedToTarget используем только как защиту от повторной отправки.
              */
             task.completedAmount = calculateDeliveredToTarget(task);
 
             int queuedToTarget = manager.countQueuedForEndpoint(task.target, task.itemKey);
-            int coveredAtTarget = (int) Math.min(task.amount, task.completedAmount + queuedToTarget);
-            int stillNeed = (int) Math.max(0L, task.amount - coveredAtTarget);
+            int stillNeed = (int) Math.max(0L, task.amount - task.completedAmount - queuedToTarget);
 
             if (stillNeed > 0) {
                 int queueId = ensureQueueId(task);
@@ -267,36 +118,39 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
                 if (!accepted) {
                     task.status = TaskStatus.BLOCKED;
-                    LOG.info("[ManagerExecutor {}] task={} status=BLOCKED reason=dispatch-rejected amount={} completed={} buffered={} queued={} remaining={}",
-                            manager.getPos(), task.taskId, task.amount, task.completedAmount, 0, queuedToTarget, Math.max(0L, task.amount - task.completedAmount));
+                    LOG.info("[ManagerExecutor {}] task={} status=BLOCKED reason=dispatch-rejected amount={} completed={} queued={} remaining={}",
+                            manager.getPos(), task.taskId, task.amount, task.completedAmount, queuedToTarget,
+                            Math.max(0L, task.amount - task.completedAmount));
                     snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                    it.remove();
-                    inboundBaseline.remove(task.taskId);
                     continue;
                 }
 
                 task.dispatchQueued = true;
                 task.dispatchQueueId = queueId;
                 task.updatedTick = manager.getServerTickCounter();
-                LOG.info("[ManagerExecutor {}] task={} dispatch amount={} completed={} buffered={} queued={} remaining={}",
-                        manager.getPos(), task.taskId, task.amount, task.completedAmount, 0, queuedToTarget, Math.max(0L, task.amount - task.completedAmount));
+
+                LOG.info("[ManagerExecutor {}] task={} dispatch amount={} completed={} queued={} remaining={}",
+                        manager.getPos(), task.taskId, task.amount, task.completedAmount, queuedToTarget,
+                        Math.max(0L, task.amount - task.completedAmount));
             }
 
             task.completedAmount = calculateDeliveredToTarget(task);
 
             if (task.completedAmount >= task.amount) {
                 task.status = TaskStatus.DONE;
-                LOG.info("[ManagerExecutor {}] task={} status=DONE reason=target-amount-reached amount={} completed={} buffered=0 queued=0 remaining=0",
-                        manager.getPos(), task.taskId, task.amount, task.completedAmount);
+                LOG.info("[ManagerExecutor {}] task={} status=DONE reason=target-amount-reached amount={} completed={} queued={} remaining=0",
+                        manager.getPos(), task.taskId, task.amount, task.completedAmount,
+                        manager.countQueuedForEndpoint(task.target, task.itemKey));
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
                 inboundBaseline.remove(task.taskId);
             } else {
-                LOG.info("[ManagerExecutor {}] task={} wait amount={} completed={} buffered=0 queued={} remaining={}",
+                task.status = TaskStatus.IN_PROGRESS;
+                LOG.info("[ManagerExecutor {}] task={} wait amount={} completed={} queued={} remaining={}",
                         manager.getPos(), task.taskId, task.amount, task.completedAmount,
                         manager.countQueuedForEndpoint(task.target, task.itemKey),
                         Math.max(0L, task.amount - task.completedAmount));
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.IN_PROGRESS, task.completedAmount));
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
             }
         }
     }
@@ -319,23 +173,20 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     }
 
     private boolean isInboundDone(TransferTask task) {
-        int base = inboundBaseline.getOrDefault(task.taskId, 0);
-        int nowBuffered = manager.countBuffered(task.itemKey);
-        int deliveredToBuffer = Math.max(0, nowBuffered - base);
-        return deliveredToBuffer >= Math.max(1L, task.amount);
+        if (task == null) return false;
+        long delivered = calculateDeliveredToTarget(task);
+        return delivered >= Math.max(1L, task.amount);
     }
 
     private long calculateDeliveredToTarget(TransferTask task) {
-        int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
-        int movedToTarget = Math.max(0, nowAtTarget - task.targetBaseline);
-        long observed = movedToTarget;
+        if (task == null || task.target == null || task.itemKey == null) return 0L;
 
-        if (!"deliver".equals(task.metaPurpose)) {
-            int nowAtSource = manager.countItemAtEndpoint(task.source, task.itemKey);
-            int movedFromSource = Math.max(0, task.sourceBaseline - nowAtSource);
-            observed = Math.max(observed, movedFromSource);
-        }
-        observed = Math.max(observed, task.completedAmount);
-        return Math.min(task.amount, observed);
+        int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
+        int movedToTarget = Math.max(0, nowAtTarget - Math.max(0, task.targetBaseline));
+
+        long observedAtTarget = movedToTarget;
+        observedAtTarget = Math.max(observedAtTarget, task.completedAmount);
+
+        return Math.min(task.amount, observedAtTarget);
     }
 }

@@ -11,11 +11,15 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
     private static final org.apache.logging.log4j.Logger LOG =
             org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor");
 
-    /*
-     * Сколько циклов крафта максимум держим "в окне".
-     * Реально в startCraftTask(...) всё равно передаём ИТОГОВЫЕ ПРЕДМЕТЫ.
+    /**
+     * Сколько "готового результата" максимум держим в окне у одного craft-task.
+     * ВАЖНО: окно задаём В ПРЕДМЕТАХ, а не в циклах.
+     *
+     * Для рецептов 1->1 это просто размер очереди.
+     * Для рецептов 1->4/1->8 это не душит большие партии.
      */
-    private static final int MAX_BATCH_CYCLES = 4;
+    private static final int MIN_WINDOW_ITEMS = 16;
+    private static final int MAX_WINDOW_ITEMS = 64;
 
     private TileMirrorManager manager;
 
@@ -79,6 +83,19 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
         return snapshots.get(taskId);
     }
 
+    private int resolveWindowItems(CraftTask task) {
+        int perCycle = Math.max(1, task.outputPerCycle);
+
+        // хотя бы 4 цикла, но не меньше 16 и не больше 64 итоговых предметов
+        int byCycles = perCycle * 4;
+        int window = Math.max(MIN_WINDOW_ITEMS, byCycles);
+        window = Math.min(MAX_WINDOW_ITEMS, window);
+
+        // нет смысла открывать окно больше чем остаток задачи
+        window = Math.toIntExact(Math.min(window, Math.max(1, task.amount)));
+        return Math.max(1, window);
+    }
+
     @Override
     public void tick() {
         if (manager == null) return;
@@ -108,13 +125,8 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
             long producedSoFarItems = Math.max(0L, task.completedAmount);
 
             long backlogItems = Math.max(0L, alreadyScheduledItems - producedSoFarItems);
-            long maxBacklogItems = (long) MAX_BATCH_CYCLES * (long) outputPerCycle;
+            long maxBacklogItems = resolveWindowItems(task);
 
-            /*
-             * ВАЖНО:
-             * startCraftTask(...) вызываем в ПРЕДМЕТАХ, а не в циклах.
-             * outputPerCycle нужен только чтобы ограничить размер окна.
-             */
             if (alreadyScheduledItems < totalNeededItems && backlogItems < maxBacklogItems) {
                 long remainingItems = totalNeededItems - alreadyScheduledItems;
                 int toScheduleItems = (int) Math.min(remainingItems, maxBacklogItems - backlogItems);
@@ -128,7 +140,7 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                         started.put(task.taskId, true);
                         isStarted = true;
 
-                        LOG.info("[CrafterExecutor {}] task={} craft accepted crafter={} key={} acceptedItems={} scheduledItems={}/{} backlogItems={} perCycle={}",
+                        LOG.info("[CrafterExecutor {}] task={} craft accepted crafter={} key={} acceptedItems={} scheduledItems={}/{} backlogItems={} perCycle={} windowItems={}",
                                 manager.getPos(),
                                 task.taskId,
                                 task.crafter.pos,
@@ -137,7 +149,8 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                                 alreadyScheduledItems,
                                 totalNeededItems,
                                 Math.max(0L, alreadyScheduledItems - task.completedAmount),
-                                outputPerCycle);
+                                outputPerCycle,
+                                maxBacklogItems);
 
                         if (alreadyScheduledItems >= totalNeededItems) {
                             LOG.info("[CrafterExecutor {}] task={} craft fully scheduled key={} crafter={} neededItems={} scheduledItems={} outputPerCycle={} output={}",

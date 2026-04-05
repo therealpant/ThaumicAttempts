@@ -23,6 +23,18 @@ public class EndpointRef {
         this.mode = mode == null ? AccessMode.DIRECT : mode;
     }
 
+    public static EndpointRef managerBuffer(BlockPos pos) {
+        return new EndpointRef(pos, AccessMode.BUFFER);
+    }
+
+    public static EndpointRef managerInput(BlockPos pos) {
+        return new EndpointRef(pos, AccessMode.INPUT);
+    }
+
+    public static EndpointRef managerOutput(BlockPos pos) {
+        return new EndpointRef(pos, AccessMode.OUTPUT);
+    }
+
     public static EndpointRef of(BlockPos pos) {
         return new EndpointRef(pos);
     }

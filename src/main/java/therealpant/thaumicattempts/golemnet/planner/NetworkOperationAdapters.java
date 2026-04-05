@@ -64,7 +64,8 @@ public final class NetworkOperationAdapters {
 
         @Override
         public int getOutputCountFor(ItemKey key) {
-            return key == null ? 0 : Math.max(1, key.toStack(1).getCount());
+            if (key == null) return 0;
+            return tile.getPerCraftOutputCountFor(key.toStack(1));
         }
 
         @Override
