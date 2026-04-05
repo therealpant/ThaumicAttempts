@@ -2040,7 +2040,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             int lt = lastReqTick.getOrDefault(key, -9999);
             if (tickCounter - lt >= REQ_DEBOUNCE_TICKS) {
 
-                boolean hasDispatchers = !boundDispatchers.isEmpty();
+                boolean hasDispatchers = hasActiveDispatchers();
 
                 int budget;
                 if (hasDispatchers) {
@@ -2302,7 +2302,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             activeQueue = qDelivery;
         }
 
-        if (boundDispatchers.isEmpty()) {
+        if (!hasActiveDispatchers()) {
             Map.Entry<ItemKey, Integer> firstMiss = miss.entrySet().stream()
                     .filter(e -> e.getValue() > 0)
                     .findFirst().orElse(null);
@@ -3073,11 +3073,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         int parallelLimit = 1;
-        if (b.kind == Batch.Kind.DELIVERY && !boundDispatchers.isEmpty()) {
+        if (b.kind == Batch.Kind.DELIVERY && hasActiveDispatchers()) {
             parallelLimit = Math.max(1, Math.min(getDispatcherParallelLimit(), b.lines.size()));
         }
 
-        boolean hasDispatchers = !boundDispatchers.isEmpty();
+        boolean hasDispatchers = hasActiveDispatchers();
         boolean sequentialDelivery = (b.kind == Batch.Kind.DELIVERY && !hasDispatchers);
 
         int dispatcherBudget = (b.kind == Batch.Kind.DELIVERY && hasDispatchers)
