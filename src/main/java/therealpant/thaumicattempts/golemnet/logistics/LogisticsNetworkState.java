@@ -1076,8 +1076,7 @@ public class LogisticsNetworkState {
 
                 if (t.status == TaskStatus.FAILED
                         || t.status == TaskStatus.CANCELED
-                        || t.status == TaskStatus.STALLED_OUTPUT
-                        || t.status == TaskStatus.BLOCKED) {
+                        || t.status == TaskStatus.STALLED_OUTPUT) {
                     order.status = OrderStatus.FAILED;
                     Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                     while (it.hasNext()) {
