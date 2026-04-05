@@ -293,6 +293,12 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         if (cr == null) return 0;
         return cr.startManagedExecution(resultLike, amount);
     }
+
+    @Override
+    public BlockPos getCraftTaskOutputPos(BlockPos endpointPos) {
+        TileEntityGolemCrafter cr = getCrafterBelow();
+        return cr != null ? cr.getPos() : endpointPos;
+    }
     /**
      * Полный список входов, необходимых для `times` крафтов (агрегирован по «ключу сетки»).
      * Ключ и сравнение в точности как у крафтера:

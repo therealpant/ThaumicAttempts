@@ -30,7 +30,11 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
 
     @Override
     public boolean submit(CraftTask task) {
-        if (!canAccept(task)) return false;
+        if (!canAccept(task)) {
+            LOG.warn("[CrafterExecutor] task rejected manager-bound={} taskNull={}",
+                    manager != null, task == null);
+            return false;
+        }
         if (running.containsKey(task.taskId)) return true;
 
         String err = task.validationError();
@@ -99,8 +103,8 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                             manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, accepted, alreadyScheduled, task.amount);
 
                     if (alreadyScheduled >= task.amount) {
-                        LOG.info("[CrafterExecutor {}] task={} craft fully scheduled key={} amount={} output={}",
-                                manager.getPos(), task.taskId, task.recipeKey, task.amount, task.outputEndpoint);
+                        LOG.info("[CrafterExecutor {}] task={} craft fully scheduled key={} crafter={} amount={} scheduled={} output={}",
+                                manager.getPos(), task.taskId, task.recipeKey, task.crafter, task.amount, alreadyScheduled, task.outputEndpoint);
                     }
                 } else if (!isStarted || alreadyScheduled <= task.completedAmount) {
                     task.status = TaskStatus.BLOCKED;
@@ -115,7 +119,7 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
             int baseOut = outputBaseline.getOrDefault(task.taskId, 0);
             int produced = Math.max(0, readyOut - baseOut);
 
-            int prevCompleted = task.completedAmount;
+            long  prevCompleted = task.completedAmount;
             task.completedAmount = Math.max(task.completedAmount, produced);
 
             if (task.completedAmount > prevCompleted) {
@@ -127,8 +131,8 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                 stalledTicks.put(task.taskId, stalled);
 
                 if (stalled == 20 || stalled == 100 || stalled % 200 == 0) {
-                    LOG.warn("[CrafterExecutor {}] task={} craft scheduled but no output yet key={} scheduled={} completed={} ready={} baseline={} output={}",
-                            manager.getPos(), task.taskId, task.recipeKey, alreadyScheduled, task.completedAmount, readyOut, baseOut, task.outputEndpoint);
+                    LOG.warn("[CrafterExecutor {}] task={} craft scheduled but no output yet key={} crafter={} output={} scheduled={} completed={} ready={} baseline={}",
+                            manager.getPos(), task.taskId, task.recipeKey, task.crafter, task.outputEndpoint, alreadyScheduled, task.completedAmount, readyOut, baseOut);
                 }
             }
 

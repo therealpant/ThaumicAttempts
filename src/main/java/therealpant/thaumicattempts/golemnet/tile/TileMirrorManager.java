@@ -2936,7 +2936,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (!(te instanceof ICraftEndpoint)) return 0;
         ICraftEndpoint endpoint = (ICraftEndpoint) te;
         int accepted = endpoint.startAssignedCraftTask(this.pos, crafterPos, -1, key.toStack(1), amount);
-        return Math.max(0, endpoint.startAssignedCraftTask(this.pos, crafterPos, -1, key.toStack(1), amount));
+        return Math.max(0, accepted);
     }
 
     public int countItemAt(BlockPos pos, ItemKey key) {

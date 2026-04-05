@@ -71,4 +71,9 @@ public interface ICraftEndpoint {
      * Есть ли активные или поставленные в очередь циклы.
      */
     boolean hasActiveOrQueued();
+
+    default BlockPos getCraftTaskOutputPos(BlockPos endpointPos) {
+        return endpointPos;
+    }
+
 }

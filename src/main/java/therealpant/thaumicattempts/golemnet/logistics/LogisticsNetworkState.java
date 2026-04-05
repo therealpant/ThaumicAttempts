@@ -319,7 +319,7 @@ public class LogisticsNetworkState {
         LinkedHashMap<ItemKey, Integer> scaledInputs = scaleRecipeInputs(recipe.inputs, cycles);
 
         EndpointRef crafterInput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT);
-        EndpointRef crafterOutput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.OUTPUT);
+        EndpointRef crafterOutput = resolveCrafterOutputEndpoint(manager, recipe.source);
 
         /*
          * Сначала полностью проверяем, что ВСЕ входы доступны.
@@ -433,7 +433,8 @@ public class LogisticsNetworkState {
         CraftTask craft = createCraftTask(
                 manager,
                 order.orderId,
-                EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT),
+                crafterInput,
+                crafterOutput,
                 order.requestedKey,
                 producedAmount,
                 scaledInputs,
@@ -585,6 +586,7 @@ public class LogisticsNetworkState {
     private CraftTask createCraftTask(TileMirrorManager manager,
                                       UUID orderId,
                                       EndpointRef crafter,
+                                      EndpointRef crafterOutput,
                                       ItemKey recipeKey,
                                       int amount,
                                       Map<ItemKey, Integer> requiredInputs,
@@ -594,7 +596,9 @@ public class LogisticsNetworkState {
             return null;
         }
 
-        EndpointRef crafterOutput = EndpointRef.of(crafter.pos, EndpointRef.AccessMode.OUTPUT);
+        EndpointRef safeOutput = (crafterOutput == null || crafterOutput.pos == null)
+                ? EndpointRef.of(crafter.pos, EndpointRef.AccessMode.OUTPUT)
+                : crafterOutput;
 
         CraftTask task = new CraftTask();
         task.taskId = UUID.randomUUID();
@@ -604,10 +608,10 @@ public class LogisticsNetworkState {
         task.updatedTick = task.createdTick;
         task.crafter = crafter;
         task.recipeKey = recipeKey;
-        task.outputEndpoint = crafterOutput;
+        task.outputEndpoint = safeOutput;
         task.amount = Math.max(1, amount);
         task.completedAmount = 0;
-        task.purpose = purpose == null ? "craft" : purpose;
+        task.metaPurpose = purpose == null ? "craft" : purpose;
 
         if (requiredInputs != null) {
             for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
@@ -632,6 +636,30 @@ public class LogisticsNetworkState {
 
         runtimeTasks.put(task.taskId, task);
         return task;
+    }
+
+    private EndpointRef resolveCrafterOutputEndpoint(TileMirrorManager manager, BlockPos sourcePos) {
+        if (sourcePos == null) {
+            return EndpointRef.of(BlockPos.ORIGIN, EndpointRef.AccessMode.OUTPUT);
+        }
+
+        BlockPos observedPos = sourcePos;
+        if (manager != null && manager.getWorld() != null) {
+            TileEntity te = manager.getWorld().getTileEntity(sourcePos);
+            if (te instanceof ICraftEndpoint) {
+                try {
+                    BlockPos candidate = ((ICraftEndpoint) te).getCraftTaskOutputPos(sourcePos);
+                    if (candidate != null) {
+                        observedPos = candidate;
+                    }
+                } catch (Throwable t) {
+                    LOG.warn("[Logistics {}] resolve craft output failed source={} err={}",
+                            manager.getPos(), sourcePos, String.valueOf(t));
+                }
+            }
+        }
+
+        return EndpointRef.of(observedPos, EndpointRef.AccessMode.OUTPUT);
     }
 
     @Nullable
