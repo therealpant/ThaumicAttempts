@@ -12,6 +12,21 @@ public class CraftTask extends RuntimeTask {
     private static final org.apache.logging.log4j.Logger LOG =
             org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CraftTask");
 
+    /*
+     * Сколько итоговых предметов даёт 1 цикл рецепта.
+     * Например:
+     * - факелы -> 4
+     * - палки -> 4
+     * - большинство обычных рецептов -> 1
+     */
+    public int outputPerCycle = 1;
+
+    /*
+     * Сколько циклов уже было поставлено в крафтер.
+     * Используется CrafterExecutor'ом для batch scheduling.
+     */
+    public int scheduledCycles = 0;
+
     /**
      * Endpoint, куда подаются ингредиенты / где запускается крафт.
      * Обычно это INPUT endpoint крафтера.
@@ -24,13 +39,8 @@ public class CraftTask extends RuntimeTask {
     public ItemKey recipeKey;
 
     /**
-     * ВАЖНО:
-     * Это НЕ финальная точка доставки заказа.
-     * Это именно наблюдаемый OUTPUT крафтера, по которому CrafterExecutor
-     * определяет, что результат реально появился.
-     *
-     * То есть сюда всегда должен записываться:
-     * EndpointRef.of(recipe.source, EndpointRef.AccessMode.OUTPUT)
+     * Это именно наблюдаемый OUTPUT крафтера.
+     * По нему CrafterExecutor понимает, что результат реально появился.
      */
     public EndpointRef outputEndpoint;
 
@@ -46,6 +56,8 @@ public class CraftTask extends RuntimeTask {
         if (recipeKey == null || recipeKey == ItemKey.EMPTY) return "missing-recipe-key";
         if (outputEndpoint == null || outputEndpoint.pos == null) return "missing-output-endpoint";
         if (requiredInputs.isEmpty()) return "missing-required-inputs";
+        if (outputPerCycle <= 0) return "invalid-output-per-cycle";
+        if (scheduledCycles < 0) return "invalid-scheduled-cycles";
 
         for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
             if (e.getKey() == null || e.getKey() == ItemKey.EMPTY) return "invalid-required-input-key";
@@ -67,6 +79,9 @@ public class CraftTask extends RuntimeTask {
     public NBTTagCompound writeToNbt() {
         NBTTagCompound tag = new NBTTagCompound();
         writeCommon(tag);
+
+        tag.setInteger("outputPerCycle", Math.max(1, outputPerCycle));
+        tag.setInteger("scheduledCycles", Math.max(0, scheduledCycles));
 
         if (crafter != null) {
             tag.setTag("crafter", crafter.writeToNbt());
@@ -94,8 +109,8 @@ public class CraftTask extends RuntimeTask {
 
         String err = validationError();
         if (err != null) {
-            LOG.warn("[CraftTask] writeToNbt invalid taskId={} orderId={} reason={} crafter={} key={} output={}",
-                    taskId, orderId, err, crafter, recipeKey, outputEndpoint);
+            LOG.warn("[CraftTask] writeToNbt invalid taskId={} orderId={} reason={} crafter={} key={} output={} perCycle={} scheduledCycles={}",
+                    taskId, orderId, err, crafter, recipeKey, outputEndpoint, outputPerCycle, scheduledCycles);
         }
 
         return tag;
@@ -104,6 +119,9 @@ public class CraftTask extends RuntimeTask {
     @Override
     protected void readFromNbtImpl(NBTTagCompound tag) {
         readCommon(tag);
+
+        outputPerCycle = Math.max(1, tag.getInteger("outputPerCycle"));
+        scheduledCycles = Math.max(0, tag.getInteger("scheduledCycles"));
 
         crafter = tag.hasKey("crafter", Constants.NBT.TAG_COMPOUND)
                 ? EndpointRef.readFromNbt(tag.getCompoundTag("crafter"))
@@ -128,8 +146,8 @@ public class CraftTask extends RuntimeTask {
 
         String err = validationError();
         if (err != null) {
-            LOG.warn("[CraftTask] readFromNbt invalid taskId={} orderId={} reason={} crafter={} key={} output={}",
-                    taskId, orderId, err, crafter, recipeKey, outputEndpoint);
+            LOG.warn("[CraftTask] readFromNbt invalid taskId={} orderId={} reason={} crafter={} key={} output={} perCycle={} scheduledCycles={}",
+                    taskId, orderId, err, crafter, recipeKey, outputEndpoint, outputPerCycle, scheduledCycles);
         }
     }
 }

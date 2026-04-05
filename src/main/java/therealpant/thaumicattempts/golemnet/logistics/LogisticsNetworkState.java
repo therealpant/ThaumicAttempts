@@ -258,6 +258,7 @@ public class LogisticsNetworkState {
             }
             stageToManager.status = TaskStatus.NEW;
             stageToManager.updatedTick = manager.getServerTickCounter();
+
             TransferTask dispatchToTarget = createTransferTask(
                     manager,
                     order.orderId,
@@ -313,8 +314,8 @@ public class LogisticsNetworkState {
         int producedAmount = cycles * outputPerCycle;
 
         /*
-         * recipe.inputs теперь обязаны хранить входы РОВНО НА 1 ЦИКЛ.
-         * Здесь это масштабируется единственный раз.
+         * recipe.inputs хранит входы ровно на 1 цикл.
+         * Здесь масштабируем их на нужное число циклов.
          */
         LinkedHashMap<ItemKey, Integer> scaledInputs = scaleRecipeInputs(recipe.inputs, cycles);
 
@@ -322,8 +323,8 @@ public class LogisticsNetworkState {
         EndpointRef crafterOutput = resolveCrafterOutputEndpoint(manager, recipe.source);
 
         /*
-         * Сначала полностью проверяем, что ВСЕ входы доступны.
-         * Никаких runtime-task'ов до завершения этой проверки не создаём.
+         * Сначала проверяем, что ВСЕ входы доступны.
+         * Пока проверка не пройдена — не создаём runtime-task.
          */
         LinkedHashMap<ItemKey, Integer> availableFromStock = new LinkedHashMap<ItemKey, Integer>();
         ItemKey firstMissingKey = null;
@@ -358,10 +359,6 @@ public class LogisticsNetworkState {
         if (firstMissingKey != null) {
             order.updatedTick = manager.getServerTickCounter();
 
-            /*
-             * Для обычных CRAFT_ONLY запросов заказ,
-             * который нельзя выполнить сразу, не должен висеть бесконечно.
-             */
             if (order.sourceType != OrderSourceType.PLANNER) {
                 order.status = OrderStatus.FAILED;
                 order.lastError = "missing-input:" + firstMissingKey + ":" + firstMissingAmount;
@@ -379,8 +376,7 @@ public class LogisticsNetworkState {
         }
 
         /*
-         * До этого места доходим только если ВСЕ входы доступны.
-         * Теперь уже безопасно строить runtime-task chain.
+         * Все входы доступны — теперь строим runtime-chain.
          */
         List<UUID> inputDeps = new ArrayList<UUID>();
 
@@ -437,6 +433,7 @@ public class LogisticsNetworkState {
                 crafterOutput,
                 order.requestedKey,
                 producedAmount,
+                outputPerCycle,
                 scaledInputs,
                 inputDeps,
                 "execute-craft"
@@ -450,6 +447,17 @@ public class LogisticsNetworkState {
             return;
         }
 
+        /*
+         * КРИТИЧЕСКАЯ ПРАВКА:
+         * pickup-output не должен ждать полного DONE у craft-task,
+         * иначе output крафтера не разгружается во время серии,
+         * и большие партии начинают идти "по одному", а финальный результат
+         * может застревать в output.
+         *
+         * Вместо этого pickup зависит только от подачи входов в крафтер.
+         * После этого он может стартовать параллельно, а если output пока пуст —
+         * executor просто подержит задачу в blocked/running до появления предметов.
+         */
         TransferTask pickup = null;
         if (order.creationOutputMode != CreationOutputMode.LEAVE_IN_CRAFTER) {
             pickup = createTransferTask(
@@ -459,7 +467,7 @@ public class LogisticsNetworkState {
                     managerBuffer,
                     order.requestedKey,
                     producedAmount,
-                    Collections.singletonList(craft.taskId),
+                    inputDeps.isEmpty() ? null : new ArrayList<UUID>(inputDeps),
                     "pickup-output"
             );
             if (pickup != null) {
@@ -484,7 +492,9 @@ public class LogisticsNetworkState {
                     finalTarget,
                     order.requestedKey,
                     stillNeed,
-                    pickup == null ? Collections.singletonList(craft.taskId) : Collections.singletonList(pickup.taskId),
+                    pickup == null
+                            ? Collections.singletonList(craft.taskId)
+                            : Collections.singletonList(pickup.taskId),
                     "deliver-output"
             );
             if (deliver != null) {
@@ -589,6 +599,7 @@ public class LogisticsNetworkState {
                                       EndpointRef crafterOutput,
                                       ItemKey recipeKey,
                                       int amount,
+                                      int outputPerCycle,
                                       Map<ItemKey, Integer> requiredInputs,
                                       java.util.List<UUID> dependencies,
                                       String purpose) {
@@ -611,6 +622,8 @@ public class LogisticsNetworkState {
         task.outputEndpoint = safeOutput;
         task.amount = Math.max(1, amount);
         task.completedAmount = 0;
+        task.outputPerCycle = Math.max(1, outputPerCycle);
+        task.scheduledCycles = 0;
         task.metaPurpose = purpose == null ? "craft" : purpose;
 
         if (requiredInputs != null) {
@@ -626,15 +639,21 @@ public class LogisticsNetworkState {
 
         String err = task.validationError();
         if (err != null) {
-            LOG.warn("[Logistics {}] craft task create invalid order={} reason={} crafter={} key={} output={} amount={}",
-                    manager.getPos(), orderId, err, task.crafter, task.recipeKey, task.outputEndpoint, amount);
+            LOG.warn("[Logistics {}] craft task create invalid order={} reason={} crafter={} key={} output={} amount={} perCycle={}",
+                    manager.getPos(), orderId, err, task.crafter, task.recipeKey, task.outputEndpoint, amount, task.outputPerCycle);
             return null;
         }
 
-        LOG.info("[Logistics {}] craft task created task={} order={} key={} amount={} crafter={} output={} inputs={}",
-                manager.getPos(), task.taskId, orderId, recipeKey, amount, task.crafter, task.outputEndpoint, task.requiredInputs);
+        LOG.info("[Logistics {}] craft task created task={} order={} key={} amount={} perCycle={} crafter={} output={} inputs={}",
+                manager.getPos(), task.taskId, orderId, recipeKey, amount, task.outputPerCycle, task.crafter, task.outputEndpoint, task.requiredInputs);
 
         runtimeTasks.put(task.taskId, task);
+
+        NetworkOrder order = orders.get(orderId);
+        if (order != null && !order.taskIds.contains(task.taskId)) {
+            order.taskIds.add(task.taskId);
+        }
+
         return task;
     }
 
@@ -690,18 +709,6 @@ public class LogisticsNetworkState {
 
                 int outputPerCycle = Math.max(1, ep.getPerCraftOutputCountFor(out));
 
-                /*
-                 * ВАЖНО:
-                 * getRecipeInputsFor(resultLike, times) принимает количество ЦИКЛОВ крафта.
-                 * Поэтому индекс рецептов должен хранить входы ровно на 1 цикл,
-                 * а не на outputPerCycle.
-                 *
-                 * Иначе для рецептов типа:
-                 *   2 доски -> 4 палки
-                 * мы сначала получим входы уже на 4 цикла,
-                 * а потом ещё раз умножим их в planCreationOrder(...),
-                 * что и раздувает большие партии.
-                 */
                 Map<ItemKey, Integer> inputs = new LinkedHashMap<ItemKey, Integer>();
                 List<ItemStack> req = ep.getRecipeInputsFor(out, 1);
 
@@ -801,11 +808,6 @@ public class LogisticsNetworkState {
             if (task instanceof TransferTask) {
                 TransferTask tt = (TransferTask) task;
 
-                /*
-                 * КРИТИЧЕСКИЙ ФИКС:
-                 * если executor уже ведёт эту задачу, не надо повторно её dispatch'ить.
-                 * Иначе один и тот же taskId многократно submit'ится каждый тик.
-                 */
                 if (managerExecutor.isRunning(tt.taskId)) {
                     task.status = TaskStatus.DISPATCHED;
                     task.updatedTick = manager.getServerTickCounter();
@@ -816,6 +818,7 @@ public class LogisticsNetworkState {
             } else if (task instanceof CraftTask) {
                 accepted = crafterExecutor.canAccept((CraftTask) task) && crafterExecutor.submit((CraftTask) task);
             }
+
             if (accepted) {
                 task.status = TaskStatus.DISPATCHED;
                 task.updatedTick = manager.getServerTickCounter();
@@ -860,10 +863,6 @@ public class LogisticsNetworkState {
                 continue;
             }
 
-            /*
-             * Если у waiting-order остались только завершённые/мертвые task-ссылки,
-             * очищаем их и пробуем спланировать заново.
-             */
             if (order.taskIds != null && !order.taskIds.isEmpty()) {
                 order.taskIds.clear();
             }
@@ -991,10 +990,6 @@ public class LogisticsNetworkState {
                 LOG.info("[Logistics {}] order={} status=DONE reason=completed-amount-reached key={} amount={} completed={} remaining=0 recipePath={}",
                         manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.completedAmount, order.recipePath);
             } else if (allDone) {
-                /*
-                 * Все runtime-task завершились, но требуемое количество не достигнуто.
-                 * Если оставить RUNNING, заказ зависает навсегда без живых задач.
-                 */
                 order.status = OrderStatus.FAILED;
                 order.lastError = "incomplete-delivery:" + order.requestedKey + ":" + order.completedAmount + "/" + order.requestedAmount;
                 removeOrderFromDedup(order.orderId);
@@ -1012,6 +1007,7 @@ public class LogisticsNetworkState {
             } else if (order.status == OrderStatus.PLANNING || order.status == OrderStatus.NEW) {
                 order.status = OrderStatus.RUNNING;
             }
+
             if (order.status == OrderStatus.RUNNING || order.status == OrderStatus.WAITING_INPUTS) {
                 LOG.info("[Logistics {}] order={} status={} amount={} completed={} remaining={} runningTasks={} recipePath={}",
                         manager.getPos(), order.orderId, order.status, order.requestedAmount, order.completedAmount, remaining, runningTasks, order.recipePath);

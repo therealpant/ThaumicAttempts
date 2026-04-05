@@ -11,7 +11,14 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
     private static final org.apache.logging.log4j.Logger LOG =
             org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CrafterExecutor");
 
+    /*
+     * Сколько циклов крафта максимум держим "в окне".
+     * Реально в startCraftTask(...) всё равно передаём ИТОГОВЫЕ ПРЕДМЕТЫ.
+     */
+    private static final int MAX_BATCH_CYCLES = 4;
+
     private TileMirrorManager manager;
+
     private final LinkedHashMap<UUID, CraftTask> running = new LinkedHashMap<UUID, CraftTask>();
     private final LinkedHashMap<UUID, TaskExecutionSnapshot> snapshots = new LinkedHashMap<UUID, TaskExecutionSnapshot>();
     private final LinkedHashMap<UUID, Boolean> started = new LinkedHashMap<UUID, Boolean>();
@@ -46,6 +53,10 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
             return false;
         }
 
+        if (task.outputPerCycle <= 0) {
+            task.outputPerCycle = 1;
+        }
+
         task.status = TaskStatus.ACCEPTED;
         running.put(task.taskId, task);
         started.put(task.taskId, false);
@@ -55,8 +66,9 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
         scheduledAmount.put(task.taskId, 0L);
         stalledTicks.put(task.taskId, 0);
 
-        LOG.info("[CrafterExecutor {}] task={} craft accepted crafter={} key={} amount={} output={} baseline={}",
-                manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, task.amount, task.outputEndpoint, baseline);
+        LOG.info("[CrafterExecutor {}] task={} craft accepted crafter={} key={} amount={} output={} baseline={} perCycle={}",
+                manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, task.amount,
+                task.outputEndpoint, baseline, task.outputPerCycle);
 
         snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
         return true;
@@ -76,7 +88,9 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
             Map.Entry<UUID, CraftTask> e = it.next();
             CraftTask task = e.getValue();
 
-            if (task.status == TaskStatus.FAILED || task.status == TaskStatus.CANCELED || task.status == TaskStatus.DONE) {
+            if (task.status == TaskStatus.FAILED
+                    || task.status == TaskStatus.CANCELED
+                    || task.status == TaskStatus.DONE) {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
                 started.remove(task.taskId);
@@ -87,31 +101,57 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
             }
 
             boolean isStarted = started.getOrDefault(task.taskId, false);
-            long alreadyScheduled = Math.max(0L, scheduledAmount.getOrDefault(task.taskId, 0L));
 
-            if (alreadyScheduled < task.amount) {
-                int toSchedule = (int) Math.min((long) Integer.MAX_VALUE, task.amount - alreadyScheduled);
-                int accepted = manager.startCraftTask(task.crafter.pos, task.recipeKey, toSchedule);
+            int outputPerCycle = Math.max(1, task.outputPerCycle);
+            long totalNeededItems = Math.max(1L, task.amount);
+            long alreadyScheduledItems = Math.max(0L, scheduledAmount.getOrDefault(task.taskId, 0L));
+            long producedSoFarItems = Math.max(0L, task.completedAmount);
 
-                if (accepted > 0) {
-                    alreadyScheduled += accepted;
-                    scheduledAmount.put(task.taskId, alreadyScheduled);
-                    started.put(task.taskId, true);
-                    isStarted = true;
+            long backlogItems = Math.max(0L, alreadyScheduledItems - producedSoFarItems);
+            long maxBacklogItems = (long) MAX_BATCH_CYCLES * (long) outputPerCycle;
 
-                    LOG.info("[CrafterExecutor {}] task={} craft cycle accepted crafter={} key={} accepted={} scheduled={}/{}",
-                            manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, accepted, alreadyScheduled, task.amount);
+            /*
+             * ВАЖНО:
+             * startCraftTask(...) вызываем в ПРЕДМЕТАХ, а не в циклах.
+             * outputPerCycle нужен только чтобы ограничить размер окна.
+             */
+            if (alreadyScheduledItems < totalNeededItems && backlogItems < maxBacklogItems) {
+                long remainingItems = totalNeededItems - alreadyScheduledItems;
+                int toScheduleItems = (int) Math.min(remainingItems, maxBacklogItems - backlogItems);
 
-                    if (alreadyScheduled >= task.amount) {
-                        LOG.info("[CrafterExecutor {}] task={} craft fully scheduled key={} crafter={} amount={} scheduled={} output={}",
-                                manager.getPos(), task.taskId, task.recipeKey, task.crafter, task.amount, alreadyScheduled, task.outputEndpoint);
+                if (toScheduleItems > 0) {
+                    int acceptedItems = manager.startCraftTask(task.crafter.pos, task.recipeKey, toScheduleItems);
+
+                    if (acceptedItems > 0) {
+                        alreadyScheduledItems += acceptedItems;
+                        scheduledAmount.put(task.taskId, alreadyScheduledItems);
+                        started.put(task.taskId, true);
+                        isStarted = true;
+
+                        LOG.info("[CrafterExecutor {}] task={} craft accepted crafter={} key={} acceptedItems={} scheduledItems={}/{} backlogItems={} perCycle={}",
+                                manager.getPos(),
+                                task.taskId,
+                                task.crafter.pos,
+                                task.recipeKey,
+                                acceptedItems,
+                                alreadyScheduledItems,
+                                totalNeededItems,
+                                Math.max(0L, alreadyScheduledItems - task.completedAmount),
+                                outputPerCycle);
+
+                        if (alreadyScheduledItems >= totalNeededItems) {
+                            LOG.info("[CrafterExecutor {}] task={} craft fully scheduled key={} crafter={} neededItems={} scheduledItems={} outputPerCycle={} output={}",
+                                    manager.getPos(), task.taskId, task.recipeKey, task.crafter,
+                                    totalNeededItems, alreadyScheduledItems, outputPerCycle, task.outputEndpoint);
+                        }
+                    } else if (!isStarted && alreadyScheduledItems <= producedSoFarItems) {
+                        task.status = TaskStatus.BLOCKED;
+                        LOG.info("[CrafterExecutor {}] task={} craft start blocked crafter={} key={} needItems={} scheduledItems={} backlogItems={}",
+                                manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey,
+                                toScheduleItems, alreadyScheduledItems, backlogItems);
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                        continue;
                     }
-                } else if (!isStarted || alreadyScheduled <= task.completedAmount) {
-                    task.status = TaskStatus.BLOCKED;
-                    LOG.info("[CrafterExecutor {}] task={} craft start blocked crafter={} key={} need={} scheduled={}",
-                            manager.getPos(), task.taskId, task.crafter.pos, task.recipeKey, toSchedule, alreadyScheduled);
-                    snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                    continue;
                 }
             }
 
@@ -119,20 +159,30 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
             int baseOut = outputBaseline.getOrDefault(task.taskId, 0);
             int produced = Math.max(0, readyOut - baseOut);
 
-            long  prevCompleted = task.completedAmount;
+            long prevCompleted = task.completedAmount;
             task.completedAmount = Math.max(task.completedAmount, produced);
 
             if (task.completedAmount > prevCompleted) {
                 stalledTicks.put(task.taskId, 0);
-                LOG.info("[CrafterExecutor {}] task={} craft output progress key={} produced={} ready={} baseline={} output={}",
-                        manager.getPos(), task.taskId, task.recipeKey, produced, readyOut, baseOut, task.outputEndpoint);
-            } else if (alreadyScheduled >= task.amount) {
+                LOG.info("[CrafterExecutor {}] task={} craft output progress key={} produced={} ready={} baseline={} output={} scheduledItems={} outputPerCycle={}",
+                        manager.getPos(), task.taskId, task.recipeKey, produced, readyOut, baseOut,
+                        task.outputEndpoint, scheduledAmount.getOrDefault(task.taskId, 0L), outputPerCycle);
+            } else if (scheduledAmount.getOrDefault(task.taskId, 0L) > 0L) {
                 int stalled = stalledTicks.getOrDefault(task.taskId, 0) + 1;
                 stalledTicks.put(task.taskId, stalled);
 
                 if (stalled == 20 || stalled == 100 || stalled % 200 == 0) {
-                    LOG.warn("[CrafterExecutor {}] task={} craft scheduled but no output yet key={} crafter={} output={} scheduled={} completed={} ready={} baseline={}",
-                            manager.getPos(), task.taskId, task.recipeKey, task.crafter, task.outputEndpoint, alreadyScheduled, task.completedAmount, readyOut, baseOut);
+                    LOG.warn("[CrafterExecutor {}] task={} craft no new output yet key={} crafter={} output={} scheduledItems={} completedItems={} ready={} baseline={} backlogItems={}",
+                            manager.getPos(),
+                            task.taskId,
+                            task.recipeKey,
+                            task.crafter,
+                            task.outputEndpoint,
+                            scheduledAmount.getOrDefault(task.taskId, 0L),
+                            task.completedAmount,
+                            readyOut,
+                            baseOut,
+                            Math.max(0L, scheduledAmount.getOrDefault(task.taskId, 0L) - task.completedAmount));
                 }
             }
 
@@ -152,7 +202,12 @@ public class CrafterExecutor implements ILogisticsExecutor<CraftTask> {
                 continue;
             }
 
-            task.status = task.completedAmount < alreadyScheduled ? TaskStatus.IN_PROGRESS : TaskStatus.BLOCKED;
+            if (isStarted || scheduledAmount.getOrDefault(task.taskId, 0L) > 0L) {
+                task.status = TaskStatus.IN_PROGRESS;
+            } else {
+                task.status = TaskStatus.BLOCKED;
+            }
+
             snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
         }
     }
