@@ -145,6 +145,17 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 && task.stagingReservationId != null;
     }
 
+    private boolean isReservationDispatchAllowed(@Nullable LogisticsNetworkState logistics, @Nullable TransferTask task) {
+        if (logistics == null || task == null) return false;
+        LogisticsNetworkState.ReservationDispatchSnapshot dispatch = logistics.getReservationDispatchSnapshot(task);
+        if (dispatch.reservationId == null || dispatch.orderId == null) return false;
+        if (task.orderId == null || !task.orderId.equals(dispatch.orderId)) return false;
+        if (task.stagingReservationId != null && !task.stagingReservationId.equals(dispatch.reservationId)) return false;
+        if (task.stagingSlotIndex < 0 || dispatch.slotIndex != task.stagingSlotIndex) return false;
+        if (dispatch.stagedAmount < dispatch.requiredAmount) return false;
+        return dispatch.readyForDispatch;
+    }
+
     @Override
     public void tick() {
         if (manager == null) return;
@@ -199,7 +210,12 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             }
 
             long previousCompleted = task.completedAmount;
-            task.completedAmount = calculateDeliveredToTarget(task);
+            boolean dispatchAllowed = !terminalDeliverOutput || isReservationDispatchAllowed(logistics, task);
+            if (!terminalDeliverOutput || dispatchAllowed) {
+                task.completedAmount = calculateDeliveredToTarget(task);
+            } else {
+                task.completedAmount = previousCompleted;
+            }
 
             if (terminalInboundReserved && logistics != null) {
                 int stagedAmount = logistics.getReservationStagedAmount(task);
@@ -211,12 +227,16 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             if (task.completedAmount > previousCompleted) {
                 task.lastProgressTick = manager.getServerTickCounter();
                 if (terminalDeliverOutput && logistics != null) {
-                    logistics.logReservationOutputConsumption(
+                    boolean consumed = logistics.logReservationOutputConsumption(
                             manager,
                             task,
                             task.completedAmount - previousCompleted,
                             task.completedAmount
                     );
+                    if (!consumed) {
+                        task.completedAmount = previousCompleted;
+                        transitionStatus(task, TaskStatus.BLOCKED, "reservation-consume-denied");
+                    }
                 }
             }
 
@@ -263,7 +283,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
             long nowTick = manager.getServerTickCounter();
             if (nowTick - task.lastDispatchTick >= DISPATCH_COOLDOWN_TICKS) {
-                if (terminalDeliverOutput && logistics != null && !logistics.isReservationReadyForDispatch(task)) {
+                if (terminalDeliverOutput && logistics != null && !isReservationDispatchAllowed(logistics, task)) {
                     LogisticsNetworkState.ReservationDispatchSnapshot dispatch = logistics.getReservationDispatchSnapshot(task);
                     transitionStatus(task, TaskStatus.BLOCKED, "waiting-reservation-ready");
                     task.stalledTicks = 0;
@@ -412,7 +432,10 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 }
             }
 
-            if (!isTerminal(task.status) && task.status != TaskStatus.DISPATCHED && task.status != TaskStatus.WAITING_SOURCE) {
+            if (!isTerminal(task.status)
+                    && task.status != TaskStatus.DISPATCHED
+                    && task.status != TaskStatus.WAITING_SOURCE
+                    && task.status != TaskStatus.BLOCKED) {
                 transitionStatus(task, TaskStatus.IN_PROGRESS, "awaiting-delivery");
             }
 
