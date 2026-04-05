@@ -34,6 +34,8 @@ public class NetworkOrder {
     public OrderKind orderKind = OrderKind.DELIVERY;
     public CreationOutputMode creationOutputMode = CreationOutputMode.RETURN_TO_REQUESTER;
     public boolean recipePath = false;
+    public int targetSnapshotAmount = -1;
+    public int stockSnapshotAmount = -1;
 
     public enum OrderKind {
         DELIVERY,
@@ -63,6 +65,8 @@ public class NetworkOrder {
         tag.setString("debug", debugReason == null ? "" : debugReason);
         tag.setString("error", lastError == null ? "" : lastError);
         tag.setBoolean("recipePath", recipePath);
+        tag.setInteger("targetSnapshot", targetSnapshotAmount);
+        tag.setInteger("stockSnapshot", stockSnapshotAmount);
         tag.setString("intent", intent == null ? RequestIntent.NORMAL.name() : intent.name());
         tag.setString("orderKind", orderKind == null ? OrderKind.DELIVERY.name() : orderKind.name());
         tag.setString("creationOutputMode", creationOutputMode == null ? CreationOutputMode.RETURN_TO_REQUESTER.name() : creationOutputMode.name());
@@ -124,6 +128,12 @@ public class NetworkOrder {
         }
 
         o.recipePath = tag.hasKey("recipePath", Constants.NBT.TAG_BYTE) && tag.getBoolean("recipePath");
+        o.targetSnapshotAmount = tag.hasKey("targetSnapshot", Constants.NBT.TAG_INT)
+                ? tag.getInteger("targetSnapshot")
+                : -1;
+        o.stockSnapshotAmount = tag.hasKey("stockSnapshot", Constants.NBT.TAG_INT)
+                ? tag.getInteger("stockSnapshot")
+                : -1;
         if (tag.hasKey("orderKind", Constants.NBT.TAG_STRING)) {
             try {
                 o.orderKind = OrderKind.valueOf(tag.getString("orderKind"));

@@ -2773,15 +2773,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return Math.min(amount, Math.max(0, atTarget + queued));
     }
 
-    private int countCoveredForManagerBuffer(ItemKey key, int amount) {
-        if (key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
-
-        int buffered = countBuffered(key);
-        int queued = countQueuedFor(this.pos, key.toStack(1));
-
-        return Math.min(amount, Math.max(0, buffered + queued));
-    }
-
     public int countItemAtEndpoint(EndpointRef endpoint, ItemKey key) {
         if (endpoint != null && endpoint.mode == EndpointRef.AccessMode.OUTPUT && world != null) {
             BlockPos resolved = resolveEndpointPos(endpoint);
@@ -2833,6 +2824,23 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         ItemStack like = key.toStack(1);
 
         /*
+         * Критично для логистики терминалов:
+         * если источник = буфер менеджера, всегда пытаемся отдать amount,
+         * независимо от того, сколько уже лежит в целевом инвентаре.
+         * Выполнение задачи считается по факту прироста в target (по baseline),
+         * а не по абсолютному наличию.
+         */
+        if (source.mode == EndpointRef.AccessMode.BUFFER && src.equals(this.pos)) {
+            int canSend = Math.min(amount, countInManagerBufferLike(like));
+            if (canSend <= 0) {
+                return countQueuedFor(dst, like) > 0;
+            }
+
+            int movedNow = pushFromBufferTo(dst, -1, like, canSend);
+            return movedNow > 0 || countQueuedFor(dst, like) > 0;
+        }
+
+        /*
          * Сначала считаем, сколько вообще ещё реально нужно target.
          * Нельзя ни тянуть из source, ни отправлять в target больше этого остатка.
          */
@@ -2844,36 +2852,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         /*
-         * 1) Буфер менеджера -> конечная цель
-         * Ничего со складов не подтягиваем, только ограниченный push по недостаче.
-         */
-        if (source.mode == EndpointRef.AccessMode.BUFFER && src.equals(this.pos)) {
-            int canSend = Math.min(remainingNeedAtTarget, countInManagerBufferLike(like));
-            if (canSend <= 0) {
-                return countQueuedFor(dst, like) > 0;
-            }
-
-            int movedNow = pushFromBufferTo(dst, -1, like, canSend);
-            return movedNow > 0 || countQueuedFor(dst, like) > 0;
-        }
-
-        /*
          * 2) Любой сценарий "... -> буфер менеджера"
-         * Нужно покрыть только недостачу буфера, а не тянуть amount целиком.
+         * amount здесь уже считается executor'ом как "сколько ещё нужно дозаказать",
+         * поэтому дозаказываем именно amount, не опираясь на абсолютный current-buffer.
          */
         if (target.mode == EndpointRef.AccessMode.BUFFER && dst.equals(this.pos)) {
-            int coveredByManagerBuffer = countCoveredForManagerBuffer(key, amount);
-            int remainingNeedForBuffer = Math.max(0, amount - coveredByManagerBuffer);
-
-            if (remainingNeedForBuffer <= 0) {
-                return true;
-            }
-
             LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
-            needs.put(key, remainingNeedForBuffer);
+            needs.put(key, amount);
             ensureDeliveryForExact(this.pos, needs, queueId);
 
-            return countQueuedFor(this.pos, like) > 0 || countCoveredForManagerBuffer(key, amount) >= amount;
+            return countQueuedFor(this.pos, like) > 0;
         }
 
         /*

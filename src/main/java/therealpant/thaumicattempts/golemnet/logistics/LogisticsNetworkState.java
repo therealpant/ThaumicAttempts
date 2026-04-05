@@ -218,6 +218,12 @@ public class LogisticsNetworkState {
                 EndpointRef.AccessMode.INPUT
         );
 
+        if (order.targetSnapshotAmount < 0) {
+            order.targetSnapshotAmount = Math.max(0, countExactInTargetInventory(manager, finalTarget, order.requestedKey));
+        }
+        if (order.stockSnapshotAmount < 0) {
+            order.stockSnapshotAmount = Math.max(0, countDirectAvailableInNetwork(manager, order.requestedKey, order.orderId));
+        }
 
         EffectiveNeedSnapshot need = computeEffectiveTargetNeed(manager, order.requestedKey, order.requestedAmount, finalTarget, order.orderId, true);
         order.operationalNeeded = need.missingNow;
@@ -256,7 +262,13 @@ public class LogisticsNetworkState {
                                    EndpointRef finalTarget,
                                    EndpointRef managerBuffer,
                                    EffectiveNeedSnapshot need) {
-        int deliverAmount = Math.min(Math.max(0, need.missingNow), Math.max(0, need.availableInNetwork));
+        /*
+         * Для delivery-заказов планируем полный объём потребности.
+         * Фактическое дозаказание из складской сети выполняется executor'ом по остатку
+         * (remaining - queued), поэтому даже при частичных приходах (64/192 и т.п.)
+         * задача будет дозаказываться до полного requested amount.
+         */
+        int deliverAmount = Math.max(0, need.missingNow);
 
         if (deliverAmount <= 0) {
             order.status = OrderStatus.FAILED;
@@ -308,12 +320,6 @@ public class LogisticsNetworkState {
             dispatchToTarget.updatedTick = manager.getServerTickCounter();
 
             remaining -= chunk;
-        }
-
-        if (need.missingNow > deliverAmount) {
-            order.status = OrderStatus.FAILED;
-            order.lastError = "delivery-partial-stock:" + order.requestedKey;
-            return;
         }
 
         order.status = OrderStatus.RUNNING;
@@ -611,11 +617,6 @@ public class LogisticsNetworkState {
             if (srcPos != null && !srcPos.equals(managerPos) && isTerminalPos(manager, srcPos)) {
                 safeSource = EndpointRef.of(managerPos, EndpointRef.AccessMode.DIRECT);
             }
-        }
-
-        RuntimeTask existing = existsActiveTask(orderId, key, safeSource, safeTarget, purpose);
-        if (existing instanceof TransferTask) {
-            return (TransferTask) existing;
         }
 
         TransferTask task = new TransferTask();
@@ -1239,7 +1240,15 @@ public class LogisticsNetworkState {
                                                              boolean includeInboundReservations) {
         EffectiveNeedSnapshot snapshot = new EffectiveNeedSnapshot();
         snapshot.requested = Math.max(0, requestedAmount);
-        snapshot.presentAtTarget = countExactInTargetInventory(manager, target, key);
+        int rawPresentAtTarget = countExactInTargetInventory(manager, target, key);
+        int targetBaseline = 0;
+        if (excludeOrder != null) {
+            NetworkOrder order = orders.get(excludeOrder);
+            if (order != null && order.targetSnapshotAmount >= 0) {
+                targetBaseline = order.targetSnapshotAmount;
+            }
+        }
+        snapshot.presentAtTarget = Math.max(0, rawPresentAtTarget - targetBaseline);
         snapshot.reservedInbound = includeInboundReservations
                 ? countInboundReservedForTarget(key, target, excludeOrder, null)
                 : 0;
