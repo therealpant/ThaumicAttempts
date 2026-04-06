@@ -83,25 +83,8 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
 
     /** Привязать к менеджеру и зарегистрироваться внутри него. */
     public void setManagerPos(@Nullable BlockPos pos) {
-        BlockPos old = this.managerPos;
-        this.managerPos = (pos == null ? null : pos.toImmutable());
-        this.needsRebind = true;
+        this.managerPos = pos;
         markDirty();
-
-        if (world != null && !world.isRemote) {
-            if (old != null && !old.equals(this.managerPos)) {
-                TileEntity oldTe = world.getTileEntity(old);
-                if (oldTe instanceof TileMirrorManager) {
-                    ((TileMirrorManager) oldTe).unregisterRequester(this.pos);
-                }
-            }
-            if (this.managerPos != null) {
-                TileEntity newTe = world.getTileEntity(this.managerPos);
-                if (newTe instanceof TileMirrorManager) {
-                    ((TileMirrorManager) newTe).registerRequester(this.pos);
-                }
-            }
-        }
     }
 
     /** Тихо сбросить привязку, если инициатор – именно этот менеджер. */
@@ -148,30 +131,12 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         if (world == null) return;
 
         if (!world.isRemote) {
-            if (managerPos != null) {
-                TileEntity te = world.getTileEntity(managerPos);
-                if (te instanceof TileMirrorManager) {
-                    ((TileMirrorManager) te).registerRequester(this.pos);
-                }
-            }
-
-            if (needsRebind) {
-                needsRebind = false;
-                if (managerPos != null) {
-                    TileEntity te = world.getTileEntity(managerPos);
-                    if (te instanceof TileMirrorManager) {
-                        ((TileMirrorManager) te).registerRequester(this.pos);
-                    }
-                }
-            }
-
-            if (managerPos == null) {
-                rsQueueTick();
-            }
+            rsQueueTick(); // ← держит/сбрасывает сигнал по очереди крафтов
         }
 
         if (world.isRemote) return;
 
+        // ваш существующий код пульса (если нужен):
         if (pulseTicks > 0) {
             pulseTicks--;
             if (pulseTicks == 0) {
@@ -182,41 +147,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         }
     }
 
-    @Override
-    public void onLoad() {
-        super.onLoad();
-        if (world != null && !world.isRemote) {
-            needsRebind = true;
-            if (managerPos != null) {
-                TileEntity te = world.getTileEntity(managerPos);
-                if (te instanceof TileMirrorManager) {
-                    ((TileMirrorManager) te).registerRequester(this.pos);
-                }
-            }
-        }
-    }
 
-    @Override
-    public void invalidate() {
-        if (world != null && !world.isRemote && managerPos != null) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) {
-                ((TileMirrorManager) te).unregisterRequester(this.pos);
-            }
-        }
-        super.invalidate();
-    }
-
-    @Override
-    public void onChunkUnload() {
-        if (world != null && !world.isRemote && managerPos != null) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) {
-                ((TileMirrorManager) te).unregisterRequester(this.pos);
-            }
-        }
-        super.onChunkUnload();
-    }
     /* ====== Публикация каталога крафтабельного ====== */
     @Override
     /** Список всех результатов из паттернов (каждый — с правильным count за 1 крафт). */
@@ -272,27 +203,6 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         // тонкая обёртка над твоей текущей логикой
         queueCraft(resultLike, crafts);
     }
-
-    @Override
-    public int enqueueCraftOrder(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
-        if (resultLike == null || resultLike.isEmpty() || amount <= 0) return 0;
-        if (managerPos != null) {
-            return startAssignedCraftTask(managerPos, returnDest, returnSide, resultLike, amount);
-        }
-
-        int perCraft = Math.max(1, getPerCraftOutputCountFor(resultLike));
-        int crafts = (amount + perCraft - 1) / perCraft;
-        if (crafts <= 0) return 0;
-        queueCraft(resultLike, crafts);
-        return crafts * perCraft;
-    }
-
-    @Override
-    public int startAssignedCraftTask(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
-        TileEntityGolemCrafter cr = getCrafterBelow();
-        if (cr == null) return 0;
-        return cr.startManagedExecution(resultLike, amount);
-    }
     /**
      * Полный список входов, необходимых для `times` крафтов (агрегирован по «ключу сетки»).
      * Ключ и сравнение в точности как у крафтера:
@@ -300,7 +210,6 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
      *  - нестакуемые — item+meta (NBT игнорируется);
      *  - стакаемые — relaxed.
      */
-    @Override
     public List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times) {
         if (resultLike == null || resultLike.isEmpty() || times <= 0) return Collections.emptyList();
 
@@ -488,8 +397,6 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
                 ? BlockPos.fromLong(nbt.getLong("ManagerPos")) : null;
         outSignal = nbt.getInteger("OutSig");
         pulseTicks = nbt.getInteger("Pulse");
-        needsRebind = true;
-
         rsQueue.clear();
         if (nbt.hasKey("RSQ", Constants.NBT.TAG_LIST)) {
             NBTTagList q = nbt.getTagList("RSQ", Constants.NBT.TAG_COMPOUND);

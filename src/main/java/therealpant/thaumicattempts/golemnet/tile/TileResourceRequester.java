@@ -22,14 +22,11 @@ import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.golems.GolemHelper;
 import therealpant.thaumicattempts.api.IPatternedWorksite;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
-import therealpant.thaumicattempts.api.ICraftEndpoint;
-import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
-import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
-import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import therealpant.thaumicattempts.util.ItemKey;
+import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.items.ItemsTC;
@@ -46,8 +43,7 @@ import java.util.*;
 import therealpant.thaumicattempts.api.PatternResourceList;
 
 public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable, IPatternedWorksite,
-        therealpant.thaumicattempts.api.ITerminalOrderAcceptor, therealpant.thaumicattempts.api.ITerminalOrderIconProvider,
-        ICraftEndpoint, CraftOrderApi.TagProvider {
+        therealpant.thaumicattempts.api.ITerminalOrderAcceptor, therealpant.thaumicattempts.api.ITerminalOrderIconProvider {
     private static final int PATTERN_SLOT_COUNT = 15;
     private static final int REQUEST_STALE_TICKS = 100;
     private static final int REQUEST_RETRY_TICKS = 200;
@@ -120,10 +116,6 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     private int lastProgressTick = 0;
     private int lastRequestTick = 0;
     private int nextProvisionTick = 0;
-    private final LinkedHashMap<ItemKey, UUID> activeProvisionOrders = new LinkedHashMap<>();
-
-    @Nullable
-    private UUID activeOrderId = null;
 
     private @Nullable BlockPos managerPos = null;
     private boolean managerFromPattern = false;
@@ -172,95 +164,11 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         for (int i = 0; i < patterns.getSlots(); i++) {
             ItemStack pattern = patterns.getStackInSlot(i);
             if (pattern.isEmpty()) continue;
-            ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
-            if (!preview.isEmpty() && ResourceIdentity.sameResource(preview, resultLike)) {
+            if (ResourceIdentity.sameResource(pattern, resultLike)) {
                 return enqueueFromPatternRequester(i, times);
             }
         }
         return 0;
-    }
-
-    @Override
-    public List<ItemStack> listCraftableResults() {
-        ArrayList<ItemStack> out = new ArrayList<>();
-        for (int i = 0; i < patterns.getSlots(); i++) {
-            ItemStack pattern = patterns.getStackInSlot(i);
-            if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) continue;
-            ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
-            if (preview.isEmpty()) continue;
-            ItemStack one = preview.copy();
-            one.setCount(Math.max(1, one.getCount()));
-            out.add(one);
-        }
-        return out;
-    }
-
-    @Override
-    public int getPerCraftOutputCountFor(ItemStack resultLike) {
-        if (resultLike == null || resultLike.isEmpty()) return 0;
-        int slot = findPatternSlotForResult(resultLike);
-        if (slot < 0) return 0;
-        ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(patterns.getStackInSlot(slot));
-        return preview.isEmpty() ? 0 : Math.max(1, preview.getCount());
-    }
-
-    @Override
-    public List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times) {
-        if (resultLike == null || resultLike.isEmpty() || times <= 0) return Collections.emptyList();
-        int slot = findPatternSlotForResult(resultLike);
-        if (slot < 0) return Collections.emptyList();
-        ItemStack pattern = patterns.getStackInSlot(slot);
-        if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) return Collections.emptyList();
-
-        List<PatternResourceList.Entry> entries = PatternResourceList.build(pattern);
-        if (entries == null || entries.isEmpty()) return Collections.emptyList();
-        List<ItemStack> out = new ArrayList<>();
-        int mul = Math.max(1, times);
-        for (PatternResourceList.Entry e : entries) {
-            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
-            ItemStack stack = e.getKey().toStack(Math.max(1, e.getCount()) * mul);
-            if (!stack.isEmpty()) out.add(stack);
-        }
-        return out;
-    }
-
-    @Override
-    public void enqueueCraft(ItemStack resultLike, int crafts) {
-        enqueueFromPatternRequester(resultLike, crafts);
-    }
-
-    @Override
-    public int enqueueCraftOrder(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
-        if (resultLike == null || resultLike.isEmpty() || amount <= 0) return 0;
-        int perCraft = Math.max(1, getPerCraftOutputCountFor(resultLike));
-        int crafts = (amount + perCraft - 1) / perCraft;
-        int acceptedCrafts = enqueueFromPatternRequester(resultLike, crafts);
-        if (acceptedCrafts <= 0) return 0;
-        if (managerPos != null) setManagerPos(managerPos, true);
-        return acceptedCrafts * perCraft;
-    }
-
-    @Override
-    public boolean hasActiveOrQueued() {
-        return hasAnyWaitingWork();
-    }
-
-    @Override
-    public Set<String> getCraftOrderTags() {
-        return CraftOrderApi.singletonTag(CraftOrderApi.TAG_CRAFTER);
-    }
-
-    private int findPatternSlotForResult(ItemStack like) {
-        if (like == null || like.isEmpty()) return -1;
-        for (int i = 0; i < patterns.getSlots(); i++) {
-            ItemStack pattern = patterns.getStackInSlot(i);
-            if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) continue;
-            ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
-            if (!preview.isEmpty() && ResourceIdentity.sameResource(preview, like)) {
-                return i;
-            }
-        }
-        return -1;
     }
 
     @Override
@@ -280,14 +188,10 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             if (signal > 0) {
                 int idx = patternIndexFromSignal(signal);
                 if (idx >= 0) {
-                    if (useManagerForProvision()) {
-                        submitUnifiedManagerOrderForSlot(idx, 1);
-                    } else {
-                        enqueueTrigger(idx, 1);
-                        tryStartQueuedJob();
-                        if (jobActive) {
-                            requestProvisionForPending();
-                        }
+                    enqueueTrigger(idx, 1);
+                    tryStartQueuedJob();
+                    if (jobActive && !useManagerForProvision()) {
+                        requestProvisionForPending();
                     }
                 }
             }
@@ -389,8 +293,6 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         pending.clear();
         baselines.clear();
         sequence.clear();
-        activeProvisionOrders.clear();
-        activeOrderId = null;
         provisionQueue.clear();
         jobActive = false;
         activeSlot = -1;
@@ -447,37 +349,14 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
 
         TileEntity te = world.getTileEntity(managerPos);
         if (!(te instanceof TileMirrorManager)) return;
-        // В manager-mode локальный requester не инициирует supply-заказы.
-        // Доставку планирует/создаёт только LogisticsNetworkState.
-        activeProvisionOrders.clear();
-        activeOrderId = null;
-        lastEnsureTick = tickCounter;
-        needEnsure = false;
-    }
+        TileMirrorManager mgr = (TileMirrorManager) te;
 
-    private boolean submitUnifiedManagerOrderForSlot(int slot, int crafts) {
-        if (world == null || world.isRemote || managerPos == null || slot < 0 || slot >= patterns.getSlots()) return false;
-        TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) return false;
-
-        ItemStack pattern = patterns.getStackInSlot(slot);
-        if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) return false;
-        ItemStack preview = ItemResourceList.getPreviewOrFirstEntry(pattern);
-        if (preview.isEmpty()) return false;
-
-        ItemKey key = ItemKey.of(preview);
-        if (key == null || key == ItemKey.EMPTY) return false;
-        int amount = Math.max(1, preview.getCount()) * Math.max(1, crafts);
-        UUID id = ((TileMirrorManager) te).submitCreationOrder(
-                key,
-                amount,
-                OrderSourceType.REDSTONE_REQUESTER,
-                this.pos,
-                this.pos,
-                NetworkOrder.RequestIntent.CRAFT_ONLY,
-                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.LEAVE_IN_CRAFTER
-        );
-        return id != null;
+        Map<ItemKey, Integer> copy = new LinkedHashMap<>(pending);
+        if (!copy.isEmpty()) {
+            mgr.ensureDeliveryForExact(this.pos, copy, 0);
+            lastEnsureTick = tickCounter;
+            needEnsure = false;
+        }
     }
 
     private void deliverSequence() {
@@ -652,8 +531,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         if (!(te instanceof TileMirrorManager)) return;
         TileMirrorManager mgr = (TileMirrorManager) te;
         if (!mgr.isConsumerBound(this.pos)) {
-            mgr.tryBindRequester(this.pos);
-            mgr.registerRequester(this.pos);
+            mgr.tryBindTerminal(this.pos);
         }
     }
 
@@ -1129,7 +1007,6 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         compound.setInteger("LastSig", lastSignal);
         if (managerPos != null) compound.setLong("Manager", managerPos.toLong());
         compound.setBoolean("ManagerPattern", managerFromPattern);
-        if (activeOrderId != null) compound.setString("ActiveOrderId", activeOrderId.toString());
 
         NBTTagList pend = new NBTTagList();
         for (Map.Entry<ItemKey, Integer> e : pending.entrySet()) {
@@ -1179,22 +1056,12 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         managerPos = compound.hasKey("Manager", Constants.NBT.TAG_LONG)
                 ? BlockPos.fromLong(compound.getLong("Manager")) : null;
         managerFromPattern = compound.getBoolean("ManagerPattern") && managerPos != null;
-        if (compound.hasKey("ActiveOrderId", Constants.NBT.TAG_STRING)) {
-            try {
-                activeOrderId = UUID.fromString(compound.getString("ActiveOrderId"));
-            } catch (Exception ignored) {
-                activeOrderId = null;
-            }
-        } else {
-            activeOrderId = null;
-        }
 
         pending.clear();
         baselines.clear();
         sequence.clear();
         queuedSignals.clear();
         provisionQueue.clear();
-        activeProvisionOrders.clear();
         nextProvisionTick = 0;
 
         if (compound.hasKey("Pending", Constants.NBT.TAG_LIST)) {

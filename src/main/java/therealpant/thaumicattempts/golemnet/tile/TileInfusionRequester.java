@@ -47,7 +47,6 @@ import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
 import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
-import therealpant.thaumicattempts.golemnet.logistics.NetworkOrder;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -210,9 +209,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     private int nextProvisionTick = 0;
     private static final int PROVISION_INTERVAL = 10;
     private static final int ENSURE_INTERVAL = 20;
-    private final LinkedHashMap<ItemKey, UUID> activeInputOrders = new LinkedHashMap<>();
-    @Nullable
-    private UUID activeOrderId = null;
 
     @Nullable private BlockPos managerPos = null;
     private boolean managerFromPattern = false;
@@ -491,12 +487,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (signal > 0) {
                 int slot = patternIndexFromSignal(signal);
                 if (slot >= 0) {
-                    if (useManagerForProvision()) {
-                        submitUnifiedManagerOrderForSlot(slot, 1);
-                    } else {
-                        enqueueTrigger(slot, 1, true);
-                        tryStartNextJob();
-                    }
+                    enqueueTrigger(slot, 1, true);
+                    tryStartNextJob();
                 }
             }
             lastSignal = signal;
@@ -673,34 +665,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     }
 
     @Override
-    public List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times) {
-        if (world == null || resultLike == null || resultLike.isEmpty() || times <= 0) return Collections.emptyList();
-
-        int slot = findPatternSlotFor(resultLike);
-        if (slot < 0) return Collections.emptyList();
-
-        List<PatternResourceList.Entry> resources = getResourcesForSlot(slot);
-        if (resources == null || resources.isEmpty()) return Collections.emptyList();
-
-        List<ItemStack> out = new ArrayList<>();
-        int mul = Math.max(1, times);
-        for (PatternResourceList.Entry e : resources) {
-            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
-            int count = Math.max(1, e.getCount()) * mul;
-            ItemStack stack = e.getKey().toStack(count);
-            if (!stack.isEmpty()) out.add(stack);
-        }
-        return out;
-    }
-
-    @Override
     public void enqueueCraft(ItemStack resultLike, int crafts) {
         enqueueFromPatternRequester(resultLike, crafts);
-    }
-
-    @Override
-    public int enqueueCraftOrder(BlockPos managerPos, BlockPos returnDest, int returnSide, ItemStack resultLike, int amount) {
-        return enqueueCrafterOrder(managerPos, returnDest, returnSide, resultLike, amount);
     }
 
     @Override
@@ -862,8 +828,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         pendingToRequester.clear();
         baselineToRequester.clear();
-        activeInputOrders.clear();
-        activeOrderId = null;
         pendingByStorage.clear();
         resetDistributionState();
 
@@ -943,8 +907,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         pendingToRequester.clear();
         baselineToRequester.clear();
-        activeInputOrders.clear();
-        activeOrderId = null;
         pendingByStorage.clear();
 
         needsEnsure = false;
@@ -1096,13 +1058,11 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (!needsEnsure && (tickCounter - lastEnsureTick) < interval) return;
 
         if (useManagerForProvision() && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
-            // В manager-mode endpoint больше не создаёт дочерние supply-заказы сам.
-            // Снабжение приходит только как задачи от LogisticsNetworkState.
-            activeInputOrders.clear();
-            activeOrderId = null;
+            TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
+            mgr.ensureDeliveryForExact(pos, new LinkedHashMap<>(pendingToRequester), 0);
             needsEnsure = false;
             lastEnsureTick = tickCounter;
-            logDebug("ensurePendingToRequester manager-mode wait manager={} needs={}", managerPos, pendingToRequester);
+            logDebug("ensurePendingToRequester via manager={} needs={}", managerPos, pendingToRequester);
             return;
         }
 
@@ -1115,31 +1075,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         lastEnsureTick = tickCounter;
         nextProvisionTick = tickCounter + PROVISION_INTERVAL;
         needsEnsure = false;
-    }
-
-    private boolean submitUnifiedManagerOrderForSlot(int slot, int crafts) {
-        if (world == null || world.isRemote || managerPos == null || slot < 0 || slot >= patterns.getSlots()) return false;
-        TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) return false;
-        ItemStack pat = patterns.getStackInSlot(slot);
-        if (pat.isEmpty() || !(pat.getItem() instanceof ItemInfusionPattern)) return false;
-
-        ItemStack preview = TerminalOrderApi.stripOrderIconData(ItemInfusionPattern.calcResultPreview(pat, world));
-        if (preview.isEmpty()) return false;
-        ItemKey key = ItemKey.of(preview);
-        if (key == null || key == ItemKey.EMPTY) return false;
-
-        int amount = Math.max(1, preview.getCount()) * Math.max(1, crafts);
-        UUID id = ((TileMirrorManager) te).submitCreationOrder(
-                key,
-                amount,
-                therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_INFUSION,
-                this.pos,
-                this.pos,
-                NetworkOrder.RequestIntent.CRAFT_ONLY,
-                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.LEAVE_IN_CRAFTER
-        );
-        return id != null;
     }
 
     // ========================= RESOURCES PHASE 2 (DISTRIBUTE) =========================
@@ -1643,7 +1578,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (targetPos != null) compound.setLong(TAG_TARGET, targetPos.toLong());
         if (managerPos != null) compound.setLong(TAG_MANAGER, managerPos.toLong());
         compound.setBoolean("ManagerPattern", managerFromPattern && managerPos != null);
-        if (activeOrderId != null) compound.setString("ActiveOrderId", activeOrderId.toString());
 
         if (ownerId != null) compound.setUniqueId(TAG_OWNER_ID, ownerId);
         if (ownerName != null) compound.setString(TAG_OWNER_NAME, ownerName);
@@ -1708,15 +1642,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         managerPos = compound.hasKey(TAG_MANAGER) ? BlockPos.fromLong(compound.getLong(TAG_MANAGER)) : null;
         managerFromPattern = compound.getBoolean("ManagerPattern") && managerPos != null;
-        if (compound.hasKey("ActiveOrderId", Constants.NBT.TAG_STRING)) {
-            try {
-                activeOrderId = UUID.fromString(compound.getString("ActiveOrderId"));
-            } catch (Exception ignored) {
-                activeOrderId = null;
-            }
-        } else {
-            activeOrderId = null;
-        }
 
         ownerId = compound.hasUniqueId(TAG_OWNER_ID) ? compound.getUniqueId(TAG_OWNER_ID) : null;
         ownerName = compound.hasKey(TAG_OWNER_NAME) ? compound.getString(TAG_OWNER_NAME) : null;
@@ -1759,7 +1684,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         essentiaAmount = compound.hasKey("EssentiaAmount") ? compound.getInteger("EssentiaAmount") : 0;
 
         queuedTriggers.clear();
-        activeInputOrders.clear();
         if (compound.hasKey(TAG_JOB_QUEUE, Constants.NBT.TAG_LIST)) {
             NBTTagList qList = compound.getTagList(TAG_JOB_QUEUE, Constants.NBT.TAG_COMPOUND);
             for (int i = 0; i < qList.tagCount(); i++) {

@@ -19,8 +19,6 @@ import net.minecraft.util.text.ITextComponent;
 import net.minecraft.util.text.TextComponentTranslation;
 import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.items.ItemStackHandler;
-import org.apache.logging.log4j.LogManager;
-import org.apache.logging.log4j.Logger;
 import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.IEssentiaTransport;
@@ -33,7 +31,6 @@ import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
-import therealpant.thaumicattempts.golemnet.logistics.OrderSourceType;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
@@ -50,7 +47,6 @@ import java.util.*;
  - Стоимость эссенции: 2 * число уникальных типов входов. Эссенция: CRAFT, приём снизу/с боков.
  */
 public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite {
-    private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/GolemCrafter");
 
     // ===== Константы =====
     public static final int PATTERN_SLOTS = 15;
@@ -80,17 +76,14 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     // Привязка к менеджеру (через PatternRequester сверху)
     private @Nullable BlockPos managerPos = null;
     private boolean managerFromPattern = false;
-
-    @Nullable
-    private UUID managerRedstoneOrderId = null;
-
+    private boolean needEnsureWithManager = false;
+    private long lastEnsureWorldTime = -9999L;
 
     // Очередь запусков от реквестера (индексы паттернов, 0-based)
     private final java.util.Deque<Integer> requesterQueue = new java.util.ArrayDeque<>();
-    private final java.util.Deque<Integer> managedExecutionQueue = new java.util.ArrayDeque<>();
     // Флаг: текущая работа запущена от реквестера (чтобы подавить самопровизию)
     private boolean jobViaRequester = false;
-    private boolean jobViaManagerAssignment = false;
+
 
     // ===== Состояние / параметры =====
     private String customName = "";
@@ -243,36 +236,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     @Override
     public int enqueueFromPatternRequester(ItemStack resultLike, int times) {
         return enqueueCraftsByRequesterLike(resultLike, times);
-    }
-
-    public int startManagedExecution(ItemStack resultLike, int amount) {
-        if (resultLike == null || resultLike.isEmpty() || amount <= 0) return 0;
-        int patternIndex = findPatternIndexForResultLike(resultLike);
-        if (patternIndex < 0 || !patternIndexValid(patternIndex)) return 0;
-
-        ItemStack pattern = patterns.getStackInSlot(patternIndex);
-        if (pattern.isEmpty()) return 0;
-        NonNullList<ItemStack> grid = getGrid(pattern);
-        ItemStack preview = getCraftPreview(pattern, grid);
-        if (preview.isEmpty()) return 0;
-
-        int perCraft = Math.max(1, preview.getCount());
-        int crafts = Math.max(1, (amount + perCraft - 1) / perCraft);
-        for (int i = 0; i < crafts; i++) managedExecutionQueue.addLast(patternIndex);
-        markDirty();
-        return crafts * perCraft;
-    }
-
-    private void tryStartNextManagedJob() {
-        if (jobActive) return;
-        Integer next = managedExecutionQueue.pollFirst();
-        if (next == null) return;
-        if (!patternIndexValid(next)) return;
-
-        this.suppressSelfProvision = true;
-        this.jobViaRequester = false;
-        this.jobViaManagerAssignment = true;
-        startOneCraftCycle(next);
     }
 
     private void tryStartNextRequesterJob() {
@@ -562,12 +525,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return hasPatternRequesterAbove() && managerPos != null;
     }
 
-    private boolean hasMirrorManagerConnection() {
-        if (world == null || world.isRemote || managerPos == null) return false;
-        TileEntity te = world.getTileEntity(managerPos);
-        return te instanceof TileMirrorManager;
-    }
-
     private void syncManagerFromPattern() {
         if (world == null || world.isRemote) return;
 
@@ -591,7 +548,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (!Objects.equals(this.managerPos, newPos) || this.managerFromPattern != newFlag) {
             this.managerPos = newPos;
             this.managerFromPattern = newFlag;
-            this.managerRedstoneOrderId = null;
+            this.needEnsureWithManager = needEnsureWithManager || useManagerForProvision();
             markDirty();
         }
     }
@@ -628,71 +585,43 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
     }
 
-    private boolean submitManagerCraftOrderForSignal(int idx, int repeats) {
-        if (world == null || world.isRemote || managerPos == null) {
-            LOG.info("[Crafter {}] redstone root-order rejected: manager unavailable managerPos={} patternIndex={} repeats={}",
-                    pos, managerPos, idx, repeats);
-            return false;
+    private Map<ItemKey, Integer> collectMissingForJob() {
+        Map<ItemKey, Integer> miss = new LinkedHashMap<>();
+        if (seq.isEmpty()) return miss;
+
+        int repeats = Math.max(1, jobRepeatLeft);
+
+        for (Req r : seq) {
+            if (r == null || r.key1 == null || r.key1.isEmpty()) continue;
+            int need = Math.max(0, r.count * repeats - countInInput(r.key1));
+            if (need > 0) {
+                ItemKey k = ItemKey.of(r.key1);
+                if (k != null) miss.merge(k, need, Integer::sum);
+            }
+        }
+        return miss;
+    }
+
+    private void ensureWithManager(boolean force) {
+        if (!useManagerForProvision() || world == null || managerPos == null || !jobActive) return;
+
+        long now = world.getTotalWorldTime();
+        if (!force && !needEnsureWithManager && now - lastEnsureWorldTime < 5L) return;
+
+        Map<ItemKey, Integer> miss = collectMissingForJob();
+        if (miss.isEmpty()) {
+            needEnsureWithManager = false;
+            return;
         }
 
         TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) {
-            LOG.info("[Crafter {}] redstone root-order rejected: target is not manager managerPos={} targetClass={} patternIndex={} repeats={}",
-                    pos, managerPos, te == null ? "null" : te.getClass().getName(), idx, repeats);
-            return false;
+        if (te instanceof TileMirrorManager) {
+            ((TileMirrorManager) te).ensureDeliveryForExact(this.pos, miss, 0);
+            lastEnsureWorldTime = now;
+            needEnsureWithManager = false;
+        } else {
+            needEnsureWithManager = true; // попробуем позже
         }
-        TileMirrorManager manager = (TileMirrorManager) te;
-        if (managerRedstoneOrderId != null && manager.isOrderActive(managerRedstoneOrderId)) {
-            LOG.info("[Crafter {}] redstone root-order already active managerPos={} orderId={} patternIndex={} repeats={}",
-                    pos, managerPos, managerRedstoneOrderId, idx, repeats);
-            return true;
-        }
-        managerRedstoneOrderId = null;
-
-        ItemStack pat = patterns.getStackInSlot(idx);
-        if (pat.isEmpty()) {
-            LOG.info("[Crafter {}] redstone root-order rejected: empty pattern slot index={} managerPos={}",
-                    pos, idx, managerPos);
-            return false;
-        }
-        NonNullList<ItemStack> grid = getGrid(pat);
-        ItemStack preview = getCraftPreview(pat, grid);
-        if (preview.isEmpty()) {
-            LOG.info("[Crafter {}] redstone root-order rejected: empty preview index={} managerPos={}",
-                    pos, idx, managerPos);
-            return false;
-        }
-        ItemKey key = ItemKey.of(preview);
-        if (key == null || key == ItemKey.EMPTY) {
-            LOG.info("[Crafter {}] redstone root-order rejected: invalid key index={} managerPos={}",
-                    pos, idx, managerPos);
-            return false;
-        }
-
-        int amount = Math.max(1, preview.getCount()) * Math.max(1, repeats);
-        if (!manager.canAcceptCraftRequest(key, amount)) {
-            LOG.info("[Crafter {}] redstone root-order rejected: craft request cannot be accepted managerPos={} key={} amount={} patternIndex={} repeats={}",
-                    pos, managerPos, key, amount, idx, repeats);
-            return false;
-        }
-
-        UUID id = manager.submitCraftRequest(
-                key,
-                amount,
-                OrderSourceType.REDSTONE_CRAFTER,
-                this.pos,
-                null,
-                therealpant.thaumicattempts.golemnet.logistics.NetworkOrder.RequestIntent.CRAFT_ONLY
-        );
-        if (id != null) {
-            managerRedstoneOrderId = id;
-            LOG.info("[Crafter {}] redstone root-order submit success managerPos={} orderId={} key={} amount={} patternIndex={} repeats={}",
-                    pos, managerPos, id, key, amount, idx, repeats);
-            return true;// попробуем позже
-        }
-        LOG.info("[Crafter {}] redstone root-order submit failed managerPos={} key={} amount={} patternIndex={} repeats={}",
-                pos, managerPos, key, amount, idx, repeats);
-        return false;
     }
 
     // ===== Tick =====
@@ -723,38 +652,29 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             suctionPingCooldown = 20;
         }
 
+        if (jobActive && useManagerForProvision()) {
+            ensureWithManager(false);
+        }
+
         // СНАЧАЛА пробуем запустить из очереди реквестера
         int signal = readSignal();
-
-        if (!jobActive && !managedExecutionQueue.isEmpty()) {
-            tryStartNextManagedJob();
-        }
 
         // 1) если есть очередь от реквестера — запускаем её первой
         if (!jobActive && !requesterQueue.isEmpty()) {
             tryStartNextRequesterJob();
         }
 
-        // 2) редстоун-триггер по фронту — только внешний root-order/legacy старт
-        if (!jobActive && managedExecutionQueue.isEmpty() && requesterQueue.isEmpty() && lastSignal == 0 && signal > 0) {
+        // 2) редстоун-триггер по фронту — как было
+        if (!jobActive && requesterQueue.isEmpty() && lastSignal == 0 && signal > 0) {
             int idx = choosePatternIndexForSignal(signal);
             if (idx >= 0) {
                 ItemStack pat = patterns.getStackInSlot(idx);
                 int repeats = getPatternRepeatCount(pat);
-                boolean managerMode = hasMirrorManagerConnection();
-                LOG.info("[Crafter {}] redstone edge detected signal={} selectedPatternIndex={} managerMode={} managerPos={}",
-                        pos, signal, idx, managerMode, managerPos);
+                boolean managerMode = useManagerForProvision();
+                this.suppressSelfProvision = managerMode ? true : false; // от редстоуна — режим зависит от менеджера
+                this.needEnsureWithManager = managerMode || needEnsureWithManager;
                 this.jobViaRequester = false;
-                if (managerMode) {
-                    boolean submitted = submitManagerCraftOrderForSignal(idx, repeats);
-                    LOG.info("[Crafter {}] redstone root-order submit result success={} selectedPatternIndex={} managerMode={} managerPos={} orderId={}",
-                            pos, submitted, idx, managerMode, managerPos, managerRedstoneOrderId);
-                } else {
-                    this.suppressSelfProvision = false;
-                    startOneCraftCycle(idx, repeats);
-                    LOG.info("[Crafter {}] redstone started legacy/local cycle selectedPatternIndex={} repeats={} managerMode={} managerPos={}",
-                            pos, idx, repeats, managerMode, managerPos);
-                }
+                startOneCraftCycle(idx, repeats);
             }
         }
 
@@ -779,6 +699,11 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         long now = (world != null) ? world.getTotalWorldTime() : 0L;
         lastOrderWorldTime = now - REORDER_TICKS;
         supplyCooldown = 0;
+
+        needEnsureWithManager = useManagerForProvision();
+        if (needEnsureWithManager) {
+            lastEnsureWorldTime = now - 5L;
+        }
 
         markDirty();
     }
@@ -819,7 +744,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
 
         // Если входы уже приехали полностью — сразу к финальной фазе (но долг оплачиваем всё равно частями)
-        if (isAllInputsReadyForJob()) {
+        if (collectMissingForJob().isEmpty()) {
             step = seq.size();
         }
 
@@ -843,7 +768,11 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                 }
             } else {
                 int missingTotal = Math.max(0, totalNeed - have);
-                if (useManagerForProvision()) return;
+                if (useManagerForProvision()) {
+                    needEnsureWithManager = true;
+                    ensureWithManager(true);
+                    return;
+                }
                 // Не хватает предметов — при необходимости делаем провизию (если не подавлена)
                 long now = world.getTotalWorldTime();
                 if (!suppressSelfProvision && (lastOrderWorldTime == 0L || now - lastOrderWorldTime >= REORDER_TICKS)) {
@@ -884,6 +813,10 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                     lastOrderWorldTime = now - REORDER_TICKS;
                     supplyCooldown = 0;
 
+                    needEnsureWithManager = useManagerForProvision();
+                    if (needEnsureWithManager) {
+                        lastEnsureWorldTime = now - 5L;
+                    }
                     return;
                 }
                 finishJob();            // закончить единичный цикл
@@ -901,17 +834,13 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         this.step = 0;
         this.lastOrderWorldTime = 0;
 
-        // сбрасываем режимы источника запуска и подавление провизии
+        // сбрасываем режим «от реквестера» и подавление провизии
         this.jobViaRequester = false;
-        this.jobViaManagerAssignment = false;
         this.suppressSelfProvision = false;
+        this.needEnsureWithManager = false;
 
         if (world == null) return;
 
-        if (!managedExecutionQueue.isEmpty()) {
-            tryStartNextManagedJob();
-            return;
-        }
         // сначала — очередь от реквестера
         if (!requesterQueue.isEmpty()) {
             tryStartNextRequesterJob();
@@ -942,16 +871,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         ItemStack r = like.copy(); r.setCount(Math.max(1, amount)); return r;
     }
 
-    private boolean isAllInputsReadyForJob() {
-        if (seq.isEmpty()) return true;
-        int repeats = Math.max(1, jobRepeatLeft);
-        for (Req r : seq) {
-            if (r == null || r.key1 == null || r.key1.isEmpty()) continue;
-            int need = Math.max(0, r.count * repeats);
-            if (countInInput(r.key1) < need) return false;
-        }
-        return true;
-    }
+
 
     // ===== IEssentiaTransport =====
     private static boolean canFaceInput(EnumFacing face) {
@@ -1011,17 +931,8 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
         nbt.setTag("RequesterQ", rq);
 
-        net.minecraft.nbt.NBTTagList mq = new net.minecraft.nbt.NBTTagList();
-        for (Integer idx : managedExecutionQueue) {
-            net.minecraft.nbt.NBTTagCompound c = new net.minecraft.nbt.NBTTagCompound();
-            c.setInteger("I", idx == null ? -1 : idx);
-            mq.appendTag(c);
-        }
-        nbt.setTag("ManagedQ", mq);
-
         if (managerPos != null) nbt.setLong("Manager", managerPos.toLong());
         nbt.setBoolean("ManagerPattern", managerFromPattern && managerPos != null);
-
 
         return nbt;
     }
@@ -1039,7 +950,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             }
             output = neo;
         }
-
         customName = nbt.hasKey(NBT_CUSTOMNAME, Constants.NBT.TAG_STRING) ? nbt.getString(NBT_CUSTOMNAME) : "";
         craftAmount = nbt.getInteger("CraftAmount");
         Aspect a = Aspect.getAspect(nbt.getString("ReqAspect"));
@@ -1066,19 +976,10 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             }
         }
 
-        managedExecutionQueue.clear();
-        if (nbt.hasKey("ManagedQ", Constants.NBT.TAG_LIST)) {
-            net.minecraft.nbt.NBTTagList mq = nbt.getTagList("ManagedQ", Constants.NBT.TAG_COMPOUND);
-            for (int i = 0; i < mq.tagCount(); i++) {
-                net.minecraft.nbt.NBTTagCompound c = mq.getCompoundTagAt(i);
-                int idx = c.getInteger("I");
-                if (idx >= 0 && idx < PATTERN_SLOTS) managedExecutionQueue.addLast(idx);
-            }
-        }
-
         managerPos = nbt.hasKey("Manager", Constants.NBT.TAG_LONG)
                 ? BlockPos.fromLong(nbt.getLong("Manager")) : null;
         managerFromPattern = nbt.getBoolean("ManagerPattern") && managerPos != null;
+        needEnsureWithManager = jobActive && useManagerForProvision();
 
         // последовательность пересоберём при первом тике работы
         seq.clear();
