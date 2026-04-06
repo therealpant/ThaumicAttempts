@@ -2925,12 +2925,20 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (source.mode == EndpointRef.AccessMode.BUFFER && src.equals(this.pos)) {
             int sourceSlot = source.stagingSlotIndex;
             int canSend = Math.min(amount, countInManagerBufferLike(like, sourceSlot));
+            if (canSend < amount) {
+                int shortage = Math.max(0, amount - canSend);
+                if (shortage > 0) {
+                    LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
+                    needs.put(key, shortage);
+                    ensureDeliveryForExact(this.pos, needs, queueId);
+                }
+            }
             if (canSend <= 0) {
-                return countQueuedFor(dst, like) > 0;
+                return countQueuedFor(this.pos, like) > 0 || countQueuedFor(dst, like) > 0;
             }
 
             int movedNow = pushFromBufferTo(dst, -1, like, canSend, sourceSlot);
-            return movedNow > 0 || countQueuedFor(dst, like) > 0;
+            return movedNow > 0 || countQueuedFor(this.pos, like) > 0 || countQueuedFor(dst, like) > 0;
         }
 
         /*

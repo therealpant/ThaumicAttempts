@@ -228,7 +228,7 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             long previousCompleted = task.completedAmount;
             boolean dispatchAllowed = !outputStageTask || isReservationDispatchAllowed(logistics, task);
             if (!outputStageTask || dispatchAllowed) {
-                task.completedAmount = calculateDeliveredToTarget(task);
+                task.completedAmount = calculateTaskProgress(task);
             } else {
                 task.completedAmount = previousCompleted;
             }
@@ -371,19 +371,11 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                                     queueId);
                         }
 
-
-                        int sourceItemsAfter = manager.countItemAtEndpoint(task.source, task.itemKey);
                         int sourceQueuedAfter = manager.countQueuedForEndpoint(task.source, task.itemKey);
-                        int targetItemsAfter = manager.countItemAtEndpoint(task.target, task.itemKey);
-                        boolean stagedArrivalObserved = targetItemsAfter > targetItemsBefore;
                         boolean queuedToManager = sourceQueuedAfter > sourceQueuedBefore || sourceQueuedAfter > 0;
+                        task.inboundQueued = task.inboundQueued || inboundAccepted || queuedToManager;
 
-                        if (stagedArrivalObserved) {
-                            task.lastDispatchTick = nowTick;
-                            transitionStatus(task, TaskStatus.IN_PROGRESS, "inbound-staged-arrival-observed");
-                            LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request staged-arrival-observed=true stagedBefore={} stagedAfter={}",
-                                    task.taskId, targetItemsBefore, targetItemsAfter);
-                        } else if (inboundAccepted || queuedToManager) {
+                        if (inboundAccepted || queuedToManager) {
                             task.lastDispatchTick = nowTick;
                             transitionStatus(task, TaskStatus.DISPATCHED, "waiting-golem-delivery");
                             LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request waiting-for-golem-delivery queuedToManager={} queuedNow={}",
@@ -514,8 +506,16 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         return queueId;
     }
 
-    private long calculateDeliveredToTarget(TransferTask task) {
+    private long calculateTaskProgress(TransferTask task) {
         if (task == null || task.target == null || task.itemKey == null || manager == null) return 0L;
+
+        if (isManagerInboundProvisionTask(task)) {
+            int queuedToManager = manager.countQueuedForEndpoint(task.target, task.itemKey);
+            if (task.inboundQueued && queuedToManager <= 0) {
+                return task.amount;
+            }
+            return Math.min(task.completedAmount, task.amount);
+        }
 
         int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
         if (task.targetBaseline < 0) {
