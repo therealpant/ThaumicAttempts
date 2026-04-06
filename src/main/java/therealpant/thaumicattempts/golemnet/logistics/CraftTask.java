@@ -12,44 +12,10 @@ public class CraftTask extends RuntimeTask {
     private static final org.apache.logging.log4j.Logger LOG =
             org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/CraftTask");
 
-    /*
-     * Сколько итоговых предметов даёт 1 цикл рецепта.
-     * Например:
-     * - факелы -> 4
-     * - палки -> 4
-     * - большинство обычных рецептов -> 1
-     */
-    public int outputPerCycle = 1;
-
-    /*
-     * Сколько циклов уже было поставлено в крафтер.
-     * Используется CrafterExecutor'ом для batch scheduling.
-     */
-    public int scheduledCycles = 0;
-
-    /**
-     * Endpoint, куда подаются ингредиенты / где запускается крафт.
-     * Обычно это INPUT endpoint крафтера.
-     */
     public EndpointRef crafter;
-
-    /**
-     * Что именно крафтим.
-     */
     public ItemKey recipeKey;
-
-    /**
-     * Это именно наблюдаемый OUTPUT крафтера.
-     * По нему CrafterExecutor понимает, что результат реально появился.
-     */
     public EndpointRef outputEndpoint;
-
-    /**
-     * Входы на весь объём этого craft-task.
-     */
     public final LinkedHashMap<ItemKey, Integer> requiredInputs = new LinkedHashMap<ItemKey, Integer>();
-    public int lastOutputCount = 0;
-    public int noProgressTicks = 0;
 
     public String validationError() {
         if (taskId == null) return "missing-task-id";
@@ -58,9 +24,6 @@ public class CraftTask extends RuntimeTask {
         if (recipeKey == null || recipeKey == ItemKey.EMPTY) return "missing-recipe-key";
         if (outputEndpoint == null || outputEndpoint.pos == null) return "missing-output-endpoint";
         if (requiredInputs.isEmpty()) return "missing-required-inputs";
-        if (outputPerCycle <= 0) return "invalid-output-per-cycle";
-        if (scheduledCycles < 0) return "invalid-scheduled-cycles";
-
         for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
             if (e.getKey() == null || e.getKey() == ItemKey.EMPTY) return "invalid-required-input-key";
             if (e.getValue() == null || e.getValue() <= 0) return "invalid-required-input-amount";
@@ -81,11 +44,6 @@ public class CraftTask extends RuntimeTask {
     public NBTTagCompound writeToNbt() {
         NBTTagCompound tag = new NBTTagCompound();
         writeCommon(tag);
-
-        tag.setInteger("outputPerCycle", Math.max(1, outputPerCycle));
-        tag.setInteger("scheduledCycles", Math.max(0, scheduledCycles));
-        tag.setInteger("lastOutputCount", Math.max(0, lastOutputCount));
-        tag.setInteger("noProgressTicks", Math.max(0, noProgressTicks));
 
         if (crafter != null) {
             tag.setTag("crafter", crafter.writeToNbt());
@@ -113,8 +71,7 @@ public class CraftTask extends RuntimeTask {
 
         String err = validationError();
         if (err != null) {
-            LOG.warn("[CraftTask] writeToNbt invalid taskId={} orderId={} reason={} crafter={} key={} output={} perCycle={} scheduledCycles={}",
-                    taskId, orderId, err, crafter, recipeKey, outputEndpoint, outputPerCycle, scheduledCycles);
+            LOG.warn("[CraftTask] writeToNbt invalid taskId={} orderId={} reason={}", taskId, orderId, err);
         }
 
         return tag;
@@ -123,24 +80,12 @@ public class CraftTask extends RuntimeTask {
     @Override
     protected void readFromNbtImpl(NBTTagCompound tag) {
         readCommon(tag);
-
-        outputPerCycle = Math.max(1, tag.getInteger("outputPerCycle"));
-        scheduledCycles = Math.max(0, tag.getInteger("scheduledCycles"));
-        lastOutputCount = Math.max(0, tag.getInteger("lastOutputCount"));
-        noProgressTicks = Math.max(0, tag.getInteger("noProgressTicks"));
-
         crafter = tag.hasKey("crafter", Constants.NBT.TAG_COMPOUND)
-                ? EndpointRef.readFromNbt(tag.getCompoundTag("crafter"))
-                : null;
-
+                ? EndpointRef.readFromNbt(tag.getCompoundTag("crafter")) : null;
         recipeKey = tag.hasKey("recipeKey", Constants.NBT.TAG_COMPOUND)
-                ? ItemKey.of(new net.minecraft.item.ItemStack(tag.getCompoundTag("recipeKey")))
-                : ItemKey.EMPTY;
-
+                ? ItemKey.of(new net.minecraft.item.ItemStack(tag.getCompoundTag("recipeKey"))) : ItemKey.EMPTY;
         outputEndpoint = tag.hasKey("output", Constants.NBT.TAG_COMPOUND)
-                ? EndpointRef.readFromNbt(tag.getCompoundTag("output"))
-                : null;
-
+                ? EndpointRef.readFromNbt(tag.getCompoundTag("output")) : null;
         requiredInputs.clear();
         NBTTagList ins = tag.getTagList("inputs", Constants.NBT.TAG_COMPOUND);
         for (int i = 0; i < ins.tagCount(); i++) {
@@ -149,11 +94,9 @@ public class CraftTask extends RuntimeTask {
             if (key == null || key == ItemKey.EMPTY) continue;
             requiredInputs.put(key, Math.max(1, row.getInteger("amount")));
         }
-
         String err = validationError();
         if (err != null) {
-            LOG.warn("[CraftTask] readFromNbt invalid taskId={} orderId={} reason={} crafter={} key={} output={} perCycle={} scheduledCycles={}",
-                    taskId, orderId, err, crafter, recipeKey, outputEndpoint, outputPerCycle, scheduledCycles);
+            LOG.warn("[CraftTask] readFromNbt invalid taskId={} orderId={} reason={}", taskId, orderId, err);
         }
     }
 }

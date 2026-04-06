@@ -13,36 +13,14 @@ public class EndpointRef {
 
     public final BlockPos pos;
     public final AccessMode mode;
-    public final int stagingSlotIndex;
 
     public EndpointRef(BlockPos pos) {
-        this(pos, AccessMode.DIRECT, -1);
+        this(pos, AccessMode.DIRECT);
     }
 
     public EndpointRef(BlockPos pos, AccessMode mode) {
-        this(pos, mode, -1);
-    }
-
-    public EndpointRef(BlockPos pos, AccessMode mode, int stagingSlotIndex) {
         this.pos = pos == null ? BlockPos.ORIGIN : pos.toImmutable();
         this.mode = mode == null ? AccessMode.DIRECT : mode;
-        this.stagingSlotIndex = stagingSlotIndex;
-    }
-
-    public static EndpointRef managerBuffer(BlockPos pos) {
-        return new EndpointRef(pos, AccessMode.BUFFER);
-    }
-
-    public static EndpointRef managerBufferSlot(BlockPos pos, int slotIndex) {
-        return new EndpointRef(pos, AccessMode.BUFFER, slotIndex);
-    }
-
-    public static EndpointRef managerInput(BlockPos pos) {
-        return new EndpointRef(pos, AccessMode.INPUT);
-    }
-
-    public static EndpointRef managerOutput(BlockPos pos) {
-        return new EndpointRef(pos, AccessMode.OUTPUT);
     }
 
     public static EndpointRef of(BlockPos pos) {
@@ -57,7 +35,6 @@ public class EndpointRef {
         NBTTagCompound tag = new NBTTagCompound();
         tag.setLong("pos", pos.toLong());
         tag.setString("mode", mode.name());
-        tag.setInteger("stagingSlotIndex", stagingSlotIndex);
         return tag;
     }
 
@@ -70,7 +47,6 @@ public class EndpointRef {
                 mode = AccessMode.DIRECT;
             }
         }
-        int stagingSlotIndex = tag.hasKey("stagingSlotIndex") ? tag.getInteger("stagingSlotIndex") : -1;
-        return new EndpointRef(BlockPos.fromLong(tag.getLong("pos")), mode, stagingSlotIndex);
+        return new EndpointRef(BlockPos.fromLong(tag.getLong("pos")), mode);
     }
 }

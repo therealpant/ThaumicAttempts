@@ -1130,13 +1130,14 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (key == null || key == ItemKey.EMPTY) return false;
 
         int amount = Math.max(1, preview.getCount()) * Math.max(1, crafts);
-        UUID id = ((TileMirrorManager) te).submitCraftRequest(
+        UUID id = ((TileMirrorManager) te).submitCreationOrder(
                 key,
                 amount,
                 therealpant.thaumicattempts.golemnet.logistics.OrderSourceType.REDSTONE_INFUSION,
                 this.pos,
                 this.pos,
-                NetworkOrder.RequestIntent.CRAFT_ONLY
+                NetworkOrder.RequestIntent.CRAFT_ONLY,
+                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.LEAVE_IN_CRAFTER
         );
         return id != null;
     }

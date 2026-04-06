@@ -27,132 +27,9 @@ public class LogisticsNetworkState {
     private final LinkedHashMap<String, UUID> activeOrderDedup = new LinkedHashMap<String, UUID>();
     private final LinkedHashMap<ItemKey, List<RecipeNode>> recipesByResult = new LinkedHashMap<ItemKey, List<RecipeNode>>();
     private final ResourceReservationBook reservationBook = new ResourceReservationBook();
-    private static final int RESERVED_STAGING_SLOT_COUNT = 18;
-    private final LinkedHashMap<UUID, BufferReservation> bufferReservations = new LinkedHashMap<UUID, BufferReservation>();
-    private final LinkedHashMap<UUID, UUID> reservationByOrderId = new LinkedHashMap<UUID, UUID>();
-    private final LinkedHashMap<UUID, BufferedBatch> bufferedBatches = new LinkedHashMap<UUID, BufferedBatch>();
 
     private final ManagerExecutor managerExecutor = new ManagerExecutor();
     private final CrafterExecutor crafterExecutor = new CrafterExecutor();
-
-    private static final class EffectiveNeedSnapshot {
-        int requested;
-        int presentAtTarget;
-        int reservedInbound;
-        int availableInNetwork;
-        int missingNow;
-        int craftNeeded;
-    }
-
-    public static final class BufferReservation extends DeliveryReservation {
-        public int requestedAmount;
-        public int stagedOwned;
-        public int consumedOwned;
-        public int incomingQueued;
-        public int slotIndex;
-        public boolean readyForDispatch;
-        public long updatedTick;
-
-        public NBTTagCompound writeToNbt() {
-            NBTTagCompound tag = new NBTTagCompound();
-            tag.setString("reservationId", reservationId.toString());
-            tag.setString("orderId", orderId.toString());
-            tag.setTag("itemKey", itemKey.toStack(1).writeToNBT(new NBTTagCompound()));
-            tag.setInteger("requestedAmount", requestedAmount);
-            tag.setInteger("stagedOwned", stagedOwned);
-            tag.setInteger("consumedOwned", consumedOwned);
-            tag.setInteger("incomingQueued", incomingQueued);
-            tag.setInteger("slotIndex", slotIndex);
-            tag.setBoolean("readyForDispatch", readyForDispatch);
-            tag.setBoolean("released", released);
-            tag.setLong("createdTick", createdTick);
-            tag.setLong("updatedTick", updatedTick);
-            tag.setInteger("requested", requested);
-            tag.setInteger("staged", staged);
-            tag.setInteger("dispatched", dispatched);
-            tag.setInteger("delivered", delivered);
-            tag.setInteger("inFlightInbound", inFlightInbound);
-            tag.setInteger("inFlightOutbound", inFlightOutbound);
-            tag.setInteger("failedOrLost", failedOrLost);
-            tag.setInteger("reservedSlot", reservedSlot);
-            tag.setString("stage", stage == null ? DeliveryStage.NEW.name() : stage.name());
-            if (source != null) tag.setTag("sourceRef", source.writeToNbt());
-            if (managerBuffer != null) tag.setTag("bufferRef", managerBuffer.writeToNbt());
-            if (finalTarget != null) tag.setTag("targetRef", finalTarget.writeToNbt());
-            return tag;
-        }
-
-        @Nullable
-        public static BufferReservation readFromNbt(NBTTagCompound tag) {
-            if (tag == null) return null;
-            BufferReservation reservation = new BufferReservation();
-            try {
-                reservation.reservationId = UUID.fromString(tag.getString("reservationId"));
-                reservation.orderId = UUID.fromString(tag.getString("orderId"));
-            } catch (Exception ignored) {
-                return null;
-            }
-            reservation.itemKey = ItemKey.of(new ItemStack(tag.getCompoundTag("itemKey")));
-            reservation.requestedAmount = Math.max(1, tag.getInteger("requestedAmount"));
-            if (tag.hasKey("stagedOwned", Constants.NBT.TAG_INT)) {
-                reservation.stagedOwned = Math.max(0, tag.getInteger("stagedOwned"));
-            } else {
-                reservation.stagedOwned = Math.max(0, tag.getInteger("stagedAmount"));
-            }
-            reservation.consumedOwned = Math.max(0, tag.getInteger("consumedOwned"));
-            reservation.incomingQueued = Math.max(0, tag.getInteger("incomingQueued"));
-            reservation.slotIndex = Math.max(0, tag.getInteger("slotIndex"));
-            reservation.readyForDispatch = tag.getBoolean("readyForDispatch");
-            reservation.released = tag.getBoolean("released");
-            reservation.createdTick = tag.getLong("createdTick");
-            reservation.updatedTick = tag.getLong("updatedTick");
-            reservation.requested = tag.hasKey("requested", Constants.NBT.TAG_INT) ? tag.getInteger("requested") : reservation.requestedAmount;
-            reservation.staged = tag.hasKey("staged", Constants.NBT.TAG_INT) ? tag.getInteger("staged") : reservation.stagedOwned;
-            reservation.dispatched = tag.hasKey("dispatched", Constants.NBT.TAG_INT) ? tag.getInteger("dispatched") : reservation.consumedOwned;
-            reservation.delivered = tag.hasKey("delivered", Constants.NBT.TAG_INT) ? tag.getInteger("delivered") : 0;
-            reservation.inFlightInbound = tag.hasKey("inFlightInbound", Constants.NBT.TAG_INT) ? tag.getInteger("inFlightInbound") : reservation.incomingQueued;
-            reservation.inFlightOutbound = tag.hasKey("inFlightOutbound", Constants.NBT.TAG_INT) ? tag.getInteger("inFlightOutbound") : 0;
-            reservation.failedOrLost = tag.hasKey("failedOrLost", Constants.NBT.TAG_INT) ? tag.getInteger("failedOrLost") : 0;
-            reservation.reservedSlot = tag.hasKey("reservedSlot", Constants.NBT.TAG_INT) ? tag.getInteger("reservedSlot") : reservation.slotIndex;
-            if (tag.hasKey("stage", Constants.NBT.TAG_STRING)) {
-                try {
-                    reservation.stage = DeliveryStage.valueOf(tag.getString("stage"));
-                } catch (Exception ignored) {
-                    reservation.stage = DeliveryStage.NEW;
-                }
-            }
-            if (tag.hasKey("sourceRef", Constants.NBT.TAG_COMPOUND)) reservation.source = EndpointRef.readFromNbt(tag.getCompoundTag("sourceRef"));
-            if (tag.hasKey("bufferRef", Constants.NBT.TAG_COMPOUND)) reservation.managerBuffer = EndpointRef.readFromNbt(tag.getCompoundTag("bufferRef"));
-            if (tag.hasKey("targetRef", Constants.NBT.TAG_COMPOUND)) reservation.finalTarget = EndpointRef.readFromNbt(tag.getCompoundTag("targetRef"));
-            return reservation;
-        }
-    }
-
-    public static final class ReservationDispatchSnapshot {
-        public final UUID reservationId;
-        public final UUID orderId;
-        public final int slotIndex;
-        public final int stagedOwned;
-        public final int requestedAmount;
-        public final int requiredAmount;
-        public final boolean readyForDispatch;
-
-        public ReservationDispatchSnapshot(@Nullable UUID reservationId,
-                                           @Nullable UUID orderId,
-                                           int slotIndex,
-                                           int stagedOwned,
-                                           int requestedAmount,
-                                           int requiredAmount,
-                                           boolean readyForDispatch) {
-            this.reservationId = reservationId;
-            this.orderId = orderId;
-            this.slotIndex = slotIndex;
-            this.stagedOwned = stagedOwned;
-            this.requestedAmount = requestedAmount;
-            this.requiredAmount = requiredAmount;
-            this.readyForDispatch = readyForDispatch;
-        }
-    }
 
     @Nullable
     public OrderStatus getOrderStatus(@Nullable UUID orderId) {
@@ -263,8 +140,6 @@ public class LogisticsNetworkState {
         NetworkOrder.OrderKind safeKind = (orderKind == null ? NetworkOrder.OrderKind.DELIVERY : orderKind);
         CreationOutputMode safeOutputMode = (creationOutputMode == null ? CreationOutputMode.RETURN_TO_REQUESTER : creationOutputMode);
 
-        boolean dedupeAllowed = sourceType != OrderSourceType.TERMINAL;
-
         String dedupeKey = sourceType.name()
                 + "|" + sourcePos.toLong()
                 + "|" + key.hashCode()
@@ -275,18 +150,16 @@ public class LogisticsNetworkState {
                 + "|" + safeKind.name()
                 + "|" + safeOutputMode.name();
 
-        if (dedupeAllowed) {
-            UUID existing = activeOrderDedup.get(dedupeKey);
-            if (existing != null) {
-                NetworkOrder existingOrder = orders.get(existing);
-                if (existingOrder != null
-                        && existingOrder.status != OrderStatus.DONE
-                        && existingOrder.status != OrderStatus.FAILED
-                        && existingOrder.status != OrderStatus.CANCELED) {
-                    return existing;
-                }
-                activeOrderDedup.remove(dedupeKey);
+        UUID existing = activeOrderDedup.get(dedupeKey);
+        if (existing != null) {
+            NetworkOrder existingOrder = orders.get(existing);
+            if (existingOrder != null
+                    && existingOrder.status != OrderStatus.DONE
+                    && existingOrder.status != OrderStatus.FAILED
+                    && existingOrder.status != OrderStatus.CANCELED) {
+                return existing;
             }
+            activeOrderDedup.remove(dedupeKey);
         }
 
         long now = manager.getServerTickCounter();
@@ -299,7 +172,6 @@ public class LogisticsNetworkState {
         order.returnDestination = returnDestination == null ? null : returnDestination.toImmutable();
         order.requestedKey = key;
         order.requestedAmount = Math.max(1, amount);
-        order.operationalNeeded = order.requestedAmount;
         order.completedAmount = 0;
         order.status = OrderStatus.NEW;
         order.createdTick = now;
@@ -311,13 +183,10 @@ public class LogisticsNetworkState {
         order.recipePath = false;
 
         orders.put(order.orderId, order);
+        activeOrderDedup.put(dedupeKey, order.orderId);
 
-        if (dedupeAllowed) {
-            activeOrderDedup.put(dedupeKey, order.orderId);
-        }
-
-        LOG.info("[Logistics {}] request accepted order={} source={} key={} amount={} reason={} intent={} kind={} outputMode={} dedupeAllowed={}",
-                manager.getPos(), order.orderId, sourceType, key, amount, reason, order.intent, order.orderKind, order.creationOutputMode, dedupeAllowed);
+        LOG.info("[Logistics {}] request accepted order={} source={} key={} amount={} reason={} intent={} kind={} outputMode={}",
+                manager.getPos(), order.orderId, sourceType, key, amount, reason, order.intent, order.orderKind, order.creationOutputMode);
 
         if (parentOrderId != null) {
             NetworkOrder parent = orders.get(parentOrderId);
@@ -332,539 +201,32 @@ public class LogisticsNetworkState {
         order.status = OrderStatus.PLANNING;
         order.updatedTick = manager.getServerTickCounter();
 
-        if (isTerminalDeliveryOrder(order) && !ensureReservationForOrder(manager, order)) {
-            order.status = OrderStatus.WAITING_BUFFER_SLOT;
-            order.lastError = "waiting-buffer-slot";
-            LOG.info("[Logistics {}] order={} waiting for free staging slot key={} amount={} status={}",
-                    manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.status);
-            return;
-        }
-
         LinkedHashMap<ItemKey, Integer> catalog = manager.getReachableCatalog();
 
-        EndpointRef managerBuffer = resolveOrderManagerBuffer(manager, order);
+        EndpointRef managerBuffer = EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER);
         EndpointRef finalTarget = EndpointRef.of(
                 order.returnDestination != null ? order.returnDestination : order.sourcePos,
                 EndpointRef.AccessMode.INPUT
         );
 
-        if (order.targetSnapshotAmount < 0) {
-            order.targetSnapshotAmount = Math.max(0, countExactInTargetInventory(manager, finalTarget, order.requestedKey));
-        }
-        if (order.stockSnapshotAmount < 0) {
-            order.stockSnapshotAmount = Math.max(0, countDirectAvailableInNetwork(manager, order.requestedKey, order.orderId));
-        }
-
-        EffectiveNeedSnapshot need = computeEffectiveTargetNeed(manager, order.requestedKey, order.requestedAmount, finalTarget, order.orderId, true);
-        order.operationalNeeded = need.missingNow;
-
-        LOG.info("[Logistics {}] order={} effective-need rawRequested={} presentAtTarget={} inboundReserved={} directAvailable={} effectiveMissing={} kind={}",
-                manager.getPos(),
-                order.orderId,
-                order.requestedAmount,
-                need.presentAtTarget,
-                need.reservedInbound,
-                need.availableInNetwork,
-                need.missingNow,
-                order.orderKind);
-
-        if (need.missingNow <= 0) {
-            order.completedAmount = 0;
-            order.status = OrderStatus.DONE;
-            removeOrderFromDedup(order.orderId);
-            LOG.info("[Logistics {}] order={} status=DONE reason=already-satisfied key={} requested={}",
-                    manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount);
-            return;
-        }
-
         if (order.orderKind == NetworkOrder.OrderKind.CREATION) {
             order.recipePath = true;
-            planCreationOrder(manager, order, catalog, finalTarget, managerBuffer, need);
+            planCreationOrder(manager, order, catalog, finalTarget, managerBuffer);
             return;
         }
 
-        planDeliveryOrder(manager, order, catalog, finalTarget, managerBuffer, need);
-    }
-
-    private boolean ensureReservationForOrder(TileMirrorManager manager, NetworkOrder order) {
-        if (manager == null || order == null || order.orderId == null) return false;
-        if (!isTerminalDeliveryOrder(order)) return true;
-
-        BufferReservation existing = findReservationByOrder(order.orderId);
-        if (existing != null && !existing.released) {
-            order.stagingSlotIndex = existing.slotIndex;
-            order.stagingReservationId = existing.reservationId;
-            existing.updatedTick = manager.getServerTickCounter();
-            return true;
-        }
-
-        boolean[] occupied = new boolean[RESERVED_STAGING_SLOT_COUNT];
-        for (BufferReservation reservation : bufferReservations.values()) {
-            if (reservation == null || reservation.released) continue;
-            if (reservation.slotIndex >= 0 && reservation.slotIndex < RESERVED_STAGING_SLOT_COUNT) {
-                occupied[reservation.slotIndex] = true;
-            }
-        }
-
-        int freeSlot = -1;
-        for (int i = 0; i < RESERVED_STAGING_SLOT_COUNT; i++) {
-            if (!occupied[i]) {
-                freeSlot = i;
-                break;
-            }
-        }
-
-        if (freeSlot < 0) {
-            LOG.info("[Logistics {}] reservation waiting order={} key={} requested={} reason=no-free-staging-slot",
-                    manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount);
-            return false;
-        }
-
-        BufferReservation reservation = new BufferReservation();
-        reservation.reservationId = UUID.randomUUID();
-        reservation.orderId = order.orderId;
-        reservation.itemKey = order.requestedKey;
-        reservation.requestedAmount = Math.max(1, order.requestedAmount);
-        reservation.requested = reservation.requestedAmount;
-        reservation.stagedOwned = 0;
-        reservation.staged = 0;
-        reservation.consumedOwned = 0;
-        reservation.dispatched = 0;
-        reservation.delivered = 0;
-        reservation.incomingQueued = 0;
-        reservation.inFlightInbound = 0;
-        reservation.inFlightOutbound = 0;
-        reservation.slotIndex = freeSlot;
-        reservation.reservedSlot = freeSlot;
-        reservation.readyForDispatch = false;
-        reservation.released = false;
-        reservation.createdTick = manager.getServerTickCounter();
-        reservation.updatedTick = reservation.createdTick;
-        reservation.lastProgressTick = reservation.createdTick;
-        reservation.source = stockSource(manager);
-        reservation.managerBuffer = EndpointRef.managerBufferSlot(manager.getPos(), freeSlot);
-        reservation.finalTarget = EndpointRef.of(
-                order.returnDestination != null ? order.returnDestination : order.sourcePos,
-                EndpointRef.AccessMode.INPUT
-        );
-        reservation.stage = DeliveryStage.WAITING_INBOUND;
-
-        bufferReservations.put(reservation.reservationId, reservation);
-        reservationByOrderId.put(order.orderId, reservation.reservationId);
-        order.stagingSlotIndex = freeSlot;
-        order.stagingReservationId = reservation.reservationId;
-
-        LOG.info("[Logistics {}] reservation created reservation={} order={} key={} requested={}",
-                manager.getPos(), reservation.reservationId, order.orderId, reservation.itemKey, reservation.requestedAmount);
-        LOG.info("[Logistics {}] reservation assigned reservation={} order={} slotIndex={}",
-                manager.getPos(), reservation.reservationId, order.orderId, reservation.slotIndex);
-        return true;
-    }
-
-    @Nullable
-    private BufferReservation findReservationByOrder(@Nullable UUID orderId) {
-        if (orderId == null) return null;
-        UUID reservationId = reservationByOrderId.get(orderId);
-        if (reservationId == null) return null;
-        return bufferReservations.get(reservationId);
-    }
-
-    @Nullable
-    public BufferReservation findReservationForTask(@Nullable TransferTask task) {
-        if (task == null) return null;
-        BufferReservation byReservationId = null;
-        if (task.stagingReservationId != null) {
-            byReservationId = bufferReservations.get(task.stagingReservationId);
-            if (isReservationMappedToTask(task, byReservationId)) {
-                return byReservationId;
-            }
-        }
-        BufferReservation byOrder = findReservationByOrder(task.orderId);
-        if (isReservationMappedToTask(task, byOrder)) {
-            return byOrder;
-        }
-        return null;
-    }
-
-    public void onManagerBufferSlotFilled(TileMirrorManager manager,
-                                          ItemStack deliveredStack,
-                                          int deliveredCount,
-                                          int physicalSlot,
-                                          ItemStack slotBefore,
-                                          ItemStack slotAfter) {
-        if (manager == null || deliveredStack == null || deliveredStack.isEmpty() || deliveredCount <= 0) return;
-
-        ItemKey deliveredKey = ItemKey.of(deliveredStack);
-        TransferTask matchedTask = null;
-        BufferReservation matchedByTask = null;
-        BufferReservation matchedBySlot = null;
-
-        for (RuntimeTask runtimeTask : runtimeTasks.values()) {
-            if (!(runtimeTask instanceof TransferTask)) continue;
-            TransferTask task = (TransferTask) runtimeTask;
-            if (task.target == null
-                    || task.target.mode != EndpointRef.AccessMode.BUFFER
-                    || task.target.pos == null
-                    || !manager.getPos().equals(task.target.pos)) {
-                continue;
-            }
-            if (task.itemKey == null || task.itemKey == ItemKey.EMPTY || !task.itemKey.equals(deliveredKey)) continue;
-
-            BufferReservation reservation = findReservationForTask(task);
-            LOG.info("[ReservationLookup] manager={} queueId={} taskId={} orderId={} reservationId={} slotIndex={} itemKey={} amount={}",
-                    manager.getPos(),
-                    task.legacyDeliveryQueueId,
-                    task.taskId,
-                    task.orderId,
-                    reservation == null ? null : reservation.reservationId,
-                    reservation == null ? task.stagingSlotIndex : reservation.slotIndex,
-                    deliveredKey,
-                    deliveredCount);
-
-            if (matchedTask == null && task.status != TaskStatus.DONE && task.status != TaskStatus.CANCELED && task.status != TaskStatus.FAILED) {
-                matchedTask = task;
-                matchedByTask = reservation;
-            }
-        }
-
-        for (BufferReservation reservation : bufferReservations.values()) {
-            if (reservation == null || reservation.released) continue;
-            if (reservation.slotIndex != physicalSlot) continue;
-            if (reservation.itemKey == null || !reservation.itemKey.equals(deliveredKey)) continue;
-            matchedBySlot = reservation;
-            break;
-        }
-
-        if (matchedTask != null) {
-            LOG.info("[ManagerSlotAssign] manager={} item={} amount={} orderId={} reservationId={} expectedSlot={} reason={}",
-                    manager.getPos(),
-                    deliveredKey,
-                    deliveredCount,
-                    matchedTask.orderId,
-                    matchedByTask == null ? matchedTask.stagingReservationId : matchedByTask.reservationId,
-                    matchedByTask == null ? matchedTask.stagingSlotIndex : matchedByTask.slotIndex,
-                    matchedByTask != null ? "task-reservation-lookup" : "task-fallback-staging-fields");
-        } else if (matchedBySlot != null) {
-            LOG.info("[ManagerSlotAssign] manager={} item={} amount={} orderId={} reservationId={} expectedSlot={} reason={}",
-                    manager.getPos(),
-                    deliveredKey,
-                    deliveredCount,
-                    matchedBySlot.orderId,
-                    matchedBySlot.reservationId,
-                    matchedBySlot.slotIndex,
-                    "slot-based-fallback");
-        }
-
-        int slotCountAfter = manager.countItemAtEndpoint(
-                EndpointRef.managerBufferSlot(manager.getPos(), physicalSlot),
-                deliveredKey
-        );
-        boolean verifyIdentity = ResourceIdentity.sameResource(slotAfter, deliveredStack);
-        if (!verifyIdentity || slotCountAfter < deliveredCount) {
-            LOG.error("[ManagerSlotVerifyError] manager={} item={} deliveredCount={} physicalSlot={} slotAfter={} verifiedSlotCount={} identityMatch={}",
-                    manager.getPos(),
-                    deliveredKey,
-                    deliveredCount,
-                    physicalSlot,
-                    slotAfter,
-                    slotCountAfter,
-                    verifyIdentity);
-        }
-
-        LinkedHashMap<UUID, Integer> stagedBefore = new LinkedHashMap<UUID, Integer>();
-        LinkedHashMap<UUID, Boolean> readyBefore = new LinkedHashMap<UUID, Boolean>();
-        for (Map.Entry<UUID, BufferReservation> e : bufferReservations.entrySet()) {
-            BufferReservation reservation = e.getValue();
-            if (reservation == null) continue;
-            stagedBefore.put(e.getKey(), Math.max(0, reservation.stagedOwned));
-            readyBefore.put(e.getKey(), reservation.readyForDispatch);
-        }
-        int slotDelta = Math.max(0, slotAfter.getCount() - slotBefore.getCount());
-        int physicallyArrived = Math.max(0, slotDelta);
-
-        if (matchedByTask != null && !matchedByTask.released) {
-            int deliveredOwned = Math.max(0, physicallyArrived);
-            matchedByTask.stagedOwned = Math.max(0, matchedByTask.stagedOwned + deliveredOwned);
-            matchedByTask.incomingQueued = Math.max(0, matchedByTask.incomingQueued - deliveredOwned);
-            matchedByTask.inFlightInbound = matchedByTask.incomingQueued;
-            matchedByTask.staged = matchedByTask.stagedOwned;
-            matchedByTask.readyForDispatch = matchedByTask.stagedOwned >= matchedByTask.requestedAmount;
-            matchedByTask.lastProgressTick = manager.getServerTickCounter();
-            matchedByTask.updatedTick = manager.getServerTickCounter();
-            matchedByTask.stage = matchedByTask.stagedOwned > matchedByTask.consumedOwned ? DeliveryStage.STAGED : DeliveryStage.WAITING_INBOUND;
-            if (deliveredOwned > 0) {
-                BufferedBatch batch = new BufferedBatch();
-                batch.batchId = UUID.randomUUID();
-                batch.reservationId = matchedByTask.reservationId;
-                batch.orderId = matchedByTask.orderId;
-                batch.itemKey = deliveredKey;
-                batch.amount = deliveredOwned;
-                batch.slot = physicalSlot;
-                bufferedBatches.put(batch.batchId, batch);
-            }
-            LOG.info("[InboundAssign] task={} order={} addedToReservation={} newStaged={}",
-                    matchedTask == null ? null : matchedTask.taskId,
-                    matchedByTask.orderId,
-                    deliveredOwned,
-                    matchedByTask.stagedOwned);
-        } else if (matchedBySlot != null && !matchedBySlot.released) {
-            int deliveredOwned = Math.max(0, physicallyArrived);
-            matchedBySlot.stagedOwned = Math.max(0, matchedBySlot.stagedOwned + deliveredOwned);
-            matchedBySlot.incomingQueued = Math.max(0, matchedBySlot.incomingQueued - deliveredOwned);
-            matchedBySlot.inFlightInbound = matchedBySlot.incomingQueued;
-            matchedBySlot.staged = matchedBySlot.stagedOwned;
-            matchedBySlot.readyForDispatch = matchedBySlot.stagedOwned >= matchedBySlot.requestedAmount;
-            matchedBySlot.lastProgressTick = manager.getServerTickCounter();
-            matchedBySlot.updatedTick = manager.getServerTickCounter();
-            matchedBySlot.stage = matchedBySlot.stagedOwned > matchedBySlot.consumedOwned ? DeliveryStage.STAGED : DeliveryStage.WAITING_INBOUND;
-            if (deliveredOwned > 0) {
-                BufferedBatch batch = new BufferedBatch();
-                batch.batchId = UUID.randomUUID();
-                batch.reservationId = matchedBySlot.reservationId;
-                batch.orderId = matchedBySlot.orderId;
-                batch.itemKey = deliveredKey;
-                batch.amount = deliveredOwned;
-                batch.slot = physicalSlot;
-                bufferedBatches.put(batch.batchId, batch);
-            }
-            LOG.info("[InboundAssign] task={} order={} addedToReservation={} newStaged={}",
-                    matchedTask == null ? null : matchedTask.taskId,
-                    matchedBySlot.orderId,
-                    deliveredOwned,
-                    matchedBySlot.stagedOwned);
-        }
-        refreshReservationState(manager);
-
-        BufferReservation updatedByTask = matchedByTask == null ? null : bufferReservations.get(matchedByTask.reservationId);
-        BufferReservation updatedBySlot = matchedBySlot == null ? null : bufferReservations.get(matchedBySlot.reservationId);
-        BufferReservation updated = updatedByTask != null ? updatedByTask : updatedBySlot;
-
-        if (updated != null) {
-            int before = stagedBefore.containsKey(updated.reservationId) ? stagedBefore.get(updated.reservationId) : 0;
-            boolean readyWas = readyBefore.containsKey(updated.reservationId) && readyBefore.get(updated.reservationId);
-            int after = Math.max(0, updated.stagedOwned);
-            boolean readyNow = updated.readyForDispatch;
-            LOG.info("[ReservationUpdate] manager={} order={} reservation={} reservationSlot={} physicalSlot={} stagedBefore={} stagedAfter={} requiredAmount={} readyBefore={} readyAfter={}",
-                    manager.getPos(),
-                    updated.orderId,
-                    updated.reservationId,
-                    updated.slotIndex,
-                    physicalSlot,
-                    before,
-                    after,
-                    updated.requestedAmount,
-                    readyWas,
-                    readyNow);
-            if (updated.slotIndex != physicalSlot || after <= before) {
-                LOG.warn("[ReservationMismatch] manager={} item={} count={} expectedReservation={} expectedSlot={} actualPhysicalSlot={} updatedReservation={} stagedUnchanged={} taskId={} queueId={}",
-                        manager.getPos(),
-                        deliveredKey,
-                        deliveredCount,
-                        matchedByTask == null ? null : matchedByTask.reservationId,
-                        matchedByTask == null ? (matchedTask == null ? -1 : matchedTask.stagingSlotIndex) : matchedByTask.slotIndex,
-                        physicalSlot,
-                        updated.reservationId,
-                        after <= before,
-                        matchedTask == null ? null : matchedTask.taskId,
-                        matchedTask == null ? -1 : matchedTask.legacyDeliveryQueueId);
-            }
-        } else {
-            LOG.warn("[ReservationMismatch] manager={} item={} count={} expectedReservation={} expectedSlot={} actualPhysicalSlot={} updatedReservation={} stagedUnchanged={} taskId={} queueId={}",
-                    manager.getPos(),
-                    deliveredKey,
-                    deliveredCount,
-                    matchedByTask == null ? null : matchedByTask.reservationId,
-                    matchedByTask == null ? (matchedTask == null ? -1 : matchedTask.stagingSlotIndex) : matchedByTask.slotIndex,
-                    physicalSlot,
-                    null,
-                    true,
-                    matchedTask == null ? null : matchedTask.taskId,
-                    matchedTask == null ? -1 : matchedTask.legacyDeliveryQueueId);
-        }
-
-        LOG.info("[ManagerSlotFill] manager={} golem={} item={} count={} physicalSlot={} before={} after={} order={} reservation={} queueId={} taskId={}",
-                manager.getPos(),
-                "unknown",
-                deliveredKey,
-                deliveredCount,
-                physicalSlot,
-                slotBefore,
-                slotAfter,
-                matchedTask == null ? null : matchedTask.orderId,
-                matchedByTask == null ? (matchedBySlot == null ? null : matchedBySlot.reservationId) : matchedByTask.reservationId,
-                matchedTask == null ? -1 : matchedTask.legacyDeliveryQueueId,
-                matchedTask == null ? null : matchedTask.taskId);
-    }
-
-    private boolean isReservationMappedToTask(@Nullable TransferTask task, @Nullable BufferReservation reservation) {
-        if (task == null || reservation == null || reservation.released) return false;
-        if (task.orderId == null || !task.orderId.equals(reservation.orderId)) return false;
-        if (task.stagingReservationId != null && !task.stagingReservationId.equals(reservation.reservationId)) return false;
-        if (task.stagingSlotIndex >= 0 && task.stagingSlotIndex != reservation.slotIndex) return false;
-        if (task.itemKey != null && task.itemKey != ItemKey.EMPTY && !task.itemKey.equals(reservation.itemKey)) return false;
-        return true;
-    }
-
-    public ReservationDispatchSnapshot getReservationDispatchSnapshot(@Nullable TransferTask task) {
-        BufferReservation reservation = findReservationForTask(task);
-        int requiredAmount = task == null ? 0 : Math.max(1, (int) Math.min(Integer.MAX_VALUE, task.amount));
-        if (reservation == null || reservation.released) {
-            return new ReservationDispatchSnapshot(
-                    null,
-                    task == null ? null : task.orderId,
-                    task == null ? -1 : task.stagingSlotIndex,
-                    0,
-                    0,
-                    requiredAmount,
-                    false
-            );
-        }
-
-        int stagedOwned = Math.max(0, reservation.stagedOwned);
-        int requestedAmount = Math.max(1, reservation.requestedAmount);
-        int available = Math.max(0, reservation.stagedOwned - reservation.consumedOwned);
-        boolean readyForDispatch = reservation.readyForDispatch
-                && available > 0
-                && reservation.delivered < reservation.requestedAmount
-                && reservation.orderId != null
-                && reservation.orderId.equals(task.orderId)
-                && reservation.slotIndex == task.stagingSlotIndex;
-        return new ReservationDispatchSnapshot(
-                reservation.reservationId,
-                reservation.orderId,
-                reservation.slotIndex,
-                stagedOwned,
-                requestedAmount,
-                requiredAmount,
-                readyForDispatch
-        );
-    }
-
-    public int getReservationStagedAmount(@Nullable TransferTask task) {
-        return getReservationDispatchSnapshot(task).stagedOwned;
-    }
-
-    public int getReservationRequestedAmount(@Nullable TransferTask task) {
-        return getReservationDispatchSnapshot(task).requestedAmount;
-    }
-
-    public boolean isReservationReadyForDispatch(@Nullable TransferTask task) {
-        return getReservationDispatchSnapshot(task).readyForDispatch;
-    }
-
-    public boolean logReservationOutputConsumption(TileMirrorManager manager,
-                                                   @Nullable TransferTask task,
-                                                   long consumedDelta,
-                                                   long completedNow) {
-        if (manager == null || task == null || consumedDelta <= 0L) return false;
-        BufferReservation reservation = findReservationForTask(task);
-
-        int requiredAmount = Math.max(1, (int) Math.min(Integer.MAX_VALUE, task.amount));
-        if (reservation == null || reservation.released) {
-            LOG.warn("[Logistics {}] reservation consume denied reason=missing-reservation taskId={} orderId={} reservationId={} slotIndex={} consumed={} required={}",
-                    manager.getPos(),
-                    task.taskId,
-                    task.orderId,
-                    task.stagingReservationId,
-                    task.stagingSlotIndex,
-                    consumedDelta,
-                    requiredAmount);
-            return false;
-        }
-        boolean mapped = task.orderId != null
-                && task.orderId.equals(reservation.orderId)
-                && reservation.slotIndex == task.stagingSlotIndex
-                && (task.stagingReservationId == null || task.stagingReservationId.equals(reservation.reservationId));
-        int stagedBefore = Math.max(0, reservation.stagedOwned);
-        boolean readyBefore = reservation.readyForDispatch;
-        if (!mapped || stagedBefore <= 0 || stagedBefore < requiredAmount || !readyBefore) {
-            LOG.warn("[Logistics {}] reservation consume denied reason=invariant-failed reservationId={} orderId={} slotIndex={} taskId={} consumed={} stagedBefore={} required={} readyBefore={} taskOrderId={} taskReservationId={} taskSlotIndex={}",
-                    manager.getPos(),
-                    reservation.reservationId,
-                    reservation.orderId,
-                    reservation.slotIndex,
-                    task.taskId,
-                    consumedDelta,
-                    stagedBefore,
-                    requiredAmount,
-                    readyBefore,
-                    task.orderId,
-                    task.stagingReservationId,
-                    task.stagingSlotIndex);
-            return false;
-        }
-
-        reservation.stagedOwned = Math.max(0, stagedBefore - (int) Math.min(Integer.MAX_VALUE, consumedDelta));
-        reservation.consumedOwned = Math.max(0, reservation.consumedOwned + (int) Math.min(Integer.MAX_VALUE, consumedDelta));
-        reservation.dispatched = reservation.consumedOwned;
-        reservation.delivered = (int) Math.min(Integer.MAX_VALUE, Math.max(0L, completedNow));
-        reservation.inFlightOutbound = Math.max(0, reservation.dispatched - reservation.delivered);
-        reservation.readyForDispatch = reservation.stagedOwned >= reservation.requestedAmount;
-        reservation.updatedTick = manager.getServerTickCounter();
-        reservation.lastProgressTick = reservation.updatedTick;
-        reservation.stage = reservation.delivered >= reservation.requestedAmount
-                ? DeliveryStage.COMPLETED
-                : (reservation.inFlightOutbound > 0 ? DeliveryStage.OUTBOUND_IN_FLIGHT : DeliveryStage.WAITING_OUTBOUND);
-        int stagedAfter = reservation.stagedOwned;
-
-        int toConsume = (int) Math.min(Integer.MAX_VALUE, consumedDelta);
-        if (toConsume > 0) {
-            Iterator<Map.Entry<UUID, BufferedBatch>> bit = bufferedBatches.entrySet().iterator();
-            while (bit.hasNext() && toConsume > 0) {
-                BufferedBatch batch = bit.next().getValue();
-                if (batch == null) continue;
-                if (batch.reservationId == null || !batch.reservationId.equals(reservation.reservationId)) continue;
-                if (batch.amount <= toConsume) {
-                    toConsume -= batch.amount;
-                    bit.remove();
-                } else {
-                    batch.amount -= toConsume;
-                    toConsume = 0;
-                }
-            }
-        }
-
-        LOG.info("[OutputConsume] task={} order={} consumed={} stagedBefore={} stagedAfter={}",
-                task.taskId,
-                reservation.orderId,
-                consumedDelta,
-                stagedBefore,
-                stagedAfter);
-        LOG.info("[Logistics {}] reservation stagedOwned consumed by output task reservationId={} orderId={} slotIndex={} taskId={} consumed={} stagedBefore={} stagedAfter={} deliverCompleted={} required={} ready={}",
-                reservation.reservationId,
-                reservation.orderId,
-                reservation.slotIndex,
-                task.taskId,
-                consumedDelta,
-                stagedBefore,
-                stagedAfter,
-                completedNow,
-                requiredAmount,
-                reservation.readyForDispatch && reservation.stagedOwned >= requiredAmount);
-        return true;
-    }
-
-    private EndpointRef resolveOrderManagerBuffer(TileMirrorManager manager, @Nullable NetworkOrder order) {
-        if (manager == null) return EndpointRef.of(BlockPos.ORIGIN, EndpointRef.AccessMode.BUFFER);
-        if (order != null && order.stagingSlotIndex >= 0) {
-            return EndpointRef.managerBufferSlot(manager.getPos(), order.stagingSlotIndex);
-        }
-        return EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER);
+        planDeliveryOrder(manager, order, catalog, finalTarget, managerBuffer);
     }
 
     private void planDeliveryOrder(TileMirrorManager manager,
                                    NetworkOrder order,
                                    LinkedHashMap<ItemKey, Integer> catalog,
                                    EndpointRef finalTarget,
-                                   EndpointRef managerBuffer,
-                                   EffectiveNeedSnapshot need) {
-        /*
-         * Для delivery-заказов планируем полный объём потребности.
-         * Фактическое дозаказание из складской сети выполняется executor'ом по остатку
-         * (remaining - queued), поэтому даже при частичных приходах (64/192 и т.п.)
-         * задача будет дозаказываться до полного requested amount.
-         */
-        int deliverAmount = Math.max(0, need.missingNow);
+                                   EndpointRef managerBuffer) {
+        int totalReachable = Math.max(0, catalog.getOrDefault(order.requestedKey, 0));
+        int reserved = reservationBook.getReservedAmount(order.requestedKey);
+        int totalAvailable = Math.max(0, totalReachable - reserved);
+        int deliverAmount = Math.min(order.requestedAmount, totalAvailable);
 
         if (deliverAmount <= 0) {
             order.status = OrderStatus.FAILED;
@@ -872,50 +234,41 @@ public class LogisticsNetworkState {
             return;
         }
 
-        ItemStack like = order.requestedKey.toStack(1);
-        int stackLimit = Math.max(1, like.getMaxStackSize());
-        int remaining = deliverAmount;
-
-        while (remaining > 0) {
-            int chunk = Math.min(stackLimit, remaining);
-
-            TransferTask stageToManager = createTransferTask(
-                    manager,
-                    order.orderId,
-                    stockSource(manager),
-                    managerBuffer,
-                    order.requestedKey,
-                    chunk,
-                    null,
-                    "deliver"
-            );
-            if (stageToManager == null) {
-                order.status = OrderStatus.FAILED;
-                order.lastError = "delivery-task-build-failed:" + order.requestedKey;
-                return;
-            }
+        TransferTask stageToManager = createTransferTask(
+                manager,
+                order.orderId,
+                stockSource(manager),
+                managerBuffer,
+                order.requestedKey,
+                deliverAmount,
+                null,
+                "deliver"
+        );
+        if (stageToManager != null) {
             stageToManager.status = TaskStatus.NEW;
             stageToManager.updatedTick = manager.getServerTickCounter();
+        }
 
-            TransferTask dispatchToTarget = createTransferTask(
-                    manager,
-                    order.orderId,
-                    managerBuffer,
-                    finalTarget,
-                    order.requestedKey,
-                    chunk,
-                    Collections.singletonList(stageToManager.taskId),
-                    "deliver-output"
-            );
-            if (dispatchToTarget == null) {
-                order.status = OrderStatus.FAILED;
-                order.lastError = "delivery-task-build-failed:" + order.requestedKey;
-                return;
-            }
+
+        TransferTask dispatchToTarget = createTransferTask(
+                manager,
+                order.orderId,
+                managerBuffer,
+                finalTarget,
+                order.requestedKey,
+                deliverAmount,
+                stageToManager == null ? null : Collections.singletonList(stageToManager.taskId),
+                "deliver-output"
+        );
+        if (dispatchToTarget != null) {
             dispatchToTarget.status = TaskStatus.NEW;
             dispatchToTarget.updatedTick = manager.getServerTickCounter();
+        }
 
-            remaining -= chunk;
+        if (order.requestedAmount > deliverAmount) {
+            order.status = OrderStatus.FAILED;
+            order.lastError = "delivery-partial-stock:" + order.requestedKey;
+            return;
         }
 
         order.status = OrderStatus.RUNNING;
@@ -925,57 +278,8 @@ public class LogisticsNetworkState {
                                    NetworkOrder order,
                                    LinkedHashMap<ItemKey, Integer> catalog,
                                    EndpointRef finalTarget,
-                                   EndpointRef managerBuffer,
-                                   EffectiveNeedSnapshot need) {
-        int missingAfterTargetAdjust = Math.max(0, need.missingNow);
-        int directAvailable = Math.min(Math.max(0, need.availableInNetwork), missingAfterTargetAdjust);
-        int stillNeed = Math.max(0, missingAfterTargetAdjust - directAvailable);
-
-        LOG.info("[Logistics {}] order={} creation-need requested={} afterTargetSubtract={} directAvailable={} craftResidual={}",
-                manager.getPos(),
-                order.orderId,
-                order.requestedAmount,
-                missingAfterTargetAdjust,
-                directAvailable,
-                stillNeed);
-
-        if (directAvailable > 0) {
-            int remainingDirect = directAvailable;
-            ItemStack like = order.requestedKey.toStack(1);
-            int stackLimit = Math.max(1, like.getMaxStackSize());
-            while (remainingDirect > 0) {
-                int chunk = Math.min(stackLimit, remainingDirect);
-                TransferTask stageToManager = createTransferTask(
-                        manager,
-                        order.orderId,
-                        stockSource(manager),
-                        managerBuffer,
-                        order.requestedKey,
-                        chunk,
-                        null,
-                        "deliver"
-                );
-                if (stageToManager != null) {
-                    stageToManager.status = TaskStatus.NEW;
-                    stageToManager.updatedTick = manager.getServerTickCounter();
-                    TransferTask deliverDirect = createTransferTask(
-                            manager,
-                            order.orderId,
-                            managerBuffer,
-                            finalTarget,
-                            order.requestedKey,
-                            chunk,
-                            Collections.singletonList(stageToManager.taskId),
-                            "deliver-output"
-                    );
-                    if (deliverDirect != null) {
-                        deliverDirect.status = TaskStatus.NEW;
-                        deliverDirect.updatedTick = manager.getServerTickCounter();
-                    }
-                }
-                remainingDirect -= chunk;
-            }
-        }
+                                   EndpointRef managerBuffer) {
+        int stillNeed = Math.max(0, order.requestedAmount);
         if (stillNeed <= 0) {
             order.status = OrderStatus.RUNNING;
             return;
@@ -990,22 +294,20 @@ public class LogisticsNetworkState {
             return;
         }
 
-        int outputPerCycle = Math.max(1, recipe.outputPerCycle);
-        int cycles = (stillNeed + outputPerCycle - 1) / outputPerCycle;
-        int producedAmount = cycles * outputPerCycle;
-
-        /*
-         * recipe.inputs хранит входы ровно на 1 цикл.
-         * Здесь масштабируем их на нужное число циклов.
-         */
+        int perCycle = Math.max(1, recipe.outputPerCycle);
+        int cycles = (stillNeed + perCycle - 1) / perCycle;
+        int producedAmount = cycles * perCycle;
         LinkedHashMap<ItemKey, Integer> scaledInputs = scaleRecipeInputs(recipe.inputs, cycles);
 
         EndpointRef crafterInput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT);
-        EndpointRef crafterOutput = resolveCrafterOutputEndpoint(manager, recipe.source);
+        EndpointRef crafterOutput = EndpointRef.of(recipe.source, EndpointRef.AccessMode.OUTPUT);
 
         /*
-         * Сначала проверяем, что ВСЕ входы доступны.
-         * Пока проверка не пройдена — не создаём runtime-task.
+         * ВАЖНО:
+         * Сначала полностью проверяем, что ВСЕ входы доступны.
+         * Никаких runtime-task'ов до завершения этой проверки не создаём.
+         * Иначе order может перейти в WAITING_INPUTS уже с частично созданными taskIds,
+         * после чего retryWaitingCreationOrders() больше его не перепланирует.
          */
         LinkedHashMap<ItemKey, Integer> availableFromStock = new LinkedHashMap<ItemKey, Integer>();
         ItemKey firstMissingKey = null;
@@ -1038,18 +340,9 @@ public class LogisticsNetworkState {
         }
 
         if (firstMissingKey != null) {
-            order.updatedTick = manager.getServerTickCounter();
-
-            if (order.sourceType != OrderSourceType.PLANNER) {
-                order.status = OrderStatus.FAILED;
-                order.lastError = "missing-input:" + firstMissingKey + ":" + firstMissingAmount;
-                LOG.info("[Logistics {}] creation failed-immediate order={} key={} missingInput={} amount={} sourceType={}",
-                        manager.getPos(), order.orderId, order.requestedKey, firstMissingKey, firstMissingAmount, order.sourceType);
-                return;
-            }
-
             order.status = OrderStatus.WAITING_INPUTS;
             order.lastError = "waiting-input:" + firstMissingKey + ":" + firstMissingAmount;
+            order.updatedTick = manager.getServerTickCounter();
 
             LOG.info("[Logistics {}] creation waiting-inputs order={} key={} missingInput={} amount={} reason=waiting_planner_inputs",
                     manager.getPos(), order.orderId, order.requestedKey, firstMissingKey, firstMissingAmount);
@@ -1057,7 +350,8 @@ public class LogisticsNetworkState {
         }
 
         /*
-         * Все входы доступны — теперь строим runtime-chain.
+         * До этого места доходим только если ВСЕ входы доступны.
+         * Теперь уже безопасно строить runtime-task chain.
          */
         List<UUID> inputDeps = new ArrayList<UUID>();
 
@@ -1110,11 +404,9 @@ public class LogisticsNetworkState {
         CraftTask craft = createCraftTask(
                 manager,
                 order.orderId,
-                crafterInput,
-                crafterOutput,
+                EndpointRef.of(recipe.source, EndpointRef.AccessMode.INPUT),
                 order.requestedKey,
                 producedAmount,
-                outputPerCycle,
                 scaledInputs,
                 inputDeps,
                 "execute-craft"
@@ -1128,17 +420,6 @@ public class LogisticsNetworkState {
             return;
         }
 
-        /*
-         * КРИТИЧЕСКАЯ ПРАВКА:
-         * pickup-output не должен ждать полного DONE у craft-task,
-         * иначе output крафтера не разгружается во время серии,
-         * и большие партии начинают идти "по одному", а финальный результат
-         * может застревать в output.
-         *
-         * Вместо этого pickup зависит только от подачи входов в крафтер.
-         * После этого он может стартовать параллельно, а если output пока пуст —
-         * executor просто подержит задачу в blocked/running до появления предметов.
-         */
         TransferTask pickup = null;
         if (order.creationOutputMode != CreationOutputMode.LEAVE_IN_CRAFTER) {
             pickup = createTransferTask(
@@ -1148,7 +429,7 @@ public class LogisticsNetworkState {
                     managerBuffer,
                     order.requestedKey,
                     producedAmount,
-                    inputDeps.isEmpty() ? null : new ArrayList<UUID>(inputDeps),
+                    Collections.singletonList(craft.taskId),
                     "pickup-output"
             );
             if (pickup != null) {
@@ -1173,9 +454,7 @@ public class LogisticsNetworkState {
                     finalTarget,
                     order.requestedKey,
                     stillNeed,
-                    pickup == null
-                            ? Collections.singletonList(craft.taskId)
-                            : Collections.singletonList(pickup.taskId),
+                    pickup == null ? Collections.singletonList(craft.taskId) : Collections.singletonList(pickup.taskId),
                     "deliver-output"
             );
             if (deliver != null) {
@@ -1188,7 +467,7 @@ public class LogisticsNetworkState {
         order.updatedTick = manager.getServerTickCounter();
 
         LOG.info("[Logistics {}] craft order planned order={} key={} amount={} produced={} perCycle={} cycles={} recipeSource={} inputs={} outputMode={}",
-                manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, outputPerCycle, cycles, recipe.source, scaledInputs, order.creationOutputMode);
+                manager.getPos(), order.orderId, order.requestedKey, stillNeed, producedAmount, perCycle, cycles, recipe.source, scaledInputs, order.creationOutputMode);
     }
 
     private TransferTask createTransferTask(TileMirrorManager manager,
@@ -1226,11 +505,6 @@ public class LogisticsNetworkState {
         task.createdTick = manager.getServerTickCounter();
         task.updatedTick = task.createdTick;
         task.metaPurpose = purpose;
-        NetworkOrder order = orders.get(orderId);
-        if (order != null) {
-            task.stagingSlotIndex = order.stagingSlotIndex;
-            task.stagingReservationId = order.stagingReservationId;
-        }
 
         if (dependsOn != null && !dependsOn.isEmpty()) {
             task.dependsOn.addAll(dependsOn);
@@ -1238,13 +512,13 @@ public class LogisticsNetworkState {
 
         runtimeTasks.put(task.taskId, task);
 
+        NetworkOrder order = orders.get(orderId);
         if (order != null && !order.taskIds.contains(task.taskId)) {
             order.taskIds.add(task.taskId);
         }
 
         if (!isTerminalTask(task.status)) {
             String dedupe = "T|" + task.orderId
-                    + "|" + (task.stagingReservationId == null ? "none" : task.stagingReservationId.toString())
                     + "|" + task.source.pos.toLong()
                     + "|" + task.target.pos.toLong()
                     + "|" + task.itemKey.hashCode()
@@ -1263,25 +537,6 @@ public class LogisticsNetworkState {
                 task.metaPurpose
         );
 
-        if (task.target != null
-                && task.target.mode == EndpointRef.AccessMode.BUFFER
-                && task.target.stagingSlotIndex >= 0
-                && managerPos.equals(task.target.pos)) {
-            LOG.info("[ManagerSlotAssign] manager={} item={} amount={} orderId={} reservationId={} expectedSlot={} reason={}",
-                    managerPos,
-                    key,
-                    amount,
-                    task.orderId,
-                    task.stagingReservationId,
-                    task.target.stagingSlotIndex,
-                    "transfer-task-target-buffer-slot");
-        }
-
-        int targetPresent = countExactInTargetInventory(manager, task.target, task.itemKey);
-        int targetNeedNow = Math.max(0, amount - targetPresent);
-        LOG.info("[Logistics {}] transfer task details task={} requested={} targetPresent={} targetNeedNow={} accepted=true",
-                managerPos, task.taskId, amount, targetPresent, targetNeedNow);
-
         return task;
     }
 
@@ -1298,133 +553,80 @@ public class LogisticsNetworkState {
         return te instanceof TileOrderTerminal;
     }
 
+    @Nullable
     private CraftTask createCraftTask(TileMirrorManager manager,
                                       UUID orderId,
                                       EndpointRef crafter,
-                                      EndpointRef crafterOutput,
-                                      ItemKey recipeKey,
-                                      int amount,
-                                      int outputPerCycle,
+                                      ItemKey key,
+                                      long amount,
                                       Map<ItemKey, Integer> requiredInputs,
-                                      java.util.List<UUID> dependencies,
+                                      @Nullable List<UUID> dependsOn,
                                       String purpose) {
-        if (manager == null || crafter == null || crafter.pos == null || recipeKey == null || recipeKey == ItemKey.EMPTY || amount <= 0) {
+        if (crafter == null || crafter.pos == null || key == null || key == ItemKey.EMPTY || amount <= 0) {
+            LOG.info("[Logistics {}] craft task build started order={} key={} crafter={} purpose={}",
+                    manager.getPos(), orderId, key, crafter, purpose);
+            LOG.warn("[Logistics {}] craft task rejected order={} reason=missing-required crafter={} key={} amount={} purpose={}",
+                    manager.getPos(), orderId, crafter, key, amount, purpose);
             return null;
         }
 
-        EndpointRef safeOutput = (crafterOutput == null || crafterOutput.pos == null)
-                ? EndpointRef.of(crafter.pos, EndpointRef.AccessMode.OUTPUT)
-                : crafterOutput;
-
-        RuntimeTask existing = existsActiveTask(orderId, recipeKey, crafter, safeOutput, purpose);
-        if (existing instanceof CraftTask) {
-            return (CraftTask) existing;
-        }
+        LOG.info("[Logistics {}] craft task build started order={} key={} amount={} crafter={} purpose={}",
+                manager.getPos(), orderId, key, amount, crafter.pos, purpose);
 
         CraftTask task = new CraftTask();
         task.taskId = UUID.randomUUID();
         task.orderId = orderId;
-        task.status = TaskStatus.NEW;
-        task.createdTick = manager.getServerTickCounter();
-        task.updatedTick = task.createdTick;
         task.crafter = crafter;
-        task.recipeKey = recipeKey;
-        task.outputEndpoint = safeOutput;
+        task.outputEndpoint = EndpointRef.of(crafter.pos, EndpointRef.AccessMode.OUTPUT);
+        task.recipeKey = key;
         task.amount = Math.max(1, amount);
-        task.completedAmount = 0;
-        task.outputPerCycle = Math.max(1, outputPerCycle);
-        task.scheduledCycles = 0;
-        task.metaPurpose = purpose == null ? "craft" : purpose;
 
         if (requiredInputs != null) {
             for (Map.Entry<ItemKey, Integer> e : requiredInputs.entrySet()) {
-                if (e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
-                task.requiredInputs.put(e.getKey(), Math.max(1, e.getValue()));
+                ItemKey inputKey = e.getKey();
+                int inputAmount = (e.getValue() == null ? 0 : e.getValue());
+
+                if (inputKey == null || inputKey == ItemKey.EMPTY) continue;
+                if (inputAmount <= 0) continue;
+
+                if (inputKey.equals(task.recipeKey)) {
+                    LOG.warn("[Logistics {}] craft task validation failed order={} reason=result-used-as-input key={}",
+                            manager.getPos(), orderId, task.recipeKey);
+                    return null;
+                }
+
+                task.requiredInputs.put(inputKey, inputAmount);
             }
         }
 
-        if (dependencies != null && !dependencies.isEmpty()) {
-            task.dependsOn.addAll(dependencies);
-        }
-
-        String err = task.validationError();
-        if (err != null) {
-            LOG.warn("[Logistics {}] craft task create invalid order={} reason={} crafter={} key={} output={} amount={} perCycle={}",
-                    manager.getPos(), orderId, err, task.crafter, task.recipeKey, task.outputEndpoint, amount, task.outputPerCycle);
+        String invalidReason = task.validationError();
+        if (invalidReason != null) {
+            LOG.warn("[Logistics {}] craft task validation failed order={} reason={} crafter={} key={} output={} inputs={}",
+                    manager.getPos(), orderId, invalidReason, task.crafter, task.recipeKey, task.outputEndpoint, task.requiredInputs.size());
             return null;
         }
 
-        LOG.info("[Logistics {}] craft task created task={} order={} key={} amount={} perCycle={} crafter={} output={} inputs={}",
-                manager.getPos(), task.taskId, orderId, recipeKey, amount, task.outputPerCycle, task.crafter, task.outputEndpoint, task.requiredInputs);
+        task.status = TaskStatus.NEW;
+        task.createdTick = manager.getServerTickCounter();
+        task.updatedTick = task.createdTick;
 
+        if (dependsOn != null && !dependsOn.isEmpty()) {
+            task.dependsOn.addAll(dependsOn);
+        }
+
+        task.metaPurpose = purpose;
         runtimeTasks.put(task.taskId, task);
 
         NetworkOrder order = orders.get(orderId);
         if (order != null && !order.taskIds.contains(task.taskId)) {
             order.taskIds.add(task.taskId);
+            order.recipePath = true;
         }
+
+        LOG.info("[Logistics {}] craft task created task={} order={} key={} amount={} crafter={} inputs={}",
+                manager.getPos(), task.taskId, orderId, key, amount, crafter.pos, task.requiredInputs);
 
         return task;
-    }
-
-    @Nullable
-    private RuntimeTask existsActiveTask(UUID orderId,
-                                         ItemKey itemKey,
-                                         EndpointRef source,
-                                         EndpointRef target,
-                                         String purpose) {
-        if (orderId == null || itemKey == null || itemKey == ItemKey.EMPTY || source == null || target == null) {
-            return null;
-        }
-
-        String safePurpose = purpose == null ? "" : purpose;
-        for (RuntimeTask rt : runtimeTasks.values()) {
-            if (rt == null || isTerminalTask(rt.status)) continue;
-            if (!orderId.equals(rt.orderId)) continue;
-
-            if (rt instanceof TransferTask) {
-                TransferTask tt = (TransferTask) rt;
-                if (!itemKey.equals(tt.itemKey)) continue;
-                if (tt.source == null || tt.target == null) continue;
-                if (source.mode != tt.source.mode || !source.pos.equals(tt.source.pos)) continue;
-                if (target.mode != tt.target.mode || !target.pos.equals(tt.target.pos)) continue;
-                if (!safePurpose.equals(tt.metaPurpose == null ? "" : tt.metaPurpose)) continue;
-                return rt;
-            }
-
-            if (rt instanceof CraftTask) {
-                CraftTask ct = (CraftTask) rt;
-                if (!itemKey.equals(ct.recipeKey)) continue;
-                if (source.pos != null && ct.crafter != null && !source.pos.equals(ct.crafter.pos)) continue;
-                if (!safePurpose.equals(ct.metaPurpose == null ? "" : ct.metaPurpose)) continue;
-                return rt;
-            }
-        }
-        return null;
-    }
-
-    private EndpointRef resolveCrafterOutputEndpoint(TileMirrorManager manager, BlockPos sourcePos) {
-        if (sourcePos == null) {
-            return EndpointRef.of(BlockPos.ORIGIN, EndpointRef.AccessMode.OUTPUT);
-        }
-
-        BlockPos observedPos = sourcePos;
-        if (manager != null && manager.getWorld() != null) {
-            TileEntity te = manager.getWorld().getTileEntity(sourcePos);
-            if (te instanceof ICraftEndpoint) {
-                try {
-                    BlockPos candidate = ((ICraftEndpoint) te).getCraftTaskOutputPos(sourcePos);
-                    if (candidate != null) {
-                        observedPos = candidate;
-                    }
-                } catch (Throwable t) {
-                    LOG.warn("[Logistics {}] resolve craft output failed source={} err={}",
-                            manager.getPos(), sourcePos, String.valueOf(t));
-                }
-            }
-        }
-
-        return EndpointRef.of(observedPos, EndpointRef.AccessMode.OUTPUT);
     }
 
     @Nullable
@@ -1453,10 +655,10 @@ public class LogisticsNetworkState {
                 ItemKey result = ItemKey.of(out);
                 if (result == null || result == ItemKey.EMPTY) continue;
 
-                int outputPerCycle = Math.max(1, ep.getPerCraftOutputCountFor(out));
+                int perCraft = Math.max(1, ep.getPerCraftOutputCountFor(out));
 
                 Map<ItemKey, Integer> inputs = new LinkedHashMap<ItemKey, Integer>();
-                List<ItemStack> req = ep.getRecipeInputsFor(out, 1);
+                List<ItemStack> req = ep.getRecipeInputsFor(out, perCraft);
 
                 if (req != null) {
                     for (ItemStack need : req) {
@@ -1480,7 +682,7 @@ public class LogisticsNetworkState {
                     pt = ProviderType.GOLEM_CRAFTER;
                 }
 
-                RecipeNode node = new RecipeNode(result, rp, pt, outputPerCycle, inputs);
+                RecipeNode node = new RecipeNode(result, rp, pt, perCraft, inputs);
 
                 List<RecipeNode> nodes = recipesByResult.get(result);
                 if (nodes == null) {
@@ -1503,8 +705,8 @@ public class LogisticsNetworkState {
                     nodes.add(node);
                 }
 
-                LOG.info("[Logistics {}] recipe indexed result={} perCycle={} inputsPerCycle={} source={}",
-                        manager.getPos(), result, outputPerCycle, inputs, rp);
+                LOG.info("[Logistics {}] recipe indexed result={} perCraft={} inputs={} source={}",
+                        manager.getPos(), result, perCraft, inputs, rp);
             }
         }
     }
@@ -1512,7 +714,6 @@ public class LogisticsNetworkState {
     public void tick(TileMirrorManager manager) {
         managerExecutor.bind(manager);
         crafterExecutor.bind(manager);
-        refreshReservationState(manager);
 
         for (RuntimeTask task : runtimeTasks.values()) {
             if (isTerminalTask(task.status)) continue;
@@ -1553,15 +754,7 @@ public class LogisticsNetworkState {
 
             boolean accepted = false;
             if (task instanceof TransferTask) {
-                TransferTask tt = (TransferTask) task;
-
-                if (managerExecutor.isRunning(tt.taskId)) {
-                    task.status = TaskStatus.DISPATCHED;
-                    task.updatedTick = manager.getServerTickCounter();
-                    continue;
-                }
-
-                accepted = managerExecutor.canAccept(tt) && managerExecutor.submit(tt);
+                accepted = managerExecutor.canAccept((TransferTask) task) && managerExecutor.submit((TransferTask) task);
             } else if (task instanceof CraftTask) {
                 accepted = crafterExecutor.canAccept((CraftTask) task) && crafterExecutor.submit((CraftTask) task);
             }
@@ -1569,10 +762,7 @@ public class LogisticsNetworkState {
             if (accepted) {
                 task.status = TaskStatus.DISPATCHED;
                 task.updatedTick = manager.getServerTickCounter();
-                LOG.info("[Logistics {}] task dispatched id={} type={}",
-                        manager.getPos(),
-                        task.taskId,
-                        (task instanceof TransferTask ? "TRANSFER" : "CRAFT"));
+                LOG.info("[Logistics {}] task dispatched id={} type={}", manager.getPos(), task.taskId, task.getTaskType());
             }
         }
 
@@ -1581,140 +771,9 @@ public class LogisticsNetworkState {
 
         collectSnapshot(manager, managerExecutor);
         collectSnapshot(manager, crafterExecutor);
-        retryWaitingBufferSlotOrders(manager);
         retryWaitingCreationOrders(manager);
         updateOrders(manager);
-        releaseReservationsForInactiveOrders(manager);
         pruneFinalizedTasks(manager);
-    }
-
-    private void retryWaitingBufferSlotOrders(TileMirrorManager manager) {
-        for (NetworkOrder order : orders.values()) {
-            if (order == null) continue;
-            if (order.status != OrderStatus.WAITING_BUFFER_SLOT) continue;
-            if (!isTerminalDeliveryOrder(order)) continue;
-            if (!ensureReservationForOrder(manager, order)) continue;
-
-            if (order.taskIds != null && !order.taskIds.isEmpty()) {
-                order.taskIds.clear();
-            }
-            planOrder(manager, order, 0);
-        }
-    }
-
-    private void refreshReservationState(TileMirrorManager manager) {
-        if (manager == null) return;
-        for (BufferReservation reservation : bufferReservations.values()) {
-            if (reservation == null || reservation.released) continue;
-            reservation.stagedOwned = Math.max(0, reservation.stagedOwned);
-            reservation.consumedOwned = Math.max(0, reservation.consumedOwned);
-            reservation.incomingQueued = Math.max(0, reservation.incomingQueued);
-            reservation.staged = reservation.stagedOwned;
-            reservation.dispatched = reservation.consumedOwned;
-            reservation.inFlightInbound = reservation.incomingQueued;
-            boolean readyNow = DeliveryReservationMath.availableForOutbound(reservation) > 0;
-            if (readyNow && !reservation.readyForDispatch) {
-                LOG.info("[Logistics {}] reservation ready reservation={} order={} slotIndex={} staged={}/{}",
-                        manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reservation.stagedOwned, reservation.requestedAmount);
-            }
-            reservation.readyForDispatch = readyNow;
-            if (DeliveryReservationMath.isCompleted(reservation)) {
-                reservation.stage = DeliveryStage.COMPLETED;
-            } else if (reservation.inFlightOutbound > 0) {
-                reservation.stage = DeliveryStage.OUTBOUND_IN_FLIGHT;
-            } else if (reservation.stagedOwned > reservation.consumedOwned) {
-                reservation.stage = DeliveryStage.STAGED;
-            } else if (reservation.incomingQueued > 0) {
-                reservation.stage = DeliveryStage.INBOUND_IN_FLIGHT;
-            } else {
-                reservation.stage = DeliveryStage.WAITING_INBOUND;
-            }
-            reservation.updatedTick = manager.getServerTickCounter();
-            LOG.info("[ReservationState] order={} key={} stagedOwned={} consumed={} requested={}",
-                    reservation.orderId, reservation.itemKey, reservation.stagedOwned, reservation.consumedOwned, reservation.requestedAmount);
-        }
-    }
-
-    public int getReservationIncomingQueued(@Nullable TransferTask task) {
-        BufferReservation reservation = findReservationForTask(task);
-        if (reservation == null || reservation.released) return 0;
-        return Math.max(0, reservation.incomingQueued);
-    }
-
-    public int getReservationNeed(@Nullable TransferTask task) {
-        BufferReservation reservation = findReservationForTask(task);
-        if (reservation == null || reservation.released) return 0;
-        reservation.requested = reservation.requestedAmount;
-        reservation.staged = reservation.stagedOwned;
-        reservation.inFlightInbound = reservation.incomingQueued;
-        return DeliveryReservationMath.needInbound(reservation)
-                ? Math.max(0, reservation.requested - (reservation.staged + reservation.inFlightInbound + reservation.delivered))
-                : 0;
-
-    }
-
-    public void logCoverageCheck(TileMirrorManager manager, @Nullable TransferTask task) {
-        BufferReservation reservation = findReservationForTask(task);
-        if (manager == null || reservation == null || reservation.released) return;
-        int coverage = Math.max(0, reservation.stagedOwned + reservation.incomingQueued);
-        boolean covered = coverage >= reservation.requestedAmount;
-        LOG.info("[CoverageCheck] order={} stagedOwned={} incomingQueued={} requested={} covered={}",
-                reservation.orderId, reservation.stagedOwned, reservation.incomingQueued, reservation.requestedAmount, covered);
-    }
-
-    public void markReservationInboundQueued(TileMirrorManager manager, @Nullable TransferTask task, int queuedAmount) {
-        BufferReservation reservation = findReservationForTask(task);
-        if (manager == null || reservation == null || reservation.released || queuedAmount <= 0) return;
-        reservation.inFlightInbound = reservation.incomingQueued;
-        reservation.stage = DeliveryStage.INBOUND_IN_FLIGHT;
-        reservation.incomingQueued = Math.max(0, reservation.incomingQueued + queuedAmount);
-        reservation.updatedTick = manager.getServerTickCounter();
-        reservation.lastProgressTick = reservation.updatedTick;
-        LOG.info("[CoverageCheck] order={} stagedOwned={} incomingQueued={} requested={} covered={}",
-                reservation.orderId,
-                reservation.stagedOwned,
-                reservation.incomingQueued,
-                reservation.requestedAmount,
-                (reservation.stagedOwned + reservation.incomingQueued) >= reservation.requestedAmount);
-    }
-
-    public void markReservationStalled(TileMirrorManager manager, @Nullable TransferTask task) {
-        BufferReservation reservation = findReservationForTask(task);
-        if (manager == null || reservation == null || reservation.released) return;
-        if ("deliver-output".equals(task == null ? null : task.metaPurpose)) {
-            reservation.inFlightOutbound = Math.max(0, reservation.inFlightOutbound - 1);
-        } else {
-            reservation.incomingQueued = Math.max(0, reservation.incomingQueued - 1);
-            reservation.inFlightInbound = reservation.incomingQueued;
-        }
-        reservation.failedOrLost = Math.max(0, reservation.failedOrLost + 1);
-        reservation.stage = DeliveryStage.STALLED;
-        reservation.updatedTick = manager.getServerTickCounter();
-        reservation.lastProgressTick = reservation.updatedTick;
-    }
-
-    private void releaseReservationsForInactiveOrders(TileMirrorManager manager) {
-        if (manager == null) return;
-        for (NetworkOrder order : orders.values()) {
-            if (order == null || order.orderId == null) continue;
-            if (isActiveOrder(order.status)) continue;
-            releaseReservationForOrder(manager, order.orderId, "order-terminal-state:" + order.status);
-        }
-    }
-
-    private void releaseReservationForOrder(TileMirrorManager manager, @Nullable UUID orderId, String reason) {
-        BufferReservation reservation = findReservationByOrder(orderId);
-        if (reservation == null || reservation.released) return;
-        reservation.released = true;
-        reservation.updatedTick = manager == null ? reservation.updatedTick : manager.getServerTickCounter();
-        reservationByOrderId.remove(reservation.orderId);
-
-        if (manager != null) {
-            manager.clearManagerBufferSlot(reservation.slotIndex);
-            bufferedBatches.values().removeIf(batch -> batch != null && reservation.reservationId.equals(batch.reservationId));
-            LOG.info("[Logistics {}] reservation released reservation={} order={} slotIndex={} reason={}",
-                    manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reason);
-        }
     }
 
     private void retryWaitingCreationOrders(TileMirrorManager manager) {
@@ -1741,6 +800,10 @@ public class LogisticsNetworkState {
                 continue;
             }
 
+            /*
+             * Если у waiting-order остались только завершённые/мертвые task-ссылки,
+             * очищаем их и пробуем спланировать заново.
+             */
             if (order.taskIds != null && !order.taskIds.isEmpty()) {
                 order.taskIds.clear();
             }
@@ -1750,9 +813,7 @@ public class LogisticsNetworkState {
                     EndpointRef.AccessMode.INPUT
             );
 
-            EffectiveNeedSnapshot need = computeEffectiveTargetNeed(manager, order.requestedKey, order.requestedAmount, finalTarget, order.orderId, true);
-            order.operationalNeeded = need.missingNow;
-            planCreationOrder(manager, order, catalog, finalTarget, managerBuffer, need);
+            planCreationOrder(manager, order, catalog, finalTarget, managerBuffer);
         }
     }
 
@@ -1786,6 +847,7 @@ public class LogisticsNetworkState {
     }
 
     private void updateOrders(TileMirrorManager manager) {
+        LinkedHashMap<ItemKey, Integer> catalog = manager.getReachableCatalog();
         for (NetworkOrder order : orders.values()) {
             if (!isActiveOrder(order.status)) {
                 removeOrderFromDedup(order.orderId);
@@ -1796,27 +858,13 @@ public class LogisticsNetworkState {
             boolean hasTasks = false;
             boolean craftDone = !order.recipePath;
             boolean outputDone = !order.recipePath || order.creationOutputMode == CreationOutputMode.LEAVE_IN_CRAFTER;
-            long actualCompleted = 0L;
-            int runningTasks = 0;
-            EndpointRef finalTarget = EndpointRef.of(
-                    order.returnDestination != null ? order.returnDestination : order.sourcePos,
-                    EndpointRef.AccessMode.INPUT
-            );
-            EffectiveNeedSnapshot needNow = computeEffectiveTargetNeed(manager, order.requestedKey, order.requestedAmount, finalTarget, order.orderId, true);
 
             for (UUID tid : order.taskIds) {
                 RuntimeTask t = runtimeTasks.get(tid);
                 if (t == null) continue;
                 hasTasks = true;
-                if (!isTerminalTask(t.status)) runningTasks++;
 
-                if (contributesToOrderProgress(order, t)) {
-                    actualCompleted += Math.max(0L, t.completedAmount);
-                }
-
-                if (t.status == TaskStatus.FAILED
-                        || t.status == TaskStatus.CANCELED
-                        || t.status == TaskStatus.STALLED_OUTPUT) {
+                if (t.status == TaskStatus.FAILED || t.status == TaskStatus.CANCELED) {
                     order.status = OrderStatus.FAILED;
                     Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                     while (it.hasNext()) {
@@ -1825,11 +873,9 @@ public class LogisticsNetworkState {
                             it.remove();
                         }
                     }
-                    order.lastError = "task-failed:" + tid + ":" + t.status;
+                    order.lastError = "task-failed:" + tid;
                     LOG.warn("[Logistics {}] order failed={} task={} status={}",
                             manager.getPos(), order.orderId, tid, t.status);
-                    LOG.warn("[Logistics {}] order={} reason=task-terminal amount={} completed={} runningTasks={}",
-                            manager.getPos(), order.orderId, order.requestedAmount, Math.max(0L, actualCompleted), runningTasks);
                     allDone = false;
                     break;
                 }
@@ -1839,43 +885,10 @@ public class LogisticsNetworkState {
                 if ("deliver-output".equals(t.metaPurpose) && t.status == TaskStatus.DONE) outputDone = true;
             }
 
-            if (!hasTasks && (order.status == OrderStatus.WAITING_INPUTS || order.status == OrderStatus.WAITING_BUFFER_SLOT)) {
-
-            }
             if (!hasTasks && order.status == OrderStatus.WAITING_INPUTS) {
                 order.updatedTick = manager.getServerTickCounter();
                 continue;
             }
-
-            if (!isTerminalSourceOrder(order) && needNow.missingNow <= 0) {
-                order.completedAmount = order.requestedAmount;
-                order.status = OrderStatus.DONE;
-                removeOrderFromDedup(order.orderId);
-                LOG.info("[Logistics {}] order={} status=DONE reason=effective-need-zero rawRequested={} presentAtTarget={} inboundReserved={} directAvailable={}",
-                        manager.getPos(),
-                        order.orderId,
-                        order.requestedAmount,
-                        needNow.presentAtTarget,
-                        needNow.reservedInbound,
-                        needNow.availableInNetwork);
-                order.updatedTick = manager.getServerTickCounter();
-                continue;
-            }
-
-            int effectiveGoal = Math.max(0, order.operationalNeeded);
-
-            if (isTerminalDeliveryOrder(order)) {
-                refreshTerminalDeliveredAmount(order);
-                order.completedAmount = (int) Math.min(
-                        Math.max(0L, order.deliveredAmount),
-                        (long) order.requestedAmount
-                );
-                effectiveGoal = Math.max(0, order.requestedAmount);
-            } else {
-                order.completedAmount = (int) Math.min(effectiveGoal, Math.max(0L, actualCompleted));
-            }
-
-            int remaining = Math.max(0, effectiveGoal - order.completedAmount);
 
             if (!hasTasks) {
                 order.status = OrderStatus.FAILED;
@@ -1889,11 +902,9 @@ public class LogisticsNetworkState {
                 removeOrderFromDedup(order.orderId);
                 order.lastError = "no-runtime-tasks";
                 LOG.warn("[Logistics {}] order failed={} reason=no-runtime-tasks", manager.getPos(), order.orderId);
-                LOG.warn("[Logistics {}] order={} status=FAILED amount={} completed={} remaining={} runningTasks={}",
-                        manager.getPos(), order.orderId, order.requestedAmount, order.completedAmount, remaining, runningTasks);
             } else if (order.recipePath && (!craftDone || !outputDone)) {
                 allDone = false;
-            } else if (allDone && order.completedAmount >= effectiveGoal) {
+            } else if (allDone) {
                 order.status = OrderStatus.DONE;
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
@@ -1903,35 +914,9 @@ public class LogisticsNetworkState {
                     }
                 }
                 removeOrderFromDedup(order.orderId);
-
-                if (isTerminalDeliveryOrder(order)) {
-                    LOG.info("[Logistics {}] order={} status=DONE reason=terminal-delivered-amount-reached key={} requested={} delivered={} remaining=0",
-                            manager.getPos(),
-                            order.orderId,
-                            order.requestedKey,
-                            order.requestedAmount,
-                            order.deliveredAmount);
-                } else {
-                    LOG.info("[Logistics {}] order={} status=DONE reason=completed-amount-reached key={} amount={} completed={} remaining=0 recipePath={}",
-                            manager.getPos(), order.orderId, order.requestedKey, effectiveGoal, order.completedAmount, order.recipePath);
-                }
-            } else if (allDone) {
-                order.status = OrderStatus.FAILED;
-                order.lastError = "incomplete-delivery:" + order.requestedKey + ":" + order.completedAmount + "/" + effectiveGoal;
-                removeOrderFromDedup(order.orderId);
-
-                if (isTerminalDeliveryOrder(order)) {
-                    LOG.warn("[Logistics {}] order={} status=FAILED reason=terminal-incomplete-after-all-tasks key={} requested={} delivered={} remaining={}",
-                            manager.getPos(),
-                            order.orderId,
-                            order.requestedKey,
-                            order.requestedAmount,
-                            order.deliveredAmount,
-                            remaining);
-                } else {
-                    LOG.warn("[Logistics {}] order={} status=FAILED reason=incomplete-after-all-tasks key={} amount={} completed={} remaining={} recipePath={}",
-                            manager.getPos(), order.orderId, order.requestedKey, effectiveGoal, order.completedAmount, remaining, order.recipePath);
-                }
+                order.completedAmount = order.requestedAmount;
+                LOG.info("[Logistics {}] order finalized done={} key={} amount={} recipePath={}",
+                        manager.getPos(), order.orderId, order.requestedKey, order.requestedAmount, order.recipePath);
             } else if (order.status == OrderStatus.FAILED || order.status == OrderStatus.CANCELED) {
                 Iterator<Map.Entry<String, UUID>> it = activeOrderDedup.entrySet().iterator();
                 while (it.hasNext()) {
@@ -1945,168 +930,8 @@ public class LogisticsNetworkState {
                 order.status = OrderStatus.RUNNING;
             }
 
-            if (order.status == OrderStatus.RUNNING
-                    || order.status == OrderStatus.WAITING_INPUTS
-                    || order.status == OrderStatus.WAITING_BUFFER_SLOT) {
-                if (isTerminalDeliveryOrder(order)) {
-                    LOG.info("[Logistics {}] order={} status={} rawRequested={} effectiveGoal={} completed={} deliveredAmount={} remaining={} runningTasks={} recipePath={}",
-                            manager.getPos(),
-                            order.orderId,
-                            order.status,
-                            order.requestedAmount,
-                            effectiveGoal,
-                            order.completedAmount,
-                            order.deliveredAmount,
-                            remaining,
-                            runningTasks,
-                            order.recipePath);
-                } else {
-                    LOG.info("[Logistics {}] order={} status={} rawRequested={} effectiveGoal={} completed={} remaining={} runningTasks={} recipePath={}",
-                            manager.getPos(), order.orderId, order.status, order.requestedAmount, effectiveGoal, order.completedAmount, remaining, runningTasks, order.recipePath);
-                }
-            }
             order.updatedTick = manager.getServerTickCounter();
         }
-    }
-
-    @Nullable
-    public NetworkOrder getOrder(@Nullable UUID orderId) {
-        if (orderId == null) return null;
-        return orders.get(orderId);
-    }
-
-
-    private boolean contributesToOrderProgress(NetworkOrder order, RuntimeTask task) {
-        if (order == null || task == null) return false;
-
-        if (isTerminalDeliveryOrder(order)) {
-            return false;
-        }
-
-        if (order.orderKind == NetworkOrder.OrderKind.CREATION
-                && order.creationOutputMode == CreationOutputMode.LEAVE_IN_CRAFTER) {
-            return "execute-craft".equals(task.metaPurpose);
-        }
-
-        return "deliver-output".equals(task.metaPurpose);
-    }
-
-    private boolean isTerminalSourceOrder(@Nullable NetworkOrder order) {
-        return order != null && order.sourceType == OrderSourceType.TERMINAL;
-    }
-
-    private boolean isTerminalDeliveryOrder(@Nullable NetworkOrder order) {
-        return isTerminalSourceOrder(order) && order.orderKind == NetworkOrder.OrderKind.DELIVERY;
-    }
-
-    public int countExactInEndpoint(TileMirrorManager manager, EndpointRef endpoint, ItemKey key) {
-        if (manager == null || endpoint == null || key == null || key == ItemKey.EMPTY) return 0;
-        return Math.max(0, manager.countItemAtEndpoint(endpoint, key));
-    }
-
-    public int countExactInTargetInventory(TileMirrorManager manager, EndpointRef endpoint, ItemKey key) {
-        return countExactInEndpoint(manager, endpoint, key);
-    }
-
-    public int countInboundReservedForTarget(ItemKey key,
-                                             EndpointRef target,
-                                             @Nullable UUID excludeOrder,
-                                             @Nullable UUID excludeTask) {
-        if (key == null || key == ItemKey.EMPTY || target == null) return 0;
-        int total = 0;
-        for (RuntimeTask task : runtimeTasks.values()) {
-            if (!(task instanceof TransferTask) || isTerminalTask(task.status)) continue;
-            if (excludeTask != null && excludeTask.equals(task.taskId)) continue;
-            if (excludeOrder != null && excludeOrder.equals(task.orderId)) continue;
-
-            TransferTask transfer = (TransferTask) task;
-            if (transfer.itemKey == null || !key.equals(transfer.itemKey)) continue;
-            if (transfer.target == null) continue;
-            if (transfer.target.mode != target.mode || !transfer.target.pos.equals(target.pos)) continue;
-            if (transfer.target.stagingSlotIndex != target.stagingSlotIndex) continue;
-
-            long outstanding = Math.max(0L, transfer.amount - transfer.completedAmount);
-            if (outstanding > 0L) {
-                total += (int) Math.min(Integer.MAX_VALUE, outstanding);
-            }
-        }
-        return Math.max(0, total);
-    }
-
-    public int countDirectAvailableInNetwork(TileMirrorManager manager, ItemKey key, @Nullable UUID excludeOrder) {
-        if (manager == null || key == null || key == ItemKey.EMPTY) return 0;
-        int reachable = Math.max(0, manager.getReachableCatalog().getOrDefault(key, 0));
-        int reserved = reservationBook.getReservedAmount(key);
-        return Math.max(0, reachable - reserved);
-    }
-
-    public int computeEffectiveMissing(TileMirrorManager manager,
-                                       ItemKey key,
-                                       int requestedAmount,
-                                       EndpointRef target,
-                                       @Nullable UUID excludeOrder,
-                                       boolean includeInboundReservations) {
-        EffectiveNeedSnapshot snapshot = computeEffectiveTargetNeed(manager, key, requestedAmount, target, excludeOrder, includeInboundReservations);
-        return snapshot.missingNow;
-    }
-
-    private EffectiveNeedSnapshot computeEffectiveTargetNeed(TileMirrorManager manager,
-                                                             ItemKey key,
-                                                             int requestedAmount,
-                                                             EndpointRef target,
-                                                             @Nullable UUID excludeOrder,
-                                                             boolean includeInboundReservations) {
-        EffectiveNeedSnapshot snapshot = new EffectiveNeedSnapshot();
-        snapshot.requested = Math.max(0, requestedAmount);
-        NetworkOrder order = excludeOrder == null ? null : orders.get(excludeOrder);
-        boolean terminalScopedNeed = isTerminalSourceOrder(order);
-        int rawPresentAtTarget = countExactInTargetInventory(manager, target, key);
-        int targetBaseline = 0;
-        if (excludeOrder != null && order != null && order.targetSnapshotAmount >= 0) {
-            targetBaseline = order.targetSnapshotAmount;
-        }
-        snapshot.presentAtTarget = terminalScopedNeed ? 0 : Math.max(0, rawPresentAtTarget - targetBaseline);
-        snapshot.reservedInbound = (includeInboundReservations && !terminalScopedNeed)
-                ? countInboundReservedForTarget(key, target, excludeOrder, null)
-                : 0;
-        snapshot.availableInNetwork = countDirectAvailableInNetwork(manager, key, excludeOrder);
-        snapshot.missingNow = Math.max(0, snapshot.requested - snapshot.presentAtTarget - snapshot.reservedInbound);
-        snapshot.craftNeeded = Math.max(0, snapshot.missingNow - snapshot.availableInNetwork);
-        return snapshot;
-    }
-
-    public boolean isTargetSatisfied(TileMirrorManager manager, TransferTask task) {
-        if (manager == null || task == null || task.target == null || task.itemKey == null || task.itemKey == ItemKey.EMPTY) {
-            return false;
-        }
-
-        NetworkOrder order = task.orderId == null ? null : orders.get(task.orderId);
-
-        if (isTerminalDeliveryOrder(order) && "deliver-output".equals(task.metaPurpose)) {
-            return task.completedAmount >= task.amount;
-        }
-
-        if (order != null && isTerminalSourceOrder(order)) {
-            return task.completedAmount >= task.amount;
-        }
-
-        int atTarget = countExactInTargetInventory(manager, task.target, task.itemKey);
-        int inbound = countInboundReservedForTarget(task.itemKey, task.target, task.orderId, task.taskId);
-        long requested = Math.max(0L, task.amount);
-        boolean satisfied = atTarget >= requested || (atTarget + inbound) >= requested;
-
-        if (satisfied) {
-            task.completedAmount = Math.min(task.amount, Math.max(task.completedAmount, atTarget));
-        }
-
-        return satisfied;
-    }
-
-    public void releaseBufferedOverageForTask(TileMirrorManager manager, TransferTask task) {
-        if (manager == null || task == null || task.itemKey == null) return;
-        int buffered = manager.countItemAtEndpoint(EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER), task.itemKey);
-        LOG.info("[Logistics {}] manager-buffer-overage-release task={} key={} buffered={} action=release-to-buffer",
-                manager.getPos(), task.taskId, task.itemKey, Math.max(0, buffered));
     }
 
     private void removeOrderFromDedup(UUID orderId) {
@@ -2159,10 +984,7 @@ public class LogisticsNetworkState {
     }
 
     private static boolean isTerminalTask(TaskStatus status) {
-        return status == TaskStatus.DONE
-                || status == TaskStatus.FAILED
-                || status == TaskStatus.CANCELED
-                || status == TaskStatus.STALLED_OUTPUT;
+        return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
     }
 
     private static boolean isActiveOrder(OrderStatus status) {
@@ -2203,21 +1025,12 @@ public class LogisticsNetworkState {
         }
         tag.setTag("recipes", recipes);
         tag.setTag("reservations", reservationBook.writeToNbt());
-        NBTTagList stagingReservations = new NBTTagList();
-        for (BufferReservation reservation : bufferReservations.values()) {
-            if (reservation == null) continue;
-            stagingReservations.appendTag(reservation.writeToNbt());
-        }
-        tag.setTag("stagingReservations", stagingReservations);
     }
 
     public void readFromNbt(NBTTagCompound tag) {
         orders.clear();
         runtimeTasks.clear();
         recipesByResult.clear();
-        bufferReservations.clear();
-        bufferedBatches.clear();
-        reservationByOrderId.clear();
         activeOrderDedup.clear();
         activeTaskDedup.clear();
 
@@ -2225,7 +1038,7 @@ public class LogisticsNetworkState {
         for (int i = 0; i < ord.tagCount(); i++) {
             NetworkOrder o = NetworkOrder.readFromNbt(ord.getCompoundTagAt(i));
             orders.put(o.orderId, o);
-            if (isActiveOrder(o.status) && o.sourceType != OrderSourceType.TERMINAL) {
+            if (isActiveOrder(o.status)) {
                 String dedupeKey = o.sourceType.name()
                         + "|" + o.sourcePos.toLong()
                         + "|" + o.requestedKey.hashCode()
@@ -2246,7 +1059,6 @@ public class LogisticsNetworkState {
             if (task instanceof TransferTask && !isTerminalTask(task.status)) {
                 TransferTask transfer = (TransferTask) task;
                 String dedupe = "T|" + task.orderId
-                        + "|" + (transfer.stagingReservationId == null ? "none" : transfer.stagingReservationId.toString())
                         + "|" + transfer.source.pos.toLong()
                         + "|" + transfer.target.pos.toLong()
                         + "|" + transfer.itemKey.hashCode()
@@ -2269,45 +1081,6 @@ public class LogisticsNetworkState {
         if (tag.hasKey("reservations", Constants.NBT.TAG_COMPOUND)) {
             reservationBook.readFromNbt(tag.getCompoundTag("reservations"));
         }
-        NBTTagList stagingReservations = tag.getTagList("stagingReservations", Constants.NBT.TAG_COMPOUND);
-        for (int i = 0; i < stagingReservations.tagCount(); i++) {
-            BufferReservation reservation = BufferReservation.readFromNbt(stagingReservations.getCompoundTagAt(i));
-            if (reservation == null || reservation.reservationId == null) continue;
-            bufferReservations.put(reservation.reservationId, reservation);
-            if (reservation.orderId != null && !reservation.released) {
-                reservationByOrderId.put(reservation.orderId, reservation.reservationId);
-            }
-        }
-    }
-
-    private void refreshTerminalDeliveredAmount(NetworkOrder order) {
-        if (order == null) return;
-        if (!isTerminalDeliveryOrder(order)) return;
-
-        long creditedTotal = 0L;
-
-        for (UUID tid : order.taskIds) {
-            RuntimeTask rt = runtimeTasks.get(tid);
-            if (!(rt instanceof TransferTask)) continue;
-
-            TransferTask tt = (TransferTask) rt;
-            if (!"deliver-output".equals(tt.metaPurpose)) continue;
-
-            long completedNow = Math.max(0L, tt.completedAmount);
-            long alreadyCredited = Math.max(0L, tt.creditedAmount);
-
-            if (completedNow > alreadyCredited) {
-                long delta = completedNow - alreadyCredited;
-                tt.creditedAmount = completedNow;
-
-                LOG.info("[Logistics] terminal delivery progress credited order={} task={} delta={} completedNow={} requestedTaskAmount={}",
-                        order.orderId, tt.taskId, delta, completedNow, tt.amount);
-            }
-
-            creditedTotal += Math.max(0L, tt.creditedAmount);
-        }
-
-        order.deliveredAmount = creditedTotal;
     }
 
     private EndpointRef stockSource(TileMirrorManager manager) {

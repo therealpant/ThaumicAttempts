@@ -1,9 +1,8 @@
 package therealpant.thaumicattempts.golemnet.logistics;
 
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
-import therealpant.thaumicattempts.util.ItemKey;
 
-import javax.annotation.Nullable;
+import java.nio.charset.StandardCharsets;
 import java.util.Iterator;
 import java.util.LinkedHashMap;
 import java.util.Map;
@@ -13,12 +12,10 @@ import static therealpant.thaumicattempts.integration.ThaumcraftCompat.LOG;
 
 public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
-    private static final int DISPATCH_COOLDOWN_TICKS = 10;
-    private static final int STALLED_LIMIT_TICKS = 100;
-
     private TileMirrorManager manager;
     private final LinkedHashMap<UUID, TransferTask> running = new LinkedHashMap<UUID, TransferTask>();
     private final LinkedHashMap<UUID, TaskExecutionSnapshot> snapshots = new LinkedHashMap<UUID, TaskExecutionSnapshot>();
+    private final LinkedHashMap<UUID, Integer> inboundBaseline = new LinkedHashMap<UUID, Integer>();
 
     public void bind(TileMirrorManager manager) {
         this.manager = manager;
@@ -47,12 +44,6 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         task.legacyDeliveryQueued = false;
         task.legacyDeliveryQueueId = -1;
 
-        long nowTick = manager == null ? 0L : manager.getServerTickCounter();
-        task.lastProgressTick = nowTick;
-        task.lastDispatchTick = 0L;
-        task.stalledTicks = 0;
-        task.lastRemaining = -1L;
-
         running.put(task.taskId, task);
         snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.DISPATCHED, task.completedAmount));
         LOG.info("[ManagerExecutor {}] task={} transfer accepted", manager != null ? manager.getPos() : null, task.taskId);
@@ -65,111 +56,6 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
     @Override
     public TaskExecutionSnapshot getSnapshot(UUID taskId) { return snapshots.get(taskId); }
-
-    @Nullable
-    private NetworkOrder getOrder(TransferTask task) {
-        if (manager == null || task == null || task.orderId == null) return null;
-        LogisticsNetworkState state = manager.getLogisticsState();
-        if (state == null) return null;
-        return state.getOrder(task.orderId);
-    }
-
-    private boolean isTerminalDeliverOutput(TransferTask task) {
-        if (!isOutputStageTask(task)) return false;
-
-        NetworkOrder order = getOrder(task);
-        return order != null
-                && order.sourceType == OrderSourceType.TERMINAL
-                && order.orderKind == NetworkOrder.OrderKind.DELIVERY;
-    }
-
-    private boolean isManagerBufferEndpoint(EndpointRef endpoint) {
-        return manager != null
-                && endpoint != null
-                && endpoint.mode == EndpointRef.AccessMode.BUFFER
-                && endpoint.pos != null
-                && endpoint.pos.equals(manager.getPos());
-    }
-
-    private boolean isManagerInboundProvisionTask(TransferTask task) {
-        if (!isInboundStageTask(task)) return false;
-        return isManagerBufferEndpoint(task.target);
-    }
-
-    private boolean isInboundStageTask(TransferTask task) {
-        return task != null && "deliver".equals(task.metaPurpose);
-    }
-
-    private boolean isOutputStageTask(TransferTask task) {
-        return task != null && "deliver-output".equals(task.metaPurpose);
-    }
-
-    private boolean assertOutputStageTask(TransferTask task, String context) {
-        if (isOutputStageTask(task)) return true;
-        LOG.error("[ManagerExecutor {}] ERROR output logic invoked for non-output task task={} purpose={} context={}",
-                manager != null ? manager.getPos() : null,
-                task != null ? task.taskId : null,
-                task != null ? task.metaPurpose : null,
-                context);
-        return false;
-    }
-
-    private boolean sameEndpoint(EndpointRef a, EndpointRef b) {
-        if (a == null || b == null) return false;
-        if (a.mode != b.mode) return false;
-        return a.pos != null && a.pos.equals(b.pos);
-    }
-
-    private boolean sameResource(ItemKey a, ItemKey b) {
-        return a != null && b != null && a.equals(b);
-    }
-
-    private boolean hasEarlierTerminalDeliverSibling(TransferTask task) {
-        if (!isTerminalDeliverOutput(task)) return false;
-
-        for (TransferTask other : running.values()) {
-            if (other == null || other == task) continue;
-            if (!isTerminalDeliverOutput(other)) continue;
-            if (!sameEndpoint(task.target, other.target)) continue;
-            if (!sameResource(task.itemKey, other.itemKey)) continue;
-
-            if (isTerminal(other.status)) continue;
-
-            // Более ранняя задача в той же "линии" держит эксклюзив
-            if (other.createdTick < task.createdTick) return true;
-            if (other.createdTick == task.createdTick
-                    && other.taskId != null
-                    && task.taskId != null
-                    && other.taskId.toString().compareTo(task.taskId.toString()) < 0) {
-                return true;
-            }
-        }
-
-        return false;
-    }
-
-    private boolean isTerminalInboundToReservedSlot(TransferTask task) {
-        if (!isInboundStageTask(task)) return false;
-        NetworkOrder order = getOrder(task);
-        if (order == null || order.sourceType != OrderSourceType.TERMINAL || order.orderKind != NetworkOrder.OrderKind.DELIVERY) {
-            return false;
-        }
-        return task.target != null
-                && task.target.mode == EndpointRef.AccessMode.BUFFER
-                && task.target.stagingSlotIndex >= 0
-                && task.stagingReservationId != null;
-    }
-
-    private boolean isReservationDispatchAllowed(@Nullable LogisticsNetworkState logistics, @Nullable TransferTask task) {
-        if (logistics == null || !isOutputStageTask(task)) return false;
-        LogisticsNetworkState.ReservationDispatchSnapshot dispatch = logistics.getReservationDispatchSnapshot(task);
-        if (dispatch.reservationId == null || dispatch.orderId == null) return false;
-        if (task.orderId == null || !task.orderId.equals(dispatch.orderId)) return false;
-        if (task.stagingReservationId != null && !task.stagingReservationId.equals(dispatch.reservationId)) return false;
-        if (task.stagingSlotIndex < 0 || dispatch.slotIndex != task.stagingSlotIndex) return false;
-        if (dispatch.stagedOwned < dispatch.requiredAmount) return false;
-        return dispatch.readyForDispatch;
-    }
 
     @Override
     public void tick() {
@@ -185,320 +71,207 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 continue;
             }
 
-            if (isTerminal(task.status)) {
+            if (task.status == TaskStatus.DONE
+                    || task.status == TaskStatus.FAILED
+                    || task.status == TaskStatus.CANCELED) {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
+                inboundBaseline.remove(task.taskId);
                 continue;
             }
 
-            if (task.itemKey == null || task.itemKey == ItemKey.EMPTY || task.source == null || task.target == null) {
-                task.status = TaskStatus.FAILED;
-                LOG.warn("[ManagerExecutor {}] task={} status=FAILED reason=invalid-task source={} target={} key={}",
-                        manager.getPos(), task.taskId, task.source, task.target, task.itemKey);
+            long remaining = Math.max(0L, task.amount - task.completedAmount);
+            if (remaining <= 0L) {
+                task.status = TaskStatus.DONE;
+                task.outboundDone = true;
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
+                inboundBaseline.remove(task.taskId);
                 continue;
             }
 
-            boolean terminalDeliverOutput = isTerminalDeliverOutput(task);
-            boolean terminalInboundReserved = isTerminalInboundToReservedSlot(task);
-            boolean outputStageTask = isOutputStageTask(task);
-            LogisticsNetworkState logistics = manager.getLogisticsState();
+            task.status = TaskStatus.IN_PROGRESS;
 
             /*
-             * КРИТИЧЕСКАЯ ПРАВКА:
-             * одинаковые terminal deliver-output задачи не должны одновременно
-             * смотреть на один и тот же target inventory.
-             * Иначе обе снимут baseline=0 и обе зачтут первый стак.
-             *
-             * Поэтому в одной линии (target + itemKey + deliver-output + TERMINAL)
-             * одновременно активна только самая ранняя задача.
+             * Инициализация baseline один раз.
+             * Прогресс считаем только по дельте, иначе остатки в буфере/инвентаре ломают логику.
              */
-            if (terminalDeliverOutput && hasEarlierTerminalDeliverSibling(task)) {
-                transitionStatus(task, TaskStatus.BLOCKED, "waiting-terminal-lane");
-
-                long remainingBlocked = Math.max(0L, task.amount - task.completedAmount);
-                int queuedBlocked = manager.countQueuedForEndpoint(task.target, task.itemKey);
-                logTransferDebug(task, remainingBlocked, queuedBlocked);
-
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                continue;
+            if (task.targetBaseline < 0) {
+                task.targetBaseline = manager.countItemAtEndpoint(task.target, task.itemKey);
+            }
+            if (task.sourceBaseline < 0) {
+                task.sourceBaseline = manager.countItemAtEndpoint(task.source, task.itemKey);
+            }
+            if (task.bufferBaseline < 0) {
+                task.bufferBaseline = manager.countItemAtEndpoint(
+                        EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
+                        task.itemKey
+                );
             }
 
-            long previousCompleted = task.completedAmount;
-            boolean dispatchAllowed = !outputStageTask || isReservationDispatchAllowed(logistics, task);
-            if (!outputStageTask || dispatchAllowed) {
-                task.completedAmount = calculateTaskProgress(task);
-            } else {
-                task.completedAmount = previousCompleted;
-            }
+            /*
+             * ===== SPECIAL CASE: обычная доставка в terminal/requester =====
+             * Фаза 1: один раз затянуть в буфер manager'а.
+             * Фаза 2: один раз отправить из буфера в target.
+             *
+             * ВАЖНО: нельзя каждый тик снова вызывать dispatch/queue,
+             * иначе одна runtime-задача создаёт несколько големных доставок.
+             */
+            if ("deliver".equals(task.metaPurpose)) {
 
-            if (terminalInboundReserved && logistics != null) {
-                int stagedAmount = logistics.getReservationStagedAmount(task);
-                if (stagedAmount >= task.amount) {
-                    task.completedAmount = task.amount;
-                }
-            }
+                // ---- inbound phase ----
+                if (!task.inboundDone) {
+                    if (!task.inboundQueued) {
+                        int queueId = ensureQueueId(task);
+                        boolean queued = manager.dispatchInboundToManagerByGolems(
+                                task.source,
+                                task.itemKey,
+                                (int) remaining,
+                                queueId
+                        );
 
-            if (task.completedAmount > previousCompleted) {
-                task.lastProgressTick = manager.getServerTickCounter();
-                if (outputStageTask && logistics != null) {
-                    if (!assertOutputStageTask(task, "reservation-consume")) {
-                        task.completedAmount = previousCompleted;
-                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                        continue;
+                        if (!queued) {
+                            task.status = TaskStatus.BLOCKED;
+                            snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                            it.remove();
+                            inboundBaseline.remove(task.taskId);
+                            continue;
+                        }
+
+                        task.inboundQueued = true;
+                        task.legacyDeliveryQueued = true;
+                        task.legacyDeliveryQueueId = queueId;
+                        inboundBaseline.put(task.taskId, manager.countBuffered(task.itemKey));
+                        if (task.legacyDeliveryId == null) {
+                            task.legacyDeliveryId = UUID.nameUUIDFromBytes(
+                                    ("legacy-deliver-" + task.taskId.toString()).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                            );
+                        }
+                        task.updatedTick = manager.getServerTickCounter();
                     }
-                    boolean consumed = logistics.logReservationOutputConsumption(
-                            manager,
-                            task,
-                            task.completedAmount - previousCompleted,
-                            task.completedAmount
+
+                    int nowInBuffer = manager.countItemAtEndpoint(
+                            EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
+                            task.itemKey
                     );
-                    if (!consumed) {
-                        task.completedAmount = previousCompleted;
-                        transitionStatus(task, TaskStatus.BLOCKED, "reservation-consume-denied");
-                    }
-                }
-            }
+                    int movedIntoBuffer = Math.max(0, nowInBuffer - task.bufferBaseline);
 
-            int queued = manager.countQueuedForEndpoint(task.target, task.itemKey);
-            long remaining = Math.max(0L, task.amount - task.completedAmount);
-
-            if (remaining == task.lastRemaining) {
-                task.stalledTicks++;
-            } else {
-                task.stalledTicks = 0;
-                task.lastRemaining = remaining;
-                task.lastProgressTick = manager.getServerTickCounter();
-            }
-
-            if (task.completedAmount >= task.amount) {
-                if (terminalDeliverOutput) {
-                    transitionStatus(task, TaskStatus.DONE, "terminal-task-progress-reached");
-                    LOG.info("[TRANSFER COMPLETE] task={} requested={} deliveredByTask={} reason=terminal-task-progress-reached",
-                            task.taskId,
-                            task.amount,
-                            task.completedAmount);
-                } else {
-                    transitionStatus(task, TaskStatus.DONE, "target-reached");
-                    LOG.info("[TRANSFER COMPLETE] task={} requested={} targetNow={} queuedToTarget={} needNow={} releasedBufferedOverage=true",
-                            task.taskId,
-                            task.amount,
-                            manager.countItemAtEndpoint(task.target, task.itemKey),
-                            queued,
-                            remaining);
-                }
-
-                logTransferDebug(task, remaining, queued);
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                it.remove();
-                continue;
-            }
-
-            if (task.stalledTicks > STALLED_LIMIT_TICKS) {
-                if (logistics != null) {
-                    logistics.markReservationStalled(manager, task);
-                }
-                transitionStatus(task, TaskStatus.BLOCKED, "stalled");
-                logTransferDebug(task, remaining, queued);
-                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                continue;
-            }
-
-            long nowTick = manager.getServerTickCounter();
-            if (nowTick - task.lastDispatchTick >= DISPATCH_COOLDOWN_TICKS) {
-                if (outputStageTask && logistics != null && !isReservationDispatchAllowed(logistics, task)) {
-                    if (!assertOutputStageTask(task, "reservation-ready-check")) {
-                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                    if (movedIntoBuffer >= task.amount || isInboundDone(task)) {
+                        task.inboundDone = true;
+                        task.updatedTick = manager.getServerTickCounter();
+                        LOG.info("[ManagerExecutor {}] task={} inbound phase done", manager.getPos(), task.taskId);
+                    } else {
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.IN_PROGRESS, task.completedAmount));
                         continue;
                     }
-                    LogisticsNetworkState.ReservationDispatchSnapshot dispatch = logistics.getReservationDispatchSnapshot(task);
-                    transitionStatus(task, TaskStatus.BLOCKED, "waiting-reservation-ready");
-                    task.stalledTicks = 0;
-                    task.lastRemaining = remaining;
-                    task.lastProgressTick = nowTick;
-                    LOG.info("[TRANSFER DEBUG] task={} deliver-output waiting because reservation not ready order={} reservation={} slotIndex={} staged={} requested={} required={} ready={}",
-                            task.taskId,
-                            dispatch.orderId != null ? dispatch.orderId : task.orderId,
-                            dispatch.reservationId != null ? dispatch.reservationId : task.stagingReservationId,
-                            dispatch.slotIndex >= 0 ? dispatch.slotIndex : task.stagingSlotIndex,
-                            dispatch.stagedOwned,
-                            dispatch.requestedAmount,
-                            dispatch.requiredAmount,
-                            dispatch.readyForDispatch);
-                    logTransferDebug(task, remaining, queued);
+                }
+
+                // ---- outbound phase ----
+                if (!task.outboundDone) {
+                    if (!task.outboundQueued) {
+                        int queueId = ensureQueueId(task);
+                        boolean accepted = manager.dispatchTransferTask(
+                                EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
+                                task.target,
+                                task.itemKey,
+                                (int) remaining,
+                                queueId
+                        );
+
+                        if (!accepted) {
+                            task.status = TaskStatus.BLOCKED;
+                            snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                            it.remove();
+                            inboundBaseline.remove(task.taskId);
+                            continue;
+                        }
+
+                        task.outboundQueued = true;
+                        task.updatedTick = manager.getServerTickCounter();
+                    }
+
+                    int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
+                    int movedToTarget = Math.max(0, nowAtTarget - task.targetBaseline);
+
+                    task.completedAmount = Math.min(task.amount, movedToTarget);
+
+                    if (task.completedAmount >= task.amount) {
+                        task.outboundDone = true;
+                        task.status = TaskStatus.DONE;
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                        it.remove();
+                        inboundBaseline.remove(task.taskId);
+                        continue;
+                    }
+
+                    snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.IN_PROGRESS, task.completedAmount));
+                    continue;
+                }
+            }
+
+            /*
+             * ===== Обычные transfer-задачи =====
+             * craft-input / pickup-output / deliver-output
+             *
+             * КЛЮЧЕВОЙ ФИКС:
+             * dispatchTransferTask(...) вызываем только ОДИН раз.
+             * Потом просто ждём фактического изменения target по baseline.
+             */
+            if (!task.dispatchQueued) {
+                if (requiresFullSourceBeforeDispatch(task)) {
+                    int availableAtSource = manager.countItemAtEndpoint(task.source, task.itemKey);
+                    if (availableAtSource < remaining) {
+                        task.status = TaskStatus.BLOCKED;
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                        it.remove();
+                        inboundBaseline.remove(task.taskId);
+                        continue;
+                    }
+                }
+                int queueId = ensureQueueId(task);
+                boolean accepted = manager.dispatchTransferTask(
+                        task.source,
+                        task.target,
+                        task.itemKey,
+                        (int) remaining,
+                        queueId
+                );
+
+                if (!accepted) {
+                    task.status = TaskStatus.BLOCKED;
                     snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                    it.remove();
+                    inboundBaseline.remove(task.taskId);
                     continue;
                 }
 
-                long need = Math.max(0L, remaining - queued);
-                if (need > 0L) {
-                    int sourceItemsBefore = manager.countItemAtEndpoint(task.source, task.itemKey);
-                    int sourceQueuedBefore = manager.countQueuedForEndpoint(task.source, task.itemKey);
-                    int targetItemsBefore = manager.countItemAtEndpoint(task.target, task.itemKey);
-                    int targetQueuedBefore = manager.countQueuedForEndpoint(task.target, task.itemKey);
-                    boolean managerInboundProvisionTask = isManagerInboundProvisionTask(task);
-
-                    if (managerInboundProvisionTask) {
-                        int queueId = ensureQueueId(task);
-                        int needForBuffer = (int) Math.min(Integer.MAX_VALUE, need);
-                        int inboundNeed = needForBuffer;
-                        int incomingBefore = 0;
-                        if (logistics != null) {
-                            incomingBefore = logistics.getReservationIncomingQueued(task);
-                            inboundNeed = logistics.getReservationNeed(task);
-                            logistics.logCoverageCheck(manager, task);
-                        }
-                        boolean attemptedInboundProvisioning = inboundNeed > 0;
-                        boolean inboundAccepted = false;
-
-                        LOG.info("[TRANSFER MODE] task={} inbound-mode=golem-request purpose={} source={} target={} need={} reservationNeed={} incomingQueued={} queueId={}",
-                                task.taskId, task.metaPurpose, task.source, task.target, needForBuffer, inboundNeed, incomingBefore, queueId);
-
-                        if (attemptedInboundProvisioning) {
-                            inboundAccepted = manager.dispatchInboundToManagerByGolems(task.source, task.itemKey, inboundNeed, queueId);
-                            if (inboundAccepted && logistics != null) {
-                                logistics.markReservationInboundQueued(manager, task, inboundNeed);
-                            }
-                            LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request request={} key={} amount={} queueId={}",
-                                    task.taskId,
-                                    inboundAccepted ? "accepted" : "rejected",
-                                    task.itemKey,
-                                    inboundNeed,
-                                    queueId);
-                        } else {
-                            LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request request=skipped-covered-by-reservation need={} reservationNeed={} queueId={}",
-                                    task.taskId,
-                                    needForBuffer,
-                                    inboundNeed,
-                                    queueId);
-                        }
-
-                        int sourceQueuedAfter = manager.countQueuedForEndpoint(task.source, task.itemKey);
-                        boolean queuedToManager = sourceQueuedAfter > sourceQueuedBefore || sourceQueuedAfter > 0;
-                        task.inboundQueued = task.inboundQueued || inboundAccepted || queuedToManager;
-
-                        if (inboundAccepted || queuedToManager) {
-                            task.lastDispatchTick = nowTick;
-                            transitionStatus(task, TaskStatus.DISPATCHED, "waiting-golem-delivery");
-                            LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request waiting-for-golem-delivery queuedToManager={} queuedNow={}",
-                                    task.taskId, sourceQueuedAfter, queuedToManager);
-                        } else {
-                            boolean sourceReadyAfterAttempt = manager.hasAvailableItems(task.source, task.itemKey);
-                            if (!sourceReadyAfterAttempt) {
-                                transitionStatus(task, TaskStatus.WAITING_SOURCE, "golem-request-no-source");
-                            } else {
-                                transitionStatus(task, TaskStatus.BLOCKED, "golem-request-rejected");
-                            }
-                            LOG.info("[TRANSFER INBOUND] task={} inbound-mode=golem-request request={} sourceReadyAfterAttempt={} state={}",
-                                    task.taskId,
-                                    attemptedInboundProvisioning ? "not-queued" : "skipped-covered-but-not-visible",
-                                    sourceReadyAfterAttempt,
-                                    task.status);
-                        }
-                    } else {
-                        int queueId = ensureQueueId(task);
-                        LOG.info("[TRANSFER MODE] task={} dispatch-mode=direct-manager-transfer purpose={} source={} target={} need={} queueId={}",
-                                task.taskId, task.metaPurpose, task.source, task.target, need, queueId);
-
-                        boolean accepted = manager.dispatchTransferTask(
-                                task.source,
-                                task.target,
-                                task.itemKey,
-                                (int) Math.min(Integer.MAX_VALUE, need),
-                                queueId
-                        );
-                        if (isOutputStageTask(task) && task.source != null
-                                && task.source.mode == EndpointRef.AccessMode.BUFFER
-                                && task.source.stagingSlotIndex >= 0) {
-                            if (!assertOutputStageTask(task, "output-dispatch-path")) {
-                                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
-                                continue;
-                            }
-                            LOG.info("[TRANSFER DEBUG] task={} deliver-output consuming from reserved slot={} order={} reservation={}",
-                                    task.taskId,
-                                    task.source.stagingSlotIndex,
-                                    task.orderId,
-                                    task.stagingReservationId);
-                        }
-
-                        int sourceItemsAfter = manager.countItemAtEndpoint(task.source, task.itemKey);
-                        int sourceQueuedAfter = manager.countQueuedForEndpoint(task.source, task.itemKey);
-                        int targetItemsAfter = manager.countItemAtEndpoint(task.target, task.itemKey);
-                        int targetQueuedAfter = manager.countQueuedForEndpoint(task.target, task.itemKey);
-
-                        boolean movedNow = targetItemsAfter > targetItemsBefore;
-                        boolean queuedNow = targetQueuedAfter > targetQueuedBefore
-                                || sourceQueuedAfter > sourceQueuedBefore
-                                || (task.isDeliverTask() && sourceQueuedAfter > 0 && sourceQueuedAfter != sourceQueuedBefore);
-                        boolean sourceCoverageAppeared = (sourceItemsAfter + sourceQueuedAfter) > (sourceItemsBefore + sourceQueuedBefore);
-                        boolean targetCoverageAppeared = (targetItemsAfter + targetQueuedAfter) > (targetItemsBefore + targetQueuedBefore);
-                        boolean anyCoverageAppeared = sourceCoverageAppeared || targetCoverageAppeared;
-
-                        if (accepted) {
-                            task.lastDispatchTick = nowTick;
-                            transitionStatus(task, TaskStatus.DISPATCHED, "dispatch-accepted");
-                            LOG.info("[TRANSFER ACCEPT] task={} requested={} targetPresent={} targetNeedNow={} accepted={}",
-                                    task.taskId, task.amount, targetItemsBefore, need, true);
-                        } else {
-                            boolean sourceReadyAfterAttempt = manager.hasAvailableItems(task.source, task.itemKey);
-                            if (!movedNow && !queuedNow && !anyCoverageAppeared) {
-                                if (!sourceReadyAfterAttempt) {
-                                    transitionStatus(task, TaskStatus.WAITING_SOURCE, "source-empty-after-dispatch-attempt");
-                                } else {
-                                    transitionStatus(task, TaskStatus.BLOCKED, "dispatch-rejected-after-attempt");
-                                }
-                            } else {
-                                transitionStatus(task, TaskStatus.IN_PROGRESS, "dispatch-pending");
-                            }
-                        }
-                    }
-                }
+                task.dispatchQueued = true;
+                task.dispatchQueueId = queueId;
+                task.updatedTick = manager.getServerTickCounter();
             }
 
-            if (!isTerminal(task.status)
-                    && task.status != TaskStatus.DISPATCHED
-                    && task.status != TaskStatus.WAITING_SOURCE
-                    && task.status != TaskStatus.BLOCKED) {
-                transitionStatus(task, TaskStatus.IN_PROGRESS, "awaiting-delivery");
-            }
+            int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
+            int movedToTarget = Math.max(0, nowAtTarget - task.targetBaseline);
+            task.completedAmount = Math.min(task.amount, movedToTarget);
 
-            logTransferDebug(task, remaining, queued);
-            snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+            if (task.completedAmount >= task.amount) {
+                task.status = TaskStatus.DONE;
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                it.remove();
+                inboundBaseline.remove(task.taskId);
+            } else {
+                snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.IN_PROGRESS, task.completedAmount));
+            }
         }
-    }
-
-    private boolean isTerminal(TaskStatus status) {
-        return status == TaskStatus.DONE || status == TaskStatus.FAILED || status == TaskStatus.CANCELED;
     }
 
     @Override
     public boolean accepts(RuntimeTask task) { return task instanceof TransferTask; }
 
-    private void transitionStatus(TransferTask task, TaskStatus next, String reason) {
-        if (task == null || next == null) return;
-        TaskStatus prev = task.status;
-        if (prev == next) return;
-        task.status = next;
-        task.updatedTick = manager != null ? manager.getServerTickCounter() : task.updatedTick;
-        LOG.info("[TRANSFER STATE] task={} {} -> {} reason={} item={}",
-                task.taskId,
-                prev,
-                next,
-                reason,
-                task.itemKey);
-    }
-
-    private void logTransferDebug(TransferTask task, long remaining, int queued) {
-        if (task == null || manager == null) return;
-        LOG.info("[TRANSFER DEBUG] task={} item={} remaining={} queued={} delivered={} stalledTicks={} state={}",
-                task.taskId,
-                task.itemKey,
-                Math.max(0L, remaining),
-                Math.max(0, queued),
-                task.completedAmount,
-                task.stalledTicks,
-                task.status);
+    private void LOG(TransferTask task, String msg) {
+        if (manager == null || task == null) return;
+        org.apache.logging.log4j.LogManager.getLogger("ThaumicAttempts/ManagerExecutor")
+                .info("[ManagerExecutor {}] task={} {}", manager.getPos(), task.taskId, msg);
     }
 
     private int ensureQueueId(TransferTask task) {
@@ -509,27 +282,17 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         return queueId;
     }
 
-    private long calculateTaskProgress(TransferTask task) {
-        if (task == null || task.target == null || task.itemKey == null || manager == null) return 0L;
+    private boolean isInboundDone(TransferTask task) {
+        int base = inboundBaseline.getOrDefault(task.taskId, 0);
+        int nowBuffered = manager.countBuffered(task.itemKey);
+        int deliveredToBuffer = Math.max(0, nowBuffered - base);
+        return deliveredToBuffer >= Math.max(1L, task.amount);
+    }
 
-        if (isManagerInboundProvisionTask(task)) {
-            EndpointRef slotEndpoint = task.target.stagingSlotIndex >= 0
-                    ? EndpointRef.managerBufferSlot(manager.getPos(), task.target.stagingSlotIndex)
-                    : task.target;
-            int nowInReserved = manager.countItemAtEndpoint(slotEndpoint, task.itemKey);
-            if (task.targetBaseline < 0) {
-                task.targetBaseline = nowInReserved;
-            }
-            long inboundDelta = Math.max(0, nowInReserved - task.targetBaseline);
-            return Math.min(task.amount, inboundDelta);
-        }
-
-        int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
-        if (task.targetBaseline < 0) {
-            task.targetBaseline = nowAtTarget;
-        }
-
-        long delivered = Math.max(0, nowAtTarget - task.targetBaseline);
-        return Math.min(task.amount, delivered);
+    private static boolean requiresFullSourceBeforeDispatch(TransferTask task) {
+        if (task == null || task.metaPurpose == null) return false;
+        return "craft-input".equals(task.metaPurpose)
+                || "pickup-output".equals(task.metaPurpose)
+                || "deliver-output".equals(task.metaPurpose);
     }
 }

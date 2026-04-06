@@ -22,9 +22,7 @@ public class NetworkOrder {
     public ItemKey requestedKey;
     public int requestedAmount;
     public int completedAmount;
-    public int operationalNeeded;
     public OrderStatus status;
-    public long deliveredAmount = 0L;
     public long createdTick;
     public long updatedTick;
     public final List<UUID> childOrderIds = new ArrayList<UUID>();
@@ -35,11 +33,6 @@ public class NetworkOrder {
     public OrderKind orderKind = OrderKind.DELIVERY;
     public CreationOutputMode creationOutputMode = CreationOutputMode.RETURN_TO_REQUESTER;
     public boolean recipePath = false;
-    public int targetSnapshotAmount = -1;
-    public int stockSnapshotAmount = -1;
-    public int stagingSlotIndex = -1;
-    @Nullable
-    public UUID stagingReservationId = null;
 
     public enum OrderKind {
         DELIVERY,
@@ -61,21 +54,13 @@ public class NetworkOrder {
         if (returnDestination != null) tag.setLong("returnPos", returnDestination.toLong());
         tag.setTag("key", requestedKey.toStack(1).writeToNBT(new NBTTagCompound()));
         tag.setInteger("requested", requestedAmount);
-        tag.setInteger("operationalNeeded", operationalNeeded);
         tag.setInteger("completed", completedAmount);
         tag.setString("status", status.name());
-        tag.setLong("deliveredAmount", deliveredAmount);
         tag.setLong("created", createdTick);
         tag.setLong("updated", updatedTick);
         tag.setString("debug", debugReason == null ? "" : debugReason);
         tag.setString("error", lastError == null ? "" : lastError);
         tag.setBoolean("recipePath", recipePath);
-        tag.setInteger("targetSnapshot", targetSnapshotAmount);
-        tag.setInteger("stockSnapshot", stockSnapshotAmount);
-        tag.setInteger("stagingSlotIndex", stagingSlotIndex);
-        if (stagingReservationId != null) {
-            tag.setString("stagingReservationId", stagingReservationId.toString());
-        }
         tag.setString("intent", intent == null ? RequestIntent.NORMAL.name() : intent.name());
         tag.setString("orderKind", orderKind == null ? OrderKind.DELIVERY.name() : orderKind.name());
         tag.setString("creationOutputMode", creationOutputMode == null ? CreationOutputMode.RETURN_TO_REQUESTER.name() : creationOutputMode.name());
@@ -112,12 +97,6 @@ public class NetworkOrder {
             o.returnDestination = BlockPos.fromLong(tag.getLong("returnPos"));
         o.requestedKey = ItemKey.of(new net.minecraft.item.ItemStack(tag.getCompoundTag("key")));
         o.requestedAmount = Math.max(1, tag.getInteger("requested"));
-        o.deliveredAmount = tag.hasKey("deliveredAmount", Constants.NBT.TAG_LONG)
-                ? tag.getLong("deliveredAmount")
-                : 0L;
-        o.operationalNeeded = tag.hasKey("operationalNeeded", Constants.NBT.TAG_INT)
-                ? Math.max(0, tag.getInteger("operationalNeeded"))
-                : o.requestedAmount;
         o.completedAmount = Math.max(0, tag.getInteger("completed"));
         try {
             o.status = OrderStatus.valueOf(tag.getString("status"));
@@ -140,22 +119,6 @@ public class NetworkOrder {
         }
 
         o.recipePath = tag.hasKey("recipePath", Constants.NBT.TAG_BYTE) && tag.getBoolean("recipePath");
-        o.targetSnapshotAmount = tag.hasKey("targetSnapshot", Constants.NBT.TAG_INT)
-                ? tag.getInteger("targetSnapshot")
-                : -1;
-        o.stockSnapshotAmount = tag.hasKey("stockSnapshot", Constants.NBT.TAG_INT)
-                ? tag.getInteger("stockSnapshot")
-                : -1;
-        o.stagingSlotIndex = tag.hasKey("stagingSlotIndex", Constants.NBT.TAG_INT)
-                ? tag.getInteger("stagingSlotIndex")
-                : -1;
-        if (tag.hasKey("stagingReservationId", Constants.NBT.TAG_STRING)) {
-            try {
-                o.stagingReservationId = UUID.fromString(tag.getString("stagingReservationId"));
-            } catch (Exception ignored) {
-                o.stagingReservationId = null;
-            }
-        }
         if (tag.hasKey("orderKind", Constants.NBT.TAG_STRING)) {
             try {
                 o.orderKind = OrderKind.valueOf(tag.getString("orderKind"));

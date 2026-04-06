@@ -18,12 +18,7 @@ public class TransferTask extends RuntimeTask {
     public UUID legacyDeliveryId = null;
     public boolean dispatchQueued = false;
     public int dispatchQueueId = -1;
-    public int stagingSlotIndex = -1;
-    public UUID stagingReservationId = null;
 
-    public boolean isDeliverTask() {
-        return source != null && source.mode == EndpointRef.AccessMode.BUFFER;
-    }
     /*
      * baseline на момент первого запуска задачи.
      * Нужен, чтобы считать прогресс по дельте, а не по абсолютному количеству.
@@ -36,11 +31,6 @@ public class TransferTask extends RuntimeTask {
      */
     public int bufferBaseline = -1;
     public boolean outboundQueued = false;
-    public long lastProgressTick = 0L;
-    public long lastDispatchTick = 0L;
-    public int stalledTicks = 0;
-    public long lastRemaining = -1L;
-    public long creditedAmount = 0L;
 
     @Override
     public String getTaskType() {
@@ -61,11 +51,6 @@ public class TransferTask extends RuntimeTask {
         tag.setBoolean("InboundQueued", inboundQueued);
         tag.setBoolean("InboundDone", inboundDone);
         tag.setBoolean("OutboundDone", outboundDone);
-        tag.setLong("creditedAmount", creditedAmount);
-        tag.setInteger("StagingSlotIndex", stagingSlotIndex);
-        if (stagingReservationId != null) {
-            tag.setString("StagingReservationId", stagingReservationId.toString());
-        }
 
         if (legacyDeliveryId != null) {
             tag.setString("LegacyDeliveryId", legacyDeliveryId.toString());
@@ -77,10 +62,6 @@ public class TransferTask extends RuntimeTask {
         tag.setInteger("TargetBaseline", targetBaseline);
         tag.setInteger("BufferBaseline", bufferBaseline);
         tag.setBoolean("OutboundQueued", outboundQueued);
-        tag.setLong("LastProgressTick", lastProgressTick);
-        tag.setLong("LastDispatchTick", lastDispatchTick);
-        tag.setInteger("StalledTicks", stalledTicks);
-        tag.setLong("LastRemaining", lastRemaining);
 
         return tag;
     }
@@ -107,29 +88,11 @@ public class TransferTask extends RuntimeTask {
             }
         }
 
-
         dispatchQueued = tag.hasKey("DispatchQueued") && tag.getBoolean("DispatchQueued");
         dispatchQueueId = tag.hasKey("DispatchQueueId") ? tag.getInteger("DispatchQueueId") : -1;
         sourceBaseline = tag.hasKey("SourceBaseline") ? tag.getInteger("SourceBaseline") : -1;
         targetBaseline = tag.hasKey("TargetBaseline") ? tag.getInteger("TargetBaseline") : -1;
         bufferBaseline = tag.hasKey("BufferBaseline") ? tag.getInteger("BufferBaseline") : -1;
         outboundQueued = tag.hasKey("OutboundQueued") && tag.getBoolean("OutboundQueued");
-        lastProgressTick = tag.hasKey("LastProgressTick") ? tag.getLong("LastProgressTick") : 0L;
-        lastDispatchTick = tag.hasKey("LastDispatchTick") ? tag.getLong("LastDispatchTick") : 0L;
-        stalledTicks = tag.hasKey("StalledTicks") ? tag.getInteger("StalledTicks") : 0;
-        lastRemaining = tag.hasKey("LastRemaining") ? tag.getLong("LastRemaining") : -1L;
-        creditedAmount = tag.hasKey("creditedAmount", Constants.NBT.TAG_LONG)
-                ? tag.getLong("creditedAmount")
-                : 0L;
-        stagingSlotIndex = tag.hasKey("StagingSlotIndex") ? tag.getInteger("StagingSlotIndex") : -1;
-        if (tag.hasKey("StagingReservationId", Constants.NBT.TAG_STRING)) {
-            try {
-                stagingReservationId = UUID.fromString(tag.getString("StagingReservationId"));
-            } catch (Exception ignored) {
-                stagingReservationId = null;
-            }
-        } else {
-            stagingReservationId = null;
-        }
     }
 }

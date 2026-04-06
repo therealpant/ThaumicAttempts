@@ -90,7 +90,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private int dispatcherSealColor = DEFAULT_DISPATCHER_COLOR;
     private final ArrayDeque<BlockPos> dispatcherBusyQueue = new ArrayDeque<>();
 
-
     /**
      * Логический ключ зеркала (номер кольца + слот).
      * Используем для жёсткой привязки к потребителям.
@@ -196,11 +195,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     private final Set<String> allowedOwners = new HashSet<>();
     private @Nullable String ownerUuid;
-
-    @Nullable
-    public LogisticsNetworkState getLogisticsState() {
-        return logistics;
-    }
 
     public @Nullable String getOwnerUuid() {
         return ownerUuid;
@@ -489,25 +483,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return new ArrayList<>(activeMirrors);
     }
 
+    // Курьер принёс предметы для этого менеджера.
+    // Возвращает остаток, который не влез.
     public ItemStack acceptProvisionResult(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return ItemStack.EMPTY;
-
-        ItemStack before = stack.copy();
-        ItemStack rem = silentInsertToBuffer(stack);
-
-        int accepted = before.getCount() - (rem.isEmpty() ? 0 : rem.getCount());
-        if (accepted > 0) {
-            onArrivedToBuffer(before, accepted);
-
-            Batch b = peekNextBatch();
-            if (b != null) {
-                processBatchHead(b);
-            }
-
-            markDirtyAndSync();
-        }
-
-        return rem;
+        return silentInsertToBuffer(stack);
     }
 
     /**
@@ -877,21 +857,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
             if (stack.isEmpty()) return stack;
             ItemStack before = stack.copy();
-            ItemStack slotBefore = buffer.getStackInSlot(slot).copy();
             ItemStack rem = buffer.insertItem(slot, stack, simulate);
             if (!simulate) {
                 int accepted = before.getCount() - (rem.isEmpty() ? 0 : rem.getCount());
                 if (accepted > 0) {
-                    ItemStack slotAfter = buffer.getStackInSlot(slot).copy();
-                    if (logistics != null) {
-                        logistics.onManagerBufferSlotFilled(TileMirrorManager.this, before, accepted, slot, slotBefore, slotAfter);
-                    }
-                    ItemStack verifyStack = buffer.getStackInSlot(slot);
-                    if (!ResourceIdentity.sameResource(verifyStack, slotAfter)
-                            || verifyStack.getCount() != slotAfter.getCount()) {
-                        LOG.error("[ManagerSlotVerifyError] manager={} physicalSlot={} expected={} actual={}",
-                                pos, slot, debugStack(slotAfter), debugStack(verifyStack));
-                    }
                     onArrivedToBuffer(before, accepted);
                     Batch b = peekNextBatch();
                     if (b != null) processBatchHead(b);
@@ -900,11 +869,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             return rem;
         }
     };
-
-    private static String debugStack(@Nullable ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return "empty";
-        return ItemKey.of(stack) + "x" + stack.getCount();
-    }
 
     @Override
     public void onLoad() {
@@ -1396,7 +1360,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     /* ===================== BATCH-очереди ===================== */
 
     private static final class Line {
-        enum State {PENDING, DISPATCHED, IN_FLIGHT, DELIVERED, STALLED, FAILED}
         final ItemStack wanted1;
         public int craftsScheduled;
         int craftsExpected;
@@ -1410,16 +1373,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         // НОВОЕ:
         @Nullable
         UUID golemId; // закреплённый курьер для этой линии (только для DELIVERY от менеджера)
-        State state = State.PENDING;
-        int lastStateTick = -1;
-        int lastRemainingSnapshot = -1;
 
         Line(ItemStack like1, int amount) {
             this.wanted1 = like1.copy();
             this.wanted1.setCount(1);
             this.remaining = Math.max(1, amount);
             this.reserved = 0;
-            this.lastRemainingSnapshot = this.remaining;
         }
     }
 
@@ -1629,39 +1588,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             if (!rest.isEmpty()) {
                 src.insertItem(s, rest, false);
                 break;
-            }
-        }
-        if (moved > 0) markDirty();
-        return moved;
-    }
-
-    private int harvestLikeToBufferSlotFromHandler(BlockPos sourcePos, int sourceSide, ItemStack like, int upTo, int slotIndex) {
-        if (slotIndex < 0 || slotIndex >= buffer.getSlots()) return 0;
-        if (world == null || sourcePos == null || like == null || like.isEmpty() || upTo <= 0) return 0;
-        IItemHandler src = getDestHandler(sourcePos, sourceSide);
-        if (src == null) return 0;
-        int moved = 0;
-        for (int s = 0; s < src.getSlots() && moved < upTo; s++) {
-            ItemStack peek = src.extractItem(s, Math.min(64, upTo - moved), true);
-            if (peek.isEmpty()) continue;
-            boolean match = (like.getMaxStackSize() == 1)
-                    ? matchesForDelivery(peek, like)
-                    : (isCrystal(like)
-                    ? (isCrystal(peek) && crystalSame(peek, like))
-                    : ResourceIdentity.sameResource(peek, like));
-            if (!match) continue;
-            int want = Math.min(upTo - moved, peek.getCount());
-            ItemStack taken = src.extractItem(s, want, false);
-            if (taken.isEmpty()) continue;
-            int toInsert = taken.getCount();
-            ItemStack rest = buffer.insertItem(slotIndex, taken, false);
-            int accepted = toInsert - (rest.isEmpty() ? 0 : rest.getCount());
-            moved += Math.max(0, accepted);
-            if (!rest.isEmpty()) {
-                src.insertItem(s, rest, false);
-                if (accepted <= 0) {
-                    break;
-                }
             }
         }
         if (moved > 0) markDirty();
@@ -1896,10 +1822,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     private int pushFromBufferTo(BlockPos destPos, int destSide, ItemStack like, int upTo) {
-        return pushFromBufferTo(destPos, destSide, like, upTo, -1);
-    }
-
-    private int pushFromBufferTo(BlockPos destPos, int destSide, ItemStack like, int upTo, int sourceSlotIndex) {
         if (like == null || like.isEmpty() || upTo <= 0) return 0;
         IItemHandler dest = getDestHandler(destPos, destSide);
         if (dest == null) return 0;
@@ -1912,7 +1834,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         // 2) Теперь извлекаем из буфера не больше, чем "cap"
         while (left > 0) {
-            ItemStack take = extractFromBuffer(like, left, sourceSlotIndex);
+            ItemStack take = extractFromBuffer(like, left);
             if (take.isEmpty()) break;
 
             ItemStack notFit = ItemHandlerHelper.insertItem(dest, take, false);
@@ -1973,25 +1895,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     private ItemStack extractFromBuffer(ItemStack like, int max) {
-        return extractFromBuffer(like, max, -1);
-    }
-
-    private ItemStack extractFromBuffer(ItemStack like, int max, int sourceSlotIndex) {
         if (like == null || like.isEmpty() || max <= 0) return ItemStack.EMPTY;
-
-        if (sourceSlotIndex >= 0) {
-            if (sourceSlotIndex >= buffer.getSlots()) return ItemStack.EMPTY;
-            ItemStack inSlot = buffer.getStackInSlot(sourceSlotIndex);
-            if (inSlot.isEmpty()) return ItemStack.EMPTY;
-            boolean match = (like.getMaxStackSize() == 1)
-                    ? matchesForDelivery(inSlot, like)
-                    : (isCrystal(like)
-                    ? (isCrystal(inSlot) && crystalSame(inSlot, like))
-                    : ResourceIdentity.sameResource(inSlot, like));
-            if (!match) return ItemStack.EMPTY;
-            int toTake = Math.min(max, inSlot.getCount());
-            return buffer.extractItem(sourceSlotIndex, toTake, false);
-        }
 
         if (like.getMaxStackSize() == 1) {
             for (int i = 0; i < buffer.getSlots(); i++) {
@@ -2052,29 +1956,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (pushed0 > 0) {
             markDeliveryHappened();
             ln.remaining -= pushed0;
+            if (ln.reserved > 0) ln.reserved = Math.max(0, ln.reserved - pushed0);
             lastProgressTick.put(key, tickCounter);
-
-            if (ln.remaining <= 0) {
-                return new LineProcessResult(true, 0);
-            }
+            if (ln.remaining <= 0) return new LineProcessResult(true, 0);
         }
 
         boolean toCrafter = world.getTileEntity(b.dest) instanceof TileEntityGolemCrafter;
 
         int flying = inflight.getOrDefault(key, 0);
+        int atDest = countAtDestLike(b.dest, b.destSide, ln.wanted1);
         int queuedAll = countQueuedFor(b.dest, ln.wanted1);
         int queuedOthers = Math.max(0, queuedAll - ln.remaining);
-        int lastReq = lastReqTick.getOrDefault(key, -9999);
-
-        if (flying > 0 && tickCounter - lastReq > STALL_TICKS) {
-            inflight.put(key, 0);
-            flying = 0;
-            if (ln.reserved > 0) {
-                releaseDispatcherGolems(ln.reserved);
-                ln.reserved = 0;
-            }
-            lastReqTick.put(key, tickCounter - REQ_DEBOUNCE_TICKS);
-        }
 
         int need;
         if (toCrafter) {
@@ -2089,26 +1981,22 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 lastReqTick.put(key, tickCounter - REQ_DEBOUNCE_TICKS);
                 lastProgressTick.put(key, tickCounter);
             }
-
-            int covered = queuedOthers + flying;
-            need = Math.max(0, ln.remaining - covered);
+            int reservedHere = Math.max(0, Math.min(ln.reserved, ln.remaining));
+            int covered = atDest + queuedOthers + reservedHere;
+            need = (covered >= ln.remaining) ? 0 : (ln.remaining - covered);
         } else {
             int lp = lastProgressTick.getOrDefault(key, -9999);
-            if (tickCounter - lp > STALL_TICKS && (ln.reserved > 0 || flying > 0)) {
+            if (tickCounter - lp > STALL_TICKS) {
                 inflight.put(key, 0);
                 flying = 0;
-
                 int reservedBefore = ln.reserved;
                 ln.reserved = 0;
-                if (reservedBefore > 0) {
-                    releaseDispatcherGolems(reservedBefore);
-                }
-
-                lastReqTick.put(key, tickCounter - REQ_DEBOUNCE_TICKS);
-                lastProgressTick.put(key, tickCounter);
+                releaseDispatcherGolems(reservedBefore);
+                releaseDispatcherGolem();
             }
-
-            need = Math.max(0, ln.remaining - flying);
+            int reservedHere = Math.max(0, Math.min(ln.reserved, ln.remaining));
+            int accounted = Math.max(flying, reservedHere);
+            need = Math.max(0, ln.remaining - accounted);
         }
 
         int reservationsCommitted = 0;
@@ -2117,17 +2005,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             int lt = lastReqTick.getOrDefault(key, -9999);
             if (tickCounter - lt >= REQ_DEBOUNCE_TICKS) {
 
-                boolean hasDispatchers = hasActiveDispatchers();
+                boolean hasDispatchers = !boundDispatchers.isEmpty();
 
-                int budget;
-                if (hasDispatchers) {
-                    int stackLimit = Math.max(1, ln.wanted1.getMaxStackSize());
-                    int golemParallel = Math.max(0, dispatcherCapForLine);
-                    int pooledBudget = golemParallel * stackLimit;
-                    budget = Math.min(need, pooledBudget);
-                } else {
-                    budget = Math.min(MAX_REQ_PER_TICK, need);
-                }
+                int budget = Math.min(MAX_REQ_PER_TICK, need);
                 int requested = 0;
 
                 if (!hasDispatchers) {
@@ -2145,38 +2025,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     }
                 } else {
                     // Менеджер сначала ставит таск в очередь, а диспетчер раскидывает по курьерам
-                    java.util.concurrent.ConcurrentHashMap<Integer, Task> tasksSnapshot =
-                            ThaumcraftProvisionHelper.getTasksSafe();
-                    while (budget > 0) {
-                        int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
-                        if (chunk <= 0) break;
-
+                    int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
+                    if (chunk > 0) {
                         ItemStack req = normalizeForProvision(ln.wanted1, chunk);
-
-                        if (req.isEmpty()) break;
-
-                        UUID assignedGolem = null;
-                        if (ln.golemId != null
-                                && isDispatcherLinkedGolem(ln.golemId)
-                                && !isDispatcherGolemBusy(tasksSnapshot, ln.golemId)) {
-                            assignedGolem = ln.golemId;
-                        } else {
-                            assignedGolem = findFreeDispatcherGolemUUID(tasksSnapshot);
-                            ln.golemId = assignedGolem;
+                        if (!req.isEmpty()) {
+                            boolean ok = ThaumcraftProvisionHelper.requestProvisioningForManager(this, req);
+                            if (ok) {
+                                requested += chunk;
+                            }
                         }
-
-                        boolean ok;
-                        if (assignedGolem != null) {
-                            ok = ThaumcraftProvisionHelper.requestProvisioningForManagerWithGolem(this, req, assignedGolem);
-                        } else {
-                            ok = false;
-                        }
-                        if (!ok) {
-                            // Нет свободного диспетчера/не удалось создать таск — прерываемся и доберём на следующих тиках.
-                            break;
-                        }
-                        requested += chunk;
-                        budget -= chunk;
                     }
                 }
 
@@ -2199,18 +2056,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         return new LineProcessResult(false, reservationsCommitted);
 
-    }
-
-    private boolean isDispatcherGolemBusy(@Nullable java.util.concurrent.ConcurrentHashMap<Integer, Task> tasks,
-                                          @Nullable UUID golemId) {
-        if (golemId == null || tasks == null || tasks.isEmpty()) return false;
-        for (Task t : tasks.values()) {
-            if (t == null) continue;
-            if (t.isCompleted() || t.isSuspended()) continue;
-            UUID gid = t.getGolemUUID();
-            if (golemId.equals(gid)) return true;
-        }
-        return false;
     }
 
     private boolean processOneCraftLine(Batch b, Line ln) {
@@ -2379,7 +2224,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             activeQueue = qDelivery;
         }
 
-        if (!hasActiveDispatchers()) {
+        if (boundDispatchers.isEmpty()) {
             Map.Entry<ItemKey, Integer> firstMiss = miss.entrySet().stream()
                     .filter(e -> e.getValue() > 0)
                     .findFirst().orElse(null);
@@ -2591,15 +2436,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             if (!planner.canPlanDemand(this, key, amount)) {
                 return null;
             }
-            UUID planned = planner.planAndSubmitRootDemand(
-                    this,
-                    key,
-                    amount,
-                    sourceType,
-                    sourcePos,
-                    returnDestination,
-                    intent
-            );
+            UUID planned = planner.planAndSubmitRootDemand(this, key, amount, sourcePos, returnDestination, intent);
             if (planned != null) {
                 markDirty();
             }
@@ -2609,12 +2446,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (!isDirectCraftAvailable(key)) {
             return null;
         }
-
-        therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode outputMode =
-                (sourceType == OrderSourceType.REDSTONE_CRAFTER)
-                        ? therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.LEAVE_IN_CRAFTER
-                        : therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.RETURN_TO_REQUESTER;
-
         return submitCreationOrder(
                 key,
                 amount,
@@ -2622,7 +2453,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 sourcePos,
                 returnDestination,
                 intent,
-                outputMode
+                therealpant.thaumicattempts.golemnet.logistics.CreationOutputMode.RETURN_TO_REQUESTER
         );
     }
 
@@ -2762,51 +2593,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     public int executeTransferTask(ItemKey key, int amount, BlockPos source, BlockPos target) {
-        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0 || source == null || target == null) {
-            return 0;
-        }
-
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0 || source == null || target == null) return 0;
         ItemStack like = key.toStack(1);
-
-        /*
-         * Спец-случай:
-         * задача "склад -> буфер менеджера".
-         * Здесь нельзя ограничиваться одной попыткой pullLikeFromProvideSetToBuffer(),
-         * иначе при переноске меньше amount задача зависает.
-         *
-         * Мы:
-         * 1) смотрим, что уже есть в буфере;
-         * 2) мгновенно добираем локально, что можно;
-         * 3) недостачу отправляем в batch-очередь exact-delivery на сам буфер менеджера.
-         */
-        if (source.equals(this.pos) && target.equals(this.pos)) {
-            int bufferedNow = countInManagerBufferLike(like);
-            if (bufferedNow >= amount) {
-                return amount;
-            }
-
-            int need = amount - bufferedNow;
-            int pulledNow = pullLikeFromProvideSetToBuffer(like, need);
-
-            int bufferedAfterPull = countInManagerBufferLike(like);
-            int stillNeed = Math.max(0, amount - bufferedAfterPull);
-
-            if (stillNeed > 0) {
-                LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
-                needs.put(key, stillNeed);
-                ensureDeliveryForExact(this.pos, needs, 0);
-            }
-
-            int queued = countQueuedFor(this.pos, like);
-            return Math.min(amount, bufferedAfterPull + queued);
-        }
-
         if (!source.equals(this.pos)) {
             harvestLikeToBufferFromHandler(source, -1, like, amount);
         } else {
             pullLikeFromProvideSetToBuffer(like, amount);
         }
-
         return pushFromBufferTo(target, -1, like, amount);
     }
 
@@ -2841,25 +2634,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
-    private int countCoveredAtTarget(EndpointRef target, ItemKey key, int amount) {
-        if (target == null || key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
-
-        int atTarget = countItemAtEndpoint(target, key);
-        int queued = countQueuedForEndpoint(target, key);
-
-        return Math.min(amount, Math.max(0, atTarget + queued));
-    }
-
     public int countItemAtEndpoint(EndpointRef endpoint, ItemKey key) {
-        if (endpoint != null
-                && endpoint.mode == EndpointRef.AccessMode.BUFFER
-                && endpoint.stagingSlotIndex >= 0
-                && endpoint.pos != null
-                && endpoint.pos.equals(this.pos)
-                && key != null
-                && key != ItemKey.EMPTY) {
-            return countInManagerBufferLike(key.toStack(1), endpoint.stagingSlotIndex);
-        }
         if (endpoint != null && endpoint.mode == EndpointRef.AccessMode.OUTPUT && world != null) {
             BlockPos resolved = resolveEndpointPos(endpoint);
             TileEntity te = world.getTileEntity(resolved);
@@ -2880,21 +2655,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     public int countQueuedForEndpoint(EndpointRef endpoint, ItemKey key) {
         if (endpoint == null || key == null || key == ItemKey.EMPTY) return 0;
-        if (endpoint.mode == EndpointRef.AccessMode.BUFFER
-                && endpoint.stagingSlotIndex >= 0
-                && endpoint.pos != null
-                && endpoint.pos.equals(this.pos)) {
-            return 0;
-        }
         return countQueuedFor(resolveEndpointPos(endpoint), key.toStack(1));
-    }
-
-    public boolean hasAvailableItems(EndpointRef source, ItemKey key) {
-        if (source == null || key == null || key == ItemKey.EMPTY) return false;
-        int atSource = countItemAtEndpoint(source, key);
-        if (atSource > 0) return true;
-        int queuedToSource = countQueuedForEndpoint(source, key);
-        return queuedToSource > 0;
     }
 
     public boolean dispatchInboundToManagerByGolems(EndpointRef source, ItemKey key, int amount, int queueId) {
@@ -2915,123 +2676,43 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         BlockPos dst = resolveEndpointPos(target);
         ItemStack like = key.toStack(1);
 
-        /*
-         * Критично для логистики терминалов:
-         * если источник = буфер менеджера, всегда пытаемся отдать amount,
-         * независимо от того, сколько уже лежит в целевом инвентаре.
-         * Выполнение задачи считается по факту прироста в target (по baseline),
-         * а не по абсолютному наличию.
-         */
+        // КРИТИЧЕСКИЙ ФИКС:
+        // если источник = буфер менеджера, не тянем ничего из складов повторно
         if (source.mode == EndpointRef.AccessMode.BUFFER && src.equals(this.pos)) {
-            int sourceSlot = source.stagingSlotIndex;
-            int canSend = Math.min(amount, countInManagerBufferLike(like, sourceSlot));
-            if (canSend < amount) {
-                int shortage = Math.max(0, amount - canSend);
-                if (shortage > 0) {
-                    LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
-                    needs.put(key, shortage);
-                    ensureDeliveryForExact(this.pos, needs, queueId);
-                }
+            int movedNow = pushFromBufferTo(dst, -1, like, amount);
+            return movedNow > 0 || countQueuedFor(dst, like) > 0;
+        }
+
+        int pulled = 0;
+        if (!src.equals(this.pos)) {
+            if (source.mode == EndpointRef.AccessMode.OUTPUT && world.getTileEntity(src) instanceof TileEntityGolemCrafter) {
+                pulled = harvestLikeToBufferFromOutputCrafter((TileEntityGolemCrafter) world.getTileEntity(src), like, amount);
+            } else {
+                pulled = harvestLikeToBufferFromHandler(src, -1, like, amount);
             }
-            if (canSend <= 0) {
-                return countQueuedFor(this.pos, like) > 0 || countQueuedFor(dst, like) > 0;
-            }
-
-            int movedNow = pushFromBufferTo(dst, -1, like, canSend, sourceSlot);
-            return movedNow > 0 || countQueuedFor(this.pos, like) > 0 || countQueuedFor(dst, like) > 0;
+        } else {
+            pulled = pullLikeFromProvideSetToBuffer(like, amount);
         }
 
-        /*
-         * Сначала считаем, сколько вообще ещё реально нужно target.
-         * Нельзя ни тянуть из source, ни отправлять в target больше этого остатка.
-         */
-        final int coveredAtTarget = countCoveredAtTarget(target, key, amount);
-        final int remainingNeedAtTarget = Math.max(0, amount - coveredAtTarget);
+        int movedNow = pushFromBufferTo(dst, -1, like, amount);
 
-        if (remainingNeedAtTarget <= 0) {
-            return true;
-        }
-
-        /*
-         * 2) Любой сценарий "... -> буфер менеджера"
-         * amount здесь уже считается executor'ом как "сколько ещё нужно дозаказать",
-         * поэтому дозаказываем именно amount, не опираясь на абсолютный current-buffer.
-         */
-        if (target.mode == EndpointRef.AccessMode.BUFFER && dst.equals(this.pos)) {
-            if (target.stagingSlotIndex >= 0) {
-                int slotIndex = target.stagingSlotIndex;
-                int stagedNow = countInManagerBufferLike(like, slotIndex);
-                int needForSlot = Math.max(0, amount - stagedNow);
-                if (needForSlot <= 0) {
-                    return true;
-                }
-
-                int moved = 0;
-                if (!src.equals(this.pos)) {
-                    moved += harvestLikeToBufferSlotFromHandler(src, -1, like, needForSlot, slotIndex);
-                } else {
-                    moved += pullLikeFromProvideSetToBufferSlot(like, needForSlot, slotIndex);
-                }
-
-                if (moved < needForSlot) {
-                    moved += pullLikeFromProvideSetToBufferSlot(like, needForSlot - moved, slotIndex);
-                }
-
-                int stagedAfter = countInManagerBufferLike(like, slotIndex);
-                return stagedAfter > stagedNow;
-            }
-
-            LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
-            needs.put(key, amount);
-            ensureDeliveryForExact(this.pos, needs, queueId);
-
-            return countQueuedFor(this.pos, like) > 0;
-        }
-
-        /*
-         * 3) Обычная доставка "... -> конечная цель"
-         *
-         * Критический фикс:
-         * из source тянем не amount, а только столько, сколько реально ещё нужно цели,
-         * за вычетом уже имеющегося в буфере менеджера.
-         */
-        int bufferedNow = countInManagerBufferLike(like);
-        int needAfterBuffer = Math.max(0, remainingNeedAtTarget - bufferedNow);
-
-        if (needAfterBuffer > 0) {
-
-        LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
-        needs.put(key, needAfterBuffer);
-        ensureDeliveryForExact(this.pos, needs, queueId);
-        }
-
-        int bufferedAfterPull = countInManagerBufferLike(like);
-        int canPushNow = Math.min(remainingNeedAtTarget, bufferedAfterPull);
-
-        int movedNow = 0;
-        if (canPushNow > 0) {
-            movedNow = pushFromBufferTo(dst, -1, like, canPushNow);
-        }
-
-        int coveredAfterPush = countCoveredAtTarget(target, key, amount);
-        int stillNeed = Math.max(0, amount - coveredAfterPush);
-
+        int stillNeed = Math.max(0, amount - movedNow);
         if (stillNeed > 0) {
             LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<ItemKey, Integer>();
             needs.put(key, stillNeed);
             ensureDeliveryForExact(dst, needs, queueId);
         }
 
-        return movedNow > 0 || countQueuedFor(this.pos, like) > 0 || countQueuedFor(dst, like) > 0;
+        return pulled > 0 || movedNow > 0 || countQueuedFor(dst, like) > 0;
     }
 
-    public int startCraftTask(BlockPos crafterPos, ItemKey key, int amount) {
-        if (world == null || world.isRemote || crafterPos == null || key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
+    public boolean startCraftTask(BlockPos crafterPos, ItemKey key, int amount) {
+        if (world == null || world.isRemote || crafterPos == null || key == null || key == ItemKey.EMPTY || amount <= 0) return false;
         TileEntity te = world.getTileEntity(crafterPos);
-        if (!(te instanceof ICraftEndpoint)) return 0;
+        if (!(te instanceof ICraftEndpoint)) return false;
         ICraftEndpoint endpoint = (ICraftEndpoint) te;
         int accepted = endpoint.startAssignedCraftTask(this.pos, crafterPos, -1, key.toStack(1), amount);
-        return Math.max(0, accepted);
+        return accepted > 0;
     }
 
     public int countItemAt(BlockPos pos, ItemKey key) {
@@ -3048,88 +2729,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             if (matchesForDelivery(s, like)) total += s.getCount();
         }
         return total;
-    }
-
-    private int countInManagerBufferLike(ItemStack like) {
-        if (like == null || like.isEmpty()) return 0;
-
-        int total = 0;
-        for (int i = 0; i < buffer.getSlots(); i++) {
-            ItemStack s = buffer.getStackInSlot(i);
-            if (s.isEmpty()) continue;
-
-            boolean match;
-            if (like.getMaxStackSize() == 1) {
-                match = matchesForDelivery(s, like);
-            } else if (isCrystal(like) || isCrystal(s)) {
-                match = isCrystal(like) && isCrystal(s) && crystalSame(s, like);
-            } else {
-                match = ResourceIdentity.sameResource(s, like);
-            }
-
-            if (match) {
-                total += s.getCount();
-            }
-        }
-        return total;
-    }
-
-    private int countInManagerBufferLike(ItemStack like, int slotIndex) {
-        if (like == null || like.isEmpty()) return 0;
-        if (slotIndex < 0) return countInManagerBufferLike(like);
-        if (slotIndex >= buffer.getSlots()) return 0;
-
-        ItemStack s = buffer.getStackInSlot(slotIndex);
-        if (s.isEmpty()) return 0;
-
-        boolean match;
-        if (like.getMaxStackSize() == 1) {
-            match = matchesForDelivery(s, like);
-        } else if (isCrystal(like) || isCrystal(s)) {
-            match = isCrystal(like) && isCrystal(s) && crystalSame(s, like);
-        } else {
-            match = ResourceIdentity.sameResource(s, like);
-        }
-        return match ? s.getCount() : 0;
-    }
-
-    private int pullLikeFromProvideSetToBufferSlot(ItemStack like, int upTo, int slotIndex) {
-        if (slotIndex < 0 || slotIndex >= buffer.getSlots()) return 0;
-        if (world == null || world.isRemote || like == null || like.isEmpty() || upTo <= 0) return 0;
-
-        int moved = 0;
-        rebuildProvideSetFromSeals();
-        for (TrackedInv ti : provideSet) {
-            if (moved >= upTo) break;
-            EnumFacing face = (ti.side >= 0 && ti.side < 6) ? EnumFacing.byIndex(ti.side) : null;
-            IItemHandler ih = getSealExactInventory(world, ti.pos, face);
-            if (ih == null) continue;
-            for (int s = 0; s < ih.getSlots() && moved < upTo; s++) {
-                ItemStack peek = ih.extractItem(s, Math.min(64, upTo - moved), true);
-                if (peek.isEmpty() || !matchesForDelivery(peek, like)) continue;
-                ItemStack taken = ih.extractItem(s, Math.min(peek.getCount(), upTo - moved), false);
-                if (taken.isEmpty()) continue;
-
-                int toInsert = taken.getCount();
-                ItemStack rem = buffer.insertItem(slotIndex, taken, false);
-                int accepted = toInsert - (rem.isEmpty() ? 0 : rem.getCount());
-                moved += Math.max(0, accepted);
-                if (!rem.isEmpty()) {
-                    ih.insertItem(s, rem, false);
-                    if (accepted <= 0) {
-                        return moved;
-                    }
-                }
-            }
-        }
-        if (moved > 0) markDirty();
-        return moved;
-    }
-
-    public void clearManagerBufferSlot(int slotIndex) {
-        if (slotIndex < 0 || slotIndex >= buffer.getSlots()) return;
-        buffer.setStackInSlot(slotIndex, ItemStack.EMPTY);
-        markDirty();
     }
 
     private int pullLikeFromProvideSetToBuffer(ItemStack like, int upTo) {
@@ -3154,16 +2753,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
         if (moved > 0) markDirty();
         return moved;
-    }
-
-    private void transitionLineState(Line line, Line.State next, String reason) {
-        if (line == null || next == null) return;
-        Line.State prev = line.state;
-        if (prev == next) return;
-        line.state = next;
-        line.lastStateTick = tickCounter;
-        LOG.info("[Manager {}] LINE STATE {} -> {} reason={} wanted={} remaining={}",
-                pos, prev, next, reason, line.wanted1, line.remaining);
     }
 
     private void processBatchHead(Batch b) {
@@ -3197,9 +2786,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             return;
         }
         if (!hasItemCapAt(b.dest, b.destSide)) {
-            for (Line ln : b.lines) {
-                transitionLineState(ln, Line.State.FAILED, "destination-cap-missing");
-            }
             LOG.warn("[Manager {}] processBatchHead pop batch: no item capability at dest={} side={} queue={}",
                     pos, b.dest, b.destSide, activeQueue);
             popBatch(b);
@@ -3213,11 +2799,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         int parallelLimit = 1;
-        if (b.kind == Batch.Kind.DELIVERY && hasActiveDispatchers()) {
+        if (b.kind == Batch.Kind.DELIVERY && !boundDispatchers.isEmpty()) {
             parallelLimit = Math.max(1, Math.min(getDispatcherParallelLimit(), b.lines.size()));
         }
 
-        boolean hasDispatchers = hasActiveDispatchers();
+        boolean hasDispatchers = !boundDispatchers.isEmpty();
         boolean sequentialDelivery = (b.kind == Batch.Kind.DELIVERY && !hasDispatchers);
 
         int dispatcherBudget = (b.kind == Batch.Kind.DELIVERY && hasDispatchers)
@@ -3230,7 +2816,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         while (index < b.lines.size()) {
             Line ln = b.lines.get(index);
-            int remainingBefore = ln.remaining;
 
             LOG.info("[Manager {}] processBatchHead line queue={} idx={} wanted={} remaining={} requester={} dest={} kind={}",
                     pos,
@@ -3241,19 +2826,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     ln.requester,
                     b.dest,
                     b.kind);
-
-            if (ln.remaining <= 0) {
-                transitionLineState(ln, Line.State.DELIVERED, "empty-remaining");
-            } else if (ln.state == Line.State.PENDING) {
-                transitionLineState(ln, Line.State.DISPATCHED, "line-selected");
-            }
-
-            if (ln.remaining == ln.lastRemainingSnapshot
-                    && (ln.state == Line.State.DISPATCHED || ln.state == Line.State.IN_FLIGHT)
-                    && ln.lastStateTick >= 0
-                    && (tickCounter - ln.lastStateTick) > 100) {
-                transitionLineState(ln, Line.State.STALLED, "no-progress");
-            }
 
             LineProcessResult result;
             if (b.kind == Batch.Kind.DELIVERY) {
@@ -3281,16 +2853,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     result.done,
                     result.dispatcherSlotsUsed,
                     ln.remaining);
-
-            if (result.done) {
-                transitionLineState(ln, Line.State.DELIVERED, "line-done");
-            } else if (ln.remaining < remainingBefore) {
-                transitionLineState(ln, Line.State.IN_FLIGHT, "remaining-decreased");
-            } else if (ln.state == Line.State.PENDING) {
-                transitionLineState(ln, Line.State.DISPATCHED, "dispatch-attempted");
-            }
-
-            ln.lastRemainingSnapshot = ln.remaining;
 
             if (result.dispatcherSlotsUsed > 0 && dispatcherBudget != Integer.MAX_VALUE) {
                 dispatcherBudget = Math.max(0, dispatcherBudget - result.dispatcherSlotsUsed);
@@ -3966,15 +3528,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     if (!match) continue;
 
                     int take = Math.min(left, ln.remaining);
+                    int beforeReserved = ln.reserved;
                     ln.remaining -= take;
-
-                    if (ln.remaining <= 0) {
-                        if (ln.reserved > 0) {
-                            releaseDispatcherGolems(ln.reserved);
-                            ln.reserved = 0;
-                        }
-                        itL.remove();
+                    if (ln.reserved > ln.remaining) {
+                        ln.reserved = Math.max(0, ln.remaining);
                     }
+                    int released = Math.max(0, beforeReserved - ln.reserved);
+                    if (released > 0) releaseDispatcherGolems(released);
+                    left -= take;
+                    if (ln.remaining <= 0) itL.remove();
                 }
                 if (b.lines.isEmpty()) itB.remove();
             }

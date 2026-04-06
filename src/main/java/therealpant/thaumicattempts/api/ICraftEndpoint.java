@@ -8,36 +8,26 @@ import java.util.List;
 public interface ICraftEndpoint {
     /**
      * Все результаты, которые это рабочее место умеет крафтить.
-     * Каждый ItemStack — это результат РОВНО ОДНОГО цикла крафта,
-     * с корректным count.
+     * Каждый ItemStack – "как выглядит результат за один цикл", с правильным count.
      */
     List<ItemStack> listCraftableResults();
 
     /**
-     * Сколько штук результата даёт ровно один цикл крафта
-     * для результата "как этот".
+     * Сколько штук даёт ровно один цикл крафта для результата "как этот".
      */
     int getPerCraftOutputCountFor(ItemStack like);
 
     /**
-     * Полный список входов для результата "как этот" на заданное число ЦИКЛОВ крафта.
-     *
-     * ВАЖНО:
-     * - параметр times = именно количество craft cycles,
-     *   а НЕ желаемое количество выходных предметов;
-     * - если рецепт даёт 4 предмета за цикл, то:
-     *      getPerCraftOutputCountFor(...) == 4
-     *      getRecipeInputsFor(result, 1) -> входы на 1 цикл
-     *      getRecipeInputsFor(result, 4) -> входы на 4 цикла
+     * Полный список входов для результата "как этот" на заданное число циклов.
      */
     List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times);
 
     /**
-     * Поставить в очередь крафт результата "как этот"
-     * на указанное количество циклов.
+     * Поставить в очередь крафт результата, "как этот", на указанное количество циклов.
      * Реализация сама объединяет с существующей очередью.
      */
     void enqueueCraft(ItemStack resultLike, int crafts);
+
 
     /**
      * Единая точка входа для менеджера:
@@ -71,9 +61,4 @@ public interface ICraftEndpoint {
      * Есть ли активные или поставленные в очередь циклы.
      */
     boolean hasActiveOrQueued();
-
-    default BlockPos getCraftTaskOutputPos(BlockPos endpointPos) {
-        return endpointPos;
-    }
-
 }

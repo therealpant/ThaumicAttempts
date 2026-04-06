@@ -87,11 +87,27 @@ public class C2S_OrderAdjust implements IMessage {
                 term.adjustDraft(key, delta, msg.craftTab);
 
                 // --- Снимок ЧЕРНОВИКА/ПЭНДИНГА
-                java.util.List<ItemStack> draft9   = term.getDraftSnapshotStacks(msg.craftTab);
-                java.util.List<Integer>   draftCnt = term.getDraftSnapshotCounts(msg.craftTab);
+                Map<ItemKey, Integer> draftMap = term.getDraftSnapshot(msg.craftTab);
 
-                java.util.List<ItemStack> pending9   = term.getPendingSnapshot(msg.craftTab);
-                java.util.List<Integer>   pendingCnt = term.getPendingSnapshotCounts(msg.craftTab);
+                java.util.List<ItemStack> draft9 = new java.util.ArrayList<>(9);
+                java.util.List<Integer> draftCnt = new java.util.ArrayList<>(9);
+
+                for (Map.Entry<ItemKey, Integer> e : draftMap.entrySet()) {
+                    draft9.add(e.getKey().toStack(1));
+                    draftCnt.add(Math.max(1, e.getValue()));
+                    if (draft9.size() == 9) break;
+                }
+                while (draft9.size() < 9) {
+                    draft9.add(ItemStack.EMPTY);
+                    draftCnt.add(0);
+                }
+
+                java.util.List<ItemStack> pending9 = term.getPendingSnapshot(msg.craftTab);
+                java.util.List<Integer> pendingCnt = new java.util.ArrayList<>(9);
+                for (int i = 0; i < 9; i++) {
+                    ItemStack s = (pending9 != null && i < pending9.size()) ? pending9.get(i) : ItemStack.EMPTY;
+                    pendingCnt.add((s != null && !s.isEmpty()) ? s.getCount() : 0);
+                }
 
                 therealpant.thaumicattempts.ThaumicAttempts.NET.sendTo(
                         new therealpant.thaumicattempts.golemnet.net.msg.S2C_DraftSnapshot(
