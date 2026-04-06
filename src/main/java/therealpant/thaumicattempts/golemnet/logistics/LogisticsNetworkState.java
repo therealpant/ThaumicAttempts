@@ -30,6 +30,7 @@ public class LogisticsNetworkState {
     private static final int RESERVED_STAGING_SLOT_COUNT = 18;
     private final LinkedHashMap<UUID, BufferReservation> bufferReservations = new LinkedHashMap<UUID, BufferReservation>();
     private final LinkedHashMap<UUID, UUID> reservationByOrderId = new LinkedHashMap<UUID, UUID>();
+    private final LinkedHashMap<UUID, BufferedBatch> bufferedBatches = new LinkedHashMap<UUID, BufferedBatch>();
 
     private final ManagerExecutor managerExecutor = new ManagerExecutor();
     private final CrafterExecutor crafterExecutor = new CrafterExecutor();
@@ -43,18 +44,13 @@ public class LogisticsNetworkState {
         int craftNeeded;
     }
 
-    public static final class BufferReservation {
-        public UUID reservationId;
-        public UUID orderId;
-        public ItemKey itemKey;
+    public static final class BufferReservation extends DeliveryReservation {
         public int requestedAmount;
         public int stagedOwned;
         public int consumedOwned;
         public int incomingQueued;
         public int slotIndex;
         public boolean readyForDispatch;
-        public boolean released;
-        public long createdTick;
         public long updatedTick;
 
         public NBTTagCompound writeToNbt() {
@@ -71,6 +67,18 @@ public class LogisticsNetworkState {
             tag.setBoolean("released", released);
             tag.setLong("createdTick", createdTick);
             tag.setLong("updatedTick", updatedTick);
+            tag.setInteger("requested", requested);
+            tag.setInteger("staged", staged);
+            tag.setInteger("dispatched", dispatched);
+            tag.setInteger("delivered", delivered);
+            tag.setInteger("inFlightInbound", inFlightInbound);
+            tag.setInteger("inFlightOutbound", inFlightOutbound);
+            tag.setInteger("failedOrLost", failedOrLost);
+            tag.setInteger("reservedSlot", reservedSlot);
+            tag.setString("stage", stage == null ? DeliveryStage.NEW.name() : stage.name());
+            if (source != null) tag.setTag("sourceRef", source.writeToNbt());
+            if (managerBuffer != null) tag.setTag("bufferRef", managerBuffer.writeToNbt());
+            if (finalTarget != null) tag.setTag("targetRef", finalTarget.writeToNbt());
             return tag;
         }
 
@@ -98,6 +106,24 @@ public class LogisticsNetworkState {
             reservation.released = tag.getBoolean("released");
             reservation.createdTick = tag.getLong("createdTick");
             reservation.updatedTick = tag.getLong("updatedTick");
+            reservation.requested = tag.hasKey("requested", Constants.NBT.TAG_INT) ? tag.getInteger("requested") : reservation.requestedAmount;
+            reservation.staged = tag.hasKey("staged", Constants.NBT.TAG_INT) ? tag.getInteger("staged") : reservation.stagedOwned;
+            reservation.dispatched = tag.hasKey("dispatched", Constants.NBT.TAG_INT) ? tag.getInteger("dispatched") : reservation.consumedOwned;
+            reservation.delivered = tag.hasKey("delivered", Constants.NBT.TAG_INT) ? tag.getInteger("delivered") : 0;
+            reservation.inFlightInbound = tag.hasKey("inFlightInbound", Constants.NBT.TAG_INT) ? tag.getInteger("inFlightInbound") : reservation.incomingQueued;
+            reservation.inFlightOutbound = tag.hasKey("inFlightOutbound", Constants.NBT.TAG_INT) ? tag.getInteger("inFlightOutbound") : 0;
+            reservation.failedOrLost = tag.hasKey("failedOrLost", Constants.NBT.TAG_INT) ? tag.getInteger("failedOrLost") : 0;
+            reservation.reservedSlot = tag.hasKey("reservedSlot", Constants.NBT.TAG_INT) ? tag.getInteger("reservedSlot") : reservation.slotIndex;
+            if (tag.hasKey("stage", Constants.NBT.TAG_STRING)) {
+                try {
+                    reservation.stage = DeliveryStage.valueOf(tag.getString("stage"));
+                } catch (Exception ignored) {
+                    reservation.stage = DeliveryStage.NEW;
+                }
+            }
+            if (tag.hasKey("sourceRef", Constants.NBT.TAG_COMPOUND)) reservation.source = EndpointRef.readFromNbt(tag.getCompoundTag("sourceRef"));
+            if (tag.hasKey("bufferRef", Constants.NBT.TAG_COMPOUND)) reservation.managerBuffer = EndpointRef.readFromNbt(tag.getCompoundTag("bufferRef"));
+            if (tag.hasKey("targetRef", Constants.NBT.TAG_COMPOUND)) reservation.finalTarget = EndpointRef.readFromNbt(tag.getCompoundTag("targetRef"));
             return reservation;
         }
     }
@@ -399,14 +425,29 @@ public class LogisticsNetworkState {
         reservation.orderId = order.orderId;
         reservation.itemKey = order.requestedKey;
         reservation.requestedAmount = Math.max(1, order.requestedAmount);
+        reservation.requested = reservation.requestedAmount;
         reservation.stagedOwned = 0;
+        reservation.staged = 0;
         reservation.consumedOwned = 0;
+        reservation.dispatched = 0;
+        reservation.delivered = 0;
         reservation.incomingQueued = 0;
+        reservation.inFlightInbound = 0;
+        reservation.inFlightOutbound = 0;
         reservation.slotIndex = freeSlot;
+        reservation.reservedSlot = freeSlot;
         reservation.readyForDispatch = false;
         reservation.released = false;
         reservation.createdTick = manager.getServerTickCounter();
         reservation.updatedTick = reservation.createdTick;
+        reservation.lastProgressTick = reservation.createdTick;
+        reservation.source = stockSource(manager);
+        reservation.managerBuffer = EndpointRef.managerBufferSlot(manager.getPos(), freeSlot);
+        reservation.finalTarget = EndpointRef.of(
+                order.returnDestination != null ? order.returnDestination : order.sourcePos,
+                EndpointRef.AccessMode.INPUT
+        );
+        reservation.stage = DeliveryStage.WAITING_INBOUND;
 
         bufferReservations.put(reservation.reservationId, reservation);
         reservationByOrderId.put(order.orderId, reservation.reservationId);
@@ -538,23 +579,54 @@ public class LogisticsNetworkState {
             stagedBefore.put(e.getKey(), Math.max(0, reservation.stagedOwned));
             readyBefore.put(e.getKey(), reservation.readyForDispatch);
         }
+        int slotDelta = Math.max(0, slotAfter.getCount() - slotBefore.getCount());
+        int physicallyArrived = Math.max(0, slotDelta);
+
         if (matchedByTask != null && !matchedByTask.released) {
-            int deliveredOwned = Math.max(0, deliveredCount);
+            int deliveredOwned = Math.max(0, physicallyArrived);
             matchedByTask.stagedOwned = Math.max(0, matchedByTask.stagedOwned + deliveredOwned);
             matchedByTask.incomingQueued = Math.max(0, matchedByTask.incomingQueued - deliveredOwned);
+            matchedByTask.inFlightInbound = matchedByTask.incomingQueued;
+            matchedByTask.staged = matchedByTask.stagedOwned;
             matchedByTask.readyForDispatch = matchedByTask.stagedOwned >= matchedByTask.requestedAmount;
+            matchedByTask.lastProgressTick = manager.getServerTickCounter();
             matchedByTask.updatedTick = manager.getServerTickCounter();
+            matchedByTask.stage = matchedByTask.stagedOwned > matchedByTask.consumedOwned ? DeliveryStage.STAGED : DeliveryStage.WAITING_INBOUND;
+            if (deliveredOwned > 0) {
+                BufferedBatch batch = new BufferedBatch();
+                batch.batchId = UUID.randomUUID();
+                batch.reservationId = matchedByTask.reservationId;
+                batch.orderId = matchedByTask.orderId;
+                batch.itemKey = deliveredKey;
+                batch.amount = deliveredOwned;
+                batch.slot = physicalSlot;
+                bufferedBatches.put(batch.batchId, batch);
+            }
             LOG.info("[InboundAssign] task={} order={} addedToReservation={} newStaged={}",
                     matchedTask == null ? null : matchedTask.taskId,
                     matchedByTask.orderId,
                     deliveredOwned,
                     matchedByTask.stagedOwned);
         } else if (matchedBySlot != null && !matchedBySlot.released) {
-            int deliveredOwned = Math.max(0, deliveredCount);
+            int deliveredOwned = Math.max(0, physicallyArrived);
             matchedBySlot.stagedOwned = Math.max(0, matchedBySlot.stagedOwned + deliveredOwned);
             matchedBySlot.incomingQueued = Math.max(0, matchedBySlot.incomingQueued - deliveredOwned);
+            matchedBySlot.inFlightInbound = matchedBySlot.incomingQueued;
+            matchedBySlot.staged = matchedBySlot.stagedOwned;
             matchedBySlot.readyForDispatch = matchedBySlot.stagedOwned >= matchedBySlot.requestedAmount;
+            matchedBySlot.lastProgressTick = manager.getServerTickCounter();
             matchedBySlot.updatedTick = manager.getServerTickCounter();
+            matchedBySlot.stage = matchedBySlot.stagedOwned > matchedBySlot.consumedOwned ? DeliveryStage.STAGED : DeliveryStage.WAITING_INBOUND;
+            if (deliveredOwned > 0) {
+                BufferedBatch batch = new BufferedBatch();
+                batch.batchId = UUID.randomUUID();
+                batch.reservationId = matchedBySlot.reservationId;
+                batch.orderId = matchedBySlot.orderId;
+                batch.itemKey = deliveredKey;
+                batch.amount = deliveredOwned;
+                batch.slot = physicalSlot;
+                bufferedBatches.put(batch.batchId, batch);
+            }
             LOG.info("[InboundAssign] task={} order={} addedToReservation={} newStaged={}",
                     matchedTask == null ? null : matchedTask.taskId,
                     matchedBySlot.orderId,
@@ -650,8 +722,10 @@ public class LogisticsNetworkState {
 
         int stagedOwned = Math.max(0, reservation.stagedOwned);
         int requestedAmount = Math.max(1, reservation.requestedAmount);
+        int available = Math.max(0, reservation.stagedOwned - reservation.consumedOwned);
         boolean readyForDispatch = reservation.readyForDispatch
-                && stagedOwned >= requiredAmount
+                && available > 0
+                && reservation.delivered < reservation.requestedAmount
                 && reservation.orderId != null
                 && reservation.orderId.equals(task.orderId)
                 && reservation.slotIndex == task.stagingSlotIndex;
@@ -722,9 +796,33 @@ public class LogisticsNetworkState {
 
         reservation.stagedOwned = Math.max(0, stagedBefore - (int) Math.min(Integer.MAX_VALUE, consumedDelta));
         reservation.consumedOwned = Math.max(0, reservation.consumedOwned + (int) Math.min(Integer.MAX_VALUE, consumedDelta));
+        reservation.dispatched = reservation.consumedOwned;
+        reservation.delivered = (int) Math.min(Integer.MAX_VALUE, Math.max(0L, completedNow));
+        reservation.inFlightOutbound = Math.max(0, reservation.dispatched - reservation.delivered);
         reservation.readyForDispatch = reservation.stagedOwned >= reservation.requestedAmount;
         reservation.updatedTick = manager.getServerTickCounter();
+        reservation.lastProgressTick = reservation.updatedTick;
+        reservation.stage = reservation.delivered >= reservation.requestedAmount
+                ? DeliveryStage.COMPLETED
+                : (reservation.inFlightOutbound > 0 ? DeliveryStage.OUTBOUND_IN_FLIGHT : DeliveryStage.WAITING_OUTBOUND);
         int stagedAfter = reservation.stagedOwned;
+
+        int toConsume = (int) Math.min(Integer.MAX_VALUE, consumedDelta);
+        if (toConsume > 0) {
+            Iterator<Map.Entry<UUID, BufferedBatch>> bit = bufferedBatches.entrySet().iterator();
+            while (bit.hasNext() && toConsume > 0) {
+                BufferedBatch batch = bit.next().getValue();
+                if (batch == null) continue;
+                if (batch.reservationId == null || !batch.reservationId.equals(reservation.reservationId)) continue;
+                if (batch.amount <= toConsume) {
+                    toConsume -= batch.amount;
+                    bit.remove();
+                } else {
+                    batch.amount -= toConsume;
+                    toConsume = 0;
+                }
+            }
+        }
 
         LOG.info("[OutputConsume] task={} order={} consumed={} stagedBefore={} stagedAfter={}",
                 task.taskId,
@@ -1146,6 +1244,7 @@ public class LogisticsNetworkState {
 
         if (!isTerminalTask(task.status)) {
             String dedupe = "T|" + task.orderId
+                    + "|" + (task.stagingReservationId == null ? "none" : task.stagingReservationId.toString())
                     + "|" + task.source.pos.toLong()
                     + "|" + task.target.pos.toLong()
                     + "|" + task.itemKey.hashCode()
@@ -1510,12 +1609,26 @@ public class LogisticsNetworkState {
             reservation.stagedOwned = Math.max(0, reservation.stagedOwned);
             reservation.consumedOwned = Math.max(0, reservation.consumedOwned);
             reservation.incomingQueued = Math.max(0, reservation.incomingQueued);
-            boolean readyNow = reservation.stagedOwned >= reservation.requestedAmount;
+            reservation.staged = reservation.stagedOwned;
+            reservation.dispatched = reservation.consumedOwned;
+            reservation.inFlightInbound = reservation.incomingQueued;
+            boolean readyNow = DeliveryReservationMath.availableForOutbound(reservation) > 0;
             if (readyNow && !reservation.readyForDispatch) {
                 LOG.info("[Logistics {}] reservation ready reservation={} order={} slotIndex={} staged={}/{}",
                         manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reservation.stagedOwned, reservation.requestedAmount);
             }
             reservation.readyForDispatch = readyNow;
+            if (DeliveryReservationMath.isCompleted(reservation)) {
+                reservation.stage = DeliveryStage.COMPLETED;
+            } else if (reservation.inFlightOutbound > 0) {
+                reservation.stage = DeliveryStage.OUTBOUND_IN_FLIGHT;
+            } else if (reservation.stagedOwned > reservation.consumedOwned) {
+                reservation.stage = DeliveryStage.STAGED;
+            } else if (reservation.incomingQueued > 0) {
+                reservation.stage = DeliveryStage.INBOUND_IN_FLIGHT;
+            } else {
+                reservation.stage = DeliveryStage.WAITING_INBOUND;
+            }
             reservation.updatedTick = manager.getServerTickCounter();
             LOG.info("[ReservationState] order={} key={} stagedOwned={} consumed={} requested={}",
                     reservation.orderId, reservation.itemKey, reservation.stagedOwned, reservation.consumedOwned, reservation.requestedAmount);
@@ -1531,8 +1644,13 @@ public class LogisticsNetworkState {
     public int getReservationNeed(@Nullable TransferTask task) {
         BufferReservation reservation = findReservationForTask(task);
         if (reservation == null || reservation.released) return 0;
-        int coverage = Math.max(0, reservation.stagedOwned + reservation.incomingQueued);
-        return Math.max(0, reservation.requestedAmount - coverage);
+        reservation.requested = reservation.requestedAmount;
+        reservation.staged = reservation.stagedOwned;
+        reservation.inFlightInbound = reservation.incomingQueued;
+        return DeliveryReservationMath.needInbound(reservation)
+                ? Math.max(0, reservation.requested - (reservation.staged + reservation.inFlightInbound + reservation.delivered))
+                : 0;
+
     }
 
     public void logCoverageCheck(TileMirrorManager manager, @Nullable TransferTask task) {
@@ -1547,14 +1665,32 @@ public class LogisticsNetworkState {
     public void markReservationInboundQueued(TileMirrorManager manager, @Nullable TransferTask task, int queuedAmount) {
         BufferReservation reservation = findReservationForTask(task);
         if (manager == null || reservation == null || reservation.released || queuedAmount <= 0) return;
+        reservation.inFlightInbound = reservation.incomingQueued;
+        reservation.stage = DeliveryStage.INBOUND_IN_FLIGHT;
         reservation.incomingQueued = Math.max(0, reservation.incomingQueued + queuedAmount);
         reservation.updatedTick = manager.getServerTickCounter();
+        reservation.lastProgressTick = reservation.updatedTick;
         LOG.info("[CoverageCheck] order={} stagedOwned={} incomingQueued={} requested={} covered={}",
                 reservation.orderId,
                 reservation.stagedOwned,
                 reservation.incomingQueued,
                 reservation.requestedAmount,
                 (reservation.stagedOwned + reservation.incomingQueued) >= reservation.requestedAmount);
+    }
+
+    public void markReservationStalled(TileMirrorManager manager, @Nullable TransferTask task) {
+        BufferReservation reservation = findReservationForTask(task);
+        if (manager == null || reservation == null || reservation.released) return;
+        if ("deliver-output".equals(task == null ? null : task.metaPurpose)) {
+            reservation.inFlightOutbound = Math.max(0, reservation.inFlightOutbound - 1);
+        } else {
+            reservation.incomingQueued = Math.max(0, reservation.incomingQueued - 1);
+            reservation.inFlightInbound = reservation.incomingQueued;
+        }
+        reservation.failedOrLost = Math.max(0, reservation.failedOrLost + 1);
+        reservation.stage = DeliveryStage.STALLED;
+        reservation.updatedTick = manager.getServerTickCounter();
+        reservation.lastProgressTick = reservation.updatedTick;
     }
 
     private void releaseReservationsForInactiveOrders(TileMirrorManager manager) {
@@ -1575,6 +1711,7 @@ public class LogisticsNetworkState {
 
         if (manager != null) {
             manager.clearManagerBufferSlot(reservation.slotIndex);
+            bufferedBatches.values().removeIf(batch -> batch != null && reservation.reservationId.equals(batch.reservationId));
             LOG.info("[Logistics {}] reservation released reservation={} order={} slotIndex={} reason={}",
                     manager.getPos(), reservation.reservationId, reservation.orderId, reservation.slotIndex, reason);
         }
@@ -2079,6 +2216,7 @@ public class LogisticsNetworkState {
         runtimeTasks.clear();
         recipesByResult.clear();
         bufferReservations.clear();
+        bufferedBatches.clear();
         reservationByOrderId.clear();
         activeOrderDedup.clear();
         activeTaskDedup.clear();
@@ -2108,6 +2246,7 @@ public class LogisticsNetworkState {
             if (task instanceof TransferTask && !isTerminalTask(task.status)) {
                 TransferTask transfer = (TransferTask) task;
                 String dedupe = "T|" + task.orderId
+                        + "|" + (transfer.stagingReservationId == null ? "none" : transfer.stagingReservationId.toString())
                         + "|" + transfer.source.pos.toLong()
                         + "|" + transfer.target.pos.toLong()
                         + "|" + transfer.itemKey.hashCode()

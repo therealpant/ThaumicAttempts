@@ -296,6 +296,9 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
             }
 
             if (task.stalledTicks > STALLED_LIMIT_TICKS) {
+                if (logistics != null) {
+                    logistics.markReservationStalled(manager, task);
+                }
                 transitionStatus(task, TaskStatus.BLOCKED, "stalled");
                 logTransferDebug(task, remaining, queued);
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
@@ -510,11 +513,15 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         if (task == null || task.target == null || task.itemKey == null || manager == null) return 0L;
 
         if (isManagerInboundProvisionTask(task)) {
-            int queuedToManager = manager.countQueuedForEndpoint(task.target, task.itemKey);
-            if (task.inboundQueued && queuedToManager <= 0) {
-                return task.amount;
+            EndpointRef slotEndpoint = task.target.stagingSlotIndex >= 0
+                    ? EndpointRef.managerBufferSlot(manager.getPos(), task.target.stagingSlotIndex)
+                    : task.target;
+            int nowInReserved = manager.countItemAtEndpoint(slotEndpoint, task.itemKey);
+            if (task.targetBaseline < 0) {
+                task.targetBaseline = nowInReserved;
             }
-            return Math.min(task.completedAmount, task.amount);
+            long inboundDelta = Math.max(0, nowInReserved - task.targetBaseline);
+            return Math.min(task.amount, inboundDelta);
         }
 
         int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);

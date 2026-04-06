@@ -51,7 +51,14 @@ repositories {
 version = "${mcversion}-${version}"
 group = 'therealpant.thaumicattempts'
 archivesBaseName = 'ThaumicAttempts'
+dependencies {
+    testImplementation 'org.junit.jupiter:junit-jupiter-api:5.10.2'
+    testRuntimeOnly 'org.junit.jupiter:junit-jupiter-engine:5.10.2'
+}
 
+test {
+    useJUnitPlatform()
+}
 java.toolchain.languageVersion = JavaLanguageVersion.of(8)
 
 ext {
