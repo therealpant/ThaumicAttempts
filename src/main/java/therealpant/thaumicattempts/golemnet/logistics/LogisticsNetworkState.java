@@ -754,7 +754,18 @@ public class LogisticsNetworkState {
 
             boolean accepted = false;
             if (task instanceof TransferTask) {
-                accepted = managerExecutor.canAccept((TransferTask) task) && managerExecutor.submit((TransferTask) task);
+                TransferTask transferTask = (TransferTask) task;
+                if (managerExecutor.isRunning(transferTask.taskId)) {
+                    LOG.info("[Logistics {}] dispatch skipped id={} type={} reason=already-running inboundQueued={} outboundQueued={} dispatchQueued={}",
+                            manager.getPos(),
+                            transferTask.taskId,
+                            transferTask.getTaskType(),
+                            transferTask.inboundQueued,
+                            transferTask.outboundQueued,
+                            transferTask.dispatchQueued);
+                    continue;
+                }
+                accepted = managerExecutor.canAccept(transferTask) && managerExecutor.submit(transferTask);
             } else if (task instanceof CraftTask) {
                 accepted = crafterExecutor.canAccept((CraftTask) task) && crafterExecutor.submit((CraftTask) task);
             }

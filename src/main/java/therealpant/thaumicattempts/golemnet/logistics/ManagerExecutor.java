@@ -15,7 +15,6 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     private TileMirrorManager manager;
     private final LinkedHashMap<UUID, TransferTask> running = new LinkedHashMap<UUID, TransferTask>();
     private final LinkedHashMap<UUID, TaskExecutionSnapshot> snapshots = new LinkedHashMap<UUID, TaskExecutionSnapshot>();
-    private final LinkedHashMap<UUID, Integer> inboundBaseline = new LinkedHashMap<UUID, Integer>();
 
     public void bind(TileMirrorManager manager) {
         this.manager = manager;
@@ -27,7 +26,11 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
     @Override
     public boolean submit(TransferTask task) {
         if (task == null) return false;
-        if (running.containsKey(task.taskId)) return true;
+        if (running.containsKey(task.taskId)) {
+            LOG.info("[ManagerExecutor {}] task={} transfer submit skipped reason=already-running",
+                    manager != null ? manager.getPos() : null, task.taskId);
+            return false;
+        }
 
         task.dispatchQueued = false;
         task.dispatchQueueId = -1;
@@ -46,7 +49,8 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
         running.put(task.taskId, task);
         snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.DISPATCHED, task.completedAmount));
-        LOG.info("[ManagerExecutor {}] task={} transfer accepted", manager != null ? manager.getPos() : null, task.taskId);
+        LOG.info("[ManagerExecutor {}] task={} transfer accepted order={} purpose={} amount={}",
+                manager != null ? manager.getPos() : null, task.taskId, task.orderId, task.metaPurpose, task.amount);
         return true;
     }
 
@@ -76,7 +80,6 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                     || task.status == TaskStatus.CANCELED) {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
-                inboundBaseline.remove(task.taskId);
                 continue;
             }
 
@@ -86,7 +89,6 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 task.outboundDone = true;
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
-                inboundBaseline.remove(task.taskId);
                 continue;
             }
 
@@ -121,45 +123,54 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
 
                 // ---- inbound phase ----
                 if (!task.inboundDone) {
-                    if (!task.inboundQueued) {
+                    long inboundProgress = getInboundProgress(task);
+                    long remainingInbound = Math.max(0L, task.amount - inboundProgress);
+
+                    if (!task.inboundQueued && remainingInbound > 0L) {
                         int queueId = ensureQueueId(task);
+                        int requestedAmount = safeToInt(remainingInbound);
                         boolean queued = manager.dispatchInboundToManagerByGolems(
                                 task.source,
                                 task.itemKey,
-                                (int) remaining,
+                                requestedAmount,
                                 queueId
                         );
 
                         if (!queued) {
+                            logDeliverProgress(task, "inbound provisioning failed");
                             task.status = TaskStatus.BLOCKED;
                             snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                             it.remove();
-                            inboundBaseline.remove(task.taskId);
                             continue;
                         }
 
                         task.inboundQueued = true;
                         task.legacyDeliveryQueued = true;
                         task.legacyDeliveryQueueId = queueId;
-                        inboundBaseline.put(task.taskId, manager.countBuffered(task.itemKey));
                         if (task.legacyDeliveryId == null) {
                             task.legacyDeliveryId = UUID.nameUUIDFromBytes(
-                                    ("legacy-deliver-" + task.taskId.toString()).getBytes(java.nio.charset.StandardCharsets.UTF_8)
+                                    ("legacy-deliver-" + task.taskId.toString()).getBytes(StandardCharsets.UTF_8)
                             );
                         }
                         task.updatedTick = manager.getServerTickCounter();
+                        logDeliverProgress(task, "inbound provisioning requested amount=" + requestedAmount);
                     }
 
-                    int nowInBuffer = manager.countItemAtEndpoint(
-                            EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
-                            task.itemKey
-                    );
-                    int movedIntoBuffer = Math.max(0, nowInBuffer - task.bufferBaseline);
+                    inboundProgress = getInboundProgress(task);
+                    remainingInbound = Math.max(0L, task.amount - inboundProgress);
+                    logDeliverProgress(task, "inbound tick");
 
-                    if (movedIntoBuffer >= task.amount || isInboundDone(task)) {
+                    if (remainingInbound <= 0L) {
                         task.inboundDone = true;
                         task.updatedTick = manager.getServerTickCounter();
-                        LOG.info("[ManagerExecutor {}] task={} inbound phase done", manager.getPos(), task.taskId);
+                        task.inboundQueued = false;
+                        logDeliverProgress(task, "inboundDone reason=bufferDelta-gte-amount");
+                    } else if (task.inboundQueued && inboundProgress > 0L) {
+                        task.inboundQueued = false;
+                        logDeliverProgress(task, "inbound queue reopened reason=partial-progress remaining=" + remainingInbound);
+                    } else if (!task.inboundQueued) {
+                        snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.IN_PROGRESS, task.completedAmount));
+                        continue;
                     } else {
                         snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.IN_PROGRESS, task.completedAmount));
                         continue;
@@ -169,38 +180,50 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 // ---- outbound phase ----
                 if (!task.outboundDone) {
                     if (!task.outboundQueued) {
+                        long outboundProgress = getOutboundProgress(task);
+                        long remainingOutbound = Math.max(0L, task.amount - outboundProgress);
+                        if (remainingOutbound <= 0L) {
+                            task.completedAmount = task.amount;
+                            task.outboundDone = true;
+                            task.status = TaskStatus.DONE;
+                            snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+                            it.remove();
+                            logDeliverProgress(task, "outboundDone reason=targetDelta-gte-amount-before-queue");
+                            continue;
+                        }
                         int queueId = ensureQueueId(task);
+                        int requestedAmount = safeToInt(remainingOutbound);
                         boolean accepted = manager.dispatchTransferTask(
                                 EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
                                 task.target,
                                 task.itemKey,
-                                (int) remaining,
+                                requestedAmount,
                                 queueId
                         );
 
                         if (!accepted) {
+                            logDeliverProgress(task, "outbound dispatch failed");
                             task.status = TaskStatus.BLOCKED;
                             snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                             it.remove();
-                            inboundBaseline.remove(task.taskId);
                             continue;
                         }
 
                         task.outboundQueued = true;
                         task.updatedTick = manager.getServerTickCounter();
+                        logDeliverProgress(task, "outbound dispatch requested amount=" + requestedAmount);
                     }
 
-                    int nowAtTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
-                    int movedToTarget = Math.max(0, nowAtTarget - task.targetBaseline);
+                    long outboundProgress = getOutboundProgress(task);
+                    long remainingOutbound = Math.max(0L, task.amount - outboundProgress);
 
-                    task.completedAmount = Math.min(task.amount, movedToTarget);
-
-                    if (task.completedAmount >= task.amount) {
+                    if (remainingOutbound <= 0L) {
                         task.outboundDone = true;
                         task.status = TaskStatus.DONE;
+                        logDeliverProgress(task, "outboundDone reason=targetDelta-gte-amount");
                         snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
+
                         it.remove();
-                        inboundBaseline.remove(task.taskId);
                         continue;
                     }
 
@@ -224,7 +247,6 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                         task.status = TaskStatus.BLOCKED;
                         snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                         it.remove();
-                        inboundBaseline.remove(task.taskId);
                         continue;
                     }
                 }
@@ -241,7 +263,6 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                     task.status = TaskStatus.BLOCKED;
                     snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                     it.remove();
-                    inboundBaseline.remove(task.taskId);
                     continue;
                 }
 
@@ -258,7 +279,6 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
                 task.status = TaskStatus.DONE;
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, task.status, task.completedAmount));
                 it.remove();
-                inboundBaseline.remove(task.taskId);
             } else {
                 snapshots.put(task.taskId, new TaskExecutionSnapshot(task.taskId, TaskStatus.IN_PROGRESS, task.completedAmount));
             }
@@ -282,11 +302,59 @@ public class ManagerExecutor implements ILogisticsExecutor<TransferTask> {
         return queueId;
     }
 
-    private boolean isInboundDone(TransferTask task) {
-        int base = inboundBaseline.getOrDefault(task.taskId, 0);
-        int nowBuffered = manager.countBuffered(task.itemKey);
-        int deliveredToBuffer = Math.max(0, nowBuffered - base);
-        return deliveredToBuffer >= Math.max(1L, task.amount);
+    private long getInboundProgress(TransferTask task) {
+        int currentBuffer = manager.countItemAtEndpoint(
+                EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
+                task.itemKey
+        );
+        int currentTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
+        int bufferDelta = Math.max(0, currentBuffer - Math.max(0, task.bufferBaseline));
+        int targetDelta = Math.max(0, currentTarget - Math.max(0, task.targetBaseline));
+        return Math.min(task.amount, (long) bufferDelta + (long) targetDelta);
+    }
+
+    private long getOutboundProgress(TransferTask task) {
+        int currentTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
+        return Math.min(task.amount, Math.max(0, currentTarget - Math.max(0, task.targetBaseline)));
+    }
+
+    private static int safeToInt(long value) {
+        if (value <= 0L) return 0;
+        return value > Integer.MAX_VALUE ? Integer.MAX_VALUE : (int) value;
+    }
+
+    private void logDeliverProgress(TransferTask task, String reason) {
+        if (manager == null || task == null) return;
+        int currentBuffer = manager.countItemAtEndpoint(
+                EndpointRef.of(manager.getPos(), EndpointRef.AccessMode.BUFFER),
+                task.itemKey
+        );
+        int currentTarget = manager.countItemAtEndpoint(task.target, task.itemKey);
+        int safeBufferBaseline = Math.max(0, task.bufferBaseline);
+        int safeTargetBaseline = Math.max(0, task.targetBaseline);
+        int inboundProgress = Math.max(0, currentBuffer - safeBufferBaseline);
+        int outboundProgress = Math.max(0, currentTarget - safeTargetBaseline);
+        long remainingInbound = Math.max(0L, task.amount - getInboundProgress(task));
+        long remainingOutbound = Math.max(0L, task.amount - getOutboundProgress(task));
+        LOG.info("[ManagerExecutor {}] deliver task={} order={} amount={} bufferBaseline={} currentBuffer={} inboundProgress={} remainingInbound={} targetBaseline={} currentTarget={} outboundProgress={} remainingOutbound={} inboundQueued={} inboundDone={} outboundQueued={} outboundDone={} dispatchQueued={} reason={}",
+                manager.getPos(),
+                task.taskId,
+                task.orderId,
+                task.amount,
+                safeBufferBaseline,
+                currentBuffer,
+                inboundProgress,
+                remainingInbound,
+                safeTargetBaseline,
+                currentTarget,
+                outboundProgress,
+                remainingOutbound,
+                task.inboundQueued,
+                task.inboundDone,
+                task.outboundQueued,
+                task.outboundDone,
+                task.dispatchQueued,
+                reason);
     }
 
     private static boolean requiresFullSourceBeforeDispatch(TransferTask task) {
