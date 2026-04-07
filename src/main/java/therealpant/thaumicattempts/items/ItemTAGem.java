@@ -15,7 +15,7 @@ import therealpant.thaumicattempts.common.gems.StubGemDefinition;
 import therealpant.thaumicattempts.gems.AmberGemDefinition;
 import therealpant.thaumicattempts.gems.AmethystGemDefinition;
 import therealpant.thaumicattempts.gems.DiamondGemDefinition;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 
 import javax.annotation.Nullable;
 

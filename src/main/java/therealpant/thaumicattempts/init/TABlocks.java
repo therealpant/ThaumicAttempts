@@ -10,6 +10,7 @@ public class TABlocks {
     public static Block ORDER_TERMINAL;
     public static Block PATTERN_REQUESTER;
     public static Block RESOURCE_REQUESTER;
+    public static Block CRAFT_PLANNER;
     public static Block GOLEM_DISPATCHER;
     public static Block INFUSION_REQUESTER;
     public static Block ANOMALY_STONE;
@@ -30,6 +31,7 @@ public class TABlocks {
     public static Item PATTERN_REQUESTER_ITEM;
     public static Item RESOURCE_REQUESTER_ITEM;
     public static Item GOLEM_DISPATCHER_ITEM;
+    public static Item CRAFT_PLANNER_ITEM;
     public static Item INFUSION_REQUESTER_ITEM;
     public static Item ANOMALY_STONE_ITEM;
     public static Item RIFT_BUSH_ITEM;

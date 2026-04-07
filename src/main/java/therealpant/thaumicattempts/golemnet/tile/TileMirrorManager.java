@@ -38,9 +38,11 @@ import thaumcraft.common.lib.events.EssentiaHandler;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.CraftOrderApi;
+import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
 
@@ -473,7 +475,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     // Возвращает остаток, который не влез.
     public ItemStack acceptProvisionResult(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return ItemStack.EMPTY;
-        return silentInsertToBuffer(stack);
+        ItemStack before = stack.copy();
+        ItemStack rem = silentInsertToBuffer(stack);
+        int accepted = before.getCount() - (rem.isEmpty() ? 0 : rem.getCount());
+        if (accepted > 0) {
+            onArrivedToBuffer(before, accepted);
+            Batch b = peekNextBatch();
+            if (b != null) processBatchHead(b);
+        }
+        return rem;
     }
 
     /**
@@ -1221,9 +1231,20 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             return true;
         }
 
-        // Есть диспетчеры — используем ТОЛЬКО форсированные таски через helper.
-        // Внутри: ищется свободный линкованный голем и создаётся Task с жёстким golemUUID.
-        return ThaumcraftProvisionHelper.requestProvisioningForManager(this, stack);
+        // Есть диспетчеры — сначала пробуем форсированный таск через helper.
+        // Если в этот тик нет свободного линкованного курьера, не блокируем заказ:
+        // делаем fallback на обычный provisioning, чтобы недостача не зависала.
+        boolean ok = ThaumcraftProvisionHelper.requestProvisioningForManager(this, stack);
+        if (ok) return true;
+
+        GolemHelper.requestProvisioning(
+                world,
+                this.pos,
+                EnumFacing.UP,
+                stack,
+                0
+        );
+        return true;
     }
 
     private void propagateDispatcherColor(BlockPos pos) {
@@ -1544,6 +1565,26 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         final int q = Math.max(0, Math.min(5, queueId));
 
+        LinkedHashMap<ItemKey, Integer> reachable = getReachableCatalog();
+        Map<ItemKey, Integer> stock = new HashMap<>();
+        for (Map.Entry<ItemKey, Integer> en : reachable.entrySet()) {
+            if (en.getKey() == null || en.getKey() == ItemKey.EMPTY) continue;
+            stock.put(en.getKey(), Math.max(0, en.getValue()));
+        }
+        for (Map.Entry<ItemKey, Integer> e : moved) {
+            if (e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+            ItemStack like = e.getKey().toStack(1);
+            stock.put(e.getKey(), stock.getOrDefault(e.getKey(), 0) + countInBufferLike(like));
+        }
+
+        List<PlannerStep> plannedSteps = new ArrayList<>();
+        for (Map.Entry<ItemKey, Integer> e : moved) {
+            ItemStack like = e.getKey().toStack(1);
+            int amount = Math.max(1, e.getValue());
+            if (!tryBuildCraftPlan(like, amount, stock, new HashSet<ItemKey>(), plannedSteps)) {
+                return; // цепочка невосполнима — заказ отменяем
+            }
+        }
         // вычищаем возможные дубль-доставки в ту же точку
         final java.util.function.BiConsumer<BlockPos, ItemStack> dropDupDelivery = (d, like1) -> {
             for (Deque<Batch> qd : batchQueues) {
@@ -1616,10 +1657,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                         ItemKey key = ItemKey.of(need);
                         ItemStack likeNeed = key.toStack(1);
 
+                        // Важно: здесь учитываем только то, что уже лежит в целевом крафтере.
+                        // Очереди/буфер менеджера будут вычтены внутри ensureDeliveryForExact().
+                        // Иначе queued/buffer вычитаются дважды (здесь и в ensure...), и это
+                        // приводит к недозаказу ресурсов для крафтера.
                         int have = available.computeIfAbsent(key, k ->
-                                countAtDestLike(crafterPos, -1, likeNeed)
-                                        + countQueuedFor(crafterPos, likeNeed)
-                                        + countInBufferLike(likeNeed));
+                                countAtDestLike(crafterPos, -1, likeNeed));
 
                         int missing = Math.max(0, need.getCount() - have);
                         if (missing > 0) {
@@ -1924,7 +1967,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     if (chunk > 0) {
                         ItemStack req = normalizeForProvision(ln.wanted1, chunk);
                         if (!req.isEmpty()) {
-                            boolean ok = ThaumcraftProvisionHelper.requestProvisioningForManager(this, req);
+                            boolean ok = enqueueProvisionTask(req);
                             if (ok) {
                                 requested += chunk;
                             }
@@ -2430,8 +2473,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 for (int z = minZ; z <= maxZ; z++) {
                     BlockPos q = new BlockPos(x, y, z);
                     net.minecraft.block.Block b = world.getBlockState(q).getBlock();
-                    if (b == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MIRROR_STABILIZER) stabsAll.add(q);
-                    else if (b == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MATH_CORE) coresAll.add(q);
+                    if (b == ModBlocksItems.MIRROR_STABILIZER) stabsAll.add(q);
+                    else if (b == ModBlocksItems.MATH_CORE) coresAll.add(q);
                 }
 
         // --- Волновая активация от блока прямо под менеджером ---
@@ -2440,8 +2483,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         BlockPos seed = p.down(); // «блок, верхней гранью касающийся менеджера» — ровно под ним
         net.minecraft.block.Block seedBlock = world.getBlockState(seed).getBlock();
-        boolean seedIsStab = seedBlock == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MIRROR_STABILIZER && stabsAll.contains(seed);
-        boolean seedIsCore = seedBlock == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MATH_CORE && coresAll.contains(seed);
+        boolean seedIsStab = seedBlock == ModBlocksItems.MIRROR_STABILIZER && stabsAll.contains(seed);
+        boolean seedIsCore = seedBlock == ModBlocksItems.MATH_CORE && coresAll.contains(seed);
 
 
         if (seedIsStab) stabsActive.add(seed);
@@ -2507,7 +2550,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             boolean wasActive = lastActiveStabs.contains(p);
             if (shouldBeActive != wasActive) {
                 IBlockState st = world.getBlockState(p);
-                if (st.getBlock() == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MIRROR_STABILIZER) {
+                if (st.getBlock() == ModBlocksItems.MIRROR_STABILIZER) {
                     st = st.withProperty(
                             therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer.ACTIVE,
                             shouldBeActive
@@ -2524,7 +2567,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             boolean wasActive = lastActiveCores.contains(p);
             if (shouldBeActive != wasActive) {
                 IBlockState st = world.getBlockState(p);
-                if (st.getBlock() == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MATH_CORE) {
+                if (st.getBlock() == ModBlocksItems.MATH_CORE) {
                     st = st.withProperty(
                             therealpant.thaumicattempts.golemnet.block.BlockMathCore.ACTIVE,
                             shouldBeActive
@@ -2558,12 +2601,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     IBlockState st = world.getBlockState(q);
                     Block b = st.getBlock();
 
-                    if (b == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MIRROR_STABILIZER) {
+                    if (b == ModBlocksItems.MIRROR_STABILIZER) {
                         if (st.getValue(therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer.ACTIVE)) {
                             world.setBlockState(q, st.withProperty(
                                     therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer.ACTIVE, false), 3);
                         }
-                    } else if (b == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MATH_CORE) {
+                    } else if (b == ModBlocksItems.MATH_CORE) {
                         if (st.getValue(therealpant.thaumicattempts.golemnet.block.BlockMathCore.ACTIVE)) {
                             world.setBlockState(q, st.withProperty(
                                     therealpant.thaumicattempts.golemnet.block.BlockMathCore.ACTIVE, false), 3);
@@ -3521,17 +3564,122 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return allowedOwners.isEmpty() || (owner != null && allowedOwners.contains(owner));
     }
 
+    private static final class PlannerStep {
+        final BlockPos requesterPos;
+        final ItemStack resultLike;
+        final int amount;
+
+        PlannerStep(BlockPos requesterPos, ItemStack resultLike, int amount) {
+            this.requesterPos = requesterPos;
+            this.resultLike = resultLike;
+            this.amount = amount;
+        }
+    }
+
+    private List<ItemStack> getRecipeInputsForEndpoint(TileEntity te, ItemStack like, int crafts) {
+        if (te instanceof TilePatternRequester) {
+            return ((TilePatternRequester) te).getRecipeInputsFor(like, crafts);
+        }
+        if (te instanceof TileInfusionRequester) {
+            TileInfusionRequester inf = (TileInfusionRequester) te;
+            int slot = inf.findPatternSlotFor(like);
+            if (slot < 0) return Collections.emptyList();
+            List<therealpant.thaumicattempts.api.PatternResourceList.Entry> entries = inf.getResourcesForSlot(slot);
+            if (entries == null || entries.isEmpty()) return Collections.emptyList();
+            List<ItemStack> out = new ArrayList<>();
+            for (therealpant.thaumicattempts.api.PatternResourceList.Entry e : entries) {
+                if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+                ItemStack st = e.getKey().toStack(Math.max(1, e.getCount() * Math.max(1, crafts)));
+                if (!st.isEmpty()) out.add(st);
+            }
+            return out;
+        }
+        return Collections.emptyList();
+    }
+
+    private boolean tryBuildCraftPlan(ItemStack targetLike, int amount,
+                                      Map<ItemKey, Integer> stock,
+                                      Set<ItemKey> visiting,
+                                      List<PlannerStep> outSteps) {
+        if (targetLike == null || targetLike.isEmpty() || amount <= 0) return true;
+
+        ItemKey key = ItemKey.of(targetLike);
+        int have = Math.max(0, stock.getOrDefault(key, 0));
+        if (have >= amount) {
+            stock.put(key, have - amount);
+            return true;
+        }
+
+        int missing = amount - have;
+        stock.put(key, 0);
+
+        if (!visiting.add(key)) return false;
+
+        BlockPos rp = findRequesterForKey(key);
+        if (rp == null) {
+            visiting.remove(key);
+            return false;
+        }
+
+        TileEntity te = world.getTileEntity(rp);
+        if (!(te instanceof ICraftEndpoint)) {
+            visiting.remove(key);
+            return false;
+        }
+
+        ICraftEndpoint ep = (ICraftEndpoint) te;
+        int perCraft = Math.max(1, ep.getPerCraftOutputCountFor(targetLike));
+        int crafts = (missing + perCraft - 1) / perCraft;
+
+        List<ItemStack> needs = getRecipeInputsForEndpoint(te, targetLike, crafts);
+        if (needs != null) {
+            for (ItemStack need : needs) {
+                if (need == null || need.isEmpty()) continue;
+                if (!tryBuildCraftPlan(need, Math.max(1, need.getCount()), stock, visiting, outSteps)) {
+                    visiting.remove(key);
+                    return false;
+                }
+            }
+        }
+
+        int produced = crafts * perCraft;
+        int leftover = Math.max(0, produced - missing);
+        if (leftover > 0) {
+            stock.put(key, stock.getOrDefault(key, 0) + leftover);
+        }
+
+        outSteps.add(new PlannerStep(rp, targetLike.copy(), missing));
+        visiting.remove(key);
+        return true;
+    }
+
     @Nullable
     private BlockPos findRequesterForKey(ItemKey key) {
-        if (world == null) return null;
+        if (world == null || key == null || key == ItemKey.EMPTY) return null;
+
+        ItemStack like = key.toStack(1);
+        if (like.isEmpty()) return null;
         for (BlockPos rp : requesters) {
             TileEntity te = world.getTileEntity(rp);
-            if (!(te instanceof TilePatternRequester)) continue;
-            for (ItemStack out : ((TilePatternRequester) te).listCraftableResults()) {
-                if (out == null || out.isEmpty()) continue;
-                ItemStack like = key.toStack(1);
-                boolean same = ResourceIdentity.sameResource(out, like);
-                if (same) return rp;
+            if (te instanceof ICraftEndpoint) {
+                List<ItemStack> outs = ((ICraftEndpoint) te).listCraftableResults();
+                if (outs != null) {
+                    for (ItemStack out : outs) {
+                        if (out == null || out.isEmpty()) continue;
+                        if (ResourceIdentity.sameResource(out, like)) return rp;
+                    }
+                }
+            }
+
+            if (te instanceof TileResourceRequester) {
+                List<ItemStack> icons = ((TileResourceRequester) te).listTerminalOrderIcons();
+                if (icons == null) continue;
+                for (ItemStack icon : icons) {
+                    ItemStack preview = TerminalOrderApi.stripOrderIconData(icon);
+                    if (!preview.isEmpty() && ResourceIdentity.sameResource(preview, like)) {
+                        return rp;
+                    }
+                }
             }
         }
         return null;

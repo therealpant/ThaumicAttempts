@@ -323,8 +323,12 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             int delta = Math.max(0, have - baseline);
             int prev = e.getValue();
             int left = Math.max(0, e.getValue() - delta);
+            if (delta > 0) {
+                baselines.put(e.getKey(), baseline + delta);
+            }
             if (left <= 0) {
                 it.remove();
+                baselines.remove(e.getKey());
                 changed = true;
                 if (prev > 0 && delta > 0) progressed = true;
             } else if (left != e.getValue()) {

@@ -91,7 +91,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     /** Тип эссенции — оставляем CRAFT; наследники могут заменить. */
     protected Aspect requiredAspect = Aspect.CRAFT;
     /** Сколько эссенции тратим за каждый ВИД ресурса. */
-    protected int perTypeEssentia = 3;
+    protected int perTypeEssentia = 1;
 
     /** Буфер эссенции. */
     private int craftAmount = 0;

@@ -13,7 +13,7 @@ import thaumcraft.api.research.ResearchCategory;
 import thaumcraft.api.research.ResearchEntry;
 import thaumcraft.api.research.ResearchStage;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 
 import java.util.ArrayList;
 import java.util.List;

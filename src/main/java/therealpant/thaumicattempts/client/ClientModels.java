@@ -16,7 +16,7 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import net.minecraftforge.fml.relauncher.Side;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.client.render.*;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.golemnet.block.BlockMathCore;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer;
 import therealpant.thaumicattempts.golemnet.tile.*;
@@ -179,6 +179,7 @@ public final class ClientModels extends CommonProxy {
         registerItemModel(TABlocks.INFUSION_REQUESTER_ITEM);
         attachTileRenderer(TABlocks.INFUSION_REQUESTER_ITEM, TileInfusionRequester::new);
         registerItemModel(TABlocks.GOLEM_DISPATCHER_ITEM);
+        registerItemModel(TABlocks.CRAFT_PLANNER_ITEM);
         attachTileRenderer(TABlocks.GOLEM_DISPATCHER_ITEM, TileGolemDispatcher::new);
         registerItemModel(TABlocks.ANOMALY_STONE_ITEM);
         attachTileRenderer(TABlocks.ANOMALY_STONE_ITEM, therealpant.thaumicattempts.world.tile.TileAnomalyStone::new);

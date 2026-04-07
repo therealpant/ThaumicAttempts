@@ -20,7 +20,7 @@ import thaumcraft.api.crafting.ShapedArcaneRecipe;
 import thaumcraft.api.items.ItemsTC;
 
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 
 import static thaumcraft.api.blocks.BlocksTC.*;

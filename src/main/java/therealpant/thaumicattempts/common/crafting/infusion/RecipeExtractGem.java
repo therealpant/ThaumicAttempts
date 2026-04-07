@@ -3,7 +3,6 @@ package therealpant.thaumicattempts.common.crafting.infusion;
 import java.util.List;
 
 import net.minecraft.entity.player.EntityPlayer;
-import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.crafting.Ingredient;
 import net.minecraft.util.ResourceLocation;
@@ -11,7 +10,7 @@ import net.minecraft.world.World;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.crafting.InfusionRecipe;
 import thaumcraft.api.items.ItemsTC;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.api.gems.ITAGemDefinition;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
 import therealpant.thaumicattempts.items.ItemTAGem;

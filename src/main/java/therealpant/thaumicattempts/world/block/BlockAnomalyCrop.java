@@ -17,7 +17,7 @@ import net.minecraftforge.common.EnumPlantType;
 import net.minecraftforge.common.util.Constants;
 import thaumcraft.api.aura.AuraHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
 

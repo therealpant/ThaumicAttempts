@@ -10,11 +10,10 @@ import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.config.ConfigRecipes;
-import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.data.enchantments.InfusionVisChargeLevelRecipe;
 import therealpant.thaumicattempts.data.enchantments.InfusionArcaneGuardLevelRecipe;
 import therealpant.thaumicattempts.data.enchantments.InfusionRiftMomentumLevelRecipe;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 
 import static therealpant.thaumicattempts.ThaumicAttempts.MODID;
 

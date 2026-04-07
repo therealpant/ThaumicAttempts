@@ -2,9 +2,7 @@
 package therealpant.thaumicattempts.data;
 
 import com.google.common.collect.Lists;
-import net.minecraft.block.Block;
 import net.minecraft.init.Blocks;
-import net.minecraft.init.Items;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 import thaumcraft.api.ThaumcraftApi;
@@ -14,7 +12,7 @@ import static thaumcraft.api.blocks.BlocksTC.stoneEldritchTile;
 import thaumcraft.api.crafting.CrucibleRecipe;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.config.ConfigRecipes;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 
 import static therealpant.thaumicattempts.ThaumicAttempts.MODID;

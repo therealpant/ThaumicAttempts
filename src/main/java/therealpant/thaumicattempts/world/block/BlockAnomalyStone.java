@@ -17,7 +17,7 @@ import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.common.blocks.world.taint.ITaintBlock;
 import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.util.TADrops;
 import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
 import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;

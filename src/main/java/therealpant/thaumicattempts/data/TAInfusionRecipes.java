@@ -17,15 +17,13 @@ import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.api.crafting.InfusionRecipe;
 import thaumcraft.api.items.ItemsTC;
-import thaumcraft.common.blocks.BlockTC;
 import thaumcraft.common.config.ConfigRecipes;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.common.crafting.infusion.RecipeExtractGem;
 import therealpant.thaumicattempts.common.crafting.infusion.RecipeInlayGem;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 
-import static org.apache.logging.log4j.core.util.Assert.isEmpty;
 import static thaumcraft.api.blocks.BlocksTC.stoneEldritchTile;
 import static therealpant.thaumicattempts.ThaumicAttempts.MODID;
 

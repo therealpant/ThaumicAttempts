@@ -16,6 +16,7 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import net.minecraft.item.ItemStack;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 
 import java.util.ArrayDeque;
 import java.util.HashSet;
@@ -145,8 +146,8 @@ public class BlockMirrorStabilizer extends Block {
 
         BlockPos seed = managerPos.down();
         Block seedBlock = w.getBlockState(seed).getBlock();
-        boolean seedIsStab = seedBlock == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MIRROR_STABILIZER;
-        boolean seedIsCore = seedBlock == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MATH_CORE;
+        boolean seedIsStab = seedBlock == ModBlocksItems.MIRROR_STABILIZER;
+        boolean seedIsCore = seedBlock == ModBlocksItems.MATH_CORE;
         if (!seedIsStab && !seedIsCore) return false;
 
         Set<BlockPos> visited = new HashSet<>();
@@ -159,8 +160,8 @@ public class BlockMirrorStabilizer extends Block {
             if (p.equals(me)) return true;
 
             Block bHere = w.getBlockState(p).getBlock();
-            boolean hereIsStab = (bHere == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MIRROR_STABILIZER);
-            boolean hereIsCore = (bHere == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MATH_CORE);
+            boolean hereIsStab = (bHere == ModBlocksItems.MIRROR_STABILIZER);
+            boolean hereIsCore = (bHere == ModBlocksItems.MATH_CORE);
 
             for (EnumFacing f : EnumFacing.VALUES) {
                 BlockPos nb = p.offset(f);
@@ -168,8 +169,8 @@ public class BlockMirrorStabilizer extends Block {
                 if (visited.contains(nb)) continue;
 
                 Block b = w.getBlockState(nb).getBlock();
-                boolean isStab = b == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MIRROR_STABILIZER;
-                boolean isCore = b == therealpant.thaumicattempts.golemcraft.ModBlocksItems.MATH_CORE;
+                boolean isStab = b == ModBlocksItems.MIRROR_STABILIZER;
+                boolean isCore = b == ModBlocksItems.MATH_CORE;
 
                 if ((hereIsStab && isCore) || (hereIsCore && isStab)) {
                     visited.add(nb);

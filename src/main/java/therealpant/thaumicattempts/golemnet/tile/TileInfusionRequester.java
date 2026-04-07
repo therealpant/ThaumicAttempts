@@ -1005,9 +1005,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             int have = countInInputLike(key);
             int delivered = Math.max(0, have - baseline);
             int left = Math.max(0, want - delivered);
+            if (delivered > 0) {
+                baselineToRequester.put(key, baseline + delivered);
+            }
 
             if (left <= 0) {
                 it.remove();
+                baselineToRequester.remove(key);
                 changed = true;
             } else if (left != e.getValue()) {
                 e.setValue(left);

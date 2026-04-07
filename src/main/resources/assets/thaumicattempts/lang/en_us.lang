@@ -21,6 +21,7 @@ tile.thaumicattempts.ta_aura_booster.name=Void Pylon
 tile.thaumicattempts.aura_booster_core.name=Resonating Core
 tile.thaumicattempts.rist_cristal_block.name=Crystal Array
 tile.thaumicattempts.rift_extractor.name=Void Extractor
+tile.thaumicattempts.craft_planner.name=Craft Planner
 
 item.thaumicattempts.craft_pattern.name=Crafting Instructions
 item.thaumicattempts.infusion_pattern.name=Infusion Instructions

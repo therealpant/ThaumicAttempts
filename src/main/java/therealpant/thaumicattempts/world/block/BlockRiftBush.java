@@ -22,15 +22,13 @@ import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.common.blocks.world.taint.ITaintBlock;
 import thaumcraft.common.blocks.world.taint.TaintHelper;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.util.TADrops;
 import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
 import therealpant.thaumicattempts.world.tile.AnomalyLinkedTile;
 import therealpant.thaumicattempts.world.tile.TileRiftBush;
 
 import javax.annotation.Nullable;
-import java.util.Collections;
-import java.util.List;
 
 /**
  * Высокий куст (2 блока), аналог ванильной розы.

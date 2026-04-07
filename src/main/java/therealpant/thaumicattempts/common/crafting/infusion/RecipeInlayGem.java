@@ -13,7 +13,7 @@ import thaumcraft.api.crafting.InfusionRecipe;
 import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.api.gems.ITAGemDefinition;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
-import therealpant.thaumicattempts.golemcraft.ModBlocksItems;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.items.ItemTAGem;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
 

@@ -22,6 +22,7 @@ tile.thaumicattempts.ta_aura_booster.name=Пилон Пустоты
 tile.thaumicattempts.aura_booster_core.name=Резонирующее Ядро
 tile.thaumicattempts.rist_cristal_block.name=Кристалический Массив
 tile.thaumicattempts.rift_extractor.name=Экстактор Пустоты
+tile.thaumicattempts.craft_planner.name=Планировщик крафта
 
 item.thaumicattempts.craft_pattern.name=Инструкции по Сборке
 item.thaumicattempts.infusion_pattern.name=Инструкции для Наполнения

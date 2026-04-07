@@ -1,4 +1,4 @@
-package therealpant.thaumicattempts.golemcraft;
+package therealpant.thaumicattempts.init;
 
 import net.minecraft.block.Block;
 import net.minecraft.item.Item;
@@ -27,7 +27,6 @@ import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 import therealpant.thaumicattempts.items.ItemStorageBell;
 import therealpant.thaumicattempts.items.ItemTAGem;
 
-import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
 import therealpant.thaumicattempts.world.tile.TileAuraBooster;
@@ -89,6 +88,7 @@ public final class ModBlocksItems {
         TABlocks.ORDER_TERMINAL    = new BlockOrderTerminal();    // .setRegistryName(MODID, "order_terminal");
         TABlocks.PATTERN_REQUESTER = new BlockPatternRequester(); // .setRegistryName(MODID, "pattern_requester");
         TABlocks.RESOURCE_REQUESTER = new BlockResourceRequester();
+        TABlocks.CRAFT_PLANNER = new BlockCraftPlanner();
         TABlocks.GOLEM_DISPATCHER = new BlockGolemDispatcher();
         TABlocks.INFUSION_REQUESTER = new BlockInfusionRequester();
         TABlocks.ANOMALY_STONE = new BlockAnomalyStone();
@@ -109,6 +109,7 @@ public final class ModBlocksItems {
                 TABlocks.PATTERN_REQUESTER,
                 TABlocks.RESOURCE_REQUESTER,
                 TABlocks.GOLEM_DISPATCHER,
+                TABlocks.CRAFT_PLANNER,
                 TABlocks.INFUSION_REQUESTER,
                 TABlocks.ANOMALY_STONE,
                 TABlocks.RIFT_BUSH,
@@ -138,6 +139,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "resource_requester"));
         GameRegistry.registerTileEntity(TileGolemDispatcher.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "golem_dispatcher"));
+        GameRegistry.registerTileEntity(TileCraftPlanner.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "craft_planner"));
         GameRegistry.registerTileEntity(TileInfusionRequester.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "infusion_requester"));
         GameRegistry.registerTileEntity(TileAnomalyStone.class,
@@ -254,6 +257,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RESOURCE_REQUESTER.getRegistryName());
         TABlocks.GOLEM_DISPATCHER_ITEM = new ItemBlock(TABlocks.GOLEM_DISPATCHER)
                 .setRegistryName(TABlocks.GOLEM_DISPATCHER.getRegistryName());
+        TABlocks.CRAFT_PLANNER_ITEM = new ItemBlock(TABlocks.CRAFT_PLANNER)
+                .setRegistryName(TABlocks.CRAFT_PLANNER.getRegistryName());
         TABlocks.INFUSION_REQUESTER_ITEM = new ItemBlock(TABlocks.INFUSION_REQUESTER)
                 .setRegistryName(TABlocks.INFUSION_REQUESTER.getRegistryName());
         TABlocks.ANOMALY_STONE_ITEM = new ItemBlock(TABlocks.ANOMALY_STONE)
@@ -284,6 +289,7 @@ public final class ModBlocksItems {
                 TABlocks.PATTERN_REQUESTER_ITEM,
                 TABlocks.RESOURCE_REQUESTER_ITEM,
                 TABlocks.GOLEM_DISPATCHER_ITEM,
+                TABlocks.CRAFT_PLANNER_ITEM,
                 TABlocks.INFUSION_REQUESTER_ITEM,
                 TABlocks.ANOMALY_STONE_ITEM,
                 TABlocks.RIFT_BUSH_ITEM,
