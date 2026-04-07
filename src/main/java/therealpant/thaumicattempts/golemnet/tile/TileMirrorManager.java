@@ -1902,7 +1902,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         boolean toCrafter = world.getTileEntity(b.dest) instanceof TileEntityGolemCrafter;
 
         int flying = inflight.getOrDefault(key, 0);
-        int atDest = countAtDestLike(b.dest, b.destSide, ln.wanted1);
         int queuedAll = countQueuedFor(b.dest, ln.wanted1);
         int queuedOthers = Math.max(0, queuedAll - ln.remaining);
 
@@ -1920,8 +1919,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 lastProgressTick.put(key, tickCounter);
             }
             int reservedHere = Math.max(0, Math.min(ln.reserved, ln.remaining));
-            int covered = atDest + queuedOthers + reservedHere;
-            need = (covered >= ln.remaining) ? 0 : (ln.remaining - covered);
+            int accounted = Math.max(flying, reservedHere);
+            // ВАЖНО: ln.remaining уже "чистый остаток к доставке" (уменьшается при фактическом push в адресат).
+            // Поэтому нельзя дополнительно вычитать atDest — это приводит к недозаказу после первых 64 шт.
+            // Для крафтеров учитываем только "чужие" очереди и уже запрошенное/зарезервированное.
+            need = Math.max(0, ln.remaining - queuedOthers - accounted);
         } else {
             int lp = lastProgressTick.getOrDefault(key, -9999);
             if (tickCounter - lp > STALL_TICKS) {
