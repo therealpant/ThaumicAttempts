@@ -854,7 +854,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         if (pageIndex0 < 0) pageIndex0 = 0;
         if (search == null) search = "";
         final String q = search.trim().toLowerCase(java.util.Locale.ROOT);
-        final Aspect aspectQuery = parseAspectSearch(q);
+        final String aspectPrefix = parseAspectSearchPrefix(q);
 
         // --- 1) Создать/зафиксировать snapshotId и ОБЯЗАТЕЛЬНО выслать его клиенту при создании
         final long sid;
@@ -905,7 +905,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             java.util.List<Integer> perCraft  = new java.util.ArrayList<Integer>();
             for (ItemStack s : all) {
                 if (s == null || s.isEmpty()) continue;
-                if (!matchesSearch(s, q, aspectQuery)) continue;
+                if (!matchesSearch(s, q, aspectPrefix)) continue;
                 filtered.add(s);
                 perCraft.add(Math.max(1, s.getCount()));
             }
@@ -954,7 +954,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             for (java.util.Map.Entry<ItemKey,Integer> e : entries) {
                 ItemStack s = e.getKey().toStack(1);
                 if (s == null || s.isEmpty()) continue;
-                if (!matchesSearch(s, q, aspectQuery)) continue;
+                if (!matchesSearch(s, q, aspectPrefix)) continue;
                 filtered.add(s);
                 counts.add(Math.max(1, e.getValue()));
             }
@@ -991,7 +991,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     }
 
     @Nullable
-    private static Aspect parseAspectSearch(String q) {
+    private static String parseAspectSearchPrefix(String q) {
         if (q == null) return null;
 
         String search = q.trim();
@@ -1000,23 +1000,72 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         String raw = normalizeAspectSearchToken(search.substring(1));
         if (raw.isEmpty()) return null;
 
-        String normalized = ASPECT_ALIASES.getOrDefault(raw, raw);
-        return Aspect.getAspect(normalized);
+        // Если введён точный алиас, например !air -> aer,
+        // используем нормализованный tag как префикс.
+        String normalized = ASPECT_ALIASES.get(raw);
+        if (normalized != null && !normalized.isEmpty()) {
+            return normalized;
+        }
+
+        // Иначе оставляем как есть: !a, !ig, !ord и т.д.
+        return raw;
     }
 
-    private static boolean matchesSearch(ItemStack stack, String q, @Nullable Aspect aspectQuery) {
+    private static boolean matchesSearch(ItemStack stack, String q, @Nullable String aspectPrefix) {
         if (stack == null || stack.isEmpty()) return false;
 
         String trimmed = (q == null) ? "" : q.trim();
         if (trimmed.isEmpty()) return true;
 
         if (trimmed.startsWith("!")) {
-            if (aspectQuery == null) return false;
-            return hasAspect(stack, aspectQuery);
+            if (aspectPrefix == null || aspectPrefix.isEmpty()) return false;
+            return hasAspectPrefix(stack, aspectPrefix);
         }
 
         String name = stack.getDisplayName();
         return name != null && name.toLowerCase(java.util.Locale.ROOT).contains(trimmed);
+    }
+
+    private static boolean hasAspectPrefix(ItemStack stack, String prefix) {
+        if (stack == null || stack.isEmpty() || prefix == null || prefix.isEmpty()) return false;
+
+        AspectList al = null;
+        if (stack.getItem() instanceof ItemTCEssentiaContainer) {
+            al = ((ItemTCEssentiaContainer) stack.getItem()).getAspects(stack);
+        }
+        if (al == null || al.size() == 0) {
+            al = reflectObjectAspects(stack);
+        }
+        if (al == null || al.size() == 0) return false;
+
+        String p = normalizeAspectSearchToken(prefix);
+
+        for (Aspect a : al.getAspects()) {
+            if (a == null) continue;
+
+            String tag = safeLower(a.getTag());
+            if (tag != null && normalizeAspectSearchToken(tag).startsWith(p)) {
+                return true;
+            }
+
+            String name = safeAspectName(a);
+            if (name != null && !name.isEmpty() && name.startsWith(p)) {
+                return true;
+            }
+
+            // Дополнительно проверим алиасы вида air -> aer, fire -> ignis
+            for (Map.Entry<String, String> e : ASPECT_ALIASES.entrySet()) {
+                String alias = e.getKey();
+                String canonical = e.getValue();
+                if (canonical == null || alias == null) continue;
+
+                if (canonical.equals(tag) && normalizeAspectSearchToken(alias).startsWith(p)) {
+                    return true;
+                }
+            }
+        }
+
+        return false;
     }
 
     private static boolean hasAspect(ItemStack stack, Aspect wanted) {

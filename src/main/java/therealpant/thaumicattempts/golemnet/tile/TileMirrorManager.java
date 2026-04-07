@@ -571,6 +571,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         markDirty();
     }
 
+    private void completeOrdersForConsumer(BlockPos destPos, int count) {
+        if (count <= 0) return;
+        for (int i = 0; i < count; i++) {
+            completeOrderForConsumer(destPos);
+        }
+    }
+
     private void tickConsumerFocus() {
         if (world == null || world.isRemote) return;
 
@@ -2718,8 +2725,18 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
 
     public void cancelAllForDestination(BlockPos dst) {
-        for (Deque<Batch> q : batchQueues) q.removeIf(b -> b.dest.equals(dst));
-        markDirty();
+        int removed = 0;
+        for (Deque<Batch> q : batchQueues) {
+            for (Iterator<Batch> it = q.iterator(); it.hasNext(); ) {
+                Batch b = it.next();
+                if (b.dest.equals(dst)) {
+                    it.remove();
+                    removed++;
+                }
+            }
+        }
+        completeOrdersForConsumer(dst, removed);
+        if (removed > 0) markDirty();
     }
 
     /* ===================== Подсобки ===================== */
@@ -2777,6 +2794,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private void trimQueuedFor(BlockPos dest, ItemStack like, int amount) {
         if (dest == null || like == null || like.isEmpty() || amount <= 0) return;
         int left = amount;
+        int removedBatches = 0;
         for (Deque<Batch> q : batchQueues) {
             for (Iterator<Batch> itB = q.iterator(); itB.hasNext() && left > 0; ) {
                 Batch b = itB.next();
@@ -2808,10 +2826,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     left -= take;
                     if (ln.remaining <= 0) itL.remove();
                 }
-                if (b.lines.isEmpty()) itB.remove();
+                if (b.lines.isEmpty()) {
+                    itB.remove();
+                    removedBatches++;
+                }
             }
         }
-        if (amount != left) markDirty();
+        if (removedBatches > 0) {
+            completeOrdersForConsumer(dest, removedBatches);
+        }
+        if (amount != left || removedBatches > 0) markDirty();
     }
 
     public void reconcileForDelivery(BlockPos dest, ItemStack like, int wantNow) {
