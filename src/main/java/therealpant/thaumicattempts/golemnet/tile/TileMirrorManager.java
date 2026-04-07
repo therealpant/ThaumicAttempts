@@ -1712,38 +1712,43 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (like == null || like.isEmpty() || upTo <= 0) return 0;
         IItemHandler dest = getDestHandler(destPos, destSide);
         if (dest == null) return 0;
+        TileEntity te = world.getTileEntity(destPos);
+        TileOrderTerminal term = (te instanceof TileOrderTerminal) ? (TileOrderTerminal) te : null;
 
         // 1) Сначала — сколько адресат реально готов принять
         int cap = simulateAccept(dest, like, upTo);
         if (cap <= 0) return 0;
 
         int left = cap, moved = 0;
+        if (term != null) term.beginManagerBufferInsert();
+        try {
+            // 2) Теперь извлекаем из буфера не больше, чем "cap"
+            while (left > 0) {
+                ItemStack take = extractFromBuffer(like, left);
+                if (take.isEmpty()) break;
 
-        // 2) Теперь извлекаем из буфера не больше, чем "cap"
-        while (left > 0) {
-            ItemStack take = extractFromBuffer(like, left);
-            if (take.isEmpty()) break;
+                ItemStack notFit = ItemHandlerHelper.insertItem(dest, take, false);
+                int accepted = take.getCount() - (notFit.isEmpty() ? 0 : notFit.getCount());
+                if (accepted > 0) {
+                    moved += accepted;
+                    left -= accepted;
 
-            ItemStack notFit = ItemHandlerHelper.insertItem(dest, take, false);
-            int accepted = take.getCount() - (notFit.isEmpty() ? 0 : notFit.getCount());
-            if (accepted > 0) {
-                moved += accepted;
-                left -= accepted;
-
-                handleMirrorDeliveryAnim(destPos, like);
+                    handleMirrorDeliveryAnim(destPos, like);
+                }
+                if (!notFit.isEmpty()) {
+                    // Возвращаем остаток в буфер — БЕЗ анимации
+                    silentInsertToBuffer(notFit);
+                    break;
+                }
             }
-            if (!notFit.isEmpty()) {
-                // Возвращаем остаток в буфер — БЕЗ анимации
-                silentInsertToBuffer(notFit);
-                break;
-            }
+        } finally {
+                if (term != null) term.endManagerBufferInsert();
         }
 
         if (moved > 0) {
-            TileEntity te = world.getTileEntity(destPos);
             if (te != null) te.markDirty();
             this.markDirty();
-            if (te instanceof TileOrderTerminal) ((TileOrderTerminal) te).onDelivered(like, moved);
+            if (term != null) term.onDelivered(like, moved);
         }
         return moved;
     }

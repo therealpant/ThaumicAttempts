@@ -175,6 +175,12 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     private final LinkedHashMap<ItemKey, Integer> draftCraft      = new LinkedHashMap<>();
     private final LinkedHashMap<ItemKey, Integer> pendingDelivery = new LinkedHashMap<>();
     private final LinkedHashMap<ItemKey, Integer> pendingCraft    = new LinkedHashMap<>();
+    /**
+     * Пока MirrorManager вставляет предметы в буфер терминала, onContentsChanged
+     * не должен запускать reconcilePendingByBufferInstant(), иначе тот же приход
+     * будет учтён и там, и в onDelivered().
+     */
+    private int suppressBufferReconcileDepth = 0;
 
     private static final class TerminalOrderRequest {
         final BlockPos pos;
@@ -200,11 +206,21 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         @Override protected void onContentsChanged(int slot) {
             markDirty();
             if (world != null && !world.isRemote) {
-                reconcilePendingByBufferInstant();
+                if (suppressBufferReconcileDepth <= 0) {
+                    reconcilePendingByBufferInstant();
+                }
                 world.notifyBlockUpdate(pos, world.getBlockState(pos), world.getBlockState(pos), 3);
             }
         }
     };
+
+    public void beginManagerBufferInsert() {
+        suppressBufferReconcileDepth++;
+    }
+
+    public void endManagerBufferInsert() {
+        if (suppressBufferReconcileDepth > 0) suppressBufferReconcileDepth--;
+    }
 
     /* ===== Кристаллы TC6 ===== */
     private static boolean isCrystal(ItemStack s) {
