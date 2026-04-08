@@ -579,6 +579,13 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         sendSnapshotToViewers(true);
     }
 
+    public void cancelCraftPendingFromManager() {
+        if (pendingCraft.isEmpty()) return;
+        pendingCraft.clear();
+        markDirty();
+        sendSnapshotToViewers(true);
+    }
+
     /* ===== Capabilities ===== */
     @Override
     public boolean hasCapability(Capability<?> capability, @Nullable EnumFacing facing) {

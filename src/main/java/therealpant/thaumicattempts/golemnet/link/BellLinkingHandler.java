@@ -27,6 +27,7 @@ import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
 import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
+import therealpant.thaumicattempts.golemnet.tile.TileCraftPlanner;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 
 import javax.annotation.Nullable;
@@ -273,7 +274,8 @@ public class BellLinkingHandler {
 
         // дальше работаем только с терминалом/реквестером, и только если в руке колокол ИЛИ игрок присел
         if (!(te instanceof TileOrderTerminal) && !(te instanceof TilePatternRequester)
-                && !(te instanceof TileResourceRequester) && !(te instanceof TileGolemDispatcher)) return;
+                && !(te instanceof TileResourceRequester) && !(te instanceof TileGolemDispatcher)
+                && !(te instanceof TileCraftPlanner)) return;
 
         // АВТОПОИСК ЗАПРЕЩЁН — используем только сохранённый в колоколе менеджер
         BlockPos linkedMgrPos = getLinkedPos(held);
@@ -599,6 +601,62 @@ public class BellLinkingHandler {
 
                         hub.setManagerPos(linkedMgrPos);
                         if (linkedMgrPos.equals(hub.getManagerPos())) {
+                            mgr.allowOwner(player.getUniqueID());
+                            msgChat(player, "§aLinked");
+                        } else {
+                            msgChat(player, "§cNot Linked");
+                        }
+                    } else {
+                        msgChat(player, "§cNot Linked");
+                    }
+                    denyAndCancel(e);
+                    return;
+                }
+            }
+            /* ---------- Крафт-планер ---------- */
+            if (te instanceof TileCraftPlanner) {
+                TileCraftPlanner planner = (TileCraftPlanner) te;
+
+                if (linkedMgrPos != null && linkedMgrPos.equals(planner.getManagerPos())) {
+                    msgChat(player, "§aLinked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (sneaking && planner.getManagerPos() != null && linkedMgrPos == null) {
+                    BlockPos oldMgr = planner.getManagerPos();
+                    planner.setManagerPos(null);
+                    if (oldMgr != null) {
+                        TileEntity old = world.getTileEntity(oldMgr);
+                        if (old instanceof TileMirrorManager) {
+                            ((TileMirrorManager) old).unbind(planner.getPos());
+                        }
+                    }
+                    msgChat(player, "§cNot Linked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (linkedMgrPos != null) {
+                    TileEntity mte = world.getTileEntity(linkedMgrPos);
+                    if (mte instanceof TileMirrorManager) {
+                        TileMirrorManager mgr = (TileMirrorManager) mte;
+
+                        if (planner.getManagerPos() != null && !linkedMgrPos.equals(planner.getManagerPos())) {
+                            TileEntity old = world.getTileEntity(planner.getManagerPos());
+                            if (old instanceof TileMirrorManager) {
+                                ((TileMirrorManager) old).unbind(planner.getPos());
+                            }
+                            planner.setManagerPos(null);
+                        }
+
+                        if (mgr.tryBindTerminal(planner.getPos())) {
+                            planner.setManagerPos(linkedMgrPos);
+                            planner.forceRescan();
+                            planner.markDirty();
+                            world.notifyBlockUpdate(planner.getPos(),
+                                    world.getBlockState(planner.getPos()),
+                                    world.getBlockState(planner.getPos()), 3);
                             mgr.allowOwner(player.getUniqueID());
                             msgChat(player, "§aLinked");
                         } else {

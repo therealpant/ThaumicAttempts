@@ -1577,13 +1577,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             stock.put(e.getKey(), stock.getOrDefault(e.getKey(), 0) + countInBufferLike(like));
         }
 
-        List<PlannerStep> plannedSteps = new ArrayList<>();
-        for (Map.Entry<ItemKey, Integer> e : moved) {
-            ItemStack like = e.getKey().toStack(1);
-            int amount = Math.max(1, e.getValue());
-            if (!tryBuildCraftPlan(like, amount, stock, new HashSet<ItemKey>(), plannedSteps)) {
-                return; // цепочка невосполнима — заказ отменяем
-            }
+        boolean planOk;
+        TileCraftPlanner planner = getConnectedPlanner();
+        if (planner != null) {
+            planOk = planner.canCraftOrderViaPlanner(moved, this);
+        } else {
+            planOk = canFulfillFromDirectStockOnly(moved, stock);
+        }
+        if (!planOk) {
+            cancelCraftRequestForDestination(dest);
+            return; // цепочка невосполнима — заказ отменяем
         }
         // вычищаем возможные дубль-доставки в ту же точку
         final java.util.function.BiConsumer<BlockPos, ItemStack> dropDupDelivery = (d, like1) -> {
@@ -1699,6 +1702,37 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         activeQueue = q;
         markDirty();
+    }
+
+    @Nullable
+    private TileCraftPlanner getConnectedPlanner() {
+        if (world == null) return null;
+        for (TileEntity te : world.loadedTileEntityList) {
+            if (!(te instanceof TileCraftPlanner)) continue;
+            TileCraftPlanner planner = (TileCraftPlanner) te;
+            if (this.pos.equals(planner.getManagerPos())) return planner;
+        }
+        return null;
+    }
+
+    private boolean canFulfillFromDirectStockOnly(List<Map.Entry<ItemKey, Integer>> moved, Map<ItemKey, Integer> stock) {
+        for (Map.Entry<ItemKey, Integer> e : moved) {
+            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+            int need = Math.max(1, e.getValue());
+            int have = Math.max(0, stock.getOrDefault(e.getKey(), 0));
+            if (have < need) return false;
+            stock.put(e.getKey(), have - need);
+        }
+        return true;
+    }
+
+    private void cancelCraftRequestForDestination(BlockPos dest) {
+        cancelAllForDestination(dest);
+        if (world == null || dest == null) return;
+        TileEntity te = world.getTileEntity(dest);
+        if (te instanceof TileOrderTerminal) {
+            ((TileOrderTerminal) te).cancelCraftPendingFromManager();
+        }
     }
 
     private Batch peekNextBatch() {
