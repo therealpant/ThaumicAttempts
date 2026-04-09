@@ -2037,10 +2037,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (ln.requester == null) return true;
 
         final BlockPos rp = ln.requester;
-        final boolean terminalDestination = world.getTileEntity(b.dest) instanceof TileOrderTerminal;
-        if (terminalDestination) {
-            harvestAnyFromCrafterOutput(rp);
-        }
+        harvestAnyFromCrafterOutput(rp);
         final BlockPos crafterPos = rp.down();
         final TileEntity rte = world.getTileEntity(rp);
         final TileEntity cte = world.getTileEntity(crafterPos);
@@ -2052,22 +2049,21 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             ln.perCraftOut = perCraft;
         }
 
-        if (terminalDestination) {
-            int movedFromCrafter = harvestLikeToBufferFromRequester(rp, ln.wanted1, ln.remaining);
-            if (movedFromCrafter > 0) {
-                if (perCraft > 0) {
-                    int craftsDone = (movedFromCrafter + perCraft - 1) / perCraft;
-                    if (ln.craftsScheduled > 0) {
-                        ln.craftsScheduled = Math.max(0, ln.craftsScheduled - craftsDone);
-                    }
-                    ln.craftsCompleted += craftsDone;
+        int movedFromCrafter = harvestLikeToBufferFromRequester(rp, ln.wanted1, ln.remaining);
+        if (movedFromCrafter > 0) {
+            if (perCraft > 0) {
+                int craftsDone = (movedFromCrafter + perCraft - 1) / perCraft;
+                if (ln.craftsScheduled > 0) {
+                    ln.craftsScheduled = Math.max(0, ln.craftsScheduled - craftsDone);
                 }
-                int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, movedFromCrafter);
-                if (pushed > 0) {
-                    ln.remaining -= pushed;
-                    lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
-                    if (ln.remaining <= 0) return true;
-                }
+                ln.craftsCompleted += craftsDone;
+            }
+
+            int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, movedFromCrafter);
+            if (pushed > 0) {
+                ln.remaining -= pushed;
+                lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
+                if (ln.remaining <= 0) return true;
             }
         }
 
@@ -2191,30 +2187,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
         // ... и уже после этого пробуем ещё раз добросить готовое в адресата:
-        if (terminalDestination) {
-            int pushed2 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
-            if (pushed2 > 0) {
-                ln.remaining -= pushed2;
-                lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
-                if (ln.remaining <= 0) return true;
-            }
-        } else {
-            int queuedDelivery = countQueuedDeliveryFor(b.dest, ln.wanted1);
-            int freeForQueue = Math.max(0, ln.remaining - queuedDelivery);
-            if (freeForQueue > 0) {
-                int reachable = countInReachableCatalogLike(ln.wanted1);
-                int toQueue = Math.min(freeForQueue, reachable);
-                if (toQueue > 0) {
-                    List<Map.Entry<ItemKey, Integer>> moved = new ArrayList<>(1);
-                    moved.add(new AbstractMap.SimpleImmutableEntry<>(ItemKey.of(ln.wanted1), toQueue));
-                    int qDelivery = (b.queueId + 1) % 6;
-                    enqueueBatchDelivery(b.dest, b.destSide, qDelivery, moved);
-                    ln.remaining -= toQueue;
-                    activeQueue = qDelivery;
-                    markDirty();
-                    if (ln.remaining <= 0) return true;
-                }
-            }
+        int pushed2 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
+        if (pushed2 > 0) {
+            ln.remaining -= pushed2;
+            lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
+            if (ln.remaining <= 0) return true;
         }
         return false;
 
@@ -2890,52 +2867,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     if (match) total += Math.max(0, ln.remaining);
                 }
             }
-        return total;
-    }
-
-    private int countQueuedDeliveryFor(BlockPos dest, ItemStack like) {
-        if (dest == null || like == null || like.isEmpty()) return 0;
-        int total = 0;
-        for (Deque<Batch> q : batchQueues) {
-            for (Batch b : q) {
-                if (b.kind != Batch.Kind.DELIVERY) continue;
-                if (!dest.equals(b.dest)) continue;
-                for (Line ln : b.lines) {
-                    boolean match;
-                    if (like.getMaxStackSize() == 1) {
-                        match = matchesForDelivery(ln.wanted1, like);
-                    } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
-                        match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
-                    } else {
-                        match = ResourceIdentity.sameResource(ln.wanted1, like);
-                    }
-                    if (match) total += Math.max(0, ln.remaining);
-                }
-            }
-        }
-        return total;
-    }
-
-    private int countInReachableCatalogLike(ItemStack like) {
-        if (like == null || like.isEmpty()) return 0;
-        int total = 0;
-        LinkedHashMap<ItemKey, Integer> catalog = getReachableCatalog();
-        for (Map.Entry<ItemKey, Integer> en : catalog.entrySet()) {
-            ItemKey key = en.getKey();
-            if (key == null || key == ItemKey.EMPTY) continue;
-            ItemStack candidate = key.toStack(1);
-            if (candidate.isEmpty()) continue;
-
-            boolean match;
-            if (like.getMaxStackSize() == 1) {
-                match = matchesForDelivery(candidate, like);
-            } else if (isCrystal(like) || isCrystal(candidate)) {
-                match = isCrystal(like) && isCrystal(candidate) && crystalSame(candidate, like);
-            } else {
-                match = ResourceIdentity.sameResource(candidate, like);
-            }
-            if (match) total += Math.max(0, en.getValue());
-        }
         return total;
     }
 
