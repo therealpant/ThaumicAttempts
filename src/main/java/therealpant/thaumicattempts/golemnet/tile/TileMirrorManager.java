@@ -2962,7 +2962,23 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         if (!miss.isEmpty()) {
             int q = Math.max(0, Math.min(5, queueId));
-            enqueueBatchDelivery(dest, -1, q, miss);
+            TileCraftPlanner planner = getConnectedPlanner();
+            List<Map.Entry<ItemKey, Integer>> toDeliver = new ArrayList<>();
+            for (Map.Entry<ItemKey, Integer> missEntry : miss) {
+                if (planner != null) {
+                    List<Map.Entry<ItemKey, Integer>> single = Collections.singletonList(
+                            new AbstractMap.SimpleImmutableEntry<>(missEntry.getKey(), missEntry.getValue()));
+                    if (planner.canCraftOrderViaPlanner(single, this)) {
+                        enqueueBatchCraft(dest, -1, q, single, this::findRequesterForKey);
+                        continue;
+                    }
+                }
+                toDeliver.add(missEntry);
+            }
+
+            if (!toDeliver.isEmpty()) {
+                enqueueBatchDelivery(dest, -1, q, toDeliver);
+            }
             activeQueue = q;
         }
     }
@@ -2992,7 +3008,23 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         if (!miss.isEmpty()) {
             int q = Math.max(0, Math.min(5, queueId));
-            enqueueBatchDelivery(dest, -1, q, miss);
+            TileCraftPlanner planner = getConnectedPlanner();
+            List<Map.Entry<ItemKey, Integer>> toDeliver = new ArrayList<>();
+            for (Map.Entry<ItemKey, Integer> missEntry : miss) {
+                if (planner != null) {
+                    List<Map.Entry<ItemKey, Integer>> single = Collections.singletonList(
+                            new AbstractMap.SimpleImmutableEntry<>(missEntry.getKey(), missEntry.getValue()));
+                    if (planner.canCraftOrderViaPlanner(single, this)) {
+                        enqueueBatchCraft(dest, -1, q, single, this::findRequesterForKey);
+                        continue;
+                    }
+                }
+                toDeliver.add(missEntry);
+            }
+
+            if (!toDeliver.isEmpty()) {
+                enqueueBatchDelivery(dest, -1, q, toDeliver);
+            }
             activeQueue = q;
         }
     }
