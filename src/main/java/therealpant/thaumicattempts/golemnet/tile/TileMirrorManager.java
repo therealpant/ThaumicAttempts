@@ -83,6 +83,41 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private int dispatcherSealColor = DEFAULT_DISPATCHER_COLOR;
     private final ArrayDeque<BlockPos> dispatcherBusyQueue = new ArrayDeque<>();
 
+    private static final class DeliveryDemandKey {
+        final BlockPos dest;
+        final int destSide;
+        final ItemKey itemKey;
+
+        private DeliveryDemandKey(BlockPos dest, int destSide, ItemKey itemKey) {
+            this.dest = dest == null ? BlockPos.ORIGIN : dest.toImmutable();
+            this.destSide = destSide;
+            this.itemKey = itemKey;
+        }
+
+        static DeliveryDemandKey of(BlockPos dest, int destSide, ItemKey itemKey) {
+            return new DeliveryDemandKey(dest, destSide, itemKey);
+        }
+
+        @Override
+        public boolean equals(Object o) {
+            if (this == o) return true;
+            if (!(o instanceof DeliveryDemandKey)) return false;
+            DeliveryDemandKey that = (DeliveryDemandKey) o;
+            return destSide == that.destSide
+                    && java.util.Objects.equals(dest, that.dest)
+                    && java.util.Objects.equals(itemKey, that.itemKey);
+        }
+
+        @Override
+        public int hashCode() {
+            return java.util.Objects.hash(dest, destSide, itemKey);
+        }
+    }
+
+    private final Map<DeliveryDemandKey, Integer> deliveryInflight = new HashMap<>();
+    private final Map<DeliveryDemandKey, Integer> deliveryLastReqTick = new HashMap<>();
+    private final Map<DeliveryDemandKey, Integer> deliveryLastProgressTick = new HashMap<>();
+
     /**
      * Логический ключ зеркала (номер кольца + слот).
      * Используем для жёсткой привязки к потребителям.
@@ -959,9 +994,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     private void onArrivedToBuffer(ItemStack stack, int count) {
         if (stack.isEmpty() || count <= 0) return;
-        boolean matched = decInflightRelaxed(stack, count);
-        if (matched) releaseDispatcherGolem();
 
+        boolean matchedDelivery = decDeliveryInflightRelaxed(stack, count);
+        boolean matchedLegacy = decInflightRelaxed(stack, count);
+        if (matchedDelivery || matchedLegacy) releaseDispatcherGolem();
 
         lastProgressTick.put(ItemKey.of(stack), tickCounter);
         if (isCrystal(stack)) {
@@ -971,6 +1007,40 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 lastProgressTick.put(ItemKey.of(like), tickCounter);
             }
         }
+    }
+
+    private boolean decDeliveryInflightRelaxed(ItemStack arrived, int count) {
+        if (arrived == null || arrived.isEmpty() || count <= 0) return false;
+
+        for (Map.Entry<DeliveryDemandKey, Integer> e : deliveryInflight.entrySet()) {
+            if (e.getValue() == null || e.getValue() <= 0) continue;
+
+            ItemStack want = e.getKey().itemKey.toStack(1);
+            boolean match;
+            if (arrived.getMaxStackSize() == 1 || want.getMaxStackSize() == 1) {
+                match = matchesForDelivery(arrived, want) || matchesForDelivery(want, arrived);
+            } else if (isCrystal(arrived) || isCrystal(want)) {
+                match = isCrystal(arrived) && isCrystal(want) && crystalSame(arrived, want);
+            } else {
+                match = ResourceIdentity.sameResource(arrived, want);
+            }
+
+            if (!match) continue;
+
+            int left = Math.max(0, e.getValue() - count);
+            e.setValue(left);
+            deliveryLastProgressTick.put(e.getKey(), tickCounter);
+            return true;
+        }
+
+        return false;
+    }
+
+    private void markDeliveryProgress(BlockPos dest, int destSide, ItemStack stack) {
+        if (stack == null || stack.isEmpty() || dest == null) return;
+        DeliveryDemandKey dk = DeliveryDemandKey.of(dest, destSide, ItemKey.of(stack));
+        deliveryLastProgressTick.put(dk, tickCounter);
+        lastProgressTick.put(ItemKey.of(stack), tickCounter);
     }
 
     private boolean isWantedForAnyOrder(ItemStack s) {
@@ -2019,10 +2089,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private LineProcessResult processOneDeliveryLine(Batch b, Line ln, int dispatcherBudget, int dispatcherCapForLine) {
         if (ln.remaining <= 0) return LineProcessResult.of(true);
         if (ln.wanted1 == null || ln.wanted1.isEmpty()) return LineProcessResult.of(true);
+
         final ItemKey key = ItemKey.of(ln.wanted1);
+        final DeliveryDemandKey demandKey = DeliveryDemandKey.of(b.dest, b.destSide, key);
 
         if (ln.requester != null) return LineProcessResult.of(true); // delivery в обычное место
-
         if (!hasItemCapAt(b.dest, b.destSide)) return LineProcessResult.of(false);
 
         int pushed0 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
@@ -2030,45 +2101,69 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             markDeliveryHappened();
             ln.remaining -= pushed0;
             if (ln.reserved > 0) ln.reserved = Math.max(0, ln.reserved - pushed0);
+
+            deliveryLastProgressTick.put(demandKey, tickCounter);
             lastProgressTick.put(key, tickCounter);
-            if (ln.remaining <= 0) return new LineProcessResult(true, 0);
+
+            if (ln.remaining <= 0) {
+                deliveryInflight.put(demandKey, 0);
+                return new LineProcessResult(true, 0);
+            }
         }
 
         boolean toCrafter = world.getTileEntity(b.dest) instanceof TileEntityGolemCrafter;
 
-        int flying = inflight.getOrDefault(key, 0);
+        int flying = deliveryInflight.getOrDefault(demandKey, 0);
         int queuedAll = countQueuedFor(b.dest, ln.wanted1);
         int queuedOthers = Math.max(0, queuedAll - ln.remaining);
 
         int need;
         if (toCrafter) {
-            int lp = lastProgressTick.getOrDefault(key, -9999);
+            int lp = deliveryLastProgressTick.getOrDefault(
+                    demandKey,
+                    lastProgressTick.getOrDefault(key, -9999)
+            );
+
             if (tickCounter - lp > STALL_TICKS && (ln.reserved > 0 || flying > 0)) {
-                inflight.put(key, 0);
+                deliveryInflight.put(demandKey, 0);
                 flying = 0;
+
                 if (ln.reserved > 0) {
                     releaseDispatcherGolems(ln.reserved);
                     ln.reserved = 0;
                 }
+
+                deliveryLastReqTick.put(demandKey, tickCounter - REQ_DEBOUNCE_TICKS);
+                deliveryLastProgressTick.put(demandKey, tickCounter);
                 lastReqTick.put(key, tickCounter - REQ_DEBOUNCE_TICKS);
                 lastProgressTick.put(key, tickCounter);
             }
+
             int reservedHere = Math.max(0, Math.min(ln.reserved, ln.remaining));
             int accounted = Math.max(flying, reservedHere);
-            // ВАЖНО: ln.remaining уже "чистый остаток к доставке" (уменьшается при фактическом push в адресат).
-            // Поэтому нельзя дополнительно вычитать atDest — это приводит к недозаказу после первых 64 шт.
-            // Для крафтеров учитываем только "чужие" очереди и уже запрошенное/зарезервированное.
+
+            // Для крафтеров ln.remaining уже является "чистым остатком".
+            // Поэтому atDest повторно не вычитаем.
             need = Math.max(0, ln.remaining - queuedOthers - accounted);
         } else {
-            int lp = lastProgressTick.getOrDefault(key, -9999);
+            int lp = deliveryLastProgressTick.getOrDefault(
+                    demandKey,
+                    lastProgressTick.getOrDefault(key, -9999)
+            );
+
             if (tickCounter - lp > STALL_TICKS) {
-                inflight.put(key, 0);
+                deliveryInflight.put(demandKey, 0);
                 flying = 0;
+
                 int reservedBefore = ln.reserved;
                 ln.reserved = 0;
                 releaseDispatcherGolems(reservedBefore);
                 releaseDispatcherGolem();
+
+                deliveryLastProgressTick.put(demandKey, tickCounter);
+                lastProgressTick.put(key, tickCounter);
             }
+
             int reservedHere = Math.max(0, Math.min(ln.reserved, ln.remaining));
             int accounted = Math.max(flying, reservedHere);
             need = Math.max(0, ln.remaining - accounted);
@@ -2077,11 +2172,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         int reservationsCommitted = 0;
 
         if (need > 0) {
-            int lt = lastReqTick.getOrDefault(key, -9999);
+            int lt = deliveryLastReqTick.getOrDefault(
+                    demandKey,
+                    lastReqTick.getOrDefault(key, -9999)
+            );
+
             if (tickCounter - lt >= REQ_DEBOUNCE_TICKS) {
-
                 boolean hasDispatchers = !boundDispatchers.isEmpty();
-
                 int budget = Math.min(MAX_REQ_PER_TICK, need);
                 int requested = 0;
 
@@ -2099,12 +2196,23 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                         budget -= chunk;
                     }
                 } else {
-                    // Менеджер сначала ставит таск в очередь, а диспетчер раскидывает по курьерам
+                    // Менеджер ставит provisioning в очередь.
+                    // Важно: учитываем привязку линии к конкретному диспетчерскому голему, если она уже есть.
                     int chunk = Math.min(ln.wanted1.getMaxStackSize(), budget);
                     if (chunk > 0) {
                         ItemStack req = normalizeForProvision(ln.wanted1, chunk);
                         if (!req.isEmpty()) {
-                            boolean ok = enqueueProvisionTask(req);
+                            boolean ok = false;
+
+                            if (ln.golemId != null && isDispatcherLinkedGolem(ln.golemId)) {
+                                ok = ThaumcraftProvisionHelper.requestProvisioningForManagerWithGolem(this, req, ln.golemId);
+                                if (!ok) {
+                                    ok = enqueueProvisionTask(req);
+                                }
+                            } else {
+                                ok = enqueueProvisionTask(req);
+                            }
+
                             if (ok) {
                                 requested += chunk;
                             }
@@ -2113,24 +2221,36 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 }
 
                 if (requested > 0) {
-                    inflight.put(key, flying + requested);
+                    deliveryInflight.put(demandKey, flying + requested);
+                    deliveryLastReqTick.put(demandKey, tickCounter);
+
+                    // Оставляем и старый per-item таймштамп для совместимости с остальной логикой класса.
                     lastReqTick.put(key, tickCounter);
                 }
             }
         }
-
 
         int pushed1 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
         if (pushed1 > 0) {
             markDeliveryHappened();
             ln.remaining -= pushed1;
             if (ln.reserved > 0) ln.reserved = Math.max(0, ln.reserved - pushed1);
+
+            deliveryLastProgressTick.put(demandKey, tickCounter);
             lastProgressTick.put(key, tickCounter);
-            if (ln.remaining <= 0) return new LineProcessResult(true, reservationsCommitted);
+
+            int stillFlying = deliveryInflight.getOrDefault(demandKey, 0);
+            if (stillFlying > 0) {
+                deliveryInflight.put(demandKey, Math.max(0, stillFlying - pushed1));
+            }
+
+            if (ln.remaining <= 0) {
+                deliveryInflight.put(demandKey, 0);
+                return new LineProcessResult(true, reservationsCommitted);
+            }
         }
 
         return new LineProcessResult(false, reservationsCommitted);
-
     }
 
     private boolean processOneCraftLine(Batch b, Line ln) {
@@ -3043,6 +3163,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         List<Map.Entry<ItemKey, Integer>> miss = new ArrayList<>();
 
         for (Map.Entry<ItemKey, Integer> e : needs.entrySet()) {
+            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+
             int want = Math.max(1, e.getValue());
             ItemStack like = e.getKey().toStack(1);
 
@@ -3062,22 +3184,51 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (!miss.isEmpty()) {
             int q = Math.max(0, Math.min(5, queueId));
             TileCraftPlanner planner = getConnectedPlanner();
+
             List<Map.Entry<ItemKey, Integer>> toDeliver = new ArrayList<>();
+            List<Map.Entry<ItemKey, Integer>> toCraft = new ArrayList<>();
+
+            LinkedHashMap<ItemKey, Integer> reachable = getReachableCatalog();
+            Map<ItemKey, Integer> directStock = new HashMap<>();
+            for (Map.Entry<ItemKey, Integer> en : reachable.entrySet()) {
+                if (en.getKey() == null || en.getKey() == ItemKey.EMPTY) continue;
+                directStock.put(en.getKey(), Math.max(0, en.getValue()));
+            }
+
             for (Map.Entry<ItemKey, Integer> missEntry : miss) {
-                if (planner != null) {
-                    List<Map.Entry<ItemKey, Integer>> single = Collections.singletonList(
-                            new AbstractMap.SimpleImmutableEntry<>(missEntry.getKey(), missEntry.getValue()));
-                    if (planner.canCraftOrderViaPlanner(single, this)) {
-                        enqueueBatchCraft(dest, -1, q, single, this::findRequesterForKey);
-                        continue;
-                    }
+                ItemKey key = missEntry.getKey();
+                int remaining = Math.max(1, missEntry.getValue());
+
+                int availableDirect = Math.max(0, directStock.getOrDefault(key, 0));
+                if (availableDirect > 0) {
+                    int deliverNow = Math.min(availableDirect, remaining);
+                    toDeliver.add(new AbstractMap.SimpleImmutableEntry<>(key, deliverNow));
+                    directStock.put(key, availableDirect - deliverNow);
+                    remaining -= deliverNow;
                 }
-                toDeliver.add(missEntry);
+
+                if (remaining > 0) {
+                    toCraft.add(new AbstractMap.SimpleImmutableEntry<>(key, remaining));
+                }
+            }
+
+            if (!toCraft.isEmpty()) {
+                if (planner != null && planner.canCraftOrderViaPlanner(toCraft, this)) {
+                    enqueueBatchCraft(dest, -1, q, toCraft, this::findRequesterForKey);
+                } else {
+                    toDeliver.addAll(toCraft);
+                }
             }
 
             if (!toDeliver.isEmpty()) {
-                enqueueBatchDelivery(dest, -1, q, toDeliver);
+                LinkedHashMap<ItemKey, Integer> merged = new LinkedHashMap<>();
+                for (Map.Entry<ItemKey, Integer> e : toDeliver) {
+                    if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+                    merged.merge(e.getKey(), Math.max(1, e.getValue()), Integer::sum);
+                }
+                enqueueBatchDelivery(dest, -1, q, new ArrayList<>(merged.entrySet()));
             }
+
             activeQueue = q;
         }
     }
@@ -3087,45 +3238,121 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         focusMirrorForDeliveryTarget(dest);
 
+        LinkedHashMap<ItemKey, Integer> normalizedNeeds = new LinkedHashMap<>();
+        for (Map.Entry<ItemKey, Integer> e : needs.entrySet()) {
+            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+            normalizedNeeds.merge(e.getKey(), Math.max(1, e.getValue()), Integer::sum);
+        }
+        if (normalizedNeeds.isEmpty()) return;
+
         List<Map.Entry<ItemKey, Integer>> miss = new ArrayList<>();
 
-        for (Map.Entry<ItemKey, Integer> e : needs.entrySet()) {
+        for (Map.Entry<ItemKey, Integer> e : normalizedNeeds.entrySet()) {
+            ItemKey key = e.getKey();
             int want = Math.max(1, e.getValue());
-            ItemStack like = e.getKey().toStack(1);
+            ItemStack like = key.toStack(1);
 
-            int queued = countQueuedFor(dest, like);
-            int missing = want - queued;
+            // ВАЖНО:
+            // exact-путь для входов крафтера не должен использовать общий countQueuedFor(),
+            // иначе разные ветки цепочки начинают делить одну и ту же queued-поставку.
+            int queuedDeliveryOnly = countQueuedDeliveryOnly(dest, like);
+
+            int missing = want - queuedDeliveryOnly;
             if (missing <= 0) continue;
 
             int pushedNow = pushFromBufferTo(dest, -1, like, missing);
             missing -= pushedNow;
 
             if (missing > 0) {
-                miss.add(new AbstractMap.SimpleImmutableEntry<>(e.getKey(), missing));
+                miss.add(new AbstractMap.SimpleImmutableEntry<>(key, missing));
             }
         }
 
-        if (!miss.isEmpty()) {
-            int q = Math.max(0, Math.min(5, queueId));
-            TileCraftPlanner planner = getConnectedPlanner();
-            List<Map.Entry<ItemKey, Integer>> toDeliver = new ArrayList<>();
-            for (Map.Entry<ItemKey, Integer> missEntry : miss) {
-                if (planner != null) {
-                    List<Map.Entry<ItemKey, Integer>> single = Collections.singletonList(
-                            new AbstractMap.SimpleImmutableEntry<>(missEntry.getKey(), missEntry.getValue()));
-                    if (planner.canCraftOrderViaPlanner(single, this)) {
-                        enqueueBatchCraft(dest, -1, q, single, this::findRequesterForKey);
-                        continue;
+        if (miss.isEmpty()) return;
+
+        int q = Math.max(0, Math.min(5, queueId));
+        TileCraftPlanner planner = getConnectedPlanner();
+
+        List<Map.Entry<ItemKey, Integer>> toDeliver = new ArrayList<>();
+        List<Map.Entry<ItemKey, Integer>> toCraft = new ArrayList<>();
+
+        LinkedHashMap<ItemKey, Integer> reachable = getReachableCatalog();
+        Map<ItemKey, Integer> directStock = new HashMap<>();
+        for (Map.Entry<ItemKey, Integer> en : reachable.entrySet()) {
+            if (en.getKey() == null || en.getKey() == ItemKey.EMPTY) continue;
+            directStock.put(en.getKey(), Math.max(0, en.getValue()));
+        }
+
+        for (Map.Entry<ItemKey, Integer> missEntry : miss) {
+            ItemKey key = missEntry.getKey();
+            int remaining = Math.max(1, missEntry.getValue());
+
+            int availableDirect = Math.max(0, directStock.getOrDefault(key, 0));
+            if (availableDirect > 0) {
+                int deliverNow = Math.min(availableDirect, remaining);
+                toDeliver.add(new AbstractMap.SimpleImmutableEntry<>(key, deliverNow));
+                directStock.put(key, availableDirect - deliverNow);
+                remaining -= deliverNow;
+            }
+
+            if (remaining > 0) {
+                toCraft.add(new AbstractMap.SimpleImmutableEntry<>(key, remaining));
+            }
+        }
+
+        if (!toCraft.isEmpty()) {
+            if (planner != null && planner.canCraftOrderViaPlanner(toCraft, this)) {
+                enqueueBatchCraft(dest, -1, q, toCraft, this::findRequesterForKey);
+            } else {
+                toDeliver.addAll(toCraft);
+            }
+        }
+
+        if (!toDeliver.isEmpty()) {
+            LinkedHashMap<ItemKey, Integer> merged = new LinkedHashMap<>();
+            for (Map.Entry<ItemKey, Integer> e : toDeliver) {
+                if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+                merged.merge(e.getKey(), Math.max(1, e.getValue()), Integer::sum);
+            }
+
+            if (!merged.isEmpty()) {
+                enqueueBatchDelivery(dest, -1, q, new ArrayList<>(merged.entrySet()));
+            }
+        }
+
+        activeQueue = q;
+    }
+
+    private int countQueuedDeliveryOnly(BlockPos dest, ItemStack like) {
+        if (dest == null || like == null || like.isEmpty()) return 0;
+        int total = 0;
+
+        for (Deque<Batch> q : batchQueues) {
+            for (Batch b : q) {
+                if (b.kind != Batch.Kind.DELIVERY) continue;
+                if (!dest.equals(b.dest)) continue;
+
+                for (int i = b.index; i < b.lines.size(); i++) {
+                    Line ln = b.lines.get(i);
+                    if (ln == null || ln.remaining <= 0) continue;
+
+                    boolean match;
+                    if (like.getMaxStackSize() == 1) {
+                        match = matchesForDelivery(ln.wanted1, like);
+                    } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
+                        match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
+                    } else {
+                        match = ResourceIdentity.sameResource(ln.wanted1, like);
+                    }
+
+                    if (match) {
+                        total += Math.max(0, ln.remaining);
                     }
                 }
-                toDeliver.add(missEntry);
             }
-
-            if (!toDeliver.isEmpty()) {
-                enqueueBatchDelivery(dest, -1, q, toDeliver);
-            }
-            activeQueue = q;
         }
+
+        return total;
     }
 
     private void tickStabilityAndFlux() {
