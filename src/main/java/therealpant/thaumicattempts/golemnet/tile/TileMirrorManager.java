@@ -2114,8 +2114,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         boolean toCrafter = world.getTileEntity(b.dest) instanceof TileEntityGolemCrafter;
 
         int flying = deliveryInflight.getOrDefault(demandKey, 0);
-        int queuedAll = countQueuedFor(b.dest, ln.wanted1);
-        int queuedOthers = Math.max(0, queuedAll - ln.remaining);
 
         int need;
         if (toCrafter) {
@@ -2142,9 +2140,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             int reservedHere = Math.max(0, Math.min(ln.reserved, ln.remaining));
             int accounted = Math.max(flying, reservedHere);
 
-            // Для крафтеров ln.remaining уже является "чистым остатком".
-            // Поэтому atDest повторно не вычитаем.
-            need = Math.max(0, ln.remaining - queuedOthers - accounted);
+            // Для крафтеров каждая линия уже описывает отдельный "чистый остаток" потребности.
+            // Вычитание queued других линий того же ресурса приводит к взаимной блокировке:
+            // несколько линий видят need=0 и provisioning не запрашивается вообще.
+            need = Math.max(0, ln.remaining - accounted);
         } else {
             int lp = deliveryLastProgressTick.getOrDefault(
                     demandKey,
@@ -3237,6 +3236,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (world == null || world.isRemote || dest == null || needs == null || needs.isEmpty()) return;
 
         focusMirrorForDeliveryTarget(dest);
+        int q = Math.max(0, Math.min(5, queueId));
 
         LinkedHashMap<ItemKey, Integer> normalizedNeeds = new LinkedHashMap<>();
         for (Map.Entry<ItemKey, Integer> e : needs.entrySet()) {
@@ -3255,7 +3255,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             // ВАЖНО:
             // exact-путь для входов крафтера не должен использовать общий countQueuedFor(),
             // иначе разные ветки цепочки начинают делить одну и ту же queued-поставку.
-            int queuedDeliveryOnly = countQueuedDeliveryOnly(dest, like);
+            // Также учитываем только выбранную очередь, чтобы параллельные заказы
+            // с одинаковыми ресурсами (например redstone) не "съедали" расчёт друг друга.
+            int queuedDeliveryOnly = countQueuedDeliveryOnly(dest, like, q);
 
             int missing = want - queuedDeliveryOnly;
             if (missing <= 0) continue;
@@ -3270,7 +3272,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         if (miss.isEmpty()) return;
 
-        int q = Math.max(0, Math.min(5, queueId));
         TileCraftPlanner planner = getConnectedPlanner();
 
         List<Map.Entry<ItemKey, Integer>> toDeliver = new ArrayList<>();
@@ -3323,31 +3324,32 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         activeQueue = q;
     }
 
-    private int countQueuedDeliveryOnly(BlockPos dest, ItemStack like) {
+    private int countQueuedDeliveryOnly(BlockPos dest, ItemStack like, int queueId) {
         if (dest == null || like == null || like.isEmpty()) return 0;
+        int q = Math.max(0, Math.min(5, queueId));
         int total = 0;
 
-        for (Deque<Batch> q : batchQueues) {
-            for (Batch b : q) {
-                if (b.kind != Batch.Kind.DELIVERY) continue;
-                if (!dest.equals(b.dest)) continue;
+        if (q >= batchQueues.size()) return 0;
+        Deque<Batch> queue = batchQueues.get(q);
+        if (queue == null) return 0;
+        for (Batch b : queue) {
+            if (b.kind != Batch.Kind.DELIVERY) continue;
+            if (!dest.equals(b.dest)) continue;
 
-                for (int i = b.index; i < b.lines.size(); i++) {
-                    Line ln = b.lines.get(i);
-                    if (ln == null || ln.remaining <= 0) continue;
+            for (int i = b.index; i < b.lines.size(); i++) {
+                Line ln = b.lines.get(i);
+                if (ln == null || ln.remaining <= 0) continue;
 
-                    boolean match;
-                    if (like.getMaxStackSize() == 1) {
-                        match = matchesForDelivery(ln.wanted1, like);
-                    } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
-                        match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
-                    } else {
-                        match = ResourceIdentity.sameResource(ln.wanted1, like);
-                    }
-
-                    if (match) {
-                        total += Math.max(0, ln.remaining);
-                    }
+                boolean match;
+                if (like.getMaxStackSize() == 1) {
+                    match = matchesForDelivery(ln.wanted1, like);
+                } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
+                    match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
+                } else {
+                    match = ResourceIdentity.sameResource(ln.wanted1, like);
+                }
+                if (match) {
+                    total += Math.max(0, ln.remaining);
                 }
             }
         }
