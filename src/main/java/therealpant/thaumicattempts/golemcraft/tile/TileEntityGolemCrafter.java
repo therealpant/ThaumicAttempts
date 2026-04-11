@@ -679,17 +679,16 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             tryStartNextRequesterJob();
         }
 
-        // 2) редстоун-триггер по фронту — как было
-        if (!jobActive && requesterQueue.isEmpty() && lastSignal == 0 && signal > 0) {
-            int idx = choosePatternIndexForSignal(signal);
-            if (idx >= 0) {
-                ItemStack pat = patterns.getStackInSlot(idx);
-                int repeats = getPatternRepeatCount(pat);
-                boolean managerMode = useManagerForProvision();
-                this.suppressSelfProvision = managerMode ? true : false; // от редстоуна — режим зависит от менеджера
-                this.needEnsureWithManager = managerMode || needEnsureWithManager;
-                this.jobViaRequester = false;
-                startOneCraftCycle(idx, repeats);
+        // Триггер по редстоуну принимаем на крафтере, но маршрутизируем в общий requester entrypoint.
+        if (lastSignal == 0 && signal > 0) {
+            TileEntity above = world.getTileEntity(pos.up());
+            if (above instanceof TilePatternRequester) {
+                int idx = choosePatternIndexForSignal(signal);
+                if (idx >= 0) {
+                    ItemStack pat = patterns.getStackInSlot(idx);
+                    int repeats = Math.max(1, getPatternRepeatCount(pat));
+                    ((TilePatternRequester) above).triggerFromTerminal(idx, repeats);
+                }
             }
         }
 
