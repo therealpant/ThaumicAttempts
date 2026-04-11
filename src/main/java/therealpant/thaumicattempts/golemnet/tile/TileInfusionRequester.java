@@ -68,7 +68,7 @@ import java.util.function.Consumer;
  * - Then pull EVERYTHING from ALL bound storages into results (leftovers -> drop)
  */
 public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
-        ITerminalOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider,
+        ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider,
         IAnimatable, IEssentiaTransport {
 
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/InfusionRequester");
@@ -416,21 +416,9 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     public int enqueueCrafterOrder(@Nullable BlockPos managerPos, BlockPos dest, int destSide, ItemStack resultLike, int items) {
         if (dest == null || resultLike == null || resultLike.isEmpty() || items <= 0) return 0;
 
-        int perCraft = Math.max(1, getPerCraftOutputCountFor(resultLike));
-        int crafts = (items + perCraft - 1) / perCraft;
-        int accepted = enqueueFromPatternRequester(resultLike, crafts);
-        if (accepted <= 0) return 0;
-
-        int totalOut = Math.max(1, accepted * perCraft);
-        pendingCraftDeliveries.add(new PendingCrafterDelivery(dest, destSide, managerPos, resultLike, totalOut));
-
-        if (managerPos != null && this.managerPos == null) setManagerPos(managerPos, true);
-        markDirtyAndSync();
-
-        logDebug("enqueueCrafterOrder dest={} side={} like={} items={} crafts={} accepted={} totalOut={}",
-                dest, destSide, resultLike, items, crafts, accepted, totalOut);
-
-        return accepted;
+        int slot = findPatternSlotFor(resultLike);
+        if (slot < 0) return 0;
+        return submitAutomationOrder(slot, items, managerPos, dest, destSide);
     }
 
     public ItemStack tryExtractPattern() {
@@ -487,7 +475,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (signal > 0) {
                 int slot = patternIndexFromSignal(signal);
                 if (slot >= 0) {
-                    triggerFromTerminal(slot, 1);
+                    submitAutomationOrder(slot, 1, managerPos, null, -1);
                 }
             }
             lastSignal = signal;
@@ -600,14 +588,48 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     // ========================= TERMINAL / CRAFT API =========================
 
     public void triggerExternalRequest(int slot, int count) {
-        if (world == null || world.isRemote) return;
-        enqueueTrigger(slot, count);
-        tryStartNextJob();
+        submitAutomationOrder(slot, count, managerPos, null, -1);
     }
 
     @Override
     public void triggerFromTerminal(int slot, int count) {
-        triggerExternalRequest(slot, count);
+        submitAutomationOrder(slot, count, managerPos, null, -1);
+    }
+
+    @Override
+    public int submitAutomationOrder(int slot, int items, @Nullable BlockPos managerPos, @Nullable BlockPos dest, int destSide) {
+        return enqueueUnifiedRequest(slot, items, managerPos, dest, destSide);
+    }
+
+    private int enqueueUnifiedRequest(int slot, int items, @Nullable BlockPos managerPos, @Nullable BlockPos dest, int destSide) {
+        if (world == null || world.isRemote || slot < 0 || slot >= patterns.getSlots() || items <= 0) return 0;
+        if (!hasPatternInSlot(slot)) return 0;
+
+        ItemStack pattern = patterns.getStackInSlot(slot);
+        ItemStack resultLike = TerminalOrderApi.stripOrderIconData(ItemInfusionPattern.calcResultPreview(pattern, world));
+        if (resultLike.isEmpty()) return 0;
+
+        int perCraft = Math.max(1, resultLike.getCount());
+        int crafts = (items + perCraft - 1) / perCraft;
+        if (crafts <= 0) return 0;
+
+        if (managerPos != null && (this.managerPos == null || !this.managerPos.equals(managerPos))) {
+            setManagerPos(managerPos, true);
+        }
+
+        int acceptedCrafts = enqueueTrigger(slot, crafts);
+        if (acceptedCrafts <= 0) return 0;
+
+        int acceptedItems = Math.max(1, acceptedCrafts * perCraft);
+        if (dest != null) {
+            ItemStack like1 = resultLike.copy();
+            like1.setCount(1);
+            pendingCraftDeliveries.add(new PendingCrafterDelivery(dest, destSide, managerPos, like1, acceptedItems));
+        }
+
+        tryStartNextJob();
+        markDirtyAndSync();
+        return acceptedItems;
     }
 
     @Override

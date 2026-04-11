@@ -14,10 +14,7 @@ import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.ItemHandlerHelper;
 import net.minecraftforge.items.ItemStackHandler;
-import therealpant.thaumicattempts.api.CraftOrderApi;
-import therealpant.thaumicattempts.api.ICraftEndpoint;
-import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
-import therealpant.thaumicattempts.api.TerminalOrderApi;
+import therealpant.thaumicattempts.api.*;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
@@ -186,18 +183,12 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         final BlockPos pos;
         final int slot;
         final int count;
-        private TerminalOrderRequest(BlockPos pos, int slot, int count) {            this.pos = pos;
-            this.slot = slot;
-            this.count = count;
-        }
-    }
-
-    private static final class InfusionOrderTarget {
-        final BlockPos pos;
-        final int slot;
-        InfusionOrderTarget(BlockPos pos, int slot) {
+        final ItemKey outputKey;
+        private TerminalOrderRequest(BlockPos pos, int slot, int count, @Nullable ItemKey outputKey) {
             this.pos = pos;
             this.slot = slot;
+            this.count = count;
+            this.outputKey = outputKey;
         }
     }
 
@@ -350,7 +341,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         int freeDistinct = Math.max(0, 9 - pend.size());
         List<Map.Entry<ItemKey, Integer>> movedRaw = new ArrayList<>();
         List<TerminalOrderRequest> directTerminalOrders = new ArrayList<>();
-        Map<BlockPos, List<Map.Entry<ItemStack, Integer>>> directInfusionOrders = new HashMap<>();
 
         for (Map.Entry<ItemKey, Integer> e : new ArrayList<>(draft.entrySet())) {
             ItemKey key = e.getKey();
@@ -362,12 +352,8 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 int slot = TerminalOrderApi.getOrderIconSlot(keyStack);
                 ItemStack resultLike = TerminalOrderApi.stripOrderIconData(keyStack);
                 if (target != null && slot >= 0) {
-                    if (!resultLike.isEmpty()) {
-                        directInfusionOrders
-                                .computeIfAbsent(target, k -> new ArrayList<>())
-                                .add(new AbstractMap.SimpleEntry<>(resultLike, amt));
-                    }
-                    directTerminalOrders.add(new TerminalOrderRequest(target, slot, amt));
+                    ItemKey outputKey = (resultLike == null || resultLike.isEmpty()) ? null : ItemKey.of(resultLike);
+                    directTerminalOrders.add(new TerminalOrderRequest(target, slot, amt, outputKey));
                 }
                 draft.remove(key);
                 continue;
@@ -404,42 +390,15 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             boolean pendingCraftChanged = false;
             for (TerminalOrderRequest order : directTerminalOrders) {
                 TileEntity te = world.getTileEntity(order.pos);
-                if (te instanceof TileInfusionRequester) {
-                    List<Map.Entry<ItemStack, Integer>> infusionOrders = directInfusionOrders.remove(order.pos);
-                    if (infusionOrders != null) {
-                        TileInfusionRequester requester = (TileInfusionRequester) te;
-                        for (Map.Entry<ItemStack, Integer> orderEntry : infusionOrders) {
-                            int accepted = requester.enqueueCrafterOrder(
-                                    managerPos, this.pos, -1, orderEntry.getKey(), orderEntry.getValue());
-                            if (accepted > 0) {
-                                int perCraft = Math.max(1, requester.getPerCraftOutputCountFor(orderEntry.getKey()));
-                                int totalOut = Math.max(1, accepted * perCraft);
-                                addToMap(pendingCraft, ItemKey.of(orderEntry.getKey()), totalOut);
-                                pendingCraftChanged = true;
-                            }
-                        }
-                        continue;
+                if (te instanceof IAutomationOrderAcceptor) {
+                    int acceptedItems = ((IAutomationOrderAcceptor) te)
+                            .submitAutomationOrder(order.slot, order.count, managerPos, this.pos, -1);
+                    if (acceptedItems > 0 && order.outputKey != null && order.outputKey != ItemKey.EMPTY) {
+                        addToMap(pendingCraft, order.outputKey, acceptedItems);
+                        pendingCraftChanged = true;
                     }
-                }
-                if (te instanceof ITerminalOrderAcceptor) {
+                } else if (te instanceof ITerminalOrderAcceptor) {
                     ((ITerminalOrderAcceptor) te).triggerFromTerminal(order.slot, order.count);
-                }
-            }
-            if (!directInfusionOrders.isEmpty()) {
-                for (Map.Entry<BlockPos, List<Map.Entry<ItemStack, Integer>>> entry : directInfusionOrders.entrySet()) {
-                    TileEntity te = world.getTileEntity(entry.getKey());
-                    if (!(te instanceof TileInfusionRequester)) continue;
-                    TileInfusionRequester inf = (TileInfusionRequester) te;
-                    for (Map.Entry<ItemStack, Integer> infOrder : entry.getValue()) {
-                        int accepted = inf.enqueueCrafterOrder(
-                                managerPos, this.pos, -1, infOrder.getKey(), infOrder.getValue());
-                        if (accepted > 0) {
-                            int perCraft = Math.max(1, inf.getPerCraftOutputCountFor(infOrder.getKey()));
-                            int totalOut = Math.max(1, accepted * perCraft);
-                            addToMap(pendingCraft, ItemKey.of(infOrder.getKey()), totalOut);
-                            pendingCraftChanged = true;
-                        }
-                    }
                 }
             }
             if (pendingCraftChanged) {
@@ -787,14 +746,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 int b = Math.max(0, t.getInteger("b"));
                 if (!st.isEmpty()) deliveryBaselines.put(ItemKey.of(st), b);
             }
-        }
-    }
-
-    private void triggerInfusionOrder(InfusionOrderTarget target, int count) {
-        if (world == null || target == null || count <= 0) return;
-        TileEntity te = world.getTileEntity(target.pos);
-        if (te instanceof TileInfusionRequester) {
-            ((TileInfusionRequester) te).triggerExternalRequest(target.slot, count);
         }
     }
 

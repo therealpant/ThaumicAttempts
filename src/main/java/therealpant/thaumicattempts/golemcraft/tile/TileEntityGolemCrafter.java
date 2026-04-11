@@ -26,6 +26,7 @@ import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.api.IPatternedWorksite;
+import therealpant.thaumicattempts.api.IAutomationOrderAcceptor;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.PatternResourceList;
@@ -682,12 +683,15 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         // Триггер по редстоуну принимаем на крафтере, но маршрутизируем в общий requester entrypoint.
         if (lastSignal == 0 && signal > 0) {
             TileEntity above = world.getTileEntity(pos.up());
-            if (above instanceof TilePatternRequester) {
+            if (above instanceof IAutomationOrderAcceptor) {
                 int idx = choosePatternIndexForSignal(signal);
                 if (idx >= 0) {
                     ItemStack pat = patterns.getStackInSlot(idx);
                     int repeats = Math.max(1, getPatternRepeatCount(pat));
-                    ((TilePatternRequester) above).triggerFromTerminal(idx, repeats);
+                    BlockPos manager = (above instanceof TilePatternRequester)
+                            ? ((TilePatternRequester) above).getManagerPos()
+                            : null;
+                    ((IAutomationOrderAcceptor) above).submitAutomationOrder(idx, repeats, manager, null, -1);
                 }
             }
         }

@@ -21,12 +21,12 @@ import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import thaumcraft.api.golems.GolemHelper;
 import therealpant.thaumicattempts.api.IPatternedWorksite;
+import therealpant.thaumicattempts.api.IAutomationOrderAcceptor;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.util.ItemKey;
-import thaumcraft.api.ThaumcraftApiHelper;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.items.ItemsTC;
@@ -43,7 +43,8 @@ import java.util.*;
 import therealpant.thaumicattempts.api.PatternResourceList;
 
 public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable, IPatternedWorksite,
-        therealpant.thaumicattempts.api.ITerminalOrderAcceptor, therealpant.thaumicattempts.api.ITerminalOrderIconProvider {
+        therealpant.thaumicattempts.api.ITerminalOrderAcceptor, IAutomationOrderAcceptor,
+        therealpant.thaumicattempts.api.ITerminalOrderIconProvider {
     private static final int PATTERN_SLOT_COUNT = 15;
     private static final int REQUEST_STALE_TICKS = 100;
     private static final int REQUEST_RETRY_TICKS = 200;
@@ -188,7 +189,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
             if (signal > 0) {
                 int idx = patternIndexFromSignal(signal);
                 if (idx >= 0) {
-                    triggerFromTerminal(idx, 1);
+                    submitAutomationOrder(idx, 1, managerPos, null, -1);
                 }
             }
             lastSignal = signal;
@@ -543,12 +544,12 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         }
     }
 
-    private void enqueueTrigger(int slot, int count) {
-        if (slot < 0 || slot >= patterns.getSlots()) return;
-        if (count <= 0) return;
+    private int enqueueTrigger(int slot, int count) {
+        if (slot < 0 || slot >= patterns.getSlots()) return slot;
+        if (count <= 0) return slot;
 
         int freeSlots = MAX_QUEUED_ORDERS - getQueuedOrderCount();
-        if (freeSlots <= 0) return;
+        if (freeSlots <= 0) return slot;
 
         int toEnqueue = Math.min(count, freeSlots);
 
@@ -569,6 +570,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         if (changed) {
             markDirtyAndSync();
         }
+        return slot;
     }
 
     private int getQueuedOrderCount() {
@@ -793,17 +795,31 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     }
 
     public void triggerExternalRequest(int slot, int times) {
-        if (times <= 0) return;
-        if (world != null && !world.isRemote) {
-            syncManagerFromPattern();
-        }
-        enqueueTrigger(slot, times);
-        tryStartQueuedJob();
+        submitAutomationOrder(slot, times, managerPos, null, -1);
     }
 
     @Override
     public void triggerFromTerminal(int slot, int count) {
-        triggerExternalRequest(slot, count);
+        submitAutomationOrder(slot, count, managerPos, null, -1);
+    }
+
+    @Override
+    public int submitAutomationOrder(int slot, int items, @Nullable BlockPos managerPos, @Nullable BlockPos dest, int destSide) {
+        if (world == null || world.isRemote || items <= 0) return 0;
+        if (slot < 0 || slot >= patterns.getSlots()) return 0;
+        ItemStack pattern = patterns.getStackInSlot(slot);
+        if (pattern.isEmpty() || !(pattern.getItem() instanceof ItemResourceList)) return 0;
+
+        if (managerPos != null && (this.managerPos == null || !this.managerPos.equals(managerPos))) {
+            setManagerPos(managerPos);
+        } else if (managerPos == null && this.managerFromPattern) {
+            syncManagerFromPattern();
+        }
+
+        int acceptedCrafts = enqueueTrigger(slot, items);
+        if (acceptedCrafts <= 0) return 0;
+        tryStartQueuedJob();
+        return acceptedCrafts;
     }
 
     @Override

@@ -46,7 +46,7 @@ import java.util.*;
  * - Поддерживает привязку к менеджеру: get/set/clearManagerPos*.
  */
 public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICraftEndpoint,
-        CraftOrderApi.TagProvider, ITerminalOrderAcceptor, ITerminalOrderIconProvider {
+        CraftOrderApi.TagProvider, ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider {
     private final AnimationFactory factory = new AnimationFactory(this);
 
 
@@ -217,11 +217,16 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
 
     @Override
     public void triggerFromTerminal(int slot, int count) {
-        if (world == null || world.isRemote || slot < 0 || count <= 0) return;
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter == null) return;
+        submitAutomationOrder(slot, count, managerPos, null, -1);
+    }
 
-        int crafts = Math.max(1, count);
+    @Override
+    public int submitAutomationOrder(int slot, int items, @Nullable BlockPos managerPos, @Nullable BlockPos dest, int destSide) {
+        if (world == null || world.isRemote || slot < 0 || items <= 0) return 0;
+        TileEntityGolemCrafter crafter = getCrafterBelow();
+        if (crafter == null) return 0;
+
+        int crafts = Math.max(1, items);
         ItemStack resultLike = getResultLikeForPatternIndex(slot);
         if (!resultLike.isEmpty() && managerPos != null) {
             TileEntity te = world.getTileEntity(managerPos);
@@ -240,7 +245,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
             }
         }
 
-        crafter.enqueueFromPatternRequester(slot, crafts);
+        return crafter.enqueueFromPatternRequester(slot, crafts);
     }
 
     private ItemStack getResultLikeForPatternIndex(int idx) {
