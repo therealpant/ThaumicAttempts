@@ -5,6 +5,13 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
+import software.bernie.geckolib3.core.IAnimatable;
+import software.bernie.geckolib3.core.PlayState;
+import software.bernie.geckolib3.core.builder.AnimationBuilder;
+import software.bernie.geckolib3.core.controller.AnimationController;
+import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
+import software.bernie.geckolib3.core.manager.AnimationData;
+import software.bernie.geckolib3.core.manager.AnimationFactory;
 import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
@@ -18,10 +25,12 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 import java.util.Objects;
+import java.util.Random;
 import java.util.Set;
 
-public class TileCraftPlanner extends TileEntity implements ITickable {
+public class TileCraftPlanner extends TileEntity implements ITickable, IAnimatable {
     private static final String TAG_MANAGER = "manager";
+    private static final String TAG_ANIM_SEED = "animSeed";
     private static final int RESCAN_PERIOD_TICKS = 200;
     @Nullable
     private BlockPos managerPos;
@@ -29,6 +38,63 @@ public class TileCraftPlanner extends TileEntity implements ITickable {
     private final Map<ItemKey, BlockPos> recipeIndex = new HashMap<>();
     private final Map<ItemKey, Integer> chainDepthCache = new HashMap<>();
 
+    // Визуальная анимация (копия параметров dispatcher)
+    public float animSpeed = 0.625f;
+    public long animSeed = 2L;
+    public int[] picks = {0, 1, 2}; // индексы костей 0..7
+    public int[] axes  = {0, 1, 2}; // 0=X,1=Y,2=Z
+    public long cycleIdx = -1L;
+    public static final int DUR_A = 20;
+    public static final int GAP = 4;
+    private final AnimationFactory factory = new AnimationFactory(this);
+
+    public void reseedForCycle(long newIdx) {
+        Random r = new Random(animSeed ^ (newIdx * 0x9E3779B97F4A7C15L));
+        int[] a = {0,1,2,3,4,5,6,7};
+        for (int i = a.length - 1; i > 0; --i) {
+            int j = r.nextInt(i + 1);
+            int t = a[i]; a[i] = a[j]; a[j] = t;
+        }
+        picks[0] = a[0];
+        picks[1] = a[1];
+        picks[2] = a[2];
+
+        axes[0] = r.nextInt(3);
+        axes[1] = r.nextInt(3);
+        axes[2] = r.nextInt(3);
+
+        cycleIdx = newIdx;
+    }
+
+    public static long calcCycleLenForSpeed(float animSpeed) {
+        float sp = Math.max(0.05f, animSpeed);
+        int base = DUR_A + GAP;
+        long aLen = Math.max(1, Math.round(base / sp));
+        return aLen * 4L;
+    }
+
+    public long cycleLen() {
+        return calcCycleLenForSpeed(this.animSpeed);
+    }
+
+    @Override
+    public void registerControllers(AnimationData data) {
+        AnimationController<TileCraftPlanner> baseController =
+                new AnimationController<>(this, "base_cycle", 0, this::baseCyclePredicate);
+        data.addAnimationController(baseController);
+    }
+
+    private <E extends IAnimatable> PlayState baseCyclePredicate(AnimationEvent<E> event) {
+        event.getController().setAnimation(
+                new AnimationBuilder().addAnimation("animation.model.cycle_base", true)
+        );
+        return PlayState.CONTINUE;
+    }
+
+    @Override
+    public AnimationFactory getFactory() {
+        return factory;
+    }
     @Nullable
     public BlockPos getManagerPos() {
         return managerPos;
@@ -199,6 +265,7 @@ public class TileCraftPlanner extends TileEntity implements ITickable {
     public NBTTagCompound writeToNBT(NBTTagCompound compound) {
         super.writeToNBT(compound);
         if (managerPos != null) compound.setLong(TAG_MANAGER, managerPos.toLong());
+        compound.setLong(TAG_ANIM_SEED, animSeed);
         return compound;
     }
 
@@ -206,5 +273,14 @@ public class TileCraftPlanner extends TileEntity implements ITickable {
     public void readFromNBT(NBTTagCompound compound) {
         super.readFromNBT(compound);
         managerPos = compound.hasKey(TAG_MANAGER) ? BlockPos.fromLong(compound.getLong(TAG_MANAGER)) : null;
+        if (compound.hasKey(TAG_ANIM_SEED)) animSeed = compound.getLong(TAG_ANIM_SEED);
+    }
+
+    @Override
+    public void onLoad() {
+        super.onLoad();
+        if (world != null && !world.isRemote && animSeed == 0L) {
+            animSeed = world.rand.nextLong() ^ getPos().toLong();
+        }
     }
 }

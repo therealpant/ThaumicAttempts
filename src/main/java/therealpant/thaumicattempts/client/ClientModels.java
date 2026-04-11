@@ -181,6 +181,7 @@ public final class ClientModels extends CommonProxy {
         registerItemModel(TABlocks.GOLEM_DISPATCHER_ITEM);
         registerItemModel(TABlocks.CRAFT_PLANNER_ITEM);
         attachTileRenderer(TABlocks.GOLEM_DISPATCHER_ITEM, TileGolemDispatcher::new);
+        attachTileRenderer(TABlocks.CRAFT_PLANNER_ITEM, TileCraftPlanner::new);
         registerItemModel(TABlocks.ANOMALY_STONE_ITEM);
         attachTileRenderer(TABlocks.ANOMALY_STONE_ITEM, therealpant.thaumicattempts.world.tile.TileAnomalyStone::new);
         registerItemModel(TABlocks.RIFT_GEOD_ITEM);
@@ -246,6 +247,10 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                     TileGolemDispatcher.class,
                     new DispatcherRenderer()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileCraftPlanner.class,
+                new CraftPlannerRenderer()
         );
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileInfusionRequester.class,

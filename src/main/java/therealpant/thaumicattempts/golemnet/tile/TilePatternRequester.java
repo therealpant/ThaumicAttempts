@@ -456,6 +456,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     private int rsCraftsLeft = 0;
     private int rsPerCraft   = 1;   // сколько предметов выдаёт один цикл
     private int rsHoldLevel  = 0;   // сила сигнала = patIdx+1 (1..15)
+    private int rsLowTicksBeforeRetrigger = 0; // держим 0, чтобы сформировать новый фронт
 
     // учёт по output крафтера (считаем только «ушедшее»)
     private int rsOutBaseline = 0;  // сколько целевых предметов было в output ДО старта
@@ -489,8 +490,16 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
             return;
         }
 
-        // держим постоянный уровень, не мигаем
-        if (rsHoldLevel > 0) setOutSignal(rsHoldLevel);
+        // для повторных циклов нужен именно фронт: коротко опускаем сигнал в 0 и поднимаем снова
+        if (rsLowTicksBeforeRetrigger > 0) {
+            setOutSignal(0);
+            rsLowTicksBeforeRetrigger--;
+            if (rsLowTicksBeforeRetrigger == 0 && rsHoldLevel > 0 && rsCraftsLeft > 0) {
+                setOutSignal(rsHoldLevel);
+            }
+        } else if (rsHoldLevel > 0) {
+            setOutSignal(rsHoldLevel);
+        }
 
         // считаем «ушедшее» из output крафтера
         TileEntityGolemCrafter cr = getCrafterBelow();
@@ -507,9 +516,17 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
             // остаток — это наша партия: преобразуем «штуки» в «циклы»
             if (removed > 0) {
                 rsDelivered += removed;
+                int cyclesDone = 0;
                 while (rsDelivered >= rsPerCraft && rsCraftsLeft > 0) {
                     rsDelivered -= rsPerCraft;
                     rsCraftsLeft--;
+                    cyclesDone++;
+                }
+                // Если нужно ещё крафтить — инициируем новый редстоун-фронт.
+                // Делаем небольшую паузу в 0, иначе крафтер может не увидеть повторный старт.
+                if (cyclesDone > 0 && rsCraftsLeft > 0 && rsHoldLevel > 0) {
+                    rsLowTicksBeforeRetrigger = Math.max(rsLowTicksBeforeRetrigger, 2);
+                    setOutSignal(0);
                 }
             }
         }
@@ -542,7 +559,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         this.rsOutBaseline = cur;
         this.rsOutPrev     = cur;
         this.rsDelivered   = 0;
-
+        this.rsLowTicksBeforeRetrigger = 0;
         // сразу подаём сигнал (даже если сырьё ещё не пришло)
         setOutSignal(this.rsHoldLevel);
     }
@@ -555,6 +572,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         this.rsOutBaseline= 0;
         this.rsOutPrev    = 0;
         this.rsDelivered  = 0;
+        this.rsLowTicksBeforeRetrigger = 0;
         setOutSignal(0);
     }
 

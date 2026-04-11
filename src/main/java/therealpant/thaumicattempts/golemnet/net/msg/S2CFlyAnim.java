@@ -14,16 +14,29 @@ import net.minecraftforge.fml.relauncher.Side;
 import therealpant.thaumicattempts.ThaumicAttempts;
 
 public class S2CFlyAnim implements IMessage {
+    public static final int MODE_MANAGER_TO_MIRROR = 0;
+    public static final int MODE_MIRROR_TO_MIRROR = 1;
     public BlockPos managerPos;
     public ItemStack stack = ItemStack.EMPTY;
     public int ring, slot, duration;
+    public int srcRing = -1, srcSlot = -1, mode = MODE_MANAGER_TO_MIRROR;
     public long seed;
 
     public S2CFlyAnim() {}
     public S2CFlyAnim(BlockPos p, ItemStack s, int r, int sl, int dur, long seed) {
+        this(p, s, r, sl, -1, -1, MODE_MANAGER_TO_MIRROR, dur, seed);
+    }
+
+    public S2CFlyAnim(BlockPos p, ItemStack s, int r, int sl, int srcR, int srcS, int mode, int dur, long seed) {
         this.managerPos = p;
         this.stack = s.copy(); this.stack.setCount(1);
-        this.ring = r; this.slot = sl; this.duration = dur; this.seed = seed;
+        this.ring = r;
+        this.slot = sl;
+        this.srcRing = srcR;
+        this.srcSlot = srcS;
+        this.mode = mode;
+        this.duration = dur;
+        this.seed = seed;
     }
 
     @Override public void toBytes(ByteBuf buf) {
@@ -31,6 +44,8 @@ public class S2CFlyAnim implements IMessage {
         ByteBufUtils.writeItemStack(buf, stack);
         buf.writeInt(ring); buf.writeInt(slot);
         buf.writeInt(duration);
+        buf.writeInt(srcRing); buf.writeInt(srcSlot);
+        buf.writeInt(mode);
         buf.writeLong(seed);
     }
     @Override public void fromBytes(ByteBuf buf) {
@@ -38,6 +53,8 @@ public class S2CFlyAnim implements IMessage {
         stack = ByteBufUtils.readItemStack(buf);
         ring = buf.readInt(); slot = buf.readInt();
         duration = buf.readInt();
+        srcRing = buf.readInt(); srcSlot = buf.readInt();
+        mode = buf.readInt();
         seed = buf.readLong();
     }
 
@@ -45,12 +62,25 @@ public class S2CFlyAnim implements IMessage {
      * Универсальный способ отослать анимацию «предмет летит в зеркало»
      * на всех клиентов вокруг менеджера.
      */
+    public static void dispatchManagerToMirror(World world, BlockPos pos,
+                                               ItemStack stack, int ring, int slot,
+                                               int duration, long seed) {
+        dispatch(world, pos, stack, ring, slot, -1, -1, MODE_MANAGER_TO_MIRROR, duration, seed);
+    }
+
+    public static void dispatchMirrorToMirror(World world, BlockPos pos,
+                                              ItemStack stack, int srcRing, int srcSlot, int dstRing, int dstSlot,
+                                              int duration, long seed) {
+        dispatch(world, pos, stack, dstRing, dstSlot, srcRing, srcSlot, MODE_MIRROR_TO_MIRROR, duration, seed);
+    }
+
     public static void dispatch(World world, BlockPos pos,
                                 ItemStack stack, int ring, int slot,
+                                int srcRing, int srcSlot, int mode,
                                 int duration, long seed) {
         if (world == null || world.isRemote) return;
 
-        S2CFlyAnim msg = new S2CFlyAnim(pos, stack, ring, slot, duration, seed);
+        S2CFlyAnim msg = new S2CFlyAnim(pos, stack, ring, slot, srcRing, srcSlot, mode, duration, seed);
         NetworkRegistry.TargetPoint tp = new NetworkRegistry.TargetPoint(
                 world.provider.getDimension(),
                 pos.getX() + 0.5,
@@ -67,7 +97,7 @@ public class S2CFlyAnim implements IMessage {
                 TileEntity te = Minecraft.getMinecraft().world.getTileEntity(msg.managerPos);
                 if (te instanceof therealpant.thaumicattempts.golemnet.tile.TileMirrorManager) {
                     ((therealpant.thaumicattempts.golemnet.tile.TileMirrorManager) te)
-                            .clientAddFlying(msg.stack, msg.ring, msg.slot, msg.duration, msg.seed);
+                            .clientAddFlying(msg.stack, msg.ring, msg.slot, msg.srcRing, msg.srcSlot, msg.mode, msg.duration, msg.seed);
                 }
             });
             return null;

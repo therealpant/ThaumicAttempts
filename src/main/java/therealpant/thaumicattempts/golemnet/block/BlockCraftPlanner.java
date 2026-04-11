@@ -42,5 +42,5 @@ public class BlockCraftPlanner extends Block {
     @SideOnly(Side.CLIENT) @Override public BlockRenderLayer getRenderLayer() { return BlockRenderLayer.CUTOUT_MIPPED; }
     @SideOnly(Side.CLIENT) @Override public boolean canRenderInLayer(IBlockState state, BlockRenderLayer layer) { return layer == BlockRenderLayer.CUTOUT_MIPPED; }
     @Override public float getAmbientOcclusionLightValue(IBlockState state) { return 1.0F; }
-    @Override public EnumBlockRenderType getRenderType(IBlockState state) { return EnumBlockRenderType.MODEL; }
+    @Override public EnumBlockRenderType getRenderType(IBlockState state) { return EnumBlockRenderType.INVISIBLE; }
 }

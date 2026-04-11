@@ -297,28 +297,50 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             for (TileMirrorManager.FlyingItem f : fly) {
                 if (f.stack.isEmpty()) continue;
 
-                float base = f.slot * 60f;
-                if (f.ring == 1 || f.ring == 3) base += RING_SHIFT_YAW;
-                double ang = Math.toRadians(base);
+                Vec3d P0;
+                Vec3d P2;
+                Vec3d control;
 
-                Vec3d P2 = new Vec3d(
-                        Math.cos(ang) * RADIUS,
+                float dstBase = f.slot * 60f;
+                if (f.ring == 1 || f.ring == 3) dstBase += RING_SHIFT_YAW;
+                double dstAng = Math.toRadians(dstBase);
+                P2 = new Vec3d(
+                        Math.cos(dstAng) * RADIUS,
                         BASE_Y + f.ring * Y_STEP,
-                        Math.sin(ang) * RADIUS
+                        Math.sin(dstAng) * RADIUS
                 );
 
-                Vec3d P0 = new Vec3d(0.0, BASE_Y + 0.15, 0.0);
+                if (f.mode == therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim.MODE_MIRROR_TO_MIRROR
+                        && f.srcRing >= 0 && f.srcSlot >= 0) {
+                    float srcBase = f.srcSlot * 60f;
+                    if (f.srcRing == 1 || f.srcRing == 3) srcBase += RING_SHIFT_YAW;
+                    double srcAng = Math.toRadians(srcBase);
+                    P0 = new Vec3d(
+                            Math.cos(srcAng) * RADIUS,
+                            BASE_Y + f.srcRing * Y_STEP,
+                            Math.sin(srcAng) * RADIUS
+                    );
 
-                Vec3d dir = new Vec3d(P2.x - P0.x, 0.0, P2.z - P0.z);
-                if (dir.lengthSquared() < 1.0e-6) {
-                    dir = new Vec3d(0, 0, 1);
+                    Vec3d mid = P0.add(P2).scale(0.5);
+                    Vec3d out = new Vec3d(mid.x, 0.0, mid.z);
+                    if (out.lengthSquared() < 1.0e-6) out = new Vec3d(0.0, 0.0, 1.0);
+                    out = out.normalize();
+                    double arcRadius = RADIUS * 0.8;
+                    control = mid.add(out.scale(arcRadius));
+                    control = new Vec3d(control.x, Math.max(P0.y, P2.y) - 0.05, control.z);
                 } else {
-                    dir = dir.normalize();
+                    P0 = new Vec3d(0.0, BASE_Y + 0.15, 0.0);
+                    Vec3d dir = new Vec3d(P2.x - P0.x, 0.0, P2.z - P0.z);
+                    if (dir.lengthSquared() < 1.0e-6) {
+                        dir = new Vec3d(0, 0, 1);
+                    } else {
+                        dir = dir.normalize();
+                    }
+                    Vec3d p1 = P0.add(dir.scale(0.72));
+                    control = p1.scale(2.0)
+                            .subtract(P0.scale(0.5))
+                            .subtract(P2.scale(0.5));
                 }
-                Vec3d P1 = P0.add(dir.scale(0.72));
-                Vec3d control = P1.scale(2.0)
-                        .subtract(P0.scale(0.5))
-                        .subtract(P2.scale(0.5));
 
                 float tt2 = (t + partialTicks) - f.start;
                 float p = MathHelper.clamp(tt2 / (float) f.duration, 0f, 1f);

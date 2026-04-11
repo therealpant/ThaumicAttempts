@@ -197,7 +197,18 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (patternIndex < 0 || patternIndex >= PATTERN_SLOTS) return 0;
         if (!patternIndexValid(patternIndex)) return 0;
         int n = Math.max(1, times);
-        for (int i = 0; i < n; i++) requesterQueue.addLast(patternIndex);
+        for (int i = 0; i < n; i++) requesterQueue.addFirst(patternIndex);
+
+        // В режиме редстоун-заказа с менеджером может возникать дедлок:
+        // активный «ручной» цикл ждёт промежуточку, а промежуточный цикл
+        // уже поставлен менеджером в requesterQueue, но не стартует пока jobActive=true.
+        // В таком случае мягко прерываем текущий цикл и переносим его в хвост очереди,
+        // чтобы сначала выполнить промежуточный requester-заказ.
+        if (shouldPreemptForRequesterQueue()) {
+            pauseActiveJobIntoRequesterQueueTail();
+            tryStartNextRequesterJob();
+        }
+
         markDirty();
         return n;
     }
@@ -847,6 +858,36 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             return;
         }
 
+    }
+
+    private boolean shouldPreemptForRequesterQueue() {
+        if (!jobActive) return false;
+        if (jobViaRequester) return false;              // requester-циклы не прерываем
+        if (!useManagerForProvision()) return false;    // интересует только режим через менеджер
+        return true;
+    }
+
+    private void pauseActiveJobIntoRequesterQueueTail() {
+        if (!jobActive) return;
+        int idx = this.jobPatternIndex;
+        int repeatsLeft = Math.max(1, this.jobRepeatLeft);
+        if (idx >= 0 && idx < PATTERN_SLOTS && patternIndexValid(idx)) {
+            for (int i = 0; i < repeatsLeft; i++) {
+                requesterQueue.addLast(idx);
+            }
+        }
+
+        // Сброс только активного состояния, саму очередь не трогаем.
+        this.jobActive = false;
+        this.jobPatternIndex = -1;
+        this.jobRepeatLeft = 1;
+        this.jobRepeatTotal = 1;
+        this.seq.clear();
+        this.step = 0;
+        this.lastOrderWorldTime = 0L;
+        this.jobViaRequester = false;
+        this.suppressSelfProvision = false;
+        this.needEnsureWithManager = false;
     }
 
     private void pingNeighbors() {

@@ -632,6 +632,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     public static final class FlyingItem {
         public ItemStack stack = ItemStack.EMPTY;
         public int ring, slot;
+        public int srcRing = -1, srcSlot = -1;
+        public int mode = S2CFlyAnim.MODE_MANAGER_TO_MIRROR;
         public long start;
         public int duration;
         public long seed;
@@ -654,9 +656,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     public void clientAddFlying(ItemStack stack, int ring, int slot, int duration, long seed) {
+        clientAddFlying(stack, ring, slot, -1, -1, S2CFlyAnim.MODE_MANAGER_TO_MIRROR, duration, seed);
+    }
+
+    public void clientAddFlying(ItemStack stack, int ring, int slot, int srcRing, int srcSlot, int mode, int duration, long seed) {
         if (world == null || !world.isRemote) return;
         long now = world.getTotalWorldTime();
-        flying.add(new FlyingItem(stack, ring, slot, now, duration, seed));
+        FlyingItem item = new FlyingItem(stack, ring, slot, now, duration, seed);
+        item.srcRing = srcRing;
+        item.srcSlot = srcSlot;
+        item.mode = mode;
+        flying.add(item);
     }
 
     public void clientCullFlying() {
@@ -1793,6 +1803,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     private int pushFromBufferTo(BlockPos destPos, int destSide, ItemStack like, int upTo) {
+        return pushFromBufferTo(destPos, destSide, like, upTo, DeliveryAnimMode.MANAGER_TO_MIRROR);
+    }
+
+    private enum DeliveryAnimMode {
+        MANAGER_TO_MIRROR,
+        MIRROR_MANAGER_MIRROR
+    }
+
+    private int pushFromBufferTo(BlockPos destPos, int destSide, ItemStack like, int upTo, DeliveryAnimMode animMode) {
         if (like == null || like.isEmpty() || upTo <= 0) return 0;
         IItemHandler dest = getDestHandler(destPos, destSide);
         if (dest == null) return 0;
@@ -1817,7 +1836,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     moved += accepted;
                     left -= accepted;
 
-                    handleMirrorDeliveryAnim(destPos, like);
+                    if (animMode == DeliveryAnimMode.MIRROR_MANAGER_MIRROR) {
+                        handleMirrorBridgeDeliveryAnim(like);
+                    } else {
+                        handleMirrorDeliveryAnim(destPos, like);
+                    }
                 }
                 if (!notFit.isEmpty()) {
                     // Возвращаем остаток в буфер — БЕЗ анимации
@@ -1848,11 +1871,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         BlockPos consumerPos = resolveConsumerForDestination(destPos);
         if (consumerPos == null) return;
 
-        MirrorKey mk = getOrAssignMirrorForConsumer(consumerPos);
-        if (mk == null) return;
+        MirrorSlot target = pickRandomActiveMirror();
+        if (target == null) return;
 
-        MirrorSlot ms = findMirrorSlot(mk);
-        boolean focused = ms != null && ms.focus(world.getTotalWorldTime(), EJECT_HOVER_TICKS);
+        boolean focused = target.focus(world.getTotalWorldTime(), EJECT_HOVER_TICKS);
         if (focused) {
             // синхронизируем focusUntil на клиент
             markDirtyAndSync();
@@ -1861,8 +1883,44 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         int dur = 36 + world.rand.nextInt(16);
         long seed = world.rand.nextLong();
 
-        S2CFlyAnim.dispatch(
-                world, this.pos, like, mk.ring, mk.slot, dur, seed
+        S2CFlyAnim.dispatchManagerToMirror(
+                world, this.pos, like, target.ring, target.slot, dur, seed
+        );
+    }
+
+    @Nullable
+    private MirrorSlot pickRandomActiveMirror() {
+        if (activeMirrors.isEmpty()) return null;
+        return activeMirrors.get(world.rand.nextInt(activeMirrors.size()));
+    }
+
+    private void handleMirrorBridgeDeliveryAnim(ItemStack like) {
+        if (world == null || world.isRemote) return;
+        if (like == null || like.isEmpty()) return;
+        if (activeMirrors.size() < 2) {
+            return;
+        }
+
+        MirrorSlot from = pickRandomActiveMirror();
+        if (from == null) return;
+
+        MirrorSlot to = from;
+        for (int guard = 0; guard < 8 && to == from; guard++) {
+            to = pickRandomActiveMirror();
+        }
+        if (to == null || to == from) return;
+
+        boolean focusedFrom = from.focus(world.getTotalWorldTime(), EJECT_HOVER_TICKS);
+        boolean focusedTo = to.focus(world.getTotalWorldTime(), EJECT_HOVER_TICKS);
+        if (focusedFrom || focusedTo) {
+            markDirtyAndSync();
+        }
+
+        int dur = 32 + world.rand.nextInt(14);
+        long seed = world.rand.nextLong();
+
+        S2CFlyAnim.dispatchMirrorToMirror(
+                world, this.pos, like, from.ring, from.slot, to.ring, to.slot, dur, seed
         );
     }
 
@@ -2059,7 +2117,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 ln.craftsCompleted += craftsDone;
             }
 
-            int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, movedFromCrafter);
+            int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, movedFromCrafter, DeliveryAnimMode.MIRROR_MANAGER_MIRROR);
             if (pushed > 0) {
                 ln.remaining -= pushed;
                 lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
@@ -2072,7 +2130,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         int craftsNeeded = (remainingAfterBuffer + perCraft - 1) / perCraft;
         if (craftsNeeded <= 0) {
-            int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
+            int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining, DeliveryAnimMode.MIRROR_MANAGER_MIRROR);
             if (pushed > 0) {
                 ln.remaining -= pushed;
                 lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
@@ -2187,7 +2245,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
         // ... и уже после этого пробуем ещё раз добросить готовое в адресата:
-        int pushed2 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining);
+        int pushed2 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining, DeliveryAnimMode.MIRROR_MANAGER_MIRROR);
         if (pushed2 > 0) {
             ln.remaining -= pushed2;
             lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
