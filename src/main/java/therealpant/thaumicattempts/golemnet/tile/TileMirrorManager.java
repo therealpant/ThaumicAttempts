@@ -1714,6 +1714,49 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         markDirty();
     }
 
+    /**
+     * Редстоун-заказ с реквестера: путь снабжения и пинка крафтера такой же, как у terminal-craft,
+     * но финальный результат остаётся в output крафтера (без доставки потребителю).
+     */
+    public void enqueueRequesterLocalCraft(BlockPos requesterPos, ItemStack resultLike, int crafts, int queueId) {
+        if (world == null || world.isRemote || requesterPos == null || resultLike == null || resultLike.isEmpty()) return;
+        int safeCrafts = Math.max(1, crafts);
+
+        TileEntity rte = world.getTileEntity(requesterPos);
+        if (!(rte instanceof TilePatternRequester) || !(rte instanceof ICraftEndpoint)) return;
+
+        BlockPos crafterPos = requesterPos.down();
+        TileEntity cte = world.getTileEntity(crafterPos);
+        if (!(cte instanceof TileEntityGolemCrafter)) return;
+
+        TilePatternRequester requester = (TilePatternRequester) rte;
+        List<ItemStack> needList = requester.getRecipeInputsFor(resultLike, safeCrafts);
+        LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<>();
+
+        if (needList != null && !needList.isEmpty()) {
+            Map<ItemKey, Integer> available = new HashMap<>();
+            for (ItemStack need : needList) {
+                if (need == null || need.isEmpty()) continue;
+                ItemKey key = ItemKey.of(need);
+                ItemStack likeNeed = key.toStack(1);
+
+                int have = available.computeIfAbsent(key, k -> countAtDestLike(crafterPos, -1, likeNeed));
+                int missing = Math.max(0, need.getCount() - have);
+                if (missing > 0) needs.merge(key, missing, Integer::sum);
+
+                int leftover = Math.max(0, have - need.getCount());
+                available.put(key, leftover);
+            }
+        }
+
+        if (!needs.isEmpty()) {
+            ensureDeliveryForExact(crafterPos, needs, Math.max(0, Math.min(5, queueId)));
+        }
+
+        ((ICraftEndpoint) rte).enqueueCraft(resultLike, safeCrafts);
+        markDirty();
+    }
+
     @Nullable
     private TileCraftPlanner getConnectedPlanner() {
         if (world == null) return null;
@@ -2213,11 +2256,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
 
-        if (allReady && rte instanceof TilePatternRequester) {
-            TilePatternRequester rq = (TilePatternRequester) rte;
+        if (allReady && rte instanceof ICraftEndpoint) {
+            ICraftEndpoint endpoint = (ICraftEndpoint) rte;
 
             // Сколько единиц выдаётся за 1 цикл именно для этого результата
-            final int outPerCraft = Math.max(1, ln.perCraftOut > 0 ? ln.perCraftOut : rq.getPerCraftOutputCountFor(ln.wanted1));
+            final int outPerCraft = Math.max(1, ln.perCraftOut > 0 ? ln.perCraftOut : endpoint.getPerCraftOutputCountFor(ln.wanted1));
             ln.perCraftOut = outPerCraft;
 
 
@@ -2236,12 +2279,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             int craftsDelta = Math.max(0, craftsNeedNow - ln.craftsScheduled);
 
             if (craftsDelta > 0) {
-                // Пинаем крафтер НА craftsDelta циклов, без автопровизии
-                if (cte instanceof TileEntityGolemCrafter) {
-                    ((TileEntityGolemCrafter) cte).enqueueCraftsByRequesterLike(ln.wanted1, craftsDelta);
-                    ln.craftsScheduled += craftsDelta;
-                    lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
-                }
+                // Единый запуск крафта через ICraftEndpoint (терминал/редстоун/планер идут одинаково).
+                endpoint.enqueueCraft(ln.wanted1, craftsDelta);
+                ln.craftsScheduled += craftsDelta;
+                lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
             }
         }
         // ... и уже после этого пробуем ещё раз добросить готовое в адресата:

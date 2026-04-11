@@ -44,7 +44,6 @@ import java.util.*;
  *      getPerCraftOutputCountFor(result)
  *      getRecipeInputsFor(result, times)
  * - Поддерживает привязку к менеджеру: get/set/clearManagerPos*.
- * - Имеет простой редстоун-выход (метод getOutSignal) — сейчас всегда 0 (пульс можно нарастить позже).
  */
 public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICraftEndpoint, CraftOrderApi.TagProvider {
     private final AnimationFactory factory = new AnimationFactory(this);
@@ -113,28 +112,24 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     private static final String TAG_RESULT = "Result";
     private static final String TAG_GRID   = "Grid";
 
-    /* ====== Редстоун-выход (сейчас — всегда 0) ====== */
+    /* ====== Редстоун-выход (только декоративный/совместимость, на крафт не влияет) ====== */
     private int outSignal = 0;
     public int getOutSignal() { return Math.max(0, Math.min(15, outSignal)); }
+    private int lastInSignal = 0;
 
-    /* Если нужен пульс в будущем — можно дергать это: */
-    public void pulseOutSignal(int ticks, int level) {
-        outSignal = Math.max(outSignal, Math.max(0, Math.min(15, level)));
-        pulseTicks = Math.max(pulseTicks, Math.max(1, ticks));
-        markDirty();
-    }
     private int pulseTicks = 0;
 
     /* ====== Tick: гасим пульс, если он был ====== */
     @Override
     public void update() {
         if (world == null) return;
-
-        if (!world.isRemote) {
-            rsQueueTick(); // ← держит/сбрасывает сигнал по очереди крафтов
-        }
-
         if (world.isRemote) return;
+
+        int inSignal = readSignal();
+        if (lastInSignal == 0 && inSignal > 0) {
+            handleRedstoneCraftRequest(inSignal);
+        }
+            lastInSignal = inSignal;
 
         // ваш существующий код пульса (если нужен):
         if (pulseTicks > 0) {
@@ -147,6 +142,65 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         }
     }
 
+    private int readSignal() {
+        if (world == null) return 0;
+        return world.getRedstonePowerFromNeighbors(pos);
+    }
+
+    private void handleRedstoneCraftRequest(int signal) {
+        if (world == null || world.isRemote || signal <= 0) return;
+        if (managerPos == null) return;
+
+        TileEntity te = world.getTileEntity(managerPos);
+        if (!(te instanceof TileMirrorManager)) return;
+        TileMirrorManager manager = (TileMirrorManager) te;
+
+        int patternIdx = getPatternIndexForSignal(signal);
+        if (patternIdx < 0) return;
+
+        ItemStack resultLike = getResultLikeForPatternIndex(patternIdx);
+        if (resultLike.isEmpty()) return;
+        int crafts = getCraftRepeatsForPatternIndex(patternIdx);
+        if (crafts <= 0) return;
+
+        manager.enqueueRequesterLocalCraft(this.pos, resultLike, crafts, 0);
+    }
+
+    private int getPatternIndexForSignal(int signal) {
+        TileEntityGolemCrafter crafter = getCrafterBelow();
+        if (crafter == null) return -1;
+        IItemHandler patt = crafter.getPatternHandler();
+        if (patt == null || patt.getSlots() <= 0) return -1;
+
+        int idx = Math.max(0, Math.min(patt.getSlots() - 1, signal - 1));
+        ItemStack pat = patt.getStackInSlot(idx);
+        if (pat.isEmpty() || !(pat.getItem() instanceof ItemBasePattern)) return -1;
+        return idx;
+    }
+
+    private ItemStack getResultLikeForPatternIndex(int idx) {
+        TileEntityGolemCrafter crafter = getCrafterBelow();
+        if (crafter == null) return ItemStack.EMPTY;
+        IItemHandler patt = crafter.getPatternHandler();
+        if (patt == null || idx < 0 || idx >= patt.getSlots()) return ItemStack.EMPTY;
+        ItemStack pat = patt.getStackInSlot(idx);
+        if (pat.isEmpty() || !(pat.getItem() instanceof ItemBasePattern)) return ItemStack.EMPTY;
+        ItemStack preview = calcPreview(pat, readGridFromPattern(pat));
+        if (preview.isEmpty()) return ItemStack.EMPTY;
+        ItemStack one = preview.copy();
+        one.setCount(1);
+        return one;
+    }
+
+    private int getCraftRepeatsForPatternIndex(int idx) {
+        TileEntityGolemCrafter crafter = getCrafterBelow();
+        if (crafter == null) return 0;
+        IItemHandler patt = crafter.getPatternHandler();
+        if (patt == null || idx < 0 || idx >= patt.getSlots()) return 0;
+        ItemStack pat = patt.getStackInSlot(idx);
+        if (pat.isEmpty() || !(pat.getItem() instanceof ItemBasePattern)) return 0;
+        return Math.max(1, ItemBasePattern.getRepeatCount(pat));
+    }
 
     /* ====== Публикация каталога крафтабельного ====== */
     @Override
@@ -200,8 +254,9 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     }
     @Override
     public void enqueueCraft(ItemStack resultLike, int crafts) {
-        // тонкая обёртка над твоей текущей логикой
-        queueCraft(resultLike, crafts);
+        TileEntityGolemCrafter crafter = getCrafterBelow();
+        if (crafter == null || resultLike == null || resultLike.isEmpty() || crafts <= 0) return;
+        crafter.enqueueFromPatternRequester(resultLike, crafts);
     }
     /**
      * Полный список входов, необходимых для `times` крафтов (агрегирован по «ключу сетки»).
@@ -378,15 +433,6 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         if (managerPos != null) nbt.setLong("ManagerPos", managerPos.toLong());
         nbt.setInteger("OutSig", outSignal);
         nbt.setInteger("Pulse", pulseTicks);
-        NBTTagList q = new NBTTagList();
-        for (RsTask t : rsQueue) {
-            if (t == null || t.like1 == null || t.like1.isEmpty() || t.crafts <= 0) continue;
-            NBTTagCompound c = new NBTTagCompound();
-            c.setTag("S", t.like1.writeToNBT(new NBTTagCompound()));
-            c.setInteger("N", t.crafts);
-            q.appendTag(c);
-        }
-        nbt.setTag("RSQ", q);
         return nbt;
     }
 
@@ -397,16 +443,6 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
                 ? BlockPos.fromLong(nbt.getLong("ManagerPos")) : null;
         outSignal = nbt.getInteger("OutSig");
         pulseTicks = nbt.getInteger("Pulse");
-        rsQueue.clear();
-        if (nbt.hasKey("RSQ", Constants.NBT.TAG_LIST)) {
-            NBTTagList q = nbt.getTagList("RSQ", Constants.NBT.TAG_COMPOUND);
-            for (int i = 0; i < q.tagCount(); i++) {
-                NBTTagCompound c = q.getCompoundTagAt(i);
-                ItemStack s = new ItemStack(c.getCompoundTag("S"));
-                int n = c.getInteger("N");
-                if (!s.isEmpty() && n > 0) rsQueue.addLast(new RsTask(s, n));
-            }
-        }
     }
 
     public int findPatternIndexForResultLike(ItemStack like1) {
@@ -436,169 +472,12 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         return -1;
     }
 
-    // ======= REDSTONE CRAFT QUEUE (fresh minimal implementation) =======
-
-    // --- очередь пунктов заказа ---
-    private static final class RsTask {
-        final ItemStack like1;     // результат (count=1)
-        final int crafts;          // сколько циклов выполнить
-        RsTask(ItemStack like1, int crafts) {
-            ItemStack s = (like1 == null ? ItemStack.EMPTY : like1.copy());
-            if (!s.isEmpty()) s.setCount(1);
-            this.like1 = s;
-            this.crafts = Math.max(0, crafts);
-        }
-    }
-    private final java.util.Deque<RsTask> rsQueue = new java.util.ArrayDeque<>();
-
-    // --- активный пункт ---
-    @Nullable private ItemStack rsLike = ItemStack.EMPTY;
-    private int rsCraftsLeft = 0;
-    private int rsPerCraft   = 1;   // сколько предметов выдаёт один цикл
-    private int rsHoldLevel  = 0;   // сила сигнала = patIdx+1 (1..15)
-    private int rsLowTicksBeforeRetrigger = 0; // держим 0, чтобы сформировать новый фронт
-
-    // учёт по output крафтера (считаем только «ушедшее»)
-    private int rsOutBaseline = 0;  // сколько целевых предметов было в output ДО старта
-    private int rsOutPrev     = 0;  // счётчик прошлого тика
-    private int rsDelivered   = 0;  // доставлено нашими циклами (в штуках)
-
-    // --- Публичные вызовы из терминала/менеджера ---
-    public void queueCraft(ItemStack resultLike, int crafts) {
-        if (resultLike == null || resultLike.isEmpty() || crafts <= 0) return;
-        rsQueue.addLast(new RsTask(resultLike, crafts));
-    }
-
     @Override
     public boolean hasActiveOrQueued() {
-        return (rsLike != null && !rsLike.isEmpty() && rsCraftsLeft > 0) || !rsQueue.isEmpty();
+        TileEntityGolemCrafter crafter = getCrafterBelow();
+        return crafter != null && crafter.hasRequesterQueue();
     }
 
-    // --- tick-движок: зови из update() на сервере ---
-    private void rsQueueTick() {
-        if (world == null || world.isRemote) return;
-
-        // если нет активного — стартуем следующий
-        if ((rsLike == null || rsLike.isEmpty() || rsCraftsLeft <= 0) && !rsQueue.isEmpty()) {
-            RsTask t = rsQueue.pollFirst();
-            if (t != null) rsStartActive(t);
-        }
-
-        // нет активного — держим 0
-        if (rsLike == null || rsLike.isEmpty() || rsCraftsLeft <= 0) {
-            setOutSignal(0);
-            return;
-        }
-
-        // для повторных циклов нужен именно фронт: коротко опускаем сигнал в 0 и поднимаем снова
-        if (rsLowTicksBeforeRetrigger > 0) {
-            setOutSignal(0);
-            rsLowTicksBeforeRetrigger--;
-            if (rsLowTicksBeforeRetrigger == 0 && rsHoldLevel > 0 && rsCraftsLeft > 0) {
-                setOutSignal(rsHoldLevel);
-            }
-        } else if (rsHoldLevel > 0) {
-            setOutSignal(rsHoldLevel);
-        }
-
-        // считаем «ушедшее» из output крафтера
-        TileEntityGolemCrafter cr = getCrafterBelow();
-        if (cr == null) return;
-
-        int cur = countOutLike(cr, rsLike);
-        int removed = Math.max(0, rsOutPrev - cur);
-        if (removed > 0) {
-            // сперва вычитаем то, что лежало в output до старта
-            int base = Math.min(removed, rsOutBaseline);
-            rsOutBaseline -= base;
-            removed -= base;
-
-            // остаток — это наша партия: преобразуем «штуки» в «циклы»
-            if (removed > 0) {
-                rsDelivered += removed;
-                int cyclesDone = 0;
-                while (rsDelivered >= rsPerCraft && rsCraftsLeft > 0) {
-                    rsDelivered -= rsPerCraft;
-                    rsCraftsLeft--;
-                    cyclesDone++;
-                }
-                // Если нужно ещё крафтить — инициируем новый редстоун-фронт.
-                // Делаем небольшую паузу в 0, иначе крафтер может не увидеть повторный старт.
-                if (cyclesDone > 0 && rsCraftsLeft > 0 && rsHoldLevel > 0) {
-                    rsLowTicksBeforeRetrigger = Math.max(rsLowTicksBeforeRetrigger, 2);
-                    setOutSignal(0);
-                }
-            }
-        }
-        rsOutPrev = cur;
-
-        // весь пункт выполнен — снимаем сигнал и стартуем следующий
-        if (rsCraftsLeft <= 0) {
-            rsClearActive();              // сигнал 0
-            if (!rsQueue.isEmpty()) {     // сразу берём следующий
-                RsTask t = rsQueue.pollFirst();
-                if (t != null) rsStartActive(t);
-            }
-        }
-    }
-
-    // --- старт/сброс активного пункта ---
-    private void rsStartActive(RsTask t) {
-        if (t == null || t.like1 == null || t.like1.isEmpty() || t.crafts <= 0) { rsClearActive(); return; }
-
-        this.rsLike       = t.like1.copy();
-        this.rsCraftsLeft = t.crafts;
-        this.rsPerCraft   = Math.max(1, getPerCraftOutputCountFor(this.rsLike));
-
-        int patIdx        = findPatternIndexForResultLike(this.rsLike);
-        this.rsHoldLevel  = (patIdx < 0) ? 0 : Math.min(15, patIdx + 1);
-
-        // базовые счётчики по output (чтобы не считать старые остатки как «наши»)
-        TileEntityGolemCrafter cr = getCrafterBelow();
-        int cur = countOutLike(cr, this.rsLike);
-        this.rsOutBaseline = cur;
-        this.rsOutPrev     = cur;
-        this.rsDelivered   = 0;
-        this.rsLowTicksBeforeRetrigger = 0;
-        // сразу подаём сигнал (даже если сырьё ещё не пришло)
-        setOutSignal(this.rsHoldLevel);
-    }
-
-    private void rsClearActive() {
-        this.rsLike       = ItemStack.EMPTY;
-        this.rsCraftsLeft = 0;
-        this.rsPerCraft   = 1;
-        this.rsHoldLevel  = 0;
-        this.rsOutBaseline= 0;
-        this.rsOutPrev    = 0;
-        this.rsDelivered  = 0;
-        this.rsLowTicksBeforeRetrigger = 0;
-        setOutSignal(0);
-    }
-
-    // --- утилиты ---
-    private int countOutLike(TileEntityGolemCrafter cr, ItemStack like) {
-        if (cr == null || like == null || like.isEmpty()) return 0;
-        net.minecraftforge.items.IItemHandler out = cr.getOutputHandler();
-        if (out == null || out.getSlots() <= 0) return 0;
-        int total = 0;
-        for (int i = 0; i < out.getSlots(); i++) {
-            ItemStack s = out.getStackInSlot(i);
-            if (s.isEmpty()) continue;
-            if (matchForRecipeRelaxed(s, like)) total += s.getCount();
-        }
-        return total;
-    }
-
-    /** Установить сигнал и уведомить мир. */
-    private void setOutSignal(int level) {
-        level = Math.max(0, Math.min(15, level));
-        if (this.outSignal == level) return;
-        this.outSignal = level;
-        if (world != null && !world.isRemote) {
-            world.notifyNeighborsOfStateChange(pos, world.getBlockState(pos).getBlock(), true);
-        }
-    }
     @Override
     public java.util.Set<String> getCraftOrderTags() {
         return CraftOrderApi.singletonTag(CraftOrderApi.TAG_CRAFTER);

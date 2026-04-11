@@ -239,6 +239,10 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return (idx < 0) ? 0 : enqueueCraftsByRequesterIndex(idx, times);
     }
 
+    public boolean hasRequesterQueue() {
+        return !requesterQueue.isEmpty() || (jobViaRequester && jobActive);
+    }
+
     @Override
     public int enqueueFromPatternRequester(int patternSlot, int times) {
         return enqueueCraftsByRequesterIndex(patternSlot, times);
