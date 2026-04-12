@@ -22,6 +22,7 @@ tile.thaumicattempts.aura_booster_core.name=Resonating Core
 tile.thaumicattempts.rist_cristal_block.name=Crystal Array
 tile.thaumicattempts.rift_extractor.name=Void Extractor
 tile.thaumicattempts.craft_planner.name=Craft Planner
+tile.thaumicattempts.revision_piedestal.name=Revision Piedestal
 
 item.thaumicattempts.craft_pattern.name=Crafting Instructions
 item.thaumicattempts.infusion_pattern.name=Infusion Instructions
@@ -43,6 +44,7 @@ item.thaumicattempts.mind_fruit.name=Fruit of Pure Mind
 item.thaumicattempts.tainted_mind_fruit.name=Taint-Soaked Fruit
 item.thaumicattempts.mature_mind_fruit.name=Ripe Fruit of Pure Mind
 item.thaumicattempts.storage_bell.name=Warehouse Bell
+item.thaumicattempts.revision_piedestal.name=Revision Piedestal
 
 enchantment.infusion.VISBATTERY=Charging Runes
 enchantment.thaumicattempts.rift_momentum=Otherworldly Lightness

@@ -23,6 +23,7 @@ tile.thaumicattempts.aura_booster_core.name=Резонирующее Ядро
 tile.thaumicattempts.rist_cristal_block.name=Кристалический Массив
 tile.thaumicattempts.rift_extractor.name=Экстактор Пустоты
 tile.thaumicattempts.craft_planner.name=Планировщик крафта
+tile.thaumicattempts.revision_piedestal.name=Пьедестал ревизии
 
 item.thaumicattempts.craft_pattern.name=Инструкции по Сборке
 item.thaumicattempts.infusion_pattern.name=Инструкции для Наполнения
@@ -43,6 +44,7 @@ item.thaumicattempts.mind_fruit.name=Плод Чистого Разума
 item.thaumicattempts.tainted_mind_fruit.name=Пропитаный Порчей Плод
 item.thaumicattempts.mature_mind_fruit.name=Зрелый Плод Чистого Разума
 item.thaumicattempts.storage_bell.name=Складской колокольчик
+item.thaumicattempts.revision_piedestal.name=Пьедестал ревизии
 
 enchantment.infusion.VISBATTERY=Заряжающие Руны
 enchantment.thaumicattempts.rift_momentum=Потусторонняя Легкость

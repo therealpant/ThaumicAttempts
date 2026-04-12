@@ -24,6 +24,7 @@ public class TABlocks {
     public static Block AURA_BOOSTER_CORE;
     public static Block RIFT_CRISTAL_BLOCK;
     public static Block RIFT_EXTRACTOR;
+    public static Block REVISION_PIEDESTAL;
 
     public static Item MIRROR_MANAGER_ITEM;
     public static Item MIRROR_MANAGER_CORE_ITEM;
@@ -43,5 +44,6 @@ public class TABlocks {
     public static Item AURA_BOOSTER_CORE_ITEM;
     public static Item RIFT_CRISTAL_BLOCK_ITEM;
     public static Item RIFT_EXTRACTOR_ITEM;
+    public static Item REVISION_PIEDESTAL_ITEM;
 }
 

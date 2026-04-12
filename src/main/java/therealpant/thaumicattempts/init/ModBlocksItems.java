@@ -102,6 +102,7 @@ public final class ModBlocksItems {
         TABlocks.AURA_BOOSTER_CORE = new BlockAuraBoosterCore();
         TABlocks.RIFT_CRISTAL_BLOCK = new BlockRistCristalBlock();
         TABlocks.RIFT_EXTRACTOR = new BlockRiftExtractor();
+        TABlocks.REVISION_PIEDESTAL = new BlockRevisionPiedestal();
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
                 TABlocks.MIRROR_MANAGER_CORE,
@@ -121,7 +122,8 @@ public final class ModBlocksItems {
                 TABlocks.AURA_BOOSTER,
                 TABlocks.AURA_BOOSTER_CORE,
                 TABlocks.RIFT_CRISTAL_BLOCK,
-                TABlocks.RIFT_EXTRACTOR
+                TABlocks.RIFT_EXTRACTOR,
+                TABlocks.REVISION_PIEDESTAL
         );
 
         // TileEntities сети
@@ -155,6 +157,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "ta_aura_booster"));
         GameRegistry.registerTileEntity(therealpant.thaumicattempts.world.tile.TileRiftExtractor.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_extractor"));
+        GameRegistry.registerTileEntity(TileRevisionPiedestal.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "revision_piedestal"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -281,6 +285,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_CRISTAL_BLOCK.getRegistryName());
         TABlocks.RIFT_EXTRACTOR_ITEM = new ItemBlock(TABlocks.RIFT_EXTRACTOR)
                 .setRegistryName(TABlocks.RIFT_EXTRACTOR.getRegistryName());
+        TABlocks.REVISION_PIEDESTAL_ITEM = new ItemBlock(TABlocks.REVISION_PIEDESTAL)
+                .setRegistryName(TABlocks.REVISION_PIEDESTAL.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -300,7 +306,8 @@ public final class ModBlocksItems {
                 TABlocks.AURA_BOOSTER_ITEM,
                 TABlocks.AURA_BOOSTER_CORE_ITEM,
                 TABlocks.RIFT_CRISTAL_BLOCK_ITEM,
-                TABlocks.RIFT_EXTRACTOR_ITEM
+                TABlocks.RIFT_EXTRACTOR_ITEM,
+                TABlocks.REVISION_PIEDESTAL_ITEM
         );
     }
 }

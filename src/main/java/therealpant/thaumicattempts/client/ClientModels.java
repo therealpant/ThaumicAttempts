@@ -29,6 +29,7 @@ import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 import therealpant.thaumicattempts.world.tile.TileRiftExtractor;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
+
 import java.util.function.Supplier;
 
 @Mod.EventBusSubscriber(value = Side.CLIENT, modid = ThaumicAttempts.MODID)
@@ -190,6 +191,8 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.AURA_BOOSTER_ITEM, TileAuraBooster::new);
         registerItemModel(TABlocks.RIFT_EXTRACTOR_ITEM);
         attachTileRenderer(TABlocks.RIFT_EXTRACTOR_ITEM, TileRiftExtractor::new);
+        registerItemModel(TABlocks.REVISION_PIEDESTAL_ITEM);
+        attachTileRenderer(TABlocks.REVISION_PIEDESTAL_ITEM, TileRevisionPiedestal::new);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 
         // наши крафтеры: игнорируем таумовский ENABLED (если присутствует)
@@ -275,6 +278,10 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileRiftExtractor.class,
                 new RenderRiftExtractor()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRevisionPiedestal.class,
+                new RenderRevisionPiedestalGeo()
         );
     }
 
