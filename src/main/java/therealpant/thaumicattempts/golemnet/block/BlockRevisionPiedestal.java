@@ -4,6 +4,7 @@ import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.*;
 import net.minecraft.util.math.AxisAlignedBB;
@@ -50,20 +51,56 @@ public class BlockRevisionPiedestal extends Block {
     @Override
     public boolean onBlockActivated(World world, BlockPos pos, IBlockState state, EntityPlayer player, EnumHand hand,
                                     EnumFacing facing, float hitX, float hitY, float hitZ) {
-        if (!player.isSneaking()) {
-            return false;
-        }
-        if (world.isRemote) {
-            return true;
-        }
-
         TileEntity te = world.getTileEntity(pos);
         if (!(te instanceof TileRevisionPiedestal)) {
             return false;
         }
+        TileRevisionPiedestal pedestal = (TileRevisionPiedestal) te;
 
-        ((TileRevisionPiedestal) te).toggleActive();
-        return true;
+        if (world.isRemote) return true;
+
+        ItemStack held = player.getHeldItem(hand);
+
+        if (player.isSneaking()) {
+            pedestal.toggleActive();
+            return true;
+        }
+
+        if (held.isEmpty()) {
+            return pedestal.tryExtractToPlayer(player);
+        }
+
+        return pedestal.tryInsertFromHand(player, hand);
+    }
+
+    @Override
+    public void onBlockClicked(World world, BlockPos pos, EntityPlayer player) {
+        if (world.isRemote || player == null) return;
+        if (!player.isSneaking()) return;
+        if (!player.getHeldItemMainhand().isEmpty()) return;
+        TileEntity te = world.getTileEntity(pos);
+        if (te instanceof TileRevisionPiedestal) {
+            ((TileRevisionPiedestal) te).cycleCounter();
+        }
+    }
+    @Override
+    public boolean removedByPlayer(IBlockState state, World world, BlockPos pos, EntityPlayer player, boolean willHarvest) {
+        if (player != null
+                && player.isSneaking()
+                && player.getHeldItemMainhand().isEmpty()
+                && player.getHeldItemOffhand().isEmpty()) {
+            return false;
+        }
+        return super.removedByPlayer(state, world, pos, player, willHarvest);
+    }
+
+    @Override
+    public void breakBlock(World world, BlockPos pos, IBlockState state) {
+        TileEntity te = world.getTileEntity(pos);
+        if (te instanceof TileRevisionPiedestal) {
+            ((TileRevisionPiedestal) te).dropContents();
+        }
+        super.breakBlock(world, pos, state);
     }
 
     @Override
