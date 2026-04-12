@@ -21,8 +21,9 @@ import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import therealpant.thaumicattempts.api.AutomationOrderSubmitHelper;
+import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
-import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
+
 
 import javax.annotation.Nullable;
 import java.util.List;
@@ -266,13 +267,16 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
 
         int cap = getThreshold();
         if (available >= cap) return;
+
         if (manager.getActiveOrdersForConsumer(this.pos) > 0) return;
 
         long now = world.getTotalWorldTime();
         if (now < nextRetryTick) return;
 
-        int orderItems = Math.max(1, counter);
-        int accepted = trySubmitRestockOrder(orderItems);
+        int missing = Math.max(0, cap - available);
+        if (missing <= 0) return;
+
+        int accepted = trySubmitRestockOrder(missing);
         if (accepted > 0) {
             nextRetryTick = now + 40L;
             markDirtyAndSync();
@@ -284,14 +288,25 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
 
     private int trySubmitRestockOrder(int items) {
         if (items <= 0 || pedestalItem.isEmpty() || world == null) return 0;
-        return AutomationOrderSubmitHelper.submitAutomationOrderByIcon(
+        int accepted = AutomationOrderSubmitHelper.submitAutomationOrderByIcon(
                 world,
                 pedestalItem,
                 items,
                 managerPos,
-                null,
+                this.pos,
                 -1
         );
+        if (accepted > 0) return accepted;
+
+        BlockPos targetPos = TerminalOrderApi.getOrderIconPos(pedestalItem);
+        int slot = TerminalOrderApi.getOrderIconSlot(pedestalItem);
+        if (targetPos == null || slot < 0) return 0;
+
+        TileEntity te = world.getTileEntity(targetPos);
+        if (!(te instanceof ITerminalOrderAcceptor)) return 0;
+
+        ((ITerminalOrderAcceptor) te).triggerFromTerminal(slot, items);
+        return Math.max(1, items);
     }
 
     @Override
