@@ -653,6 +653,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
+    public int getActiveOrdersForConsumer(@Nullable BlockPos consumerPos) {
+        if (consumerPos == null) return 0;
+        return Math.max(0, consumerActiveOrders.getOrDefault(consumerPos.toImmutable(), 0));
+    }
+
     private void markDirtyAndSync() {
         markDirty();
         if (!world.isRemote) {

@@ -180,11 +180,13 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     private int suppressBufferReconcileDepth = 0;
 
     private static final class TerminalOrderRequest {
+        final ItemStack orderIcon;
         final BlockPos pos;
         final int slot;
         final int count;
         final ItemKey outputKey;
-        private TerminalOrderRequest(BlockPos pos, int slot, int count, @Nullable ItemKey outputKey) {
+        private TerminalOrderRequest(ItemStack orderIcon, BlockPos pos, int slot, int count, @Nullable ItemKey outputKey) {
+            this.orderIcon = orderIcon == null ? ItemStack.EMPTY : orderIcon.copy();
             this.pos = pos;
             this.slot = slot;
             this.count = count;
@@ -353,7 +355,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                 ItemStack resultLike = TerminalOrderApi.stripOrderIconData(keyStack);
                 if (target != null && slot >= 0) {
                     ItemKey outputKey = (resultLike == null || resultLike.isEmpty()) ? null : ItemKey.of(resultLike);
-                    directTerminalOrders.add(new TerminalOrderRequest(target, slot, amt, outputKey));
+                    directTerminalOrders.add(new TerminalOrderRequest(keyStack, target, slot, amt, outputKey));
                 }
                 draft.remove(key);
                 continue;
@@ -389,15 +391,15 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             markDirty();
             boolean pendingCraftChanged = false;
             for (TerminalOrderRequest order : directTerminalOrders) {
-                TileEntity te = world.getTileEntity(order.pos);
-                if (te instanceof IAutomationOrderAcceptor) {
-                    int acceptedItems = ((IAutomationOrderAcceptor) te)
-                            .submitAutomationOrder(order.slot, order.count, managerPos, this.pos, -1);
-                    if (acceptedItems > 0 && order.outputKey != null && order.outputKey != ItemKey.EMPTY) {
-                        addToMap(pendingCraft, order.outputKey, acceptedItems);
-                        pendingCraftChanged = true;
-                    }
-                } else if (te instanceof ITerminalOrderAcceptor) {
+                int acceptedItems = AutomationOrderSubmitHelper.submitAutomationOrderByIcon(
+                        world, order.orderIcon, order.count, managerPos, this.pos, -1
+                );
+                if (acceptedItems > 0 && order.outputKey != null && order.outputKey != ItemKey.EMPTY) {
+                    addToMap(pendingCraft, order.outputKey, acceptedItems);
+                    pendingCraftChanged = true;
+                } else {
+                    TileEntity te = world.getTileEntity(order.pos);
+                    if (!(te instanceof ITerminalOrderAcceptor)) continue;
                     ((ITerminalOrderAcceptor) te).triggerFromTerminal(order.slot, order.count);
                 }
             }
