@@ -21,8 +21,10 @@ import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import therealpant.thaumicattempts.api.AutomationOrderSubmitHelper;
+import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
+import therealpant.thaumicattempts.util.ResourceIdentity;
 
 
 import javax.annotation.Nullable;
@@ -273,10 +275,9 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         long now = world.getTotalWorldTime();
         if (now < nextRetryTick) return;
 
-        int missing = Math.max(0, cap - available);
-        if (missing <= 0) return;
+        int orderBatch = Math.max(1, counter);
 
-        int accepted = trySubmitRestockOrder(missing);
+        int accepted = trySubmitRestockOrder(orderBatch);
         if (accepted > 0) {
             nextRetryTick = now + 40L;
             markDirtyAndSync();
@@ -288,9 +289,12 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
 
     private int trySubmitRestockOrder(int items) {
         if (items <= 0 || pedestalItem.isEmpty() || world == null) return 0;
+        ItemStack orderIcon = resolveOrderIconForCurrentItem();
+        if (orderIcon.isEmpty()) return 0;
+
         int accepted = AutomationOrderSubmitHelper.submitAutomationOrderByIcon(
                 world,
-                pedestalItem,
+                orderIcon,
                 items,
                 managerPos,
                 this.pos,
@@ -298,8 +302,8 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         );
         if (accepted > 0) return accepted;
 
-        BlockPos targetPos = TerminalOrderApi.getOrderIconPos(pedestalItem);
-        int slot = TerminalOrderApi.getOrderIconSlot(pedestalItem);
+        BlockPos targetPos = TerminalOrderApi.getOrderIconPos(orderIcon);
+        int slot = TerminalOrderApi.getOrderIconSlot(orderIcon);
         if (targetPos == null || slot < 0) return 0;
 
         TileEntity te = world.getTileEntity(targetPos);
@@ -307,6 +311,38 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
 
         ((ITerminalOrderAcceptor) te).triggerFromTerminal(slot, items);
         return Math.max(1, items);
+    }
+
+    private ItemStack resolveOrderIconForCurrentItem() {
+        if (pedestalItem.isEmpty() || world == null) return ItemStack.EMPTY;
+        if (TerminalOrderApi.isOrderIcon(pedestalItem)) return pedestalItem;
+        if (managerPos == null) return ItemStack.EMPTY;
+
+        TileEntity managerTe = world.getTileEntity(managerPos);
+        if (!(managerTe instanceof TileMirrorManager)) return ItemStack.EMPTY;
+
+        ItemStack requested = getRequestedItem();
+        if (requested.isEmpty()) return ItemStack.EMPTY;
+
+        for (BlockPos requesterPos : ((TileMirrorManager) managerTe).getRequestersSnapshot()) {
+            TileEntity requesterTe = world.getTileEntity(requesterPos);
+            if (!(requesterTe instanceof ITerminalOrderIconProvider)) continue;
+
+            List<ItemStack> icons = ((ITerminalOrderIconProvider) requesterTe).listTerminalOrderIcons();
+            if (icons == null || icons.isEmpty()) continue;
+
+            for (ItemStack icon : icons) {
+                if (icon == null || icon.isEmpty() || !TerminalOrderApi.isOrderIcon(icon)) continue;
+                ItemStack preview = TerminalOrderApi.stripOrderIconData(icon);
+                if (preview.isEmpty()) continue;
+                if (!ResourceIdentity.sameResource(preview, requested)) continue;
+                ItemStack one = icon.copy();
+                one.setCount(1);
+                return one;
+            }
+        }
+
+        return ItemStack.EMPTY;
     }
 
     @Override
