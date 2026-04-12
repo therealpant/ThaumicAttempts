@@ -14,6 +14,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.golemnet.tile.TileRevisionPiedestal;
 
 import javax.annotation.Nullable;
@@ -46,6 +47,27 @@ public class BlockRevisionPiedestal extends Block {
     @Override
     public EnumBlockRenderType getRenderType(IBlockState state) {
         return EnumBlockRenderType.INVISIBLE;
+    }
+
+    @Override
+    public boolean canProvidePower(IBlockState state) {
+        return true;
+    }
+
+    @Override
+    public int getWeakPower(IBlockState state, IBlockAccess world, BlockPos pos, EnumFacing side) {
+        TileEntity te = world.getTileEntity(pos);
+        return (te instanceof TileRevisionPiedestal) ? ((TileRevisionPiedestal) te).getOutSignal() : 0;
+    }
+
+    @Override
+    public int getStrongPower(IBlockState state, IBlockAccess world, BlockPos pos, EnumFacing side) {
+        return getWeakPower(state, world, pos, side);
+    }
+
+    @Override
+    public boolean canConnectRedstone(IBlockState state, IBlockAccess world, BlockPos pos, @Nullable EnumFacing side) {
+        return true;
     }
 
     @Override
@@ -98,7 +120,15 @@ public class BlockRevisionPiedestal extends Block {
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
         TileEntity te = world.getTileEntity(pos);
         if (te instanceof TileRevisionPiedestal) {
-            ((TileRevisionPiedestal) te).dropContents();
+            TileRevisionPiedestal pedestal = (TileRevisionPiedestal) te;
+            pedestal.dropContents();
+            BlockPos managerPos = pedestal.getManagerPos();
+            if (managerPos != null) {
+                TileEntity mgrTe = world.getTileEntity(managerPos);
+                if (mgrTe instanceof TileMirrorManager) {
+                    ((TileMirrorManager) mgrTe).unbind(pos);
+                }
+            }
         }
         super.breakBlock(world, pos, state);
     }

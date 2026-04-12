@@ -28,6 +28,7 @@ import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
 import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileCraftPlanner;
+import therealpant.thaumicattempts.golemnet.tile.TileRevisionPiedestal;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
 
 import javax.annotation.Nullable;
@@ -275,8 +276,7 @@ public class BellLinkingHandler {
         // дальше работаем только с терминалом/реквестером, и только если в руке колокол ИЛИ игрок присел
         if (!(te instanceof TileOrderTerminal) && !(te instanceof TilePatternRequester)
                 && !(te instanceof TileResourceRequester) && !(te instanceof TileGolemDispatcher)
-                && !(te instanceof TileCraftPlanner)) return;
-
+                && !(te instanceof TileCraftPlanner) && !(te instanceof TileRevisionPiedestal)) return;
         // АВТОПОИСК ЗАПРЕЩЁН — используем только сохранённый в колоколе менеджер
         BlockPos linkedMgrPos = getLinkedPos(held);
 
@@ -556,6 +556,64 @@ public class BellLinkingHandler {
                                     world.getBlockState(req.getPos()),
                                     world.getBlockState(req.getPos()), 3);
 
+                            msgChat(player, "§aLinked");
+                        } else {
+                            msgChat(player, "§cNot Linked");
+                        }
+                    } else {
+                        msgChat(player, "§cNot Linked");
+                    }
+                    denyAndCancel(e);
+                    return;
+                }
+
+                return;
+            }
+
+            /* ---------- Ревизионный пьедестал ---------- */
+            if (te instanceof TileRevisionPiedestal) {
+                TileRevisionPiedestal pedestal = (TileRevisionPiedestal) te;
+
+                if (linkedMgrPos != null && linkedMgrPos.equals(pedestal.getManagerPos())) {
+                    msgChat(player, "§aLinked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (sneaking && pedestal.getManagerPos() != null && linkedMgrPos == null) {
+                    BlockPos oldMgr = pedestal.getManagerPos();
+                    pedestal.setManagerPos(null);
+                    if (oldMgr != null) {
+                        TileEntity old = world.getTileEntity(oldMgr);
+                        if (old instanceof TileMirrorManager) {
+                            ((TileMirrorManager) old).unbind(pedestal.getPos());
+                        }
+                    }
+                    msgChat(player, "§cNot Linked");
+                    denyAndCancel(e);
+                    return;
+                }
+
+                if (linkedMgrPos != null) {
+                    TileEntity mte = world.getTileEntity(linkedMgrPos);
+                    if (mte instanceof TileMirrorManager) {
+                        TileMirrorManager mgr = (TileMirrorManager) mte;
+
+                        if (pedestal.getManagerPos() != null && !linkedMgrPos.equals(pedestal.getManagerPos())) {
+                            TileEntity old = world.getTileEntity(pedestal.getManagerPos());
+                            if (old instanceof TileMirrorManager) {
+                                ((TileMirrorManager) old).unbind(pedestal.getPos());
+                            }
+                            pedestal.setManagerPos(null);
+                        }
+
+                        if (mgr.tryBindRevisionPedestal(pedestal.getPos())) {
+                            pedestal.setManagerPos(linkedMgrPos);
+                            pedestal.markDirty();
+                            world.notifyBlockUpdate(pedestal.getPos(),
+                                    world.getBlockState(pedestal.getPos()),
+                                    world.getBlockState(pedestal.getPos()), 3);
+                            mgr.allowOwner(player.getUniqueID());
                             msgChat(player, "§aLinked");
                         } else {
                             msgChat(player, "§cNot Linked");

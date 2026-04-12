@@ -42,6 +42,7 @@ import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
+import therealpant.thaumicattempts.golemnet.tile.TileRevisionPiedestal;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -78,6 +79,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     private final Set<BlockPos> boundTerminals = new HashSet<>();
     private final Set<BlockPos> boundRequesters = new HashSet<>();
+    private final Set<BlockPos> boundRevisionPedestals = new HashSet<>();
     private final LinkedHashMap<BlockPos, DispatcherStats> boundDispatchers = new LinkedHashMap<>();
     private static final int DEFAULT_DISPATCHER_COLOR = EnumDyeColor.PURPLE.getMetadata();
     private int dispatcherSealColor = DEFAULT_DISPATCHER_COLOR;
@@ -166,7 +168,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     public int getComputeUsed() {
-        int used = boundRequesters.size();
+        int used = boundRequesters.size() + boundRevisionPedestals.size();
         for (DispatcherStats stats : boundDispatchers.values()) {
             used += 1 + stats.golems;
         }
@@ -796,6 +798,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
+    private void unlinkRevisionPedestalSideEffects(BlockPos pedestalPos) {
+        if (world == null || world.isRemote || pedestalPos == null) return;
+        TileEntity te = world.getTileEntity(pedestalPos);
+        if (te instanceof TileRevisionPiedestal) {
+            ((TileRevisionPiedestal) te).clearManagerPosFromManager(this.pos);
+        }
+    }
 
     /**
      * Дропнуть подвешенные, освободив слот.
@@ -1128,6 +1137,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (mk == null) return false;
 
         boundRequesters.add(pos.toImmutable());
+        markDirty();
+        return true;
+    }
+
+    public boolean tryBindRevisionPedestal(BlockPos pos) {
+        if (pos == null) return false;
+        if (pos.distanceSq(getPos()) > (double) (calcRange * calcRange)) return false;
+        BlockPos key = pos.toImmutable();
+        if (boundRevisionPedestals.contains(key)) return true;
+        if (!hasFreeComputeCell()) return false;
+        boundRevisionPedestals.add(key);
         markDirty();
         return true;
     }
@@ -2538,6 +2558,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         List<BlockPos> deadReq = new ArrayList<>();
         List<BlockPos> deadTerm = new ArrayList<>();
+        List<BlockPos> deadRev = new ArrayList<>();
 
         // requesters: тайла может не быть, может быть, но уже не наш менеджер
         for (BlockPos rp : boundRequesters) {
@@ -2570,11 +2591,24 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
 
-        if (deadReq.isEmpty() && deadTerm.isEmpty()) return;
+        for (BlockPos rp : boundRevisionPedestals) {
+            TileEntity te = world.getTileEntity(rp);
+            if (!(te instanceof TileRevisionPiedestal)) {
+                deadRev.add(rp);
+                continue;
+            }
+            BlockPos mp = ((TileRevisionPiedestal) te).getManagerPos();
+            if (mp == null || !mp.equals(this.pos)) {
+                deadRev.add(rp);
+            }
+        }
+
+        if (deadReq.isEmpty() && deadTerm.isEmpty() && deadRev.isEmpty()) return;
 
         // Снимаем из наборов
         boundRequesters.removeAll(deadReq);
         boundTerminals.removeAll(deadTerm);
+        boundRevisionPedestals.removeAll(deadRev);
 
         // Тихо оповещаем живые тайлы (если тайла нет — просто пропустим)
         isUnlinking = true;
@@ -2592,6 +2626,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 if (te instanceof TileOrderTerminal) {
                     ((TileOrderTerminal) te).clearManagerPosFromManager(this.pos);
                     cancelAllForDestination(tp);
+                }
+            }
+            for (BlockPos rp : deadRev) {
+                TileEntity te = world.getTileEntity(rp);
+                if (te instanceof TileRevisionPiedestal) {
+                    ((TileRevisionPiedestal) te).clearManagerPosFromManager(this.pos);
                 }
             }
         } finally {
@@ -2837,11 +2877,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         List<BlockPos> dropReq = new ArrayList<>();
         List<BlockPos> dropTerm = new ArrayList<>();
+        List<BlockPos> dropRev = new ArrayList<>();
         List<BlockPos> dropDisp = new ArrayList<>();
 
         // 1) радиус
         for (BlockPos bp : boundRequesters) if (!inRange.test(bp)) dropReq.add(bp);
         for (BlockPos bp : boundTerminals) if (!inRange.test(bp)) dropTerm.add(bp);
+        for (BlockPos bp : boundRevisionPedestals) if (!inRange.test(bp)) dropRev.add(bp);
         for (BlockPos bp : boundDispatchers.keySet()) if (!inRange.test(bp)) dropDisp.add(bp);
 
         // 2) вычисл. кап
@@ -2851,6 +2893,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             while (overCompute > 0 && it.hasNext()) {
                 dropReq.add(it.next());
                 overCompute--;
+            }
+            if (overCompute > 0) {
+                Iterator<BlockPos> itRv = boundRevisionPedestals.iterator();
+                while (overCompute > 0 && itRv.hasNext()) {
+                    dropRev.add(itRv.next());
+                    overCompute--;
+                }
             }
             if (overCompute > 0) {
                 Iterator<Map.Entry<BlockPos, DispatcherStats>> itD = boundDispatchers.entrySet().iterator();
@@ -2894,15 +2943,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
 
-        if (dropReq.isEmpty() && dropTerm.isEmpty() && dropDisp.isEmpty()) return;
+        if (dropReq.isEmpty() && dropTerm.isEmpty() && dropRev.isEmpty() && dropDisp.isEmpty()) return;
 
         // Уникализируем
         java.util.Set<BlockPos> uniqReq = new java.util.LinkedHashSet<>(dropReq);
         java.util.Set<BlockPos> uniqTerm = new java.util.LinkedHashSet<>(dropTerm);
+        java.util.Set<BlockPos> uniqRev = new java.util.LinkedHashSet<>(dropRev);
         java.util.Set<BlockPos> uniqDisp = new java.util.LinkedHashSet<>(dropDisp);
 
         boundRequesters.removeAll(uniqReq);
         boundTerminals.removeAll(uniqTerm);
+        boundRevisionPedestals.removeAll(uniqRev);
         boundDispatchers.keySet().removeAll(uniqDisp);
         if (!uniqDisp.isEmpty()) dispatcherBusyQueue.removeIf(uniqDisp::contains);
 
@@ -2911,6 +2962,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         try {
             for (BlockPos rp : uniqReq) unlinkRequesterSideEffects(rp);
             for (BlockPos tp : uniqTerm) unlinkTerminalSideEffects(tp);
+            for (BlockPos rv : uniqRev) unlinkRevisionPedestalSideEffects(rv);
             for (BlockPos dp : uniqDisp) unlinkDispatcherSideEffects(dp);
         } finally {
             isUnlinking = false;
@@ -2929,11 +2981,15 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             for (BlockPos tp : new java.util.ArrayList<>(boundTerminals)) {
                 unlinkTerminalSideEffects(tp);
             }
+            for (BlockPos rv : new java.util.ArrayList<>(boundRevisionPedestals)) {
+                unlinkRevisionPedestalSideEffects(rv);
+            }
             for (BlockPos dp : new java.util.ArrayList<>(boundDispatchers.keySet())) {
                 unlinkDispatcherSideEffects(dp);
             }
             boundRequesters.clear();
             boundTerminals.clear();
+            boundRevisionPedestals.clear();
             boundDispatchers.clear();
             dispatcherBusyQueue.clear();
         } finally {
@@ -2952,6 +3008,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             // Мы уже в процессе отвязки — просто выкинем из наборов и выйдем.
             boundTerminals.remove(consumerPos);
             boundRequesters.remove(consumerPos);
+            boundRevisionPedestals.remove(consumerPos);
             markDirty();
             return;
         }
@@ -2960,6 +3017,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         try {
             boolean wasReq = boundRequesters.remove(consumerPos);
             boolean wasTerm = boundTerminals.remove(consumerPos);
+            boolean wasRev = boundRevisionPedestals.remove(consumerPos);
             DispatcherStats removedDisp = boundDispatchers.remove(consumerPos);
             boolean wasDisp = removedDisp != null;
             if (wasDisp) {
@@ -2968,6 +3026,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
             if (wasReq) unlinkRequesterSideEffects(consumerPos);
             if (wasTerm) unlinkTerminalSideEffects(consumerPos);
+            if (wasRev) unlinkRevisionPedestalSideEffects(consumerPos);
             if (wasDisp) unlinkDispatcherSideEffects(consumerPos);
 
             markDirty();
@@ -3450,6 +3509,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         for (BlockPos bp : boundRequesters) r.appendTag(new NBTTagLong(bp.toLong()));
         nbt.setTag("boundRequesters", r);
 
+        NBTTagList rv = new NBTTagList();
+        for (BlockPos bp : boundRevisionPedestals) rv.appendTag(new NBTTagLong(bp.toLong()));
+        nbt.setTag("boundRevisionPedestals", rv);
         // NEW: зарегистрированные реквестеры (для каталога крафта и поиска)
         NBTTagList rr = new NBTTagList();
         for (BlockPos bp : requesters) rr.appendTag(new NBTTagLong(bp.toLong()));
@@ -3520,6 +3582,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         boundTerminals.clear();
         boundRequesters.clear();
+        boundRevisionPedestals.clear();
         if (nbt.hasKey("boundTerminals", 9)) {
             NBTTagList t = nbt.getTagList("boundTerminals", 4);
             for (int i = 0; i < t.tagCount(); i++)
@@ -3529,6 +3592,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             NBTTagList r = nbt.getTagList("boundRequesters", 4);
             for (int i = 0; i < r.tagCount(); i++)
                 boundRequesters.add(BlockPos.fromLong(((NBTTagLong) r.get(i)).getLong()));
+        }
+        if (nbt.hasKey("boundRevisionPedestals", 9)) {
+            NBTTagList rv = nbt.getTagList("boundRevisionPedestals", 4);
+            for (int i = 0; i < rv.tagCount(); i++) {
+                boundRevisionPedestals.add(BlockPos.fromLong(((NBTTagLong) rv.get(i)).getLong()));
+            }
         }
 
         ordoBuffer = nbt.getInteger("ordoBuffer");
@@ -3754,6 +3823,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         return out;
+    }
+
+    public int getAvailableCountFor(ItemStack like) {
+        if (like == null || like.isEmpty()) return 0;
+        ItemKey key = ResourceIdentity.keyOf(like);
+        if (key == null || key == ItemKey.EMPTY) return 0;
+        int inNetwork = getReachableCatalog().getOrDefault(key, 0);
+        return Math.max(0, inNetwork + countInBufferLike(like));
     }
 
     private void appendResourcePreviews(BlockPos resourcePos, Set<BlockPos> seen, List<ItemStack> into) {
