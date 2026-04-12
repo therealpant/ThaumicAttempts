@@ -302,22 +302,6 @@ public class BellLinkingHandler {
                     return;
                 }
 
-                // Отвязка: Shift+ПКМ без выбранного менеджера
-                if (sneaking && term.getManagerPos() != null && linkedMgrPos == null) {
-                    BlockPos oldMgr = term.getManagerPos();
-                    term.setManagerPos(null);
-                    if (oldMgr != null) {
-                        TileEntity mte = world.getTileEntity(oldMgr);
-                        if (mte instanceof TileMirrorManager) {
-                            ((TileMirrorManager) mte).unbind(term.getPos());
-                            ((TileMirrorManager) mte).cancelAllForDestination(term.getPos());
-                        }
-                    }
-                    msgChat(player, "§cNot Linked");
-                    denyAndCancel(e);
-                    return;
-                }
-
                 // Привязка: есть выбранный менеджер в колоколе
                 if (linkedMgrPos != null) {
                     TileEntity mte = world.getTileEntity(linkedMgrPos);
@@ -375,22 +359,6 @@ public class BellLinkingHandler {
                     return;
                 }
 
-                if (sneaking && res.getManagerPos() != null && linkedMgrPos == null) {
-                    BlockPos oldMgr = res.getManagerPos();
-                    res.setManagerPos(null);
-                    res.cancelActiveJob();
-                    if (oldMgr != null) {
-                        TileEntity mte = world.getTileEntity(oldMgr);
-                        if (mte instanceof TileMirrorManager) {
-                            ((TileMirrorManager) mte).unbind(res.getPos());
-                            ((TileMirrorManager) mte).cancelAllForDestination(res.getPos());
-                        }
-                    }
-                    msgChat(player, "§cNot Linked");
-                    denyAndCancel(e);
-                    return;
-                }
-
                 if (linkedMgrPos != null) {
                     TileEntity mte = world.getTileEntity(linkedMgrPos);
                     if (mte instanceof TileMirrorManager) {
@@ -435,22 +403,6 @@ public class BellLinkingHandler {
                 // Идемпотентность: уже привязан к этому же менеджеру
                 if (linkedMgrPos != null && linkedMgrPos.equals(req.getManagerPos())) {
                     msgChat(player, "§aLinked");
-                    denyAndCancel(e);
-                    return;
-                }
-
-                // Отвязка: Shift+ПКМ без выбранного менеджера
-                if (sneaking && req.getManagerPos() != null && linkedMgrPos == null) {
-                    BlockPos oldMgr = req.getManagerPos();
-                    req.setManagerPos(null);
-                    if (oldMgr != null) {
-                        TileEntity mte = world.getTileEntity(oldMgr);
-                        if (mte instanceof TileMirrorManager) {
-                            ((TileMirrorManager) mte).unbind(req.getPos());
-                            ((TileMirrorManager) mte).unregisterRequester(req.getPos());
-                        }
-                    }
-                    msgChat(player, "§cNot Linked");
                     denyAndCancel(e);
                     return;
                 }
@@ -513,21 +465,6 @@ public class BellLinkingHandler {
                     return;
                 }
 
-                if (sneaking && req.getManagerPos() != null && linkedMgrPos == null) {
-                    BlockPos oldMgr = req.getManagerPos();
-                    req.setManagerPos(null);
-                    if (oldMgr != null) {
-                        TileEntity mte = world.getTileEntity(oldMgr);
-                        if (mte instanceof TileMirrorManager) {
-                            ((TileMirrorManager) mte).unbind(req.getPos());
-                            ((TileMirrorManager) mte).unregisterRequester(req.getPos());
-                        }
-                    }
-                    msgChat(player, "§cNot Linked");
-                    denyAndCancel(e);
-                    return;
-                }
-
                 if (linkedMgrPos != null) {
                     TileEntity mte = world.getTileEntity(linkedMgrPos);
                     if (mte instanceof TileMirrorManager) {
@@ -580,20 +517,6 @@ public class BellLinkingHandler {
                     return;
                 }
 
-                if (sneaking && pedestal.getManagerPos() != null && linkedMgrPos == null) {
-                    BlockPos oldMgr = pedestal.getManagerPos();
-                    pedestal.setManagerPos(null);
-                    if (oldMgr != null) {
-                        TileEntity old = world.getTileEntity(oldMgr);
-                        if (old instanceof TileMirrorManager) {
-                            ((TileMirrorManager) old).unbind(pedestal.getPos());
-                        }
-                    }
-                    msgChat(player, "§cNot Linked");
-                    denyAndCancel(e);
-                    return;
-                }
-
                 if (linkedMgrPos != null) {
                     TileEntity mte = world.getTileEntity(linkedMgrPos);
                     if (mte instanceof TileMirrorManager) {
@@ -638,20 +561,6 @@ public class BellLinkingHandler {
                     return;
                 }
 
-                if (sneaking && hub.getManagerPos() != null && linkedMgrPos == null) {
-                    BlockPos oldMgr = hub.getManagerPos();
-                    hub.setManagerPos(null);
-                    if (oldMgr != null) {
-                        TileEntity old = world.getTileEntity(oldMgr);
-                        if (old instanceof TileMirrorManager) {
-                            ((TileMirrorManager) old).unbind(hub.getPos());
-                        }
-                    }
-                    msgChat(player, "§cNot Linked");
-                    denyAndCancel(e);
-                    return;
-                }
-
                 if (linkedMgrPos != null) {
                     TileEntity mte = world.getTileEntity(linkedMgrPos);
                     if (mte instanceof TileMirrorManager) {
@@ -677,20 +586,6 @@ public class BellLinkingHandler {
 
                 if (linkedMgrPos != null && linkedMgrPos.equals(planner.getManagerPos())) {
                     msgChat(player, "§aLinked");
-                    denyAndCancel(e);
-                    return;
-                }
-
-                if (sneaking && planner.getManagerPos() != null && linkedMgrPos == null) {
-                    BlockPos oldMgr = planner.getManagerPos();
-                    planner.setManagerPos(null);
-                    if (oldMgr != null) {
-                        TileEntity old = world.getTileEntity(oldMgr);
-                        if (old instanceof TileMirrorManager) {
-                            ((TileMirrorManager) old).unbind(planner.getPos());
-                        }
-                    }
-                    msgChat(player, "§cNot Linked");
                     denyAndCancel(e);
                     return;
                 }
