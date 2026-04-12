@@ -1462,6 +1462,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         int perCraftOut = 1;
         int remaining;
         int reserved;
+        int lastRequesterOutputCount = -1;
         @Nullable
         BlockPos requester;
 
@@ -1516,20 +1517,27 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     private static final class Batch {
         enum Kind {DELIVERY, CRAFT}
+        enum CraftOutputMode {DELIVER_TO_DEST, LEAVE_IN_REQUESTER}
 
         final Kind kind;
         final BlockPos dest;
         final int destSide;
         final int queueId;
+        final CraftOutputMode craftOutputMode;
         final List<Line> lines = new ArrayList<>();
         int index = 0;
         int seenTick = -1;
 
         Batch(Kind kind, BlockPos dest, int destSide, int queueId) {
+            this(kind, dest, destSide, queueId, CraftOutputMode.DELIVER_TO_DEST);
+        }
+
+        Batch(Kind kind, BlockPos dest, int destSide, int queueId, CraftOutputMode craftOutputMode) {
             this.kind = kind;
             this.dest = dest.toImmutable();
             this.destSide = destSide;
             this.queueId = queueId;
+            this.craftOutputMode = craftOutputMode;
         }
     }
 
@@ -1659,8 +1667,35 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return moved;
     }
 
+    private int countRequesterOutputLike(BlockPos requester, ItemStack like) {
+        if (world == null || requester == null || like == null || like.isEmpty()) return 0;
+        TileEntity cte = world.getTileEntity(requester.down());
+        if (!(cte instanceof TileEntityGolemCrafter)) return 0;
+        IItemHandler out = ((TileEntityGolemCrafter) cte).getOutputHandler();
+        if (out == null) return 0;
+        int total = 0;
+        for (int s = 0; s < out.getSlots(); s++) {
+            ItemStack cur = out.getStackInSlot(s);
+            if (cur.isEmpty()) continue;
+            boolean match = (like.getMaxStackSize() == 1)
+                    ? matchesForDelivery(cur, like)
+                    : (isCrystal(like)
+                    ? (isCrystal(cur) && crystalSame(cur, like))
+                    : ResourceIdentity.sameResource(cur, like));
+            if (match) total += cur.getCount();
+        }
+        return total;
+    }
+
     public void enqueueBatchCraft(BlockPos dest, int destSide, int queueId,
                                   List<Map.Entry<ItemKey, Integer>> moved, RequesterFinder finder) {
+        enqueueBatchCraft(dest, destSide, queueId, moved, finder, Batch.CraftOutputMode.DELIVER_TO_DEST);
+    }
+
+    private void enqueueBatchCraft(BlockPos dest, int destSide, int queueId,
+                                   List<Map.Entry<ItemKey, Integer>> moved,
+                                   RequesterFinder finder,
+                                   Batch.CraftOutputMode outputMode) {
         if (world == null || dest == null || moved == null || moved.isEmpty()) return;
 
         final int q = Math.max(0, Math.min(5, queueId));
@@ -1730,7 +1765,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     && rte instanceof TileInfusionRequester) {
                 TileInfusionRequester inf = (TileInfusionRequester) rte;
 
-                int accepted = inf.enqueueCrafterOrder(this.pos, dest, destSide, like1, amount);
+                BlockPos deliveryDest = (outputMode == Batch.CraftOutputMode.LEAVE_IN_REQUESTER) ? null : dest;
+                int accepted = inf.enqueueCrafterOrder(this.pos, deliveryDest, destSide, like1, amount);
                 if (accepted > 0) {
                     dropDupDelivery.accept(dest, like1);
                 }
@@ -1782,7 +1818,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
 
             // сам крафт-батч (только для обычных крафтеров)
-            Batch b = new Batch(Batch.Kind.CRAFT, dest, destSide, q);
+            Batch b = new Batch(Batch.Kind.CRAFT, dest, destSide, q, outputMode);
             b.lines.add(ln);
             craftBatches.add(b);
         }
@@ -1802,6 +1838,38 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         activeQueue = q;
         markDirty();
+    }
+
+    public int enqueuePedestalRestockCraft(BlockPos requesterPos, int slot, int items) {
+        if (world == null || world.isRemote || requesterPos == null || items <= 0 || slot < 0) return 0;
+        TileEntity te = world.getTileEntity(requesterPos);
+        if (!(te instanceof ITerminalOrderIconProvider)) return 0;
+        List<ItemStack> icons = ((ITerminalOrderIconProvider) te).listTerminalOrderIcons();
+        if (icons == null || icons.isEmpty()) return 0;
+        ItemStack requested = ItemStack.EMPTY;
+        for (ItemStack icon : icons) {
+            if (icon == null || icon.isEmpty()) continue;
+            BlockPos iconPos = TerminalOrderApi.getOrderIconPos(icon);
+            int iconSlot = TerminalOrderApi.getOrderIconSlot(icon);
+            if (iconPos == null || !iconPos.equals(requesterPos) || iconSlot != slot) continue;
+            requested = TerminalOrderApi.stripOrderIconData(icon);
+            break;
+        }
+        if (requested == null || requested.isEmpty()) return 0;
+        requested = requested.copy();
+        requested.setCount(1);
+
+        List<Map.Entry<ItemKey, Integer>> moved = new ArrayList<>(1);
+        moved.add(new AbstractMap.SimpleEntry<>(ItemKey.of(requested), Math.max(1, items)));
+
+        BlockPos bookkeepingDest = requesterPos.down();
+        ItemStack finalRequested = requested;
+        enqueueBatchCraft(
+                bookkeepingDest, -1, 1, moved,
+                key -> key.equals(ItemKey.of(finalRequested)) ? requesterPos : null,
+                Batch.CraftOutputMode.LEAVE_IN_REQUESTER
+        );
+        return Math.max(1, items);
     }
 
     @Nullable
@@ -2232,9 +2300,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private boolean processOneCraftLine(Batch b, Line ln) {
         if (ln.remaining <= 0) return true;
         if (ln.requester == null) return true;
+        boolean leaveInRequester = b.craftOutputMode == Batch.CraftOutputMode.LEAVE_IN_REQUESTER;
 
         final BlockPos rp = ln.requester;
-        harvestAnyFromCrafterOutput(rp);
+        if (!leaveInRequester) {
+            harvestAnyFromCrafterOutput(rp);
+        }
         final BlockPos crafterPos = rp.down();
         final TileEntity rte = world.getTileEntity(rp);
         final TileEntity cte = world.getTileEntity(crafterPos);
@@ -2246,8 +2317,21 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             ln.perCraftOut = perCraft;
         }
 
-        int movedFromCrafter = harvestLikeToBufferFromRequester(rp, ln.wanted1, ln.remaining);
-        if (movedFromCrafter > 0) {
+        if (leaveInRequester) {
+            int currentOutput = countRequesterOutputLike(rp, ln.wanted1);
+            if (ln.lastRequesterOutputCount < 0) {
+                ln.lastRequesterOutputCount = currentOutput;
+            } else if (currentOutput > ln.lastRequesterOutputCount) {
+                int grown = currentOutput - ln.lastRequesterOutputCount;
+                ln.remaining = Math.max(0, ln.remaining - grown);
+                ln.lastRequesterOutputCount = currentOutput;
+                if (ln.remaining <= 0) return true;
+            } else {
+                ln.lastRequesterOutputCount = currentOutput;
+            }
+        } else {
+            int movedFromCrafter = harvestLikeToBufferFromRequester(rp, ln.wanted1, ln.remaining);
+            if (movedFromCrafter > 0) {
             if (perCraft > 0) {
                 int craftsDone = (movedFromCrafter + perCraft - 1) / perCraft;
                 if (ln.craftsScheduled > 0) {
@@ -2263,12 +2347,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 if (ln.remaining <= 0) return true;
             }
         }
+        }
 
-        int bufferedOut = countInBufferLike(ln.wanted1);
+        int bufferedOut = leaveInRequester ? 0 : countInBufferLike(ln.wanted1);
         int remainingAfterBuffer = Math.max(0, ln.remaining - bufferedOut);
 
         int craftsNeeded = (remainingAfterBuffer + perCraft - 1) / perCraft;
-        if (craftsNeeded <= 0) {
+        if (craftsNeeded <= 0 && !leaveInRequester) {
             int pushed = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining, DeliveryAnimMode.MIRROR_MANAGER_MIRROR);
             if (pushed > 0) {
                 ln.remaining -= pushed;
@@ -2361,7 +2446,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
 
             // Сколько ещё единиц надо ПОСЛЕ учёта буфера
-            int bufferedOut2 = countInBufferLike(ln.wanted1);
+            int bufferedOut2 = leaveInRequester ? 0 : countInBufferLike(ln.wanted1);
             int remainingAfterBuffer2 = Math.max(0, ln.remaining - bufferedOut2);
 
             // Сколько циклов реально нужно, исходя из «остатка после буфера»
@@ -2382,11 +2467,13 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
         // ... и уже после этого пробуем ещё раз добросить готовое в адресата:
-        int pushed2 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining, DeliveryAnimMode.MIRROR_MANAGER_MIRROR);
-        if (pushed2 > 0) {
-            ln.remaining -= pushed2;
-            lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
-            if (ln.remaining <= 0) return true;
+        if (!leaveInRequester) {
+            int pushed2 = pushFromBufferTo(b.dest, b.destSide, ln.wanted1, ln.remaining, DeliveryAnimMode.MIRROR_MANAGER_MIRROR);
+            if (pushed2 > 0) {
+                ln.remaining -= pushed2;
+                lastProgressTick.put(ItemKey.of(ln.wanted1), tickCounter);
+                if (ln.remaining <= 0) return true;
+            }
         }
         return false;
 
@@ -2401,7 +2488,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             popBatch(b);
             return;
         }
-        if (!hasItemCapAt(b.dest, b.destSide)) {
+        if (b.kind == Batch.Kind.DELIVERY && !hasItemCapAt(b.dest, b.destSide)) {
             popBatch(b);
             return;
         }

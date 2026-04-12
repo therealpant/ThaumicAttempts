@@ -413,8 +413,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         return enqueueFromPatternRequester(slot, times);
     }
 
-    public int enqueueCrafterOrder(@Nullable BlockPos managerPos, BlockPos dest, int destSide, ItemStack resultLike, int items) {
-        if (dest == null || resultLike == null || resultLike.isEmpty() || items <= 0) return 0;
+    public int enqueueCrafterOrder(@Nullable BlockPos managerPos, @Nullable BlockPos dest, int destSide, ItemStack resultLike, int items) {
+        if (resultLike == null || resultLike.isEmpty() || items <= 0) return 0;
 
         int slot = findPatternSlotFor(resultLike);
         if (slot < 0) return 0;

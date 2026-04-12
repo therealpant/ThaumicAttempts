@@ -547,11 +547,11 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
     }
 
     private int enqueueTrigger(int slot, int count) {
-        if (slot < 0 || slot >= patterns.getSlots()) return slot;
-        if (count <= 0) return slot;
+        if (slot < 0 || slot >= patterns.getSlots()) return 0;
+        if (count <= 0) return 0;
 
         int freeSlots = MAX_QUEUED_ORDERS - getQueuedOrderCount();
-        if (freeSlots <= 0) return slot;
+        if (freeSlots <= 0) return 0;
 
         int toEnqueue = Math.min(count, freeSlots);
 
@@ -572,7 +572,7 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         if (changed) {
             markDirtyAndSync();
         }
-        return slot;
+        return toEnqueue;
     }
 
     private int getQueuedOrderCount() {
