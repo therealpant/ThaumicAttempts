@@ -264,15 +264,15 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         TileMirrorManager manager = (TileMirrorManager) te;
         int available = Math.max(0, manager.getAvailableCountFor(requested));
 
-        int cap = Math.max(1, counter) * Math.max(1, getMultiplier());
-        int missing = Math.max(0, cap - available);
-        if (missing <= 0) return;
+        int cap = getThreshold();
+        if (available >= cap) return;
         if (manager.getActiveOrdersForConsumer(this.pos) > 0) return;
 
         long now = world.getTotalWorldTime();
         if (now < nextRetryTick) return;
 
-        int accepted = trySubmitRestockOrder(missing);
+        int orderItems = Math.max(1, counter);
+        int accepted = trySubmitRestockOrder(orderItems);
         if (accepted > 0) {
             nextRetryTick = now + 40L;
             markDirtyAndSync();
@@ -289,7 +289,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
                 pedestalItem,
                 items,
                 managerPos,
-                this.pos,
+                null,
                 -1
         );
     }
