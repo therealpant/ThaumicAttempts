@@ -472,7 +472,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         int signal = readSignal();
         if (signal != lastSignal) {
             logDebug("Redstone changed {} -> {}", lastSignal, signal);
-            if (signal > 0) {
+            // При подключении к MirrorManager redstone-запуски отключены.
+            if (!useManagerForProvision() && signal > 0) {
                 int slot = patternIndexFromSignal(signal);
                 if (slot >= 0) {
                     submitAutomationOrder(slot, 1, managerPos, null, -1);

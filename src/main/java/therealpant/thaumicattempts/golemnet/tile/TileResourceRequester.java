@@ -186,7 +186,9 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
 
         int signal = readSignal();
         if (signal != lastSignal) {
-            if (signal > 0) {
+            // Для реквестера, подключённого к MirrorManager через PatternRequester,
+            // redstone-запуски отключены: запуск только через manager/terminal flow.
+            if (!useManagerForProvision() && signal > 0) {
                 int idx = patternIndexFromSignal(signal);
                 if (idx >= 0) {
                     submitAutomationOrder(idx, 1, managerPos, null, -1);

@@ -680,8 +680,10 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             tryStartNextRequesterJob();
         }
 
-        // Триггер по редстоуну принимаем на крафтере, но маршрутизируем в общий requester entrypoint.
-        if (lastSignal == 0 && signal > 0) {
+        // Триггер по редстоуну работает только в standalone-режиме.
+        // Если крафтер подключён к MirrorManager (через PatternRequester сверху),
+        // redstone-заказы отключены: крафт запускается только через manager/терминал.
+        if (!useManagerForProvision() && lastSignal == 0 && signal > 0) {
             TileEntity above = world.getTileEntity(pos.up());
             if (above instanceof IAutomationOrderAcceptor) {
                 int idx = choosePatternIndexForSignal(signal);
