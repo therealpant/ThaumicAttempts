@@ -132,7 +132,9 @@ public class RenderRevisionPiedestalGeo extends GeoBlockRenderer<TileRevisionPie
 
         FontRenderer font = mc.fontRenderer;
         RenderManager rm = mc.getRenderManager();
-        String text = te.getCounter() + "x" + te.getMultiplier();
+        String text = te.isActive()
+                ? te.getCounter() + "x" + te.getMultiplier()
+                : Integer.toString(te.getCounter());
 
         GlStateManager.pushMatrix();
         try {
