@@ -226,9 +226,14 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         TileEntityGolemCrafter crafter = getCrafterBelow();
         if (crafter == null) return 0;
 
-        int crafts = Math.max(1, items);
         ItemStack resultLike = getResultLikeForPatternIndex(slot);
-        if (!resultLike.isEmpty() && managerPos != null) {
+        if (resultLike.isEmpty()) return 0;
+
+        int perCraft = Math.max(1, resultLike.getCount());
+        int crafts = (items + perCraft - 1) / perCraft;
+        if (crafts <= 0) return 0;
+
+        if (managerPos != null) {
             TileEntity te = world.getTileEntity(managerPos);
             if (te instanceof TileMirrorManager) {
                 List<ItemStack> needList = getRecipeInputsFor(resultLike, crafts);
@@ -245,7 +250,9 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
             }
         }
 
-        return crafter.enqueueFromPatternRequester(slot, crafts);
+        int acceptedCrafts = crafter.enqueueFromPatternRequester(slot, crafts);
+        if (acceptedCrafts <= 0) return 0;
+        return Math.max(1, acceptedCrafts * perCraft);
     }
 
     private ItemStack getResultLikeForPatternIndex(int idx) {

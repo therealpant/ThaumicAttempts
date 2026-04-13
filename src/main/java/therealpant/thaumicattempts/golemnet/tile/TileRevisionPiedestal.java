@@ -38,6 +38,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     private static final String TAG_MANAGER_POS = "ManagerPos";
     private static final String TAG_NEXT_RETRY_TICK = "NextRetryTick";
     private static final String TAG_LAST_ORDER_AVAILABLE = "LastOrderAvailable";
+    private static final String TAG_AWAITING_ORDER_COMPLETION = "AwaitingOrderCompletion";
 
     private final AnimationFactory factory = new AnimationFactory(this);
     private boolean active = true;
@@ -47,6 +48,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     private int tickAccumulator = 0;
     private long nextRetryTick = 0L;
     private int lastOrderAvailable = -1;
+    private boolean awaitingOrderCompletion = false;
     @Nullable
     private BlockPos managerPos = null;
 
@@ -168,6 +170,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     private void resetOrderTracking() {
         nextRetryTick = 0L;
         lastOrderAvailable = -1;
+        awaitingOrderCompletion = false;
     }
 
     private void markDirtyAndSync() {
@@ -211,6 +214,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         managerPos = compound.hasKey(TAG_MANAGER_POS) ? BlockPos.fromLong(compound.getLong(TAG_MANAGER_POS)) : null;
         nextRetryTick = compound.getLong(TAG_NEXT_RETRY_TICK);
         lastOrderAvailable = compound.hasKey(TAG_LAST_ORDER_AVAILABLE) ? compound.getInteger(TAG_LAST_ORDER_AVAILABLE) : -1;
+        awaitingOrderCompletion = compound.getBoolean(TAG_AWAITING_ORDER_COMPLETION);
     }
 
     @Override
@@ -229,6 +233,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         if (lastOrderAvailable >= 0) {
             compound.setInteger(TAG_LAST_ORDER_AVAILABLE, lastOrderAvailable);
         }
+        compound.setBoolean(TAG_AWAITING_ORDER_COMPLETION, awaitingOrderCompletion);
         return compound;
     }
 
@@ -279,14 +284,27 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             return;
         }
 
-        if (manager.getActiveOrdersForConsumer(this.pos) > 0) return;
-
         long now = world.getTotalWorldTime();
-        if (now < nextRetryTick) return;
 
-        if (lastOrderAvailable >= 0 && available > lastOrderAvailable) {
+        if (awaitingOrderCompletion) {
+            if (manager.getActiveOrdersForConsumer(this.pos) > 0) return;
+
+            boolean craftedSuccessfully = lastOrderAvailable >= 0 && available > lastOrderAvailable;
+            awaitingOrderCompletion = false;
             lastOrderAvailable = -1;
+
+            if (craftedSuccessfully) {
+                nextRetryTick = now + 100L; // 5 секунд после подтверждённого завершения крафта
+                markDirtyAndSync();
+            } else {
+                nextRetryTick = now + 40L;
+                markDirty();
+            }
+            return;
         }
+
+        if (manager.getActiveOrdersForConsumer(this.pos) > 0) return;
+        if (now < nextRetryTick) return;
 
         int deficit = Math.max(1, cap - available);
         int orderBatch = Math.max(1, Math.min(counter, deficit));
@@ -294,7 +312,8 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         int accepted = trySubmitRestockOrder(orderBatch);
         if (accepted > 0) {
             lastOrderAvailable = available;
-            nextRetryTick = now + 80L;
+            awaitingOrderCompletion = true;
+            nextRetryTick = 0L;
             markDirtyAndSync();
         } else {
             nextRetryTick = now + 200L;
@@ -307,6 +326,18 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         ItemStack orderIcon = resolveOrderIconForCurrentItem();
         if (orderIcon.isEmpty()) return 0;
 
+        BlockPos targetPos = TerminalOrderApi.getOrderIconPos(orderIcon);
+        int slot = TerminalOrderApi.getOrderIconSlot(orderIcon);
+        if (targetPos == null || slot < 0) return 0;
+
+        if (managerPos != null) {
+            TileEntity managerTe = world.getTileEntity(managerPos);
+            if (managerTe instanceof TileMirrorManager) {
+                int accepted = ((TileMirrorManager) managerTe).enqueuePedestalRestockCraft(targetPos, slot, items);
+                if (accepted > 0) return accepted;
+            }
+        }
+
         int accepted = AutomationOrderSubmitHelper.submitAutomationOrderByIcon(
                 world,
                 orderIcon,
@@ -316,10 +347,6 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
                 -1
         );
         if (accepted > 0) return accepted;
-
-        BlockPos targetPos = TerminalOrderApi.getOrderIconPos(orderIcon);
-        int slot = TerminalOrderApi.getOrderIconSlot(orderIcon);
-        if (targetPos == null || slot < 0) return 0;
 
         TileEntity te = world.getTileEntity(targetPos);
         if (!(te instanceof ITerminalOrderAcceptor)) return 0;
