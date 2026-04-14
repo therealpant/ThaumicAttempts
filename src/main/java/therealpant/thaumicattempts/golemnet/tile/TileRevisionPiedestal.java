@@ -25,6 +25,7 @@ import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import therealpant.thaumicattempts.api.AutomationOrderSubmitHelper;
+import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
@@ -399,6 +400,13 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         if (items <= 0 || pedestalItem.isEmpty() || world == null) return 0;
         ItemStack orderIcon = resolveOrderIconForCurrentItem();
         if (orderIcon.isEmpty()) return 0;
+        ItemStack resultLike = TerminalOrderApi.stripOrderIconData(orderIcon);
+        if (resultLike == null || resultLike.isEmpty()) {
+            resultLike = requested;
+        }
+        if (resultLike == null || resultLike.isEmpty()) return 0;
+        ItemStack pendingLike = resultLike.copy();
+        pendingLike.setCount(1);
 
         BlockPos targetPos = TerminalOrderApi.getOrderIconPos(orderIcon);
         int slot = TerminalOrderApi.getOrderIconSlot(orderIcon);
@@ -413,16 +421,17 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
                 -1
         );
         if (accepted > 0) {
-            pendingCraft.merge(therealpant.thaumicattempts.util.ItemKey.of(requested), accepted, Integer::sum);
+            pendingCraft.merge(therealpant.thaumicattempts.util.ItemKey.of(pendingLike), accepted, Integer::sum);
             return accepted;
         }
 
         TileEntity te = world.getTileEntity(targetPos);
         if (!(te instanceof ITerminalOrderAcceptor)) return 0;
 
+        // Fallback оставляем только как "best effort", но не считаем его
+        // подтверждённым automation-заказом (иначе pending/awaiting зависают).
         ((ITerminalOrderAcceptor) te).triggerFromTerminal(slot, items);
-        pendingCraft.merge(therealpant.thaumicattempts.util.ItemKey.of(requested), Math.max(1, items), Integer::sum);
-        return Math.max(1, items);
+        return 0;
     }
 
     public void beginManagerBufferInsert() { suppressOutputReconcileDepth++; }
@@ -536,6 +545,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         ItemStack requested = getRequestedItem();
         if (requested.isEmpty()) return ItemStack.EMPTY;
 
+        ItemStack fallback = ItemStack.EMPTY;
         for (BlockPos requesterPos : ((TileMirrorManager) managerTe).getRequestersSnapshot()) {
             TileEntity requesterTe = world.getTileEntity(requesterPos);
             if (!(requesterTe instanceof ITerminalOrderIconProvider)) continue;
@@ -550,11 +560,23 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
                 if (!ResourceIdentity.sameResource(preview, requested)) continue;
                 ItemStack one = icon.copy();
                 one.setCount(1);
-                return one;
+                BlockPos targetPos = TerminalOrderApi.getOrderIconPos(one);
+                TileEntity targetTe = (targetPos == null) ? null : world.getTileEntity(targetPos);
+
+                // Приоритет: endpoint, умеющий automation (как в terminal-flow).
+                if (targetTe instanceof therealpant.thaumicattempts.api.IAutomationOrderAcceptor
+                        && targetTe instanceof therealpant.thaumicattempts.api.ICraftEndpoint
+                        && CraftOrderApi.isCrafter((therealpant.thaumicattempts.api.ICraftEndpoint) targetTe)) {
+                    return one;
+                }
+
+                if (fallback.isEmpty()) {
+                    fallback = one;
+                }
             }
         }
 
-        return ItemStack.EMPTY;
+        return fallback;
     }
 
     @Override
