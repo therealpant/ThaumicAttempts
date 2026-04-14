@@ -13,6 +13,7 @@ import net.minecraft.util.EnumHand;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.block.Block;
 import net.minecraft.block.state.IBlockState;
+import net.minecraftforge.items.ItemStackHandler;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.items.IItemHandler;
 import thaumcraft.api.blocks.BlocksTC;
@@ -27,12 +28,13 @@ import therealpant.thaumicattempts.api.AutomationOrderSubmitHelper;
 import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
-import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
 
 import javax.annotation.Nullable;
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 public class TileRevisionPiedestal extends TileEntity implements IAnimatable, ITickable {
 
@@ -43,14 +45,16 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     private static final String TAG_NEXT_RETRY_TICK = "NextRetryTick";
     private static final String TAG_LAST_ORDER_AVAILABLE = "LastOrderAvailable";
     private static final String TAG_AWAITING_ORDER_COMPLETION = "AwaitingOrderCompletion";
+    private static final String TAG_OUTPUT = "Output";
+    private static final String TAG_PENDING_CRAFT = "PendingCraft";
+    private static final String TAG_SUPPRESS_RECONCILE_DEPTH = "SuppressReconcileDepth";
+    private static final long RETRY_DELAY_TICKS = 200L;
+    private static final long SUCCESS_COOLDOWN_TICKS = 100L;
 
     private final AnimationFactory factory = new AnimationFactory(this);
     private boolean active = true;
     private ItemStack pedestalItem = ItemStack.EMPTY;
     private static final String TAG_LAST_REDSTONE_POWERED = "LastRedstonePowered";
-    private static final String TAG_ORDER_TARGET_POS = "OrderTargetPos";
-    private static final String TAG_ORDER_TARGET_SLOT = "OrderTargetSlot";
-    private static final String TAG_ORDER_TARGET_BASELINE = "OrderTargetBaseline";
     private int counter = 1;
     private int outSignal = 0;
     private int tickAccumulator = 0;
@@ -59,11 +63,33 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     private boolean awaitingOrderCompletion = false;
     private boolean lastRedstonePowered = false;
     @Nullable
-    private BlockPos orderTargetPos = null;
-    private int orderTargetSlot = -1;
-    private int orderTargetBaseline = -1;
-    @Nullable
     private BlockPos managerPos = null;
+    private int suppressOutputReconcileDepth = 0;
+    private final LinkedHashMap<therealpant.thaumicattempts.util.ItemKey, Integer> pendingCraft = new LinkedHashMap<>();
+    private final ItemStackHandler output = new ItemStackHandler(9) {
+        @Override
+        protected void onContentsChanged(int slot) {
+            markDirty();
+            if (world != null && !world.isRemote) {
+                if (suppressOutputReconcileDepth <= 0) {
+                    reconcilePendingByOutputInstant();
+                }
+                world.notifyBlockUpdate(pos, world.getBlockState(pos), world.getBlockState(pos), 3);
+            }
+        }
+    };
+    private final IItemHandler extractOnlyDown = new IItemHandler() {
+        @Override
+        public int getSlots() { return output.getSlots(); }
+        @Override
+        public ItemStack getStackInSlot(int slot) { return output.getStackInSlot(slot); }
+        @Override
+        public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) { return stack; }
+        @Override
+        public ItemStack extractItem(int slot, int amount, boolean simulate) { return output.extractItem(slot, amount, simulate); }
+        @Override
+        public int getSlotLimit(int slot) { return output.getSlotLimit(slot); }
+    };
 
     public boolean isActive() {
         return active;
@@ -172,9 +198,18 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     }
 
     public void dropContents() {
-        if (world == null || world.isRemote || pedestalItem.isEmpty()) return;
-        InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), pedestalItem.copy());
-        pedestalItem = ItemStack.EMPTY;
+        if (world == null || world.isRemote) return;
+        if (!pedestalItem.isEmpty()) {
+            InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), pedestalItem.copy());
+            pedestalItem = ItemStack.EMPTY;
+        }
+        for (int i = 0; i < output.getSlots(); i++) {
+            ItemStack stack = output.getStackInSlot(i);
+            if (!stack.isEmpty()) {
+                InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), stack.copy());
+                output.setStackInSlot(i, ItemStack.EMPTY);
+            }
+        }
         resetOrderTracking();
         recalcSignalAndNotify(true);
         markDirty();
@@ -184,9 +219,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         nextRetryTick = 0L;
         lastOrderAvailable = -1;
         awaitingOrderCompletion = false;
-        orderTargetPos = null;
-        orderTargetSlot = -1;
-        orderTargetBaseline = -1;
+        pendingCraft.clear();
     }
 
     private void markDirtyAndSync() {
@@ -226,15 +259,17 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         if (counter < 1) counter = 1;
         if (counter > 16) counter = 16;
         pedestalItem = compound.hasKey(TAG_ITEM) ? new ItemStack(compound.getCompoundTag(TAG_ITEM)) : ItemStack.EMPTY;
+        if (compound.hasKey(TAG_OUTPUT)) {
+            output.deserializeNBT(compound.getCompoundTag(TAG_OUTPUT));
+        }
         outSignal = Math.max(0, Math.min(15, compound.getInteger("OutSignal")));
         managerPos = compound.hasKey(TAG_MANAGER_POS) ? BlockPos.fromLong(compound.getLong(TAG_MANAGER_POS)) : null;
         nextRetryTick = compound.getLong(TAG_NEXT_RETRY_TICK);
         lastOrderAvailable = compound.hasKey(TAG_LAST_ORDER_AVAILABLE) ? compound.getInteger(TAG_LAST_ORDER_AVAILABLE) : -1;
         awaitingOrderCompletion = compound.getBoolean(TAG_AWAITING_ORDER_COMPLETION);
         lastRedstonePowered = compound.getBoolean(TAG_LAST_REDSTONE_POWERED);
-        orderTargetPos = compound.hasKey(TAG_ORDER_TARGET_POS) ? BlockPos.fromLong(compound.getLong(TAG_ORDER_TARGET_POS)) : null;
-        orderTargetSlot = compound.hasKey(TAG_ORDER_TARGET_SLOT) ? compound.getInteger(TAG_ORDER_TARGET_SLOT) : -1;
-        orderTargetBaseline = compound.hasKey(TAG_ORDER_TARGET_BASELINE) ? compound.getInteger(TAG_ORDER_TARGET_BASELINE) : -1;
+        suppressOutputReconcileDepth = Math.max(0, compound.getInteger(TAG_SUPPRESS_RECONCILE_DEPTH));
+        readPendingMap(compound, TAG_PENDING_CRAFT, pendingCraft);
     }
 
     @Override
@@ -246,6 +281,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         if (!pedestalItem.isEmpty()) {
             compound.setTag(TAG_ITEM, pedestalItem.writeToNBT(new NBTTagCompound()));
         }
+        compound.setTag(TAG_OUTPUT, output.serializeNBT());
         if (managerPos != null) {
             compound.setLong(TAG_MANAGER_POS, managerPos.toLong());
         }
@@ -255,15 +291,8 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         }
         compound.setBoolean(TAG_AWAITING_ORDER_COMPLETION, awaitingOrderCompletion);
         compound.setBoolean(TAG_LAST_REDSTONE_POWERED, lastRedstonePowered);
-        if (orderTargetPos != null) {
-            compound.setLong(TAG_ORDER_TARGET_POS, orderTargetPos.toLong());
-        }
-        if (orderTargetSlot >= 0) {
-            compound.setInteger(TAG_ORDER_TARGET_SLOT, orderTargetSlot);
-        }
-        if (orderTargetBaseline >= 0) {
-            compound.setInteger(TAG_ORDER_TARGET_BASELINE, orderTargetBaseline);
-        }
+        compound.setInteger(TAG_SUPPRESS_RECONCILE_DEPTH, Math.max(0, suppressOutputReconcileDepth));
+        writePendingMap(compound, TAG_PENDING_CRAFT, pendingCraft);
         return compound;
     }
 
@@ -321,13 +350,15 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         long now = world.getTotalWorldTime();
 
         if (awaitingOrderCompletion) {
-            if (isOrderCraftCompleted(requested)) {
-                awaitingOrderCompletion = false;
-                lastOrderAvailable = -1;
-                nextRetryTick = now + 100L;
-                orderTargetPos = null;
-                orderTargetSlot = -1;
-                orderTargetBaseline = -1;// 5 секунд после подтверждённого завершения крафта
+            reconcilePendingByOutputInstant();
+            if (pendingCraft.isEmpty()) {
+                if (isOutputEmpty()) {
+                    awaitingOrderCompletion = false;
+                    lastOrderAvailable = -1;
+                    nextRetryTick = now + SUCCESS_COOLDOWN_TICKS;
+                    markDirtyAndSync();
+                }
+            } else {
                 markDirtyAndSync();
             }
             lastRedstonePowered = powered;
@@ -339,7 +370,14 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             return;
         }
 
-        if (now < nextRetryTick) return;
+        if (now < nextRetryTick) {
+            lastRedstonePowered = powered;
+            return;
+        }
+        if (!isOutputEmpty()) {
+            lastRedstonePowered = powered;
+            return;
+        }
 
         int deficit = Math.max(1, cap - available);
         int orderBatch = Math.max(1, Math.min(counter, deficit));
@@ -351,7 +389,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             nextRetryTick = 0L;
             markDirtyAndSync();
         } else {
-            nextRetryTick = now + 200L;
+            nextRetryTick = now + RETRY_DELAY_TICKS;
             markDirty();
         }
         lastRedstonePowered = powered;
@@ -375,9 +413,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
                 -1
         );
         if (accepted > 0) {
-            orderTargetPos = targetPos.toImmutable();
-            orderTargetSlot = slot;
-            orderTargetBaseline = countCraftOutputForTarget(targetPos, slot, requested);
+            pendingCraft.merge(therealpant.thaumicattempts.util.ItemKey.of(requested), accepted, Integer::sum);
             return accepted;
         }
 
@@ -385,43 +421,56 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         if (!(te instanceof ITerminalOrderAcceptor)) return 0;
 
         ((ITerminalOrderAcceptor) te).triggerFromTerminal(slot, items);
-        orderTargetPos = targetPos.toImmutable();
-        orderTargetSlot = slot;
-        orderTargetBaseline = countCraftOutputForTarget(targetPos, slot, requested);
+        pendingCraft.merge(therealpant.thaumicattempts.util.ItemKey.of(requested), Math.max(1, items), Integer::sum);
         return Math.max(1, items);
     }
 
-    private boolean isOrderCraftCompleted(ItemStack requested) {
-        if (requested.isEmpty() || orderTargetPos == null || orderTargetSlot < 0 || orderTargetBaseline < 0) return false;
-        return countCraftOutputForTarget(orderTargetPos, orderTargetSlot, requested) > orderTargetBaseline;
+    public void beginManagerBufferInsert() { suppressOutputReconcileDepth++; }
+    public void endManagerBufferInsert() { if (suppressOutputReconcileDepth > 0) suppressOutputReconcileDepth--; }
+
+    public void onDelivered(ItemStack like, int count) {
+        if (like == null || like.isEmpty() || count <= 0 || pendingCraft.isEmpty()) return;
+        therealpant.thaumicattempts.util.ItemKey key = findMatchingKeyRelaxed(pendingCraft, like);
+        if (key == null) return;
+        int have = Math.max(0, pendingCraft.getOrDefault(key, 0));
+        int take = Math.min(have, count);
+        int left = have - take;
+        if (left <= 0) pendingCraft.remove(key); else pendingCraft.put(key, left);
+        markDirty();
     }
 
-    private int countCraftOutputForTarget(BlockPos targetPos, int slot, ItemStack requested) {
-        if (world == null || targetPos == null || requested.isEmpty()) return 0;
+    private boolean isOutputEmpty() {
+        for (int i = 0; i < output.getSlots(); i++) {
+            if (!output.getStackInSlot(i).isEmpty()) return false;
+        }
+        return true;
+    }
 
-        TileEntity targetTe = world.getTileEntity(targetPos);
-        if (targetTe instanceof TilePatternRequester) {
-            TileEntity below = world.getTileEntity(targetPos.down());
-            if (below instanceof TileEntityGolemCrafter) {
-                return countLikeInHandler(((TileEntityGolemCrafter) below).getOutputHandler(), requested);
-            }
+    private void reconcilePendingByOutputInstant() {
+        if (pendingCraft.isEmpty()) return;
+        Map<therealpant.thaumicattempts.util.ItemKey, Integer> updates = new LinkedHashMap<>();
+        boolean changed = false;
+        for (Map.Entry<therealpant.thaumicattempts.util.ItemKey, Integer> e : pendingCraft.entrySet()) {
+            int have = countLikeInHandler(output, e.getKey().toStack(1));
+            int left = Math.max(0, e.getValue() - have);
+            if (left > 0) updates.put(e.getKey(), left);
+            if (left != e.getValue()) changed = true;
         }
-        if (targetTe instanceof TileResourceRequester) {
-            return countLikeInHandler(((TileResourceRequester) targetTe).getBufferHandler(), requested);
+        if (changed) {
+            pendingCraft.clear();
+            pendingCraft.putAll(updates);
+            markDirty();
         }
-        if (targetTe instanceof TileInfusionRequester) {
-            return countLikeInHandler(((TileInfusionRequester) targetTe).getResultHandler(), requested);
+    }
+    @Nullable
+    private therealpant.thaumicattempts.util.ItemKey findMatchingKeyRelaxed(Map<therealpant.thaumicattempts.util.ItemKey, Integer> map, ItemStack like) {
+        if (like == null || like.isEmpty() || map == null || map.isEmpty()) return null;
+        therealpant.thaumicattempts.util.ItemKey exact = therealpant.thaumicattempts.util.ItemKey.of(like);
+        if (map.containsKey(exact)) return exact;
+        for (therealpant.thaumicattempts.util.ItemKey k : map.keySet()) {
+            if (ResourceIdentity.sameResource(k.toStack(1), like)) return k;
         }
-
-        int byCapability = countLikeInHandler(targetTe != null ? targetTe.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, null) : null, requested);
-        if (byCapability > 0) return byCapability;
-
-        int best = 0;
-        for (EnumFacing facing : EnumFacing.values()) {
-            IItemHandler side = targetTe == null ? null : targetTe.getCapability(CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, facing);
-            best = Math.max(best, countLikeInHandler(side, requested));
-        }
-        return best;
+        return null;
     }
 
     private int countLikeInHandler(@Nullable IItemHandler handler, ItemStack like) {
@@ -435,6 +484,45 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             }
         }
         return count;
+    }
+
+    private static void writePendingMap(NBTTagCompound to, String key, Map<therealpant.thaumicattempts.util.ItemKey, Integer> map) {
+        net.minecraft.nbt.NBTTagList list = new net.minecraft.nbt.NBTTagList();
+        for (Map.Entry<therealpant.thaumicattempts.util.ItemKey, Integer> e : map.entrySet()) {
+            NBTTagCompound tag = new NBTTagCompound();
+            tag.setTag("k", e.getKey().toStack(1).writeToNBT(new NBTTagCompound()));
+            tag.setInteger("c", Math.max(1, e.getValue()));
+            list.appendTag(tag);
+        }
+        to.setTag(key, list);
+    }
+
+    private static void readPendingMap(NBTTagCompound from, String key, Map<therealpant.thaumicattempts.util.ItemKey, Integer> out) {
+        out.clear();
+        if (!from.hasKey(key)) return;
+        net.minecraft.nbt.NBTTagList list = from.getTagList(key, 10);
+        for (int i = 0; i < list.tagCount(); i++) {
+            NBTTagCompound tag = list.getCompoundTagAt(i);
+            ItemStack stack = new ItemStack(tag.getCompoundTag("k"));
+            if (stack.isEmpty()) continue;
+            out.put(therealpant.thaumicattempts.util.ItemKey.of(stack), Math.max(1, tag.getInteger("c")));
+        }
+    }
+
+    @Override
+    public boolean hasCapability(net.minecraftforge.common.capabilities.Capability<?> capability, @Nullable EnumFacing facing) {
+        if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) return true;
+        return super.hasCapability(capability, facing);
+    }
+
+    @Override
+    @SuppressWarnings("unchecked")
+    public <T> T getCapability(net.minecraftforge.common.capabilities.Capability<T> capability, @Nullable EnumFacing facing) {
+        if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) {
+            if (facing == EnumFacing.DOWN) return (T) extractOnlyDown;
+            return (T) output;
+        }
+        return super.getCapability(capability, facing);
     }
 
     private ItemStack resolveOrderIconForCurrentItem() {

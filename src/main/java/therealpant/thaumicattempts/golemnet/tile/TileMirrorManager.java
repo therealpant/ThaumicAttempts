@@ -1980,6 +1980,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (dest == null) return 0;
         TileEntity te = world.getTileEntity(destPos);
         TileOrderTerminal term = (te instanceof TileOrderTerminal) ? (TileOrderTerminal) te : null;
+        TileRevisionPiedestal rev = (te instanceof TileRevisionPiedestal) ? (TileRevisionPiedestal) te : null;
 
         // 1) Сначала — сколько адресат реально готов принять
         int cap = simulateAccept(dest, like, upTo);
@@ -1987,6 +1988,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         int left = cap, moved = 0;
         if (term != null) term.beginManagerBufferInsert();
+        if (rev != null) rev.beginManagerBufferInsert();
         try {
             // 2) Теперь извлекаем из буфера не больше, чем "cap"
             while (left > 0) {
@@ -2013,12 +2015,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         } finally {
                 if (term != null) term.endManagerBufferInsert();
+                if (rev != null) rev.endManagerBufferInsert();
         }
 
         if (moved > 0) {
             if (te != null) te.markDirty();
             this.markDirty();
             if (term != null) term.onDelivered(like, moved);
+            if (rev != null) rev.onDelivered(like, moved);
         }
         return moved;
     }
