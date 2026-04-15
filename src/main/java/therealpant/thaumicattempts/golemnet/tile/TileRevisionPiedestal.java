@@ -24,8 +24,6 @@ import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
-import therealpant.thaumicattempts.api.CraftOrderApi;
-import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
@@ -34,7 +32,6 @@ import therealpant.thaumicattempts.util.ResourceIdentity;
 import javax.annotation.Nullable;
 import java.util.LinkedHashMap;
 import java.util.Collections;
-import java.util.List;
 import java.util.Map;
 
 public class TileRevisionPiedestal extends TileEntity implements IAnimatable, ITickable {
@@ -392,12 +389,17 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         int deficit = Math.max(1, cap - available);
         int orderBatch = Math.max(1, Math.min(counter, deficit));
 
-        // Сначала пытаемся резолвить терминальный order-icon для текущего ресурса.
-        // Это покрывает automation-endpoint'ы (у которых нет прямого craft endpoint),
-        // и выравнивает поведение с терминалом.
-        ItemStack requestStack = resolveOrderIconForCurrentItem();
+        ItemStack requestStack;
+        if (TerminalOrderApi.isOrderIcon(pedestalItem)) {
+            requestStack = pedestalItem.copy();
+        } else {
+            requestStack = TerminalStyleCraftSubmitHelper.resolveTerminalCraftIconForRequest(world, managerPos, requested);
+        }
         if (requestStack.isEmpty()) {
-            requestStack = requested.copy();
+            nextRetryTick = now + RETRY_DELAY_TICKS;
+            lastRedstonePowered = powered;
+            markDirty();
+            return;
         }
         requestStack.setCount(1);
 
@@ -410,7 +412,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
                         Collections.singletonList(
                                 new TerminalStyleCraftSubmitHelper.CraftOrder(requestStack, orderBatch)
                         ),
-                        false // пьедесталу запрещён direct fallback
+                        true
                 );
 
         int accepted = 0;
@@ -532,51 +534,6 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             return (T) output;
         }
         return super.getCapability(capability, facing);
-    }
-
-    private ItemStack resolveOrderIconForCurrentItem() {
-        if (pedestalItem.isEmpty() || world == null) return ItemStack.EMPTY;
-        if (TerminalOrderApi.isOrderIcon(pedestalItem)) return pedestalItem;
-        if (managerPos == null) return ItemStack.EMPTY;
-
-        TileEntity managerTe = world.getTileEntity(managerPos);
-        if (!(managerTe instanceof TileMirrorManager)) return ItemStack.EMPTY;
-
-        ItemStack requested = getRequestedItem();
-        if (requested.isEmpty()) return ItemStack.EMPTY;
-
-        ItemStack fallback = ItemStack.EMPTY;
-        for (BlockPos requesterPos : ((TileMirrorManager) managerTe).getRequestersSnapshot()) {
-            TileEntity requesterTe = world.getTileEntity(requesterPos);
-            if (!(requesterTe instanceof ITerminalOrderIconProvider)) continue;
-
-            List<ItemStack> icons = ((ITerminalOrderIconProvider) requesterTe).listTerminalOrderIcons();
-            if (icons == null || icons.isEmpty()) continue;
-
-            for (ItemStack icon : icons) {
-                if (icon == null || icon.isEmpty() || !TerminalOrderApi.isOrderIcon(icon)) continue;
-                ItemStack preview = TerminalOrderApi.stripOrderIconData(icon);
-                if (preview.isEmpty()) continue;
-                if (!ResourceIdentity.sameResource(preview, requested)) continue;
-                ItemStack one = icon.copy();
-                one.setCount(1);
-                BlockPos targetPos = TerminalOrderApi.getOrderIconPos(one);
-                TileEntity targetTe = (targetPos == null) ? null : world.getTileEntity(targetPos);
-
-                // Приоритет: endpoint, умеющий automation (как в terminal-flow).
-                if (targetTe instanceof therealpant.thaumicattempts.api.IAutomationOrderAcceptor
-                        && targetTe instanceof therealpant.thaumicattempts.api.ICraftEndpoint
-                        && CraftOrderApi.isCrafter((therealpant.thaumicattempts.api.ICraftEndpoint) targetTe)) {
-                    return one;
-                }
-
-                if (fallback.isEmpty()) {
-                    fallback = one;
-                }
-            }
-        }
-
-        return fallback;
     }
 
     @Override

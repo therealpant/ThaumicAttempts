@@ -4,11 +4,7 @@ import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
-import therealpant.thaumicattempts.api.AutomationOrderSubmitHelper;
-import therealpant.thaumicattempts.api.CraftOrderApi;
-import therealpant.thaumicattempts.api.ICraftEndpoint;
-import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
-import therealpant.thaumicattempts.api.TerminalOrderApi;
+import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -33,6 +29,49 @@ final class TerminalStyleCraftSubmitHelper {
     }
 
     private TerminalStyleCraftSubmitHelper() {}
+
+    static ItemStack resolveTerminalCraftIconForRequest(@Nullable World world,
+                                                        @Nullable BlockPos managerPos,
+                                                        ItemStack requested) {
+        if (world == null || world.isRemote || managerPos == null || requested == null || requested.isEmpty()) {
+            return ItemStack.EMPTY;
+        }
+        TileEntity managerTe = world.getTileEntity(managerPos);
+        if (!(managerTe instanceof TileMirrorManager)) return ItemStack.EMPTY;
+
+        ItemStack fallback = ItemStack.EMPTY;
+        for (BlockPos requesterPos : ((TileMirrorManager) managerTe).getRequestersSnapshot()) {
+            TileEntity requesterTe = world.getTileEntity(requesterPos);
+            if (!(requesterTe instanceof ITerminalOrderIconProvider)) continue;
+
+            List<ItemStack> icons = ((ITerminalOrderIconProvider) requesterTe).listTerminalOrderIcons();
+            if (icons == null || icons.isEmpty()) continue;
+
+            for (ItemStack icon : icons) {
+                if (icon == null || icon.isEmpty() || !TerminalOrderApi.isOrderIcon(icon)) continue;
+                ItemStack preview = TerminalOrderApi.stripOrderIconData(icon);
+                if (preview.isEmpty()) continue;
+                if (!ResourceIdentity.sameResource(preview, requested)) continue;
+
+                ItemStack one = icon.copy();
+                one.setCount(1);
+
+                BlockPos targetPos = TerminalOrderApi.getOrderIconPos(one);
+                TileEntity targetTe = (targetPos == null) ? null : world.getTileEntity(targetPos);
+
+                if (targetTe instanceof IAutomationOrderAcceptor
+                        && targetTe instanceof ICraftEndpoint
+                        && CraftOrderApi.isCrafter((ICraftEndpoint) targetTe)) {
+                    return one;
+                }
+
+                if (fallback.isEmpty()) {
+                    fallback = one;
+                }
+            }
+        }
+        return fallback;
+    }
 
     static LinkedHashMap<ItemKey, Integer> submitTerminalStyleCraftOrders(@Nullable World world,
                                                                           @Nullable BlockPos managerPos,
