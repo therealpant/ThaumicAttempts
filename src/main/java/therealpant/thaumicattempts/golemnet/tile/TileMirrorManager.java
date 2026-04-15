@@ -216,6 +216,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private static final int AUTO_SCAN_PERIOD_TICKS = 100;
     private static final int PROVIDER_SCAN_RADIUS = 16;
     private static final int PROVIDER_RESCAN_TICKS = 200;
+    private static final int ORDER_QUEUE_STALL_TICKS = 200;
+    private static final int ORDER_EXEC_STALL_TICKS = 240;
+    private static final int ORDER_MAX_RETRIES_PER_STAGE = 3;
 
     /* ===================== Владелец / доступ ===================== */
 
@@ -1079,6 +1082,23 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                 }
             }
         }
+        for (Deque<Batch> bq : orderMemoryQueues) {
+            for (Batch b : bq) {
+                if (b.kind != Batch.Kind.DELIVERY) continue;
+                for (int i = Math.max(0, b.index); i < b.lines.size(); i++) {
+                    Line ln = b.lines.get(i);
+                    boolean match;
+                    if (s.getMaxStackSize() == 1) {
+                        match = matchesForDelivery(s, ln.wanted1);
+                    } else if (isCrystal(s) || isCrystal(ln.wanted1)) {
+                        match = isCrystal(s) && isCrystal(ln.wanted1) && crystalSame(s, ln.wanted1);
+                    } else {
+                        match = ResourceIdentity.sameResource(ln.wanted1, s);
+                    }
+                    if (match) return true;
+                }
+            }
+        }
         return false;
     }
 
@@ -1529,28 +1549,76 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         final int destSide;
         final int queueId;
         final CraftOutputMode craftOutputMode;
+        final UUID orderTaskId;
         final List<Line> lines = new ArrayList<>();
         int index = 0;
         int seenTick = -1;
 
         Batch(Kind kind, BlockPos dest, int destSide, int queueId) {
-            this(kind, dest, destSide, queueId, CraftOutputMode.DELIVER_TO_DEST);
+            this(kind, dest, destSide, queueId, CraftOutputMode.DELIVER_TO_DEST, UUID.randomUUID());
         }
 
         Batch(Kind kind, BlockPos dest, int destSide, int queueId, CraftOutputMode craftOutputMode) {
+            this(kind, dest, destSide, queueId, craftOutputMode, UUID.randomUUID());
+        }
+
+        Batch(Kind kind, BlockPos dest, int destSide, int queueId, CraftOutputMode craftOutputMode, UUID orderTaskId) {
             this.kind = kind;
             this.dest = dest.toImmutable();
             this.destSide = destSide;
             this.queueId = queueId;
             this.craftOutputMode = craftOutputMode;
+            this.orderTaskId = orderTaskId == null ? UUID.randomUUID() : orderTaskId;
+        }
+    }
+
+    private enum OrderTaskState {
+        ACCEPTED,
+        QUEUED,
+        EXECUTING,
+        DELIVERED
+    }
+
+    private static final class OrderTaskTracker {
+        final UUID id;
+        final BlockPos dest;
+        final Batch.Kind kind;
+        final int queueId;
+        final int destSide;
+        OrderTaskState state;
+        int acceptedTick;
+        int queuedTick;
+        int executingTick;
+        int deliveredTick;
+        int lastStateTouchTick;
+        int queueRetries;
+        int execRetries;
+
+        OrderTaskTracker(Batch b, int tick) {
+            this.id = b.orderTaskId;
+            this.dest = b.dest.toImmutable();
+            this.kind = b.kind;
+            this.queueId = b.queueId;
+            this.destSide = b.destSide;
+            this.state = OrderTaskState.ACCEPTED;
+            this.acceptedTick = tick;
+            this.lastStateTouchTick = tick;
+            this.queuedTick = -1;
+            this.executingTick = -1;
+            this.deliveredTick = -1;
         }
     }
 
     private final List<Deque<Batch>> batchQueues = new ArrayList<>(6);
+    private final List<Deque<Batch>> orderMemoryQueues = new ArrayList<>(6);
+    private final Map<UUID, OrderTaskTracker> orderTrackers = new LinkedHashMap<>();
     private int activeQueue = 0;
 
     public TileMirrorManager() {
-        for (int i = 0; i < 6; i++) batchQueues.add(new ArrayDeque<>());
+        for (int i = 0; i < 6; i++) {
+            batchQueues.add(new ArrayDeque<>());
+            orderMemoryQueues.add(new ArrayDeque<>());
+        }
     }
 
     public void dropContents() {
@@ -1580,6 +1648,57 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         BlockPos find(ItemKey key);
     }
 
+    private void trackOrderAccepted(Batch b) {
+        OrderTaskTracker tracker = new OrderTaskTracker(b, tickCounter);
+        orderTrackers.put(tracker.id, tracker);
+    }
+
+    private void trackOrderQueued(Batch b) {
+        OrderTaskTracker tr = orderTrackers.get(b.orderTaskId);
+        if (tr == null) return;
+        tr.state = OrderTaskState.QUEUED;
+        tr.queuedTick = tickCounter;
+        tr.lastStateTouchTick = tickCounter;
+    }
+
+    private void trackOrderExecuting(Batch b) {
+        OrderTaskTracker tr = orderTrackers.get(b.orderTaskId);
+        if (tr == null) return;
+        tr.state = OrderTaskState.EXECUTING;
+        if (tr.executingTick < 0) tr.executingTick = tickCounter;
+        tr.lastStateTouchTick = tickCounter;
+    }
+
+    private void trackOrderDelivered(@Nullable Batch b) {
+        if (b == null) return;
+        OrderTaskTracker tr = orderTrackers.get(b.orderTaskId);
+        if (tr == null) return;
+        tr.state = OrderTaskState.DELIVERED;
+        tr.deliveredTick = tickCounter;
+        tr.lastStateTouchTick = tickCounter;
+    }
+
+    private void enqueueIntoOrderMemory(Batch b) {
+        int q = Math.max(0, Math.min(5, b.queueId));
+        trackOrderAccepted(b);
+        orderMemoryQueues.get(q).addLast(b);
+        trackOrderQueued(b);
+    }
+
+    private void drainOrderMemoryToExecutionQueues() {
+        for (int q = 0; q < orderMemoryQueues.size(); q++) {
+            Deque<Batch> memory = orderMemoryQueues.get(q);
+            Deque<Batch> exec = batchQueues.get(q);
+            if (memory.isEmpty()) continue;
+
+            int moved = 0;
+            while (!memory.isEmpty() && moved < REQUEST_BUDGET) {
+                exec.addLast(memory.removeFirst());
+                moved++;
+            }
+        }
+    }
+
     public void enqueueBatchDelivery(BlockPos dest, int destSide, int queueId,
                                      List<Map.Entry<ItemKey, Integer>> moved) {
         if (dest == null || moved == null || moved.isEmpty()) return;
@@ -1594,7 +1713,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         // НОВОЕ:
         assignLinesToGolemsRoundRobin(b.lines);
 
-        batchQueues.get(q).addLast(b);
+        enqueueIntoOrderMemory(b);
         registerOrderForConsumer(dest);
     }
 
@@ -1837,44 +1956,12 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         // ставим в очередь только craft-батчи для крафтеров
         for (Batch b : craftBatches) {
-            batchQueues.get(q).addLast(b);
+            enqueueIntoOrderMemory(b);
             registerOrderForConsumer(dest);
         }
 
         activeQueue = q;
         markDirty();
-    }
-
-    public int enqueuePedestalRestockCraft(BlockPos requesterPos, int slot, int items) {
-        if (world == null || world.isRemote || requesterPos == null || items <= 0 || slot < 0) return 0;
-        TileEntity te = world.getTileEntity(requesterPos);
-        if (!(te instanceof ITerminalOrderIconProvider)) return 0;
-        List<ItemStack> icons = ((ITerminalOrderIconProvider) te).listTerminalOrderIcons();
-        if (icons == null || icons.isEmpty()) return 0;
-        ItemStack requested = ItemStack.EMPTY;
-        for (ItemStack icon : icons) {
-            if (icon == null || icon.isEmpty()) continue;
-            BlockPos iconPos = TerminalOrderApi.getOrderIconPos(icon);
-            int iconSlot = TerminalOrderApi.getOrderIconSlot(icon);
-            if (iconPos == null || !iconPos.equals(requesterPos) || iconSlot != slot) continue;
-            requested = TerminalOrderApi.stripOrderIconData(icon);
-            break;
-        }
-        if (requested == null || requested.isEmpty()) return 0;
-        requested = requested.copy();
-        requested.setCount(1);
-
-        List<Map.Entry<ItemKey, Integer>> moved = new ArrayList<>(1);
-        moved.add(new AbstractMap.SimpleEntry<>(ItemKey.of(requested), Math.max(1, items)));
-
-        BlockPos bookkeepingDest = requesterPos.down();
-        ItemStack finalRequested = requested;
-        enqueueBatchCraft(
-                bookkeepingDest, -1, 1, moved,
-                key -> key.equals(ItemKey.of(finalRequested)) ? requesterPos : null,
-                Batch.CraftOutputMode.LEAVE_IN_REQUESTER
-        );
-        return Math.max(1, items);
     }
 
     @Nullable
@@ -1922,6 +2009,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private void popBatch(@Nullable Batch b) {
         if (b != null) {
             completeOrderForConsumer(b.dest);
+            trackOrderDelivered(b);
         }
         Deque<Batch> q = batchQueues.get(activeQueue);
         if (!q.isEmpty()) q.removeFirst();
@@ -2492,6 +2580,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         if (b == null) return;
         if (b.seenTick == tickCounter) return;
         b.seenTick = tickCounter;
+        trackOrderExecuting(b);
 
         if (b.lines.isEmpty()) {
             popBatch(b);
@@ -2596,6 +2685,99 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             b.index = Math.max(0, index);
         }
     }
+
+    private boolean isBatchStillQueuedOrRunning(UUID orderId) {
+        if (orderId == null) return false;
+        for (Deque<Batch> q : orderMemoryQueues) {
+            for (Batch b : q) if (orderId.equals(b.orderTaskId)) return true;
+        }
+        for (Deque<Batch> q : batchQueues) {
+            for (Batch b : q) if (orderId.equals(b.orderTaskId)) return true;
+        }
+        return false;
+    }
+
+    private void resetBatchForRetry(Batch b) {
+        if (b == null) return;
+        b.index = 0;
+        b.seenTick = -1;
+        for (Line ln : b.lines) {
+            if (ln == null) continue;
+            if (ln.reserved > 0) {
+                releaseDispatcherGolems(ln.reserved);
+                ln.reserved = 0;
+            }
+        }
+    }
+
+    private void retryStalledOrderTasks() {
+        if (orderTrackers.isEmpty()) return;
+
+        Iterator<Map.Entry<UUID, OrderTaskTracker>> it = orderTrackers.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<UUID, OrderTaskTracker> entry = it.next();
+            OrderTaskTracker tracker = entry.getValue();
+            if (tracker == null) {
+                it.remove();
+                continue;
+            }
+
+            if (tracker.state == OrderTaskState.DELIVERED && !isBatchStillQueuedOrRunning(tracker.id)) {
+                it.remove();
+                continue;
+            }
+
+            if (tracker.state == OrderTaskState.QUEUED) {
+                int age = tickCounter - Math.max(0, tracker.queuedTick);
+                if (age > ORDER_QUEUE_STALL_TICKS) {
+                    tracker.queueRetries++;
+                    tracker.queuedTick = tickCounter;
+                    tracker.lastStateTouchTick = tickCounter;
+                    if (tracker.queueRetries > ORDER_MAX_RETRIES_PER_STAGE) {
+                        tracker.state = OrderTaskState.EXECUTING;
+                        tracker.execRetries = 0;
+                        tracker.executingTick = tickCounter;
+                    }
+                }
+                continue;
+            }
+
+            if (tracker.state == OrderTaskState.EXECUTING) {
+                int age = tickCounter - Math.max(0, tracker.lastStateTouchTick);
+                if (age <= ORDER_EXEC_STALL_TICKS) continue;
+
+                Batch stalled = null;
+                for (Deque<Batch> q : batchQueues) {
+                    for (Batch b : q) {
+                        if (tracker.id.equals(b.orderTaskId)) {
+                            stalled = b;
+                            break;
+                        }
+                    }
+                    if (stalled != null) break;
+                }
+
+                if (stalled == null) {
+                    tracker.execRetries++;
+                    tracker.lastStateTouchTick = tickCounter;
+                    if (tracker.execRetries > ORDER_MAX_RETRIES_PER_STAGE) {
+                        it.remove();
+                    }
+                    continue;
+                }
+
+                resetBatchForRetry(stalled);
+                for (Deque<Batch> q : batchQueues) {
+                    q.removeIf(b -> tracker.id.equals(b.orderTaskId));
+                }
+                orderMemoryQueues.get(stalled.queueId).addFirst(stalled);
+                tracker.state = OrderTaskState.QUEUED;
+                tracker.execRetries++;
+                tracker.queuedTick = tickCounter;
+                tracker.lastStateTouchTick = tickCounter;
+            }
+        }
+    }
     /* ===================== Жизненный цикл ===================== */
 
     private int rescanCooldown = 0;
@@ -2616,6 +2798,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         tickCounter++;
+        retryStalledOrderTasks();
+        drainOrderMemoryToExecutionQueues();
 
         intakeNearbyItems();
         processMirrorItemsInBuffer();
@@ -3139,6 +3323,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             for (Iterator<Batch> it = q.iterator(); it.hasNext(); ) {
                 Batch b = it.next();
                 if (b.dest.equals(dst)) {
+                    orderTrackers.remove(b.orderTaskId);
+                    it.remove();
+                    removed++;
+                }
+            }
+        }
+        for (Deque<Batch> q : orderMemoryQueues) {
+            for (Iterator<Batch> it = q.iterator(); it.hasNext(); ) {
+                Batch b = it.next();
+                if (b.dest.equals(dst)) {
+                    orderTrackers.remove(b.orderTaskId);
                     it.remove();
                     removed++;
                 }
@@ -3197,6 +3392,24 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     if (match) total += Math.max(0, ln.remaining);
                 }
             }
+        for (Deque<Batch> q : orderMemoryQueues)
+            for (Batch b : q) {
+                if (!dest.equals(b.dest)) continue;
+                for (int i = b.index; i < b.lines.size(); i++) {
+                    Line ln = b.lines.get(i);
+
+                    boolean match;
+                    if (like.getMaxStackSize() == 1) {
+                        match = matchesForDelivery(ln.wanted1, like);
+                    } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
+                        match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
+                    } else {
+                        match = ResourceIdentity.sameResource(ln.wanted1, like);
+                    }
+
+                    if (match) total += Math.max(0, ln.remaining);
+                }
+            }
         return total;
     }
 
@@ -3236,6 +3449,44 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                     if (ln.remaining <= 0) itL.remove();
                 }
                 if (b.lines.isEmpty()) {
+                    itB.remove();
+                    removedBatches++;
+                }
+            }
+        }
+        for (Deque<Batch> q : orderMemoryQueues) {
+            for (Iterator<Batch> itB = q.iterator(); itB.hasNext() && left > 0; ) {
+                Batch b = itB.next();
+                if (b.kind != Batch.Kind.DELIVERY) continue;
+                if (!dest.equals(b.dest)) continue;
+
+                for (Iterator<Line> itL = b.lines.iterator(); itL.hasNext() && left > 0; ) {
+                    Line ln = itL.next();
+
+                    boolean match;
+                    if (like.getMaxStackSize() == 1) {
+                        match = matchesForDelivery(ln.wanted1, like);
+                    } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
+                        match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
+                    } else {
+                        match = ResourceIdentity.sameResource(ln.wanted1, like);
+                    }
+
+                    if (!match) continue;
+
+                    int take = Math.min(left, ln.remaining);
+                    int beforeReserved = ln.reserved;
+                    ln.remaining -= take;
+                    if (ln.reserved > ln.remaining) {
+                        ln.reserved = Math.max(0, ln.remaining);
+                    }
+                    int released = Math.max(0, beforeReserved - ln.reserved);
+                    if (released > 0) releaseDispatcherGolems(released);
+                    left -= take;
+                    if (ln.remaining <= 0) itL.remove();
+                }
+                if (b.lines.isEmpty()) {
+                    orderTrackers.remove(b.orderTaskId);
                     itB.remove();
                     removedBatches++;
                 }
@@ -3442,26 +3693,28 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         int total = 0;
 
         if (q >= batchQueues.size()) return 0;
-        Deque<Batch> queue = batchQueues.get(q);
-        if (queue == null) return 0;
-        for (Batch b : queue) {
-            if (b.kind != Batch.Kind.DELIVERY) continue;
-            if (!dest.equals(b.dest)) continue;
+        List<Deque<Batch>> queues = Arrays.asList(batchQueues.get(q), orderMemoryQueues.get(q));
+        for (Deque<Batch> queue : queues) {
+            if (queue == null) continue;
+            for (Batch b : queue) {
+                if (b.kind != Batch.Kind.DELIVERY) continue;
+                if (!dest.equals(b.dest)) continue;
 
-            for (int i = b.index; i < b.lines.size(); i++) {
-                Line ln = b.lines.get(i);
-                if (ln == null || ln.remaining <= 0) continue;
+                for (int i = b.index; i < b.lines.size(); i++) {
+                    Line ln = b.lines.get(i);
+                    if (ln == null || ln.remaining <= 0) continue;
 
-                boolean match;
-                if (like.getMaxStackSize() == 1) {
-                    match = matchesForDelivery(ln.wanted1, like);
-                } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
-                    match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
-                } else {
-                    match = ResourceIdentity.sameResource(ln.wanted1, like);
-                }
-                if (match) {
-                    total += Math.max(0, ln.remaining);
+                    boolean match;
+                    if (like.getMaxStackSize() == 1) {
+                        match = matchesForDelivery(ln.wanted1, like);
+                    } else if (isCrystal(like) || isCrystal(ln.wanted1)) {
+                        match = isCrystal(like) && isCrystal(ln.wanted1) && crystalSame(ln.wanted1, like);
+                    } else {
+                        match = ResourceIdentity.sameResource(ln.wanted1, like);
+                    }
+                    if (match) {
+                        total += Math.max(0, ln.remaining);
+                    }
                 }
             }
         }

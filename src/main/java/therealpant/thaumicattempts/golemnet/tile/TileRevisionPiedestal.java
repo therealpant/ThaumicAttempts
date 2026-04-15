@@ -24,16 +24,16 @@ import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
-import therealpant.thaumicattempts.api.AutomationOrderSubmitHelper;
 import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
-import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
+import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
 
 import javax.annotation.Nullable;
 import java.util.LinkedHashMap;
+import java.util.Collections;
 import java.util.List;
 import java.util.Map;
 
@@ -333,11 +333,18 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             lastRedstonePowered = powered;
             return;
         }
+
         TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) return;
+        if (!(te instanceof TileMirrorManager)) {
+            lastRedstonePowered = powered;
+            return;
+        }
 
         ItemStack requested = getRequestedItem();
-        if (requested.isEmpty()) return;
+        if (requested.isEmpty()) {
+            lastRedstonePowered = powered;
+            return;
+        }
 
         TileMirrorManager manager = (TileMirrorManager) te;
         int available = Math.max(0, manager.getAvailableCountFor(requested));
@@ -345,6 +352,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         int cap = getThreshold();
         if (available >= cap) {
             resetOrderTracking();
+            lastRedstonePowered = powered;
             return;
         }
 
@@ -375,6 +383,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             lastRedstonePowered = powered;
             return;
         }
+
         if (!isOutputEmpty()) {
             lastRedstonePowered = powered;
             return;
@@ -383,7 +392,38 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         int deficit = Math.max(1, cap - available);
         int orderBatch = Math.max(1, Math.min(counter, deficit));
 
-        int accepted = trySubmitRestockOrder(orderBatch, requested);
+        // КЛЮЧЕВОЕ:
+        // 1) если на пьедестале уже лежит order icon — разрешаем его использовать как explicit-case;
+        // 2) во всех остальных случаях заказываем ОБЫЧНЫЙ result item,
+        //    чтобы путь совпадал с обычным terminal craft flow.
+        ItemStack requestStack;
+        if (TerminalOrderApi.isOrderIcon(pedestalItem)) {
+            requestStack = pedestalItem.copy();
+        } else {
+            requestStack = requested.copy();
+        }
+        requestStack.setCount(1);
+
+        LinkedHashMap<ItemKey, Integer> acceptedByOutput =
+                TerminalStyleCraftSubmitHelper.submitTerminalStyleCraftOrders(
+                        world,
+                        managerPos,
+                        this.pos,
+                        -1,
+                        Collections.singletonList(
+                                new TerminalStyleCraftSubmitHelper.CraftOrder(requestStack, orderBatch)
+                        ),
+                        false // пьедесталу запрещён direct fallback
+                );
+
+        int accepted = 0;
+        for (Map.Entry<ItemKey, Integer> e : acceptedByOutput.entrySet()) {
+            int take = Math.max(0, e.getValue());
+            if (take <= 0) continue;
+            pendingCraft.merge(e.getKey(), take, Integer::sum);
+            accepted += take;
+        }
+
         if (accepted > 0) {
             lastOrderAvailable = available;
             awaitingOrderCompletion = true;
@@ -393,45 +433,8 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             nextRetryTick = now + RETRY_DELAY_TICKS;
             markDirty();
         }
+
         lastRedstonePowered = powered;
-    }
-
-    private int trySubmitRestockOrder(int items, ItemStack requested) {
-        if (items <= 0 || pedestalItem.isEmpty() || world == null) return 0;
-        ItemStack orderIcon = resolveOrderIconForCurrentItem();
-        if (orderIcon.isEmpty()) return 0;
-        ItemStack resultLike = TerminalOrderApi.stripOrderIconData(orderIcon);
-        if (resultLike == null || resultLike.isEmpty()) {
-            resultLike = requested;
-        }
-        if (resultLike == null || resultLike.isEmpty()) return 0;
-        ItemStack pendingLike = resultLike.copy();
-        pendingLike.setCount(1);
-
-        BlockPos targetPos = TerminalOrderApi.getOrderIconPos(orderIcon);
-        int slot = TerminalOrderApi.getOrderIconSlot(orderIcon);
-        if (targetPos == null || slot < 0) return 0;
-
-        int accepted = AutomationOrderSubmitHelper.submitAutomationOrderByIcon(
-                world,
-                orderIcon,
-                items,
-                managerPos,
-                this.pos,
-                -1
-        );
-        if (accepted > 0) {
-            pendingCraft.merge(therealpant.thaumicattempts.util.ItemKey.of(pendingLike), accepted, Integer::sum);
-            return accepted;
-        }
-
-        TileEntity te = world.getTileEntity(targetPos);
-        if (!(te instanceof ITerminalOrderAcceptor)) return 0;
-
-        // Fallback оставляем только как "best effort", но не считаем его
-        // подтверждённым automation-заказом (иначе pending/awaiting зависают).
-        ((ITerminalOrderAcceptor) te).triggerFromTerminal(slot, items);
-        return 0;
     }
 
     public void beginManagerBufferInsert() { suppressOutputReconcileDepth++; }

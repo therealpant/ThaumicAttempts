@@ -179,21 +179,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
      */
     private int suppressBufferReconcileDepth = 0;
 
-    private static final class TerminalOrderRequest {
-        final ItemStack orderIcon;
-        final BlockPos pos;
-        final int slot;
-        final int count;
-        final ItemKey outputKey;
-        private TerminalOrderRequest(ItemStack orderIcon, BlockPos pos, int slot, int count, @Nullable ItemKey outputKey) {
-            this.orderIcon = orderIcon == null ? ItemStack.EMPTY : orderIcon.copy();
-            this.pos = pos;
-            this.slot = slot;
-            this.count = count;
-            this.outputKey = outputKey;
-        }
-    }
-
     /* ===== Буфер 3×3 ===== */
     private final ItemStackHandler buffer = new ItemStackHandler(15) {
         @Override protected void onContentsChanged(int slot) {
@@ -342,7 +327,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         int freeDistinct = Math.max(0, 9 - pend.size());
         List<Map.Entry<ItemKey, Integer>> movedRaw = new ArrayList<>();
-        List<TerminalOrderRequest> directTerminalOrders = new ArrayList<>();
+        List<TerminalStyleCraftSubmitHelper.CraftOrder> directTerminalOrders = new ArrayList<>();
 
         for (Map.Entry<ItemKey, Integer> e : new ArrayList<>(draft.entrySet())) {
             ItemKey key = e.getKey();
@@ -352,10 +337,8 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             if (TerminalOrderApi.isOrderIcon(keyStack)) {
                 BlockPos target = TerminalOrderApi.getOrderIconPos(keyStack);
                 int slot = TerminalOrderApi.getOrderIconSlot(keyStack);
-                ItemStack resultLike = TerminalOrderApi.stripOrderIconData(keyStack);
                 if (target != null && slot >= 0) {
-                    ItemKey outputKey = (resultLike == null || resultLike.isEmpty()) ? null : ItemKey.of(resultLike);
-                    directTerminalOrders.add(new TerminalOrderRequest(keyStack, target, slot, amt, outputKey));
+                    directTerminalOrders.add(new TerminalStyleCraftSubmitHelper.CraftOrder(keyStack, amt));
                 }
                 draft.remove(key);
                 continue;
@@ -387,33 +370,12 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             if (!alreadyInPend) freeDistinct--;
         }
 
-        if (!directTerminalOrders.isEmpty()) {
-            markDirty();
-            boolean pendingCraftChanged = false;
-            for (TerminalOrderRequest order : directTerminalOrders) {
-                int acceptedItems = AutomationOrderSubmitHelper.submitAutomationOrderByIcon(
-                        world, order.orderIcon, order.count, managerPos, this.pos, -1
-                );
-                if (acceptedItems > 0 && order.outputKey != null && order.outputKey != ItemKey.EMPTY) {
-                    addToMap(pendingCraft, order.outputKey, acceptedItems);
-                    pendingCraftChanged = true;
-                } else {
-                    TileEntity te = world.getTileEntity(order.pos);
-                    if (!(te instanceof ITerminalOrderAcceptor)) continue;
-                    ((ITerminalOrderAcceptor) te).triggerFromTerminal(order.slot, order.count);
-                }
-            }
-            if (pendingCraftChanged) {
-                sendSnapshotToViewers(true);
-            }
-        }
-
         if (movedRaw.isEmpty()) {
-            if (directTerminalOrders.isEmpty()) {
+            if (!craftTab || directTerminalOrders.isEmpty()) {
                 markDirty();
+                sendSnapshotToViewers(craftTab);
+                return;
             }
-            sendSnapshotToViewers(craftTab);
-            return;
         }
 
         LinkedHashMap<ItemKey, Integer> merged = new LinkedHashMap<>();
@@ -433,49 +395,40 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                     mgr.ensureDeliveryFor(this.pos, new LinkedHashMap<>(pendingDelivery));
                 }
             } else {
-                // CRAFT вкладка, единая логика
-                List<Map.Entry<ItemKey,Integer>> toManager = new ArrayList<>();
-
-                for (Map.Entry<ItemKey,Integer> e : moved) {
-                    ItemKey key = e.getKey();
-                    int n = Math.max(1, e.getValue());
-                    toManager.add(new AbstractMap.SimpleEntry<>(key, n));
+                List<TerminalStyleCraftSubmitHelper.CraftOrder> craftOrders = new ArrayList<>();
+                for (Map.Entry<ItemKey, Integer> e : moved) {
+                    craftOrders.add(new TerminalStyleCraftSubmitHelper.CraftOrder(e.getKey().toStack(1), e.getValue()));
                 }
 
-                if (!toManager.isEmpty()) {
-                    mgr.enqueueBatchCraft(
-                            this.pos, -1, QUEUE_ID, moved,
-                            key -> findCraftEndpointFor(mgr, key.toStack(1))  // ищет любой ICraftEndpoint
-                    );
+                craftOrders.addAll(directTerminalOrders);
+                LinkedHashMap<ItemKey, Integer> acceptedCraft =
+                        TerminalStyleCraftSubmitHelper.submitTerminalStyleCraftOrders(
+                                world,
+                                managerPos,
+                                this.pos,
+                                -1,
+                                craftOrders,
+                                true
+                        );
+
+                if (!acceptedCraft.isEmpty()) {
+                    LinkedHashMap<ItemKey, Integer> acceptedNonIcons = new LinkedHashMap<>();
+                    for (Map.Entry<ItemKey, Integer> e : moved) {
+                        acceptedNonIcons.merge(e.getKey(), Math.max(1, e.getValue()), Integer::sum);
+                    }
+                    boolean pendingCraftChanged = false;
+                    for (Map.Entry<ItemKey, Integer> e : acceptedCraft.entrySet()) {
+                        int alreadyTracked = acceptedNonIcons.getOrDefault(e.getKey(), 0);
+                        int iconAccepted = Math.max(0, e.getValue() - alreadyTracked);
+                        if (iconAccepted <= 0) continue;
+                        addToMap(pendingCraft, e.getKey(), iconAccepted);
+                        pendingCraftChanged = true;
+                    }
+                    if (pendingCraftChanged) sendSnapshotToViewers(true);
                 }
             }
         }
-
-            sendSnapshotToViewers(craftTab);
-    }
-
-    @Nullable
-    private BlockPos findCraftEndpointFor(TileMirrorManager mgr, ItemStack result) {
-        if (result == null || result.isEmpty()) return null;
-        Set<BlockPos> reqs = mgr.getRequestersSnapshot();
-        if (reqs == null || reqs.isEmpty()) return null;
-
-        for (BlockPos rp : reqs) {
-            TileEntity te = world.getTileEntity(rp);
-            if (!(te instanceof ICraftEndpoint)) continue;
-
-            ICraftEndpoint ep = (ICraftEndpoint) te;
-            if (!CraftOrderApi.isCrafter(ep)) continue;
-            List<ItemStack> outs = ep.listCraftableResults();
-            if (outs == null || outs.isEmpty()) continue;
-
-            for (ItemStack out : outs) {
-                if (out == null || out.isEmpty()) continue;
-                boolean same = ResourceIdentity.sameResource(out, result);
-                if (same) return rp;
-            }
-        }
-        return null;
+        sendSnapshotToViewers(craftTab);
     }
 
     @Nullable
