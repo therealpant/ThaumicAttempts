@@ -392,14 +392,11 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         int deficit = Math.max(1, cap - available);
         int orderBatch = Math.max(1, Math.min(counter, deficit));
 
-        // КЛЮЧЕВОЕ:
-        // 1) если на пьедестале уже лежит order icon — разрешаем его использовать как explicit-case;
-        // 2) во всех остальных случаях заказываем ОБЫЧНЫЙ result item,
-        //    чтобы путь совпадал с обычным terminal craft flow.
-        ItemStack requestStack;
-        if (TerminalOrderApi.isOrderIcon(pedestalItem)) {
-            requestStack = pedestalItem.copy();
-        } else {
+        // Сначала пытаемся резолвить терминальный order-icon для текущего ресурса.
+        // Это покрывает automation-endpoint'ы (у которых нет прямого craft endpoint),
+        // и выравнивает поведение с терминалом.
+        ItemStack requestStack = resolveOrderIconForCurrentItem();
+        if (requestStack.isEmpty()) {
             requestStack = requested.copy();
         }
         requestStack.setCount(1);

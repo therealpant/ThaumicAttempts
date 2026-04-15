@@ -58,21 +58,25 @@ final class TerminalStyleCraftSubmitHelper {
             one.setCount(1);
 
             if (TerminalOrderApi.isOrderIcon(one)) {
-                int acceptedItems = AutomationOrderSubmitHelper.submitAutomationOrderByIcon(
-                        world, one, order.count, managerPos, requesterPos, destSide
-                );
 
                 ItemStack resultLike = TerminalOrderApi.stripOrderIconData(one);
                 ItemKey outputKey = (resultLike == null || resultLike.isEmpty()) ? ItemKey.EMPTY : ItemKey.of(resultLike);
 
-                if (acceptedItems > 0 && outputKey != ItemKey.EMPTY) {
-                    acceptedByOutput.merge(outputKey, acceptedItems, Integer::sum);
+                // Для non-terminal клиентов (например, пьедестала) НЕ идём в direct automation path,
+                // чтобы заказы проходили через manager queue/order memory.
+                if (!allowDirectTerminalFallback) {
+                    if (outputKey != ItemKey.EMPTY && hasCraftEndpointFor(world, mgr, outputKey.toStack(1))) {
+                        toManager.add(new AbstractMap.SimpleEntry<>(outputKey, order.count));
+                    }
                     continue;
                 }
 
-                // Для пьедестала fallback запрещён:
-                // он не должен обходить manager-style flow.
-                if (!allowDirectTerminalFallback) {
+                int acceptedItems = AutomationOrderSubmitHelper.submitAutomationOrderByIcon(
+                        world, one, order.count, managerPos, requesterPos, destSide
+                );
+
+                if (acceptedItems > 0 && outputKey != ItemKey.EMPTY) {
+                    acceptedByOutput.merge(outputKey, acceptedItems, Integer::sum);
                     continue;
                 }
 
