@@ -2,8 +2,6 @@ package therealpant.thaumicattempts.client.render;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.client.renderer.OpenGlHelper;
-import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.block.model.ItemCameraTransforms;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
@@ -66,17 +64,10 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
         return current + delta;
     }
 
-    private static void restoreCommonState(float prevLightX, float prevLightY) {
-        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevLightX, prevLightY);
-
-        RenderHelper.disableStandardItemLighting();
-
-        GlStateManager.color(1F, 1F, 1F, 1F);
-        GlStateManager.enableLighting();
-        GlStateManager.disableBlend();
-        GlStateManager.enableAlpha();
-        GlStateManager.depthMask(true);
-        GlStateManager.enableDepth();
+    private static void restoreCommonState(float[] prevLight) {
+        RenderSafety.endItemLighting();
+        RenderSafety.restoreLightmap(prevLight);
+        RenderSafety.resetGlState();
     }
 
     private void renderEmissiveLayer(TileMirrorManager te, double x, double y, double z, float partialTicks) {
@@ -86,14 +77,13 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                 this.getGeoModelProvider().getModelLocation(te)
         );
 
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
+        float[] prevLight = RenderSafety.captureLightmap();
 
         GlStateManager.pushMatrix();
         try {
             GlStateManager.translate(x + 0.5, y + EMISSIVE_Y_OFFSET, z + 0.5);
 
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
+            RenderSafety.setFullBrightLightmap();
 
             GlStateManager.disableLighting();
             GlStateManager.enableBlend();
@@ -110,37 +100,26 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             Minecraft.getMinecraft().getTextureManager().bindTexture(TEX_EMISSIVE);
             this.render(model, te, partialTicks, 1f, 1f, 1f, 1f);
         } finally {
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
-            GlStateManager.color(1F, 1F, 1F, 1F);
-            GlStateManager.disableBlend();
-            GlStateManager.enableAlpha();
-            GlStateManager.enableLighting();
-            GlStateManager.depthMask(true);
             GlStateManager.popMatrix();
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 
     private void renderFixedItem(ItemStack stack,
                                  BlockPos lightPos,
                                  float alpha,
-                                 float prevLightX,
-                                 float prevLightY,
                                  TileMirrorManager te) {
         if (stack == null || stack.isEmpty() || te == null || te.getWorld() == null) return;
 
+        float[] prevLight = RenderSafety.captureLightmap();
         int light = te.getWorld().getCombinedLight(lightPos, 0);
-        OpenGlHelper.setLightmapTextureCoords(
-                OpenGlHelper.lightmapTexUnit,
-                (float) (light & 0xFFFF),
-                (float) ((light >> 16) & 0xFFFF)
-        );
+        RenderSafety.setLightmapFromPacked(light);
 
         GlStateManager.color(1F, 1F, 1F, alpha);
-        RenderHelper.enableStandardItemLighting();
+        RenderSafety.beginItemLighting();
         Minecraft.getMinecraft().getRenderItem().renderItem(stack, ItemCameraTransforms.TransformType.FIXED);
-        RenderHelper.disableStandardItemLighting();
-
-        restoreCommonState(prevLightX, prevLightY);
+        restoreCommonState(prevLight);
     }
 
     @Override
@@ -152,12 +131,15 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
 
         if (te == null || te.getWorld() == null) return;
 
-        final float prevLightX = OpenGlHelper.lastBrightnessX;
-        final float prevLightY = OpenGlHelper.lastBrightnessY;
+        final float[] prevLight = RenderSafety.captureLightmap();
 
         try {
             // 1) Базовая гео-модель
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
+
+            if (RenderSafety.isItemRender()) {
+                return;
+            }
 
             // 2) Эмиссивный проход
             renderEmissiveLayer(te, x, y, z, partialTicks);
@@ -252,7 +234,7 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                         te.getPos().getZ() + pz
                 );
 
-                renderFixedItem(renderMirror, lp, 1F, prevLightX, prevLightY, te);
+                renderFixedItem(renderMirror, lp, 1F, te);
                 GlStateManager.popMatrix();
             }
 
@@ -293,7 +275,7 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                         te.getPos().getZ() + pz
                 );
 
-                renderFixedItem(renderMirror, lp, a, prevLightX, prevLightY, te);
+                renderFixedItem(renderMirror, lp, a, te);
                 GlStateManager.popMatrix();
             }
 
@@ -391,7 +373,7 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                         te.getPos().getZ() + pos.z
                 );
 
-                renderFixedItem(f.stack, lp, a, prevLightX, prevLightY, te);
+                renderFixedItem(f.stack, lp, a, te);
                 GlStateManager.popMatrix();
             }
 
@@ -401,7 +383,8 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             GlStateManager.color(1F, 1F, 1F, 1F);
             GlStateManager.popMatrix();
         } finally {
-            restoreCommonState(prevLightX, prevLightY);
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 }

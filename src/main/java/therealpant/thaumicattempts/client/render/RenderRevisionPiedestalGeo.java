@@ -3,7 +3,6 @@ package therealpant.thaumicattempts.client.render;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.gui.FontRenderer;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.item.ItemStack;
@@ -42,21 +41,20 @@ public class RenderRevisionPiedestalGeo extends GeoBlockRenderer<TileRevisionPie
 
         if (te == null || te.getWorld() == null) return;
 
-        boolean pushedAttrib = false;
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
-
+        float[] prevLight = RenderSafety.captureLightmap();
         try {
-            GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-            pushedAttrib = true;
-
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
+
+            if (RenderSafety.isItemRender()) {
+                return;
+            }
+
             renderEmissiveLayer(te, x, y, z, partialTicks);
             renderFloatingItem(te, x, y, z, partialTicks);
             renderCounter(te, x, y, z);
         } finally {
-            if (pushedAttrib) GL11.glPopAttrib();
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 
@@ -67,34 +65,30 @@ public class RenderRevisionPiedestalGeo extends GeoBlockRenderer<TileRevisionPie
                 this.getGeoModelProvider().getModelLocation(te)
         );
 
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
+        float[] prevLight = RenderSafety.captureLightmap();
 
         GlStateManager.pushMatrix();
         try {
             GlStateManager.translate(x + 0.5, y + EMISSIVE_Y_OFFSET, z + 0.5);
-
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
+            RenderSafety.setFullBrightLightmap();
 
             GlStateManager.disableLighting();
             GlStateManager.enableBlend();
-            GlStateManager.blendFunc(
+            GlStateManager.tryBlendFuncSeparate(
                     GlStateManager.SourceFactor.SRC_ALPHA,
-                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO
             );
-            GlStateManager.color(1F, 1F, 1F, 1F);
 
             Minecraft.getMinecraft().getTextureManager()
                     .bindTexture(te.isActive() ? TEX_EMISSIVE_ON : TEX_EMISSIVE_OFF);
 
             this.render(model, te, partialTicks, 1f, 1f, 1f, 1f);
-
-            GlStateManager.disableBlend();
-            GlStateManager.depthMask(true);
-            GlStateManager.enableLighting();
         } finally {
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
             GlStateManager.popMatrix();
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 
@@ -103,7 +97,7 @@ public class RenderRevisionPiedestalGeo extends GeoBlockRenderer<TileRevisionPie
         if (stack == null || stack.isEmpty()) return;
 
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc == null || mc.world == null || mc.getRenderViewEntity() == null) return;
+        if (mc.world == null || mc.getRenderViewEntity() == null) return;
 
         float ticks = (float) mc.getRenderViewEntity().ticksExisted + partialTicks;
 
@@ -123,6 +117,7 @@ public class RenderRevisionPiedestalGeo extends GeoBlockRenderer<TileRevisionPie
             renderManager.renderEntity(entityItem, 0.0D, 0.0D, 0.0D, 0.0F, 0.0F, false);
         } finally {
             GL11.glPopMatrix();
+            RenderSafety.resetGlState();
         }
     }
 
@@ -147,10 +142,9 @@ public class RenderRevisionPiedestalGeo extends GeoBlockRenderer<TileRevisionPie
             GlStateManager.depthMask(false);
             int half = font.getStringWidth(text) / 2;
             font.drawStringWithShadow(text, -half, 0, 0xFFD37D);
-            GlStateManager.depthMask(true);
-            GlStateManager.enableLighting();
         } finally {
             GlStateManager.popMatrix();
+            RenderSafety.resetGlState();
         }
     }
 }

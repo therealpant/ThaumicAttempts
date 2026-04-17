@@ -3,12 +3,10 @@ package therealpant.thaumicattempts.client.render;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
-import org.lwjgl.opengl.GL11;
 import software.bernie.geckolib3.geo.render.built.GeoModel;
 import software.bernie.geckolib3.renderers.geo.GeoBlockRenderer;
 import therealpant.thaumicattempts.ThaumicAttempts;
@@ -29,19 +27,8 @@ public class RenderRiftGeod extends GeoBlockRenderer<TileRiftGeod> {
         super(new RiftGeodModel());
     }
 
-    private EnumFacing getFacing(TileRiftGeod te) {
-        if (te == null || te.getWorld() == null) return EnumFacing.UP;
-        IBlockState state = te.getWorld().getBlockState(te.getPos());
-        if (state.getBlock() instanceof BlockRiftGeod) {
-            return state.getValue(BlockRiftGeod.FACING);
-        }
-        return EnumFacing.UP;
-    }
-
     private void applyFacingTransform(EnumFacing facing) {
         switch (facing) {
-            case UP:
-                break;
             case DOWN:
                 GlStateManager.rotate(180f, 1f, 0f, 0f);
                 break;
@@ -57,14 +44,15 @@ public class RenderRiftGeod extends GeoBlockRenderer<TileRiftGeod> {
             case WEST:
                 GlStateManager.rotate(90f, 0f, 0f, 1f);
                 break;
+            case UP:
+            default:
+                break;
         }
     }
 
     @Override
     public void rotateBlock(EnumFacing facing) {
-        // Запоминаем facing, который GeckoLib реально использует для основного слоя
         this.lastFacing = (facing == null) ? EnumFacing.UP : facing;
-
         GlStateManager.translate(0.0F, 0.5F, 0.0F);
         applyFacingTransform(this.lastFacing);
         GlStateManager.translate(0.0F, -0.5F, 0.0F);
@@ -77,35 +65,29 @@ public class RenderRiftGeod extends GeoBlockRenderer<TileRiftGeod> {
                 this.getGeoModelProvider().getModelLocation(te)
         );
 
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
+        float[] prevLight = RenderSafety.captureLightmap();
 
         GlStateManager.pushMatrix();
         try {
             GlStateManager.translate(x + 0.5, y + EMISSIVE_Y_OFFSET, z + 0.5);
-
             rotateBlock(this.lastFacing);
-
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
+            RenderSafety.setFullBrightLightmap();
 
             GlStateManager.disableLighting();
             GlStateManager.enableBlend();
-            GlStateManager.blendFunc(
+            GlStateManager.tryBlendFuncSeparate(
                     GlStateManager.SourceFactor.SRC_ALPHA,
-                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO
             );
-            GlStateManager.color(1F, 1F, 1F, 1F);
 
             Minecraft.getMinecraft().getTextureManager().bindTexture(TEX_EMISSIVE);
-
             this.render(model, te, partialTicks, 1f, 1f, 1f, 1f);
-
-            GlStateManager.disableBlend();
-            GlStateManager.depthMask(true);
-            GlStateManager.enableLighting();
         } finally {
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
             GlStateManager.popMatrix();
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 
@@ -118,22 +100,21 @@ public class RenderRiftGeod extends GeoBlockRenderer<TileRiftGeod> {
 
         if (te == null || te.getWorld() == null) return;
 
-        boolean pushedAttrib = false;
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
+        IBlockState state = te.getWorld().getBlockState(te.getPos());
+        if (state.getBlock() instanceof BlockRiftGeod) {
+            this.lastFacing = state.getValue(BlockRiftGeod.FACING);
+        }
 
+        float[] prevLight = RenderSafety.captureLightmap();
         try {
-            GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-            pushedAttrib = true;
-
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
 
-            renderEmissiveLayer(te, x, y, z, partialTicks);
-        } finally {
-            if (pushedAttrib) {
-                GL11.glPopAttrib();
+            if (!RenderSafety.isItemRender()) {
+                renderEmissiveLayer(te, x, y, z, partialTicks);
             }
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
+        } finally {
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 }

@@ -32,6 +32,14 @@ public class TileItemStackRenderer<T extends TileEntity> extends TileEntityItemS
             tile.setWorld(world);
         }
 
-        TileEntityRendererDispatcher.instance.render(tile, 0d, 0d, 0d, partialTicks);
+        float[] prevLight = RenderSafety.captureLightmap();
+        RenderSafety.pushItemRender();
+        try {
+            TileEntityRendererDispatcher.instance.render(tile, 0d, 0d, 0d, partialTicks);
+        } finally {
+            RenderSafety.popItemRender();
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
+        }
     }
 }

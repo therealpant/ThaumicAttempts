@@ -2,7 +2,6 @@ package therealpant.thaumicattempts.client.render;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
@@ -33,16 +32,16 @@ public class CraftPlannerRenderer extends GeoBlockRenderer<TileCraftPlanner> {
 
         if (te == null || te.getWorld() == null) return;
 
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
-        int packedLight = te.getWorld().getCombinedLight(te.getPos(), 0);
-        float blockLightX = packedLight & 0xFFFF;
-        float blockLightY = (packedLight >> 16) & 0xFFFF;
-
-        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, blockLightX, blockLightY);
-        super.render(te, x, y, z, partialTicks, destroyStage, alpha);
-        OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
-        renderEmissiveLayer(te, x, y, z, partialTicks);
+        float[] prevLight = RenderSafety.captureLightmap();
+        try {
+            super.render(te, x, y, z, partialTicks, destroyStage, alpha);
+            if (!RenderSafety.isItemRender()) {
+                renderEmissiveLayer(te, x, y, z, partialTicks);
+            }
+        } finally {
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
+        }
     }
 
     private void renderEmissiveLayer(TileCraftPlanner te,
@@ -54,15 +53,20 @@ public class CraftPlannerRenderer extends GeoBlockRenderer<TileCraftPlanner> {
                 this.getGeoModelProvider().getModelLocation(te)
         );
 
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
+        float[] prevLight = RenderSafety.captureLightmap();
 
         GlStateManager.pushMatrix();
         try {
             GlStateManager.translate(x + 0.5, y + EMISSIVE_Y_OFFSET, z + 0.5);
-
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
+            RenderSafety.setFullBrightLightmap();
             GlStateManager.disableLighting();
+            GlStateManager.enableBlend();
+            GlStateManager.tryBlendFuncSeparate(
+                    GlStateManager.SourceFactor.SRC_ALPHA,
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO
+            );
 
             Minecraft.getMinecraft().getTextureManager().bindTexture(TEX_EMISSIVE);
             this.render(model, te, partialTicks, 1f, 1f, 1f, 1f);
@@ -71,8 +75,9 @@ public class CraftPlannerRenderer extends GeoBlockRenderer<TileCraftPlanner> {
             GlStateManager.enableLighting();
 
         } finally {
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
             GlStateManager.popMatrix();
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 }

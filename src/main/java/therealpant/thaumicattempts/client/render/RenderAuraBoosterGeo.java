@@ -2,7 +2,6 @@ package therealpant.thaumicattempts.client.render;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.entity.RenderManager;
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.item.ItemStack;
@@ -22,7 +21,6 @@ public class RenderAuraBoosterGeo extends GeoBlockRenderer<TileAuraBooster> {
     private static final ResourceLocation TEX_EMISSIVE =
             new ResourceLocation(ThaumicAttempts.MODID, "textures/blocks/aura_buffer_e.png");
 
-    // чтобы эмиссив не "дрался" с глубиной, но и не улетал
     private static final float EMISSIVE_Y_OFFSET = 0.0015f;
 
     public RenderAuraBoosterGeo() {
@@ -38,26 +36,20 @@ public class RenderAuraBoosterGeo extends GeoBlockRenderer<TileAuraBooster> {
 
         if (te == null || te.getWorld() == null) return;
 
-        boolean pushedAttrib = false;
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
+        float[] prevLight = RenderSafety.captureLightmap();
 
         try {
-            GL11.glPushAttrib(GL11.GL_ALL_ATTRIB_BITS);
-            pushedAttrib = true;
-
-            // 1) обычный Geo рендер
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
 
-            // 2) эмиссив (поверх)
+            if (RenderSafety.isItemRender()) {
+                return;
+            }
+
             renderEmissiveLayer(te, x, y, z, partialTicks);
-
-            // 3) жемчужина (1-в-1 как пьедестал)
-            renderPearlLikePedestal(te, x,  y- 0.3, z, partialTicks);
-
+            renderPearlLikePedestal(te, x, y - 0.3, z, partialTicks);
         } finally {
-            if (pushedAttrib) GL11.glPopAttrib();
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 
@@ -66,35 +58,28 @@ public class RenderAuraBoosterGeo extends GeoBlockRenderer<TileAuraBooster> {
                 this.getGeoModelProvider().getModelLocation(te)
         );
 
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
+        float[] prevLight = RenderSafety.captureLightmap();
 
         GlStateManager.pushMatrix();
         try {
-            // ВАЖНО: GeoBlockRenderer уже рендерит модель в мировых координатах по (x,y,z).
-            // Мы делаем такой же "мировой" translate, как и для предмета/пьедестала.
             GlStateManager.translate(x + 0.5, y + EMISSIVE_Y_OFFSET, z + 0.5);
-
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
+            RenderSafety.setFullBrightLightmap();
 
             GlStateManager.disableLighting();
             GlStateManager.enableBlend();
-            GlStateManager.blendFunc(
+            GlStateManager.tryBlendFuncSeparate(
                     GlStateManager.SourceFactor.SRC_ALPHA,
-                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO
             );
-            GlStateManager.color(1F, 1F, 1F, 1F);
-
             Minecraft.getMinecraft().getTextureManager().bindTexture(TEX_EMISSIVE);
 
-            // render(...) у GeoBlockRenderer рисует модель вокруг (0,0,0) текущей матрицы
             this.render(model, te, partialTicks, 1f, 1f, 1f, 1f);
-
-            GlStateManager.disableBlend();
-            GlStateManager.enableLighting();
         } finally {
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
             GlStateManager.popMatrix();
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 
@@ -103,13 +88,12 @@ public class RenderAuraBoosterGeo extends GeoBlockRenderer<TileAuraBooster> {
         if (stack == null || stack.isEmpty()) return;
 
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc == null || mc.world == null || mc.getRenderViewEntity() == null) return;
+        if (mc.world == null || mc.getRenderViewEntity() == null) return;
 
         float ticks = (float) mc.getRenderViewEntity().ticksExisted + partialTicks;
 
         GL11.glPushMatrix();
         try {
-            // 1-в-1 как TilePedestalRenderer
             GL11.glTranslatef((float) x + 0.5F, (float) y + 0.75F, (float) z + 0.5F);
             GL11.glScaled(1.25D, 1.25D, 1.25D);
             GL11.glRotatef(ticks % 360.0F, 0.0F, 1.0F, 0.0F);
@@ -124,6 +108,7 @@ public class RenderAuraBoosterGeo extends GeoBlockRenderer<TileAuraBooster> {
             rendermanager.renderEntity(entityitem, 0.0D, 0.0D, 0.0D, 0.0F, 0.0F, false);
         } finally {
             GL11.glPopMatrix();
+            RenderSafety.resetGlState();
         }
     }
 }

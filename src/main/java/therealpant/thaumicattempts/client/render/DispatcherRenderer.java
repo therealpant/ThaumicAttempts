@@ -2,7 +2,6 @@ package therealpant.thaumicattempts.client.render;
 
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.GlStateManager;
-import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
@@ -15,11 +14,9 @@ import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
 @SideOnly(Side.CLIENT)
 public class DispatcherRenderer extends GeoBlockRenderer<TileGolemDispatcher> {
 
-    // эмисс-слой (только подсвечиваемые пиксели)
     private static final ResourceLocation TEX_EMISSIVE =
             new ResourceLocation(ThaumicAttempts.MODID, "textures/blocks/dispatcher_e.png");
 
-    // если нужно чуть приподнять эмисс над моделью – правь это значение
     private static final float EMISSIVE_Y_OFFSET = 0.01F;
 
     public DispatcherRenderer() {
@@ -35,16 +32,18 @@ public class DispatcherRenderer extends GeoBlockRenderer<TileGolemDispatcher> {
 
         if (te == null || te.getWorld() == null) return;
 
-        // 1) базовая гео-модель с обычной текстурой
-        super.render(te, x, y, z, partialTicks, destroyStage, alpha);
-
-        // 2) эмисс-проход поверх неё
-        renderEmissiveLayer(te, x, y, z, partialTicks);
+        float[] prevLight = RenderSafety.captureLightmap();
+        try {
+            super.render(te, x, y, z, partialTicks, destroyStage, alpha);
+            if (!RenderSafety.isItemRender()) {
+                renderEmissiveLayer(te, x, y, z, partialTicks);
+            }
+        } finally {
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
+        }
     }
 
-    /**
-     * Второй проход: та же Geo-модель, но с эмисс-текстурой и фуллбрайтом.
-     */
     private void renderEmissiveLayer(TileGolemDispatcher te,
                                      double x, double y, double z,
                                      float partialTicks) {
@@ -54,30 +53,30 @@ public class DispatcherRenderer extends GeoBlockRenderer<TileGolemDispatcher> {
                 this.getGeoModelProvider().getModelLocation(te)
         );
 
-        float prevX = OpenGlHelper.lastBrightnessX;
-        float prevY = OpenGlHelper.lastBrightnessY;
+        float[] prevLight = RenderSafety.captureLightmap();
 
         GlStateManager.pushMatrix();
         try {
             GlStateManager.translate(x + 0.5, y + EMISSIVE_Y_OFFSET, z + 0.5);
 
-            // Фуллбрайт
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, 240f, 240f);
+            RenderSafety.setFullBrightLightmap();
 
             GlStateManager.disableLighting();
+            GlStateManager.enableBlend();
+            GlStateManager.tryBlendFuncSeparate(
+                    GlStateManager.SourceFactor.SRC_ALPHA,
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO
+            );
 
             Minecraft.getMinecraft().getTextureManager().bindTexture(TEX_EMISSIVE);
 
-            // Рендерим как непрозрачный фуллбрайт слой
             this.render(model, te, partialTicks, 1f, 1f, 1f, 1f);
-
-            // Возвращаем настройки OpenGL
-            GlStateManager.depthMask(true);
-            GlStateManager.enableLighting();
-
         } finally {
-            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit, prevX, prevY);
             GlStateManager.popMatrix();
+            RenderSafety.restoreLightmap(prevLight);
+            RenderSafety.resetGlState();
         }
     }
 }
