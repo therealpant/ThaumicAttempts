@@ -48,6 +48,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     private static final String TAG_PENDING_CRAFT = "PendingCraft";
     private static final String TAG_SUPPRESS_RECONCILE_DEPTH = "SuppressReconcileDepth";
     private static final long SUCCESS_COOLDOWN_TICKS = 100L;
+    private static final long RETRY_COOLDOWN_TICKS = 20L;
 
     private final AnimationFactory factory = new AnimationFactory(this);
     private boolean active = true;
@@ -352,30 +353,6 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         }
 
         ItemStack requested = getRequestedItem();
-        if (requested.isEmpty()) {
-            lastRedstonePowered = powered;
-            return;
-        }
-
-        TileMirrorManager manager = (TileMirrorManager) te;
-        int available = Math.max(0, manager.getAvailableCountFor(requested));
-
-        if (impossibleOrderLocked) {
-            if (available == lastOrderAvailable) {
-                lastRedstonePowered = powered;
-                return;
-            }
-            impossibleOrderLocked = false;
-            nextRetryTick = 0L;
-            lastOrderAvailable = -1;
-            markDirtyAndSync();
-        }
-
-        int cap = getThreshold();
-        if (available >= cap) {
-            resetOrderTracking();
-            return;
-        }
 
         long now = world.getTotalWorldTime();
 
@@ -406,8 +383,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             return;
         }
 
-        int deficit = Math.max(1, cap - available);
-        int orderBatch = Math.max(1, Math.min(counter, deficit));
+        int orderBatch = Math.max(1, counter);
 
         ItemStack requestStack;
         if (TerminalOrderApi.isOrderIcon(pedestalItem)) {
@@ -416,9 +392,9 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             requestStack = TerminalStyleCraftSubmitHelper.resolveTerminalCraftIconForRequest(world, managerPos, requested);
         }
         if (requestStack.isEmpty()) {
-            impossibleOrderLocked = true;
-            lastOrderAvailable = available;
-            nextRetryTick = 0L;
+            impossibleOrderLocked = false;
+            lastOrderAvailable = -1;
+            nextRetryTick = now + RETRY_COOLDOWN_TICKS;
             markDirtyAndSync();
             return;
         }
@@ -445,15 +421,16 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         }
 
         if (accepted > 0) {
-            lastOrderAvailable = available;
+            lastOrderAvailable = -1;
             awaitingOrderCompletion = true;
             impossibleOrderLocked = false;
             nextRetryTick = 0L;
             markDirtyAndSync();
         } else {
-            impossibleOrderLocked = true;
-            lastOrderAvailable = available;
-            nextRetryTick = 0L;
+            awaitingOrderCompletion = false;
+            impossibleOrderLocked = false;
+            lastOrderAvailable = -1;
+            nextRetryTick = now + RETRY_COOLDOWN_TICKS;
             markDirtyAndSync();
         }
     }
