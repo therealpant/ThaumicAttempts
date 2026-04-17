@@ -43,10 +43,10 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     private static final String TAG_NEXT_RETRY_TICK = "NextRetryTick";
     private static final String TAG_LAST_ORDER_AVAILABLE = "LastOrderAvailable";
     private static final String TAG_AWAITING_ORDER_COMPLETION = "AwaitingOrderCompletion";
+    private static final String TAG_IMPOSSIBLE_ORDER_LOCKED = "ImpossibleOrderLocked";
     private static final String TAG_OUTPUT = "Output";
     private static final String TAG_PENDING_CRAFT = "PendingCraft";
     private static final String TAG_SUPPRESS_RECONCILE_DEPTH = "SuppressReconcileDepth";
-    private static final long RETRY_DELAY_TICKS = 200L;
     private static final long SUCCESS_COOLDOWN_TICKS = 100L;
 
     private final AnimationFactory factory = new AnimationFactory(this);
@@ -59,6 +59,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     private long nextRetryTick = 0L;
     private int lastOrderAvailable = -1;
     private boolean awaitingOrderCompletion = false;
+    private boolean impossibleOrderLocked = false;
     private boolean lastRedstonePowered = false;
     @Nullable
     private BlockPos managerPos = null;
@@ -98,7 +99,11 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
     }
 
     public void setActive(boolean active) {
+        boolean changed = this.active != active;
         this.active = active;
+        if (changed) {
+            fullResetForModeSwitch();
+        }
         recalcSignalAndNotify(true);
         markDirtyAndSync();
     }
@@ -217,7 +222,14 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         nextRetryTick = 0L;
         lastOrderAvailable = -1;
         awaitingOrderCompletion = false;
+        impossibleOrderLocked = false;
         pendingCraft.clear();
+    }
+
+    private void fullResetForModeSwitch() {
+        resetOrderTracking();
+        lastRedstonePowered = false;
+        suppressOutputReconcileDepth = 0;
     }
 
     private void markDirtyAndSync() {
@@ -265,6 +277,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         nextRetryTick = compound.getLong(TAG_NEXT_RETRY_TICK);
         lastOrderAvailable = compound.hasKey(TAG_LAST_ORDER_AVAILABLE) ? compound.getInteger(TAG_LAST_ORDER_AVAILABLE) : -1;
         awaitingOrderCompletion = compound.getBoolean(TAG_AWAITING_ORDER_COMPLETION);
+        impossibleOrderLocked = compound.getBoolean(TAG_IMPOSSIBLE_ORDER_LOCKED);
         lastRedstonePowered = compound.getBoolean(TAG_LAST_REDSTONE_POWERED);
         suppressOutputReconcileDepth = Math.max(0, compound.getInteger(TAG_SUPPRESS_RECONCILE_DEPTH));
         readPendingMap(compound, TAG_PENDING_CRAFT, pendingCraft);
@@ -288,6 +301,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             compound.setInteger(TAG_LAST_ORDER_AVAILABLE, lastOrderAvailable);
         }
         compound.setBoolean(TAG_AWAITING_ORDER_COMPLETION, awaitingOrderCompletion);
+        compound.setBoolean(TAG_IMPOSSIBLE_ORDER_LOCKED, impossibleOrderLocked);
         compound.setBoolean(TAG_LAST_REDSTONE_POWERED, lastRedstonePowered);
         compound.setInteger(TAG_SUPPRESS_RECONCILE_DEPTH, Math.max(0, suppressOutputReconcileDepth));
         writePendingMap(compound, TAG_PENDING_CRAFT, pendingCraft);
@@ -346,10 +360,20 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         TileMirrorManager manager = (TileMirrorManager) te;
         int available = Math.max(0, manager.getAvailableCountFor(requested));
 
+        if (impossibleOrderLocked) {
+            if (available == lastOrderAvailable) {
+                lastRedstonePowered = powered;
+                return;
+            }
+            impossibleOrderLocked = false;
+            nextRetryTick = 0L;
+            lastOrderAvailable = -1;
+            markDirtyAndSync();
+        }
+
         int cap = getThreshold();
         if (available >= cap) {
             resetOrderTracking();
-            lastRedstonePowered = powered;
             return;
         }
 
@@ -367,22 +391,18 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             } else {
                 markDirtyAndSync();
             }
-            lastRedstonePowered = powered;
             return;
         }
 
-        if (!powered || lastRedstonePowered) {
-            lastRedstonePowered = powered;
+        if (!powered) {
             return;
         }
 
         if (now < nextRetryTick) {
-            lastRedstonePowered = powered;
             return;
         }
 
         if (!isOutputEmpty()) {
-            lastRedstonePowered = powered;
             return;
         }
 
@@ -396,9 +416,10 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             requestStack = TerminalStyleCraftSubmitHelper.resolveTerminalCraftIconForRequest(world, managerPos, requested);
         }
         if (requestStack.isEmpty()) {
-            nextRetryTick = now + RETRY_DELAY_TICKS;
-            lastRedstonePowered = powered;
-            markDirty();
+            impossibleOrderLocked = true;
+            lastOrderAvailable = available;
+            nextRetryTick = 0L;
+            markDirtyAndSync();
             return;
         }
         requestStack.setCount(1);
@@ -412,7 +433,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
                         Collections.singletonList(
                                 new TerminalStyleCraftSubmitHelper.CraftOrder(requestStack, orderBatch)
                         ),
-                        true
+                        false
                 );
 
         int accepted = 0;
@@ -426,14 +447,15 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         if (accepted > 0) {
             lastOrderAvailable = available;
             awaitingOrderCompletion = true;
+            impossibleOrderLocked = false;
             nextRetryTick = 0L;
             markDirtyAndSync();
         } else {
-            nextRetryTick = now + RETRY_DELAY_TICKS;
-            markDirty();
+            impossibleOrderLocked = true;
+            lastOrderAvailable = available;
+            nextRetryTick = 0L;
+            markDirtyAndSync();
         }
-
-        lastRedstonePowered = powered;
     }
 
     public void beginManagerBufferInsert() { suppressOutputReconcileDepth++; }
