@@ -42,6 +42,7 @@ import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
+import therealpant.thaumicattempts.golemnet.cloud.MirrorLogisticsCloud;
 import therealpant.thaumicattempts.golemnet.tile.TileRevisionPiedestal;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
@@ -179,6 +180,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return dispatcherSealColor & 15;
     }
 
+    public MirrorLogisticsCloud getCloud() {
+        return cloud;
+    }
+
     private boolean isUnlinking = false;
     private int staleSweepTicker = 0;
     private boolean suppressAcceptAnim = false;
@@ -269,7 +274,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private static final String TAG_DISPATCHERS = "boundDispatchers";
     private static final String TAG_CONSUMER_ORDERS = "consumerOrders";
     private static final String TAG_CONSUMER_FOCUS_GRACE = "consumerFocusGrace";
+    private static final String TAG_CLOUD = "cloud";
 
+    private final MirrorLogisticsCloud cloud = new MirrorLogisticsCloud();
     // ЕДИНАЯ занятость слотов
     private final boolean[][] slotBusy = new boolean[RINGS][SLOTS_PER_RING];
 
