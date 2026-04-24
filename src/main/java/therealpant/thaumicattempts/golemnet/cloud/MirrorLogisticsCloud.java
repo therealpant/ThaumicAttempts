@@ -3,11 +3,13 @@ package therealpant.thaumicattempts.golemnet.cloud;
 import net.minecraft.item.Item;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
+import net.minecraft.util.math.BlockPos;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.ItemKey;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
+import java.util.Comparator;
 import java.util.Collections;
 import java.util.LinkedHashMap;
 import java.util.List;
@@ -26,19 +28,17 @@ public class MirrorLogisticsCloud {
     private final Map<UUID, CloudOrder> orders = new LinkedHashMap<>();
     private final Map<UUID, CloudTask> tasks = new LinkedHashMap<>();
     private CloudNetworkSnapshot snapshot = new CloudNetworkSnapshot();
+    private static final int TASK_TIMEOUT_TICKS = 100;
+    private static final int MAX_RETRIES = 3;
+    private static final int REQUEST_CHUNK = 64;
 
     public void tick(TileMirrorManager manager) {
         if (manager == null || manager.getWorld() == null || manager.getWorld().isRemote) return;
 
         final long tick = manager.getWorld().getTotalWorldTime();
-        for (CloudOrder order : orders.values()) {
-            if (order == null) continue;
-            if (order.getStatus() == CloudOrderStatus.NEW) {
-                order.setStatus(CloudOrderStatus.PLANNING, tick);
-            } else if (order.getStatus() == CloudOrderStatus.PLANNING) {
-                order.setStatus(CloudOrderStatus.WAITING_RESOURCES, tick);
-            }
-        }
+        planOrders(manager, tick);
+        executeTasksSequentially(manager, tick);
+        syncOrderStates(tick);
 
         if ((tick % 100L) == 0L) {
             rebuildNetworkSnapshot(manager);
@@ -49,6 +49,193 @@ public class MirrorLogisticsCloud {
         if (order == null) return null;
         orders.put(order.getOrderId(), order);
         return order.getOrderId();
+    }
+
+    private void planOrders(TileMirrorManager manager, long tick) {
+        LinkedHashMap<ItemKey, Integer> reachableCatalog = manager.getReachableCatalog();
+
+        for (CloudOrder order : orders.values()) {
+            if (order == null || order.getStatus() == CloudOrderStatus.CANCELLED || order.getStatus() == CloudOrderStatus.DONE) continue;
+            if (order.getKind() != CloudOrderKind.DELIVERY) continue;
+
+            if (order.getStatus() == CloudOrderStatus.NEW) {
+                order.setStatus(CloudOrderStatus.PLANNING, tick);
+            }
+            if (order.getStatus() != CloudOrderStatus.PLANNING && order.getStatus() != CloudOrderStatus.WAITING_RESOURCES) continue;
+
+            ItemKey key = order.getItemKey();
+            int requested = Math.max(0, order.getRequestedAmount());
+            if (requested <= 0 || key == null || key == ItemKey.EMPTY) {
+                order.setStatus(CloudOrderStatus.FAILED, tick);
+                order.setFailReason("Invalid delivery order payload", tick);
+                continue;
+            }
+
+            int availableInCatalog = Math.max(0, reachableCatalog.getOrDefault(key, 0));
+            int availableInBuffer = Math.max(0, manager.countBuffered(key));
+            if (availableInCatalog <= 0 && availableInBuffer <= 0) {
+                order.setStatus(CloudOrderStatus.WAITING_RESOURCES, tick);
+                order.setFailReason("Resource not reachable in provider catalog: " + key, tick);
+                continue;
+            }
+
+            if (getTaskByOrderAndKind(order.getOrderId(), CloudTaskKind.SUPPLY) == null) {
+                CloudTask supply = new CloudTask(UUID.randomUUID(), order.getOrderId(), CloudTaskKind.SUPPLY, key, requested, tick);
+                supply.setEndpoints(null, order.getDestination());
+                supply.setAssignments(manager.getPos(), order.getDestination() == null ? null : order.getDestination().getPos());
+                supply.setStatus(CloudTaskStatus.READY, tick);
+                tasks.put(supply.getTaskId(), supply);
+            }
+            if (getTaskByOrderAndKind(order.getOrderId(), CloudTaskKind.TRANSFER) == null) {
+                CloudTask transfer = new CloudTask(UUID.randomUUID(), order.getOrderId(), CloudTaskKind.TRANSFER, key, requested, tick);
+                transfer.setEndpoints(null, order.getDestination());
+                transfer.setAssignments(manager.getPos(), order.getDestination() == null ? null : order.getDestination().getPos());
+                transfer.setStatus(CloudTaskStatus.READY, tick);
+                tasks.put(transfer.getTaskId(), transfer);
+            }
+            order.setFailReason("", tick);
+            order.setStatus(CloudOrderStatus.RUNNING, tick);
+        }
+    }
+
+    private void executeTasksSequentially(TileMirrorManager manager, long tick) {
+        List<CloudTask> sorted = new ArrayList<>(tasks.values());
+        sorted.sort(Comparator.comparingLong(CloudTask::getCreatedTick).thenComparing(CloudTask::getTaskId));
+        for (CloudTask task : sorted) {
+            if (task == null) continue;
+            CloudOrder order = orders.get(task.getOrderId());
+            if (order == null || order.getStatus() == CloudOrderStatus.CANCELLED || order.getStatus() == CloudOrderStatus.FAILED) continue;
+            if (order.getKind() != CloudOrderKind.DELIVERY) continue;
+
+            if (task.getStatus() == CloudTaskStatus.NEW) {
+                task.setStatus(CloudTaskStatus.READY, tick);
+            }
+            if (task.getStatus() == CloudTaskStatus.READY) {
+                task.setStatus(CloudTaskStatus.RUNNING, tick);
+            }
+            if (task.getStatus() != CloudTaskStatus.RUNNING && task.getStatus() != CloudTaskStatus.BLOCKED) continue;
+
+            if (task.getStatus() == CloudTaskStatus.BLOCKED) {
+                if (task.getRetryCount() >= MAX_RETRIES) {
+                    task.fail("Retries exhausted after BLOCKED state", tick);
+                    continue;
+                }
+                task.setStatus(CloudTaskStatus.RUNNING, tick);
+            }
+
+            if (task.getKind() == CloudTaskKind.SUPPLY) {
+                runSupplyTask(manager, task, tick);
+            } else if (task.getKind() == CloudTaskKind.TRANSFER) {
+                runTransferTask(manager, task, tick);
+            }
+
+            handleTaskTimeout(task, tick);
+        }
+    }
+
+    private void runSupplyTask(TileMirrorManager manager, CloudTask task, long tick) {
+        ItemKey key = task.getItemKey();
+        int target = task.getAmount();
+        int buffered = manager.countBuffered(key);
+        int completed = Math.min(target, Math.max(0, buffered));
+        if (completed > task.getCompletedAmount()) {
+            task.setCompletedAmount(completed, tick);
+        } else {
+            task.markNoProgress(tick);
+        }
+
+        if (task.getCompletedAmount() >= target) {
+            task.setStatus(CloudTaskStatus.DONE, tick);
+            return;
+        }
+
+        int need = Math.max(0, target - task.getCompletedAmount());
+        if (need > 0) {
+            int requested = Math.min(REQUEST_CHUNK, need);
+            manager.requestFromStorageByGolem(key, requested, task.getTaskId());
+        }
+    }
+
+    private void runTransferTask(TileMirrorManager manager, CloudTask task, long tick) {
+        CloudOrder order = orders.get(task.getOrderId());
+        if (order == null || order.getDestination() == null) {
+            task.fail("Missing destination for transfer task", tick);
+            return;
+        }
+
+        BlockPos dest = order.getDestination().getPos();
+        int side = order.getDestination().getSide();
+        int target = task.getAmount();
+
+        if (task.getDestinationBaseline() < 0) {
+            task.setDestinationBaseline(manager.countAtDestination(dest, side, task.getItemKey()));
+        }
+
+        int movedNow = manager.transferFromBufferTo(dest, side, task.getItemKey(), Math.max(0, target - task.getCompletedAmount()), task.getTaskId());
+
+        int currentAtDest = manager.countAtDestination(dest, side, task.getItemKey());
+        int deliveredByBaseline = Math.max(0, currentAtDest - task.getDestinationBaseline());
+        int completed = Math.min(target, deliveredByBaseline);
+        if (completed > task.getCompletedAmount()) {
+            task.setCompletedAmount(completed, tick);
+        } else if (movedNow > 0) {
+            task.setCompletedAmount(Math.min(target, task.getCompletedAmount() + movedNow), tick);
+        } else {
+            task.markNoProgress(tick);
+        }
+
+        if (task.getCompletedAmount() >= target) {
+            task.setStatus(CloudTaskStatus.DONE, tick);
+        } else if (manager.countBuffered(task.getItemKey()) <= 0) {
+            task.setStatus(CloudTaskStatus.BLOCKED, tick);
+        }
+    }
+
+    private void handleTaskTimeout(CloudTask task, long tick) {
+        if (task.getStatus() != CloudTaskStatus.RUNNING) return;
+        long lastProgressTick = task.getLastProgressTick() > 0L ? task.getLastProgressTick() : task.getStartedTick();
+        if (lastProgressTick <= 0L) lastProgressTick = task.getCreatedTick();
+        if (tick - lastProgressTick <= TASK_TIMEOUT_TICKS) return;
+
+        int retries = task.incrementRetry(tick);
+        if (retries > MAX_RETRIES) {
+            task.fail("Task timeout (" + TASK_TIMEOUT_TICKS + " ticks) and retries exhausted", tick);
+        } else {
+            task.setStatus(CloudTaskStatus.BLOCKED, tick);
+        }
+    }
+
+    private void syncOrderStates(long tick) {
+        for (CloudOrder order : orders.values()) {
+            if (order == null || order.getStatus() == CloudOrderStatus.CANCELLED || order.getKind() != CloudOrderKind.DELIVERY) continue;
+
+            CloudTask supply = getTaskByOrderAndKind(order.getOrderId(), CloudTaskKind.SUPPLY);
+            CloudTask transfer = getTaskByOrderAndKind(order.getOrderId(), CloudTaskKind.TRANSFER);
+            if (supply == null || transfer == null) continue;
+
+            if (supply.getStatus() == CloudTaskStatus.FAILED || transfer.getStatus() == CloudTaskStatus.FAILED) {
+                order.setStatus(CloudOrderStatus.FAILED, tick);
+                order.setFailReason("Task failed: " + (supply.getStatus() == CloudTaskStatus.FAILED ? supply.getFailReason() : transfer.getFailReason()), tick);
+                continue;
+            }
+
+            if (transfer.getStatus() == CloudTaskStatus.DONE && transfer.getCompletedAmount() >= order.getRequestedAmount()) {
+                order.setStatus(CloudOrderStatus.DONE, tick);
+                order.setFailReason("", tick);
+            } else if (order.getStatus() != CloudOrderStatus.WAITING_RESOURCES) {
+                order.setStatus(CloudOrderStatus.RUNNING, tick);
+            }
+        }
+    }
+
+    @Nullable
+    private CloudTask getTaskByOrderAndKind(@Nullable UUID orderId, CloudTaskKind kind) {
+        if (orderId == null || kind == null) return null;
+        for (CloudTask task : tasks.values()) {
+            if (task == null) continue;
+            if (kind == task.getKind() && orderId.equals(task.getOrderId())) return task;
+        }
+        return null;
     }
 
     public boolean cancelOrder(UUID orderId) {

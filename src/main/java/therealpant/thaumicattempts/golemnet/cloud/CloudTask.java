@@ -24,6 +24,8 @@ public class CloudTask {
     private int completedAmount;
     private String failReason;
     private int retryCount;
+    private int destinationBaseline = -1;
+    private long lastProgressTick;
 
     public CloudTask(UUID taskId, UUID orderId, CloudTaskKind kind, ItemKey itemKey, int amount, long createdTick) {
         this.taskId = taskId == null ? UUID.randomUUID() : taskId;
@@ -35,6 +37,7 @@ public class CloudTask {
         this.updatedTick = createdTick;
         this.status = CloudTaskStatus.NEW;
         this.failReason = "";
+        this.lastProgressTick = createdTick;
     }
 
     public UUID getTaskId() { return taskId; }
@@ -53,11 +56,14 @@ public class CloudTask {
     public int getCompletedAmount() { return completedAmount; }
     public String getFailReason() { return failReason; }
     public int getRetryCount() { return retryCount; }
+    public int getDestinationBaseline() { return destinationBaseline; }
+    public long getLastProgressTick() { return lastProgressTick; }
 
     public void setStatus(CloudTaskStatus status, long tick) {
         this.status = status == null ? CloudTaskStatus.NEW : status;
         this.updatedTick = tick;
         if (this.status == CloudTaskStatus.RUNNING && startedTick <= 0L) startedTick = tick;
+        if (this.lastProgressTick <= 0L) this.lastProgressTick = tick;
     }
 
     public void setEndpoints(@Nullable CloudEndpointRef source, @Nullable CloudEndpointRef target) {
@@ -73,6 +79,7 @@ public class CloudTask {
     public void setCompletedAmount(int completedAmount, long tick) {
         this.completedAmount = Math.max(0, completedAmount);
         this.updatedTick = tick;
+        this.lastProgressTick = tick;
     }
 
     public void fail(String reason, long tick) {
@@ -80,6 +87,21 @@ public class CloudTask {
         this.status = CloudTaskStatus.FAILED;
         this.updatedTick = tick;
         this.retryCount++;
+    }
+
+    public void setDestinationBaseline(int destinationBaseline) {
+        this.destinationBaseline = Math.max(0, destinationBaseline);
+    }
+
+    public void markNoProgress(long tick) {
+        this.updatedTick = tick;
+        if (lastProgressTick <= 0L) lastProgressTick = tick;
+    }
+
+    public int incrementRetry(long tick) {
+        this.retryCount++;
+        this.updatedTick = tick;
+        return retryCount;
     }
 
     public NBTTagCompound serializeNBT() {
@@ -100,6 +122,8 @@ public class CloudTask {
         nbt.setInteger("completedAmount", completedAmount);
         nbt.setString("failReason", failReason == null ? "" : failReason);
         nbt.setInteger("retryCount", retryCount);
+        nbt.setInteger("destinationBaseline", destinationBaseline);
+        nbt.setLong("lastProgressTick", lastProgressTick);
         return nbt;
     }
 
@@ -121,6 +145,8 @@ public class CloudTask {
         task.completedAmount = nbt.getInteger("completedAmount");
         task.failReason = nbt.getString("failReason");
         task.retryCount = nbt.getInteger("retryCount");
+        task.destinationBaseline = nbt.hasKey("destinationBaseline") ? nbt.getInteger("destinationBaseline") : -1;
+        task.lastProgressTick = nbt.hasKey("lastProgressTick") ? nbt.getLong("lastProgressTick") : task.updatedTick;
         return task;
     }
 }

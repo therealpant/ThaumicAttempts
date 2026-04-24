@@ -184,6 +184,46 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return cloud;
     }
 
+    public int countBuffered(ItemKey key) {
+        if (key == null || key == ItemKey.EMPTY) return 0;
+        return countInBufferLike(key.toStack(1));
+    }
+
+    public int requestFromStorageByGolem(ItemKey key, int amount, @Nullable UUID taskId) {
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
+        ItemStack requestLike = key.toStack(1);
+        if (requestLike.isEmpty()) return 0;
+
+        int queueId = queueIdFromTask(taskId);
+        ItemStack req = normalizeForProvision(requestLike, Math.max(1, amount));
+        if (req.isEmpty()) return 0;
+
+        GolemHelper.requestProvisioning(world, this.pos, EnumFacing.UP, req, queueId);
+        return req.getCount();
+    }
+
+    public int transferFromBufferTo(BlockPos dest, int destSide, ItemKey key, int amount, @Nullable UUID taskId) {
+        if (world == null || world.isRemote || dest == null || key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
+        ItemStack like = key.toStack(1);
+        if (like.isEmpty()) return 0;
+        focusMirrorForDeliveryTarget(dest);
+        return pushFromBufferTo(dest, destSide, like, amount, DeliveryAnimMode.MANAGER_TO_MIRROR);
+    }
+
+    public int countAtDestination(BlockPos dest, int destSide, ItemKey key) {
+        if (key == null || key == ItemKey.EMPTY || dest == null) return 0;
+        ItemStack like = key.toStack(1);
+        if (like.isEmpty()) return 0;
+        return countAtDestLike(dest, destSide, like);
+    }
+
+    private int queueIdFromTask(@Nullable UUID taskId) {
+        if (taskId == null) return 0;
+        int mixed = taskId.hashCode();
+        mixed = mixed == Integer.MIN_VALUE ? 0 : Math.abs(mixed);
+        return mixed % 6;
+    }
+
     private boolean isUnlinking = false;
     private int staleSweepTicker = 0;
     private boolean suppressAcceptAnim = false;
@@ -2805,6 +2845,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
 
         tickCounter++;
+        cloud.tick(this);
         retryStalledOrderTasks();
         drainOrderMemoryToExecutionQueues();
 
@@ -3922,6 +3963,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         nbt.setTag(TAG_PEND_EJECTS, pe);
         nbt.setTag(TAG_MIRRORS, ml);
         nbt.setLong(TAG_RENDER_SEED, renderSeed);
+        nbt.setTag(TAG_CLOUD, cloud.serializeNBT());
 
         return nbt;
     }
@@ -4063,6 +4105,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
             }
         }
         renderSeed = nbt.getLong(TAG_RENDER_SEED);
+        if (nbt.hasKey(TAG_CLOUD, 10)) {
+            cloud.deserializeNBT(nbt.getCompoundTag(TAG_CLOUD));
+        } else {
+            cloud.deserializeNBT(null);
+        }
         staleSweepTicker = 0;
     }
 
