@@ -385,32 +385,31 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
 
         int orderBatch = Math.max(1, counter);
 
-        ItemStack requestStack;
-        if (TerminalOrderApi.isOrderIcon(pedestalItem)) {
-            requestStack = pedestalItem.copy();
-        } else {
-            requestStack = TerminalStyleCraftSubmitHelper.resolveTerminalCraftIconForRequest(world, managerPos, requested);
-        }
-        if (requestStack.isEmpty()) {
+        if (requested.isEmpty()) {
             impossibleOrderLocked = false;
             lastOrderAvailable = -1;
             nextRetryTick = now + RETRY_COOLDOWN_TICKS;
             markDirtyAndSync();
             return;
         }
-        requestStack.setCount(1);
 
-        LinkedHashMap<ItemKey, Integer> acceptedByOutput =
-                TerminalStyleCraftSubmitHelper.submitTerminalStyleCraftOrders(
-                        world,
-                        managerPos,
-                        this.pos,
-                        -1,
-                        Collections.singletonList(
-                                new TerminalStyleCraftSubmitHelper.CraftOrder(requestStack, orderBatch)
-                        ),
-                        false
-                );
+        requested.setCount(1);
+        ItemKey requestedKey = ItemKey.of(requested);
+        if (requestedKey == ItemKey.EMPTY) {
+            impossibleOrderLocked = false;
+            lastOrderAvailable = -1;
+            nextRetryTick = now + RETRY_COOLDOWN_TICKS;
+            markDirtyAndSync();
+            return;
+        }
+
+        LinkedHashMap<ItemKey, Integer> acceptedByOutput = CloudOrderSubmitHelper.submitBatchCraft(
+                world,
+                managerPos,
+                this.pos,
+                -1,
+                Collections.singletonList(new java.util.AbstractMap.SimpleEntry<>(requestedKey, orderBatch))
+        );
 
         int accepted = 0;
         for (Map.Entry<ItemKey, Integer> e : acceptedByOutput.entrySet()) {

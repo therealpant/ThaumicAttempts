@@ -327,7 +327,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         int freeDistinct = Math.max(0, 9 - pend.size());
         List<Map.Entry<ItemKey, Integer>> movedRaw = new ArrayList<>();
-        List<TerminalStyleCraftSubmitHelper.CraftOrder> directTerminalOrders = new ArrayList<>();
+        List<Map.Entry<ItemKey, Integer>> directCraftOrdersRaw = new ArrayList<>();
 
         for (Map.Entry<ItemKey, Integer> e : new ArrayList<>(draft.entrySet())) {
             ItemKey key = e.getKey();
@@ -335,10 +335,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
             ItemStack keyStack = key.toStack(1);
             if (TerminalOrderApi.isOrderIcon(keyStack)) {
-                BlockPos target = TerminalOrderApi.getOrderIconPos(keyStack);
-                int slot = TerminalOrderApi.getOrderIconSlot(keyStack);
-                if (target != null && slot >= 0) {
-                    directTerminalOrders.add(new TerminalStyleCraftSubmitHelper.CraftOrder(keyStack, amt));
+                ItemStack crafted = TerminalOrderApi.stripOrderIconData(keyStack);
+                ItemKey craftKey = (crafted == null || crafted.isEmpty()) ? ItemKey.EMPTY : ItemKey.of(crafted);
+                if (craftKey != ItemKey.EMPTY) {
+                    directCraftOrdersRaw.add(new AbstractMap.SimpleEntry<>(craftKey, amt));
                 }
                 draft.remove(key);
                 continue;
@@ -371,7 +371,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
 
         if (movedRaw.isEmpty()) {
-            if (!craftTab || directTerminalOrders.isEmpty()) {
+            if (!craftTab || directCraftOrdersRaw.isEmpty()) {
                 markDirty();
                 sendSnapshotToViewers(craftTab);
                 return;
@@ -387,29 +387,26 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         TileEntity mte = (managerPos == null) ? null : world.getTileEntity(managerPos);
         if (mte instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) mte;
-            final int QUEUE_ID = craftTab ? 1 : 0;
 
             if (!craftTab) {
-                mgr.enqueueBatchDelivery(this.pos, -1, QUEUE_ID, moved);
+                CloudOrderSubmitHelper.submitBatchDelivery(world, managerPos, this.pos, -1, moved);
                 if (!pendingDelivery.isEmpty()) {
                     mgr.ensureDeliveryFor(this.pos, new LinkedHashMap<>(pendingDelivery));
                 }
             } else {
-                List<TerminalStyleCraftSubmitHelper.CraftOrder> craftOrders = new ArrayList<>();
-                for (Map.Entry<ItemKey, Integer> e : moved) {
-                    craftOrders.add(new TerminalStyleCraftSubmitHelper.CraftOrder(e.getKey().toStack(1), e.getValue()));
+                LinkedHashMap<ItemKey, Integer> acceptedCraft = new LinkedHashMap<>();
+                LinkedHashMap<ItemKey, Integer> acceptedRegularCraft = CloudOrderSubmitHelper.submitBatchCraft(
+                        world, managerPos, this.pos, -1, moved
+                );
+                for (Map.Entry<ItemKey, Integer> e : acceptedRegularCraft.entrySet()) {
+                    acceptedCraft.merge(e.getKey(), e.getValue(), Integer::sum);
                 }
-
-                craftOrders.addAll(directTerminalOrders);
-                LinkedHashMap<ItemKey, Integer> acceptedCraft =
-                        TerminalStyleCraftSubmitHelper.submitTerminalStyleCraftOrders(
-                                world,
-                                managerPos,
-                                this.pos,
-                                -1,
-                                craftOrders,
-                                true
-                        );
+                LinkedHashMap<ItemKey, Integer> acceptedDirectCraft = CloudOrderSubmitHelper.submitBatchCraft(
+                        world, managerPos, this.pos, -1, directCraftOrdersRaw
+                );
+                for (Map.Entry<ItemKey, Integer> e : acceptedDirectCraft.entrySet()) {
+                    acceptedCraft.merge(e.getKey(), e.getValue(), Integer::sum);
+                }
 
                 if (!acceptedCraft.isEmpty()) {
                     LinkedHashMap<ItemKey, Integer> acceptedNonIcons = new LinkedHashMap<>();
