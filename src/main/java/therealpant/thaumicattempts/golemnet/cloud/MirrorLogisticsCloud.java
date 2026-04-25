@@ -58,6 +58,7 @@ public class MirrorLogisticsCloud {
 
     private void planOrders(TileMirrorManager manager, long tick) {
         LinkedHashMap<ItemKey, Integer> reachableCatalog = manager.getReachableCatalog();
+        List<CloudOrder> deferredChildOrders = new ArrayList<>();
 
         for (CloudOrder order : orders.values()) {
             if (order == null || order.getStatus() == CloudOrderStatus.CANCELLED || order.getStatus() == CloudOrderStatus.DONE)
@@ -69,7 +70,12 @@ public class MirrorLogisticsCloud {
             if (order.getKind() == CloudOrderKind.DELIVERY) {
                 planDeliveryOrder(manager, order, reachableCatalog, tick);
             } else if (order.getKind() == CloudOrderKind.CRAFT) {
-                planCraftOrder(manager, order, reachableCatalog, tick);
+                planCraftOrder(manager, order, reachableCatalog, deferredChildOrders, tick);
+            }
+
+            for (CloudOrder child : deferredChildOrders) {
+                if (child == null) continue;
+                orders.put(child.getOrderId(), child);
             }
         }
     }
@@ -111,7 +117,11 @@ public class MirrorLogisticsCloud {
         order.setStatus(CloudOrderStatus.RUNNING, tick);
     }
 
-    private void planCraftOrder(TileMirrorManager manager, CloudOrder order, LinkedHashMap<ItemKey, Integer> reachableCatalog, long tick) {
+    private void planCraftOrder(TileMirrorManager manager,
+                                CloudOrder order,
+                                LinkedHashMap<ItemKey, Integer> reachableCatalog,
+                                List<CloudOrder> deferredChildOrders,
+                                long tick) {
         ItemKey requestedKey = order.getItemKey();
         int requestedAmount = Math.max(0, order.getRequestedAmount());
         if (requestedKey == null || requestedKey == ItemKey.EMPTY || requestedAmount <= 0 || order.getDestination() == null) {
@@ -165,7 +175,7 @@ public class MirrorLogisticsCloud {
             }
             order.setMetadataValue("craft.planDump", planning.debugDump);
             debug("plan order=%s\n%s", order.getOrderId(), planning.debugDump);
-            ensureChildCraftOrders(manager, order, totalInputs, inputEndpoint, tick);
+            ensureChildCraftOrders(manager, order, totalInputs, inputEndpoint, deferredChildOrders, tick);
         }
 
         List<String> missing = new ArrayList<>();
@@ -238,6 +248,7 @@ public class MirrorLogisticsCloud {
                                         CloudOrder parent,
                                         Map<ItemKey, Integer> totalInputs,
                                         CloudEndpointRef parentInput,
+                                        List<CloudOrder> deferredChildOrders,
                                         long tick) {
         if (parent == null || totalInputs == null || totalInputs.isEmpty() || parentInput == null) return;
 
@@ -263,7 +274,9 @@ public class MirrorLogisticsCloud {
             child.setMetadataValue("craft.parentOrder", parent.getOrderId().toString());
             child.setMetadataValue("craft.stage", "intermediate");
             child.setMetadataValue("craft.consumer", Long.toString(childConsumer.getOutputEndpoint().getPos().toLong()));
-            orders.put(child.getOrderId(), child);
+            if (deferredChildOrders != null) {
+                deferredChildOrders.add(child);
+            }
         }
     }
 
