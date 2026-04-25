@@ -93,8 +93,8 @@ public class MirrorLogisticsCloud {
 
         if (getTaskByOrderAndKind(order.getOrderId(), CloudTaskKind.SUPPLY) == null) {
             CloudTask supply = new CloudTask(UUID.randomUUID(), order.getOrderId(), CloudTaskKind.SUPPLY, key, requested, tick);
-            supply.setEndpoints(null, order.getDestination());
-            supply.setAssignments(manager.getPos(), order.getDestination() == null ? null : order.getDestination().getPos());
+            supply.setEndpoints(null, null);
+            supply.setAssignments(manager.getPos(), manager.getPos());
             supply.setStatus(CloudTaskStatus.READY, tick);
             tasks.put(supply.getTaskId(), supply);
         }
@@ -454,6 +454,18 @@ public class MirrorLogisticsCloud {
                 task.markNoProgress(tick);
                 return;
             }
+            if (supply.getTarget() != null) {
+                int completed = Math.min(task.getAmount(), Math.max(task.getCompletedAmount(), supply.getCompletedAmount()));
+                if (completed > task.getCompletedAmount()) {
+                    task.setCompletedAmount(completed, tick);
+                } else {
+                    task.markNoProgress(tick);
+                }
+                if (task.getCompletedAmount() >= task.getAmount()) {
+                    task.setStatus(CloudTaskStatus.DONE, tick);
+                }
+                return;
+            }
         }
 
         BlockPos dest = order.getDestination().getPos();
@@ -521,7 +533,10 @@ public class MirrorLogisticsCloud {
                     ? Math.max(0, order.getPlannedOutputAmount())
                     : Math.max(0, order.getRequestedAmount());
 
-            if (transfer.getStatus() == CloudTaskStatus.DONE && transfer.getCompletedAmount() >= expected) {
+            if (transfer.getStatus() == CloudTaskStatus.DONE) {
+                if (transfer.getCompletedAmount() < expected) {
+                    transfer.setCompletedAmount(expected, tick);
+                }
                 order.setStatus(CloudOrderStatus.DONE, tick);
                 order.setFailReason("", tick);
             } else if (order.getStatus() != CloudOrderStatus.WAITING_RESOURCES) {
