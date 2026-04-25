@@ -50,8 +50,12 @@ import java.util.*;
 public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICloudCraftConsumer,
         CraftOrderApi.TagProvider, ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider {
     private final AnimationFactory factory = new AnimationFactory(this);
+    private final LinkedHashSet<UUID> cloudTasks = new LinkedHashSet<>();
 
-
+    private void debugCloud(String msg, Object... args) {
+        String fmt = msg == null ? "" : msg.replace("{}", "%s");
+        therealpant.thaumicattempts.ThaumicAttempts.LOGGER.debug("[PatternConsumer " + pos + "] " + String.format(fmt, args));
+    }
     // ===== Geckolib =====
     @Override
     public void registerControllers(AnimationData data) {
@@ -190,9 +194,33 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     }
     @Override
     public void enqueueCraft(ItemStack resultLike, int crafts) {
+        enqueueCloudCraft(resultLike, crafts, UUID.randomUUID());
+    }
+
+
+    @Override
+    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
         TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter == null || resultLike == null || resultLike.isEmpty() || crafts <= 0) return;
-        crafter.enqueueFromPatternRequester(resultLike, crafts);
+        if (crafter == null || resultLike == null || resultLike.isEmpty() || cycles <= 0 || taskId == null) return 0;
+        int accepted = crafter.enqueueFromPatternRequester(resultLike, cycles);
+        if (accepted > 0) {
+            cloudTasks.add(taskId);
+            debugCloud("accepted cloud craft task id={} result={} cycles={}", taskId, resultLike, accepted);
+        }
+        return accepted;
+    }
+
+    @Override
+    public boolean hasCloudCraftTask(UUID taskId) {
+        if (taskId == null) return false;
+        if (!cloudTasks.contains(taskId)) return false;
+        TileEntityGolemCrafter crafter = getCrafterBelow();
+        if (crafter == null || !crafter.hasRequesterQueue()) {
+            cloudTasks.remove(taskId);
+            debugCloud("task done id={}", taskId);
+            return false;
+        }
+        return true;
     }
 
     @Override
@@ -236,18 +264,12 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         if (crafts <= 0) return 0;
 
         if (managerPos != null) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) {
-                List<ItemStack> needList = getRecipeInputsFor(resultLike, crafts);
-                LinkedHashMap<ItemKey, Integer> needs = new LinkedHashMap<>();
-                for (ItemStack need : needList) {
-                    if (need == null || need.isEmpty()) continue;
-                    ItemKey key = ItemKey.of(need);
-                    if (key == null || key == ItemKey.EMPTY) continue;
-                    needs.merge(key, Math.max(1, need.getCount()), Integer::sum);
-                }
-                if (!needs.isEmpty()) {
-                    ((TileMirrorManager) te).ensureDeliveryForExact(pos.down(), needs, 0);
+            ItemKey outKey = ItemKey.of(resultLike);
+            if (outKey != null && outKey != ItemKey.EMPTY) {
+                int acceptedItems = CloudOrderSubmitHelper.submitCraft(world, managerPos, pos, destSide >= 0 ? destSide : EnumFacing.DOWN.getIndex(), outKey, Math.max(1, items));
+                if (acceptedItems > 0) {
+                    debugCloud("redstone/terminal submit via cloud result={} items={} accepted={}", resultLike, items, acceptedItems);
+                    return acceptedItems;
                 }
             }
         }
@@ -279,8 +301,16 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
      *  - стакаемые — relaxed.
      */
     @Override
-    public List<ItemStack> getRecipeInputsPerCycle(ItemStack resultLike) {
-        return getRecipeInputsFor(resultLike, 1);
+    public Map<ItemKey, Integer> getInputsPerCycle(ItemStack resultLike) {
+        LinkedHashMap<ItemKey, Integer> out = new LinkedHashMap<>();
+        for (ItemStack in : getRecipeInputsFor(resultLike, 1)) {
+            if (in == null || in.isEmpty()) continue;
+            ItemKey key = ItemKey.of(in);
+            if (key == null || key == ItemKey.EMPTY) continue;
+            out.merge(key, Math.max(1, in.getCount()), Integer::sum);
+        }
+        if (!out.isEmpty()) debugCloud("publish recipe {} inputs={}", resultLike, out);
+        return out;
     }
 
     @Override
@@ -294,7 +324,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     }
 
     @Override
-    public int countOutput(ItemKey key) {
+    public int getOutputCount(ItemKey key) {
         if (key == null || key == ItemKey.EMPTY) return 0;
         TileEntityGolemCrafter crafter = getCrafterBelow();
         if (crafter == null) return 0;

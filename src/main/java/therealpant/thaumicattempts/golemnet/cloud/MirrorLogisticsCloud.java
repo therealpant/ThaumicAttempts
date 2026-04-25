@@ -127,15 +127,13 @@ public class MirrorLogisticsCloud {
         int outPerCycle = Math.max(1, consumer.getPerCraftOutputCountFor(resultLike));
         int cycles = Math.max(1, (requestedAmount + outPerCycle - 1) / outPerCycle);
         int expectedOutput = Math.max(1, cycles * outPerCycle);
-        List<ItemStack> recipePerCycle = consumer.getRecipeInputsPerCycle(resultLike);
+        Map<ItemKey, Integer> recipePerCycle = consumer.getInputsPerCycle(resultLike);
 
         LinkedHashMap<ItemKey, Integer> totalInputs = new LinkedHashMap<>();
-        for (ItemStack in : recipePerCycle) {
-            if (in == null || in.isEmpty()) continue;
-            ItemKey key = ItemKey.of(in);
-            if (key == null || key == ItemKey.EMPTY) continue;
-            int req = Math.max(1, in.getCount()) * cycles;
-            totalInputs.merge(key, req, Integer::sum);
+        for (Map.Entry<ItemKey, Integer> e : recipePerCycle.entrySet()) {
+            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+            int req = Math.max(1, e.getValue()) * cycles;
+            totalInputs.merge(e.getKey(), req, Integer::sum);
         }
 
         List<String> missing = new ArrayList<>();
@@ -300,14 +298,27 @@ public class MirrorLogisticsCloud {
         }
 
         if (!task.isCommandIssued()) {
-            int baseline = Math.max(0, consumer.countOutput(task.getItemKey()));
+            int baseline = Math.max(0, consumer.getOutputCount(task.getItemKey()));
             task.setDestinationBaseline(baseline);
             int cycles = Math.max(1, parseInt(order.getMetadata().get(META_CRAFT_CYCLES), 1));
-            consumer.enqueueCraft(task.getItemKey().toStack(1), cycles);
+            int accepted = consumer.enqueueCloudCraft(task.getItemKey().toStack(1), cycles, task.getTaskId());
+            if (accepted <= 0) {
+                task.fail("Consumer rejected cloud craft task", tick);
+                return;
+            }
             task.setCommandIssued(true, tick);
         }
 
-        int current = Math.max(0, consumer.countOutput(task.getItemKey()));
+        if (!consumer.hasCloudCraftTask(task.getTaskId())) {
+            int producedNow = Math.max(0, consumer.getOutputCount(task.getItemKey()) - task.getDestinationBaseline());
+            if (producedNow >= task.getAmount()) {
+                task.setCompletedAmount(task.getAmount(), tick);
+                task.setStatus(CloudTaskStatus.DONE, tick);
+                return;
+            }
+        }
+
+        int current = Math.max(0, consumer.getOutputCount(task.getItemKey()));
         int produced = Math.max(0, current - task.getDestinationBaseline());
         int completed = Math.min(task.getAmount(), produced);
         if (completed > task.getCompletedAmount()) task.setCompletedAmount(completed, tick);

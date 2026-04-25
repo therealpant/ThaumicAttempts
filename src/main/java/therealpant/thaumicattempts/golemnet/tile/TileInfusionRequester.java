@@ -185,6 +185,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     // -------------------- job state --------------------
 
     private final ArrayDeque<PendingCrafterDelivery> pendingCraftDeliveries = new ArrayDeque<>();
+    private final LinkedHashSet<UUID> cloudTaskIds = new LinkedHashSet<>();
     private boolean jobActive = false;
     private int activeSlot = -1;
     private int jobCraftsTotal = 1;
@@ -619,6 +620,17 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             setManagerPos(managerPos, true);
         }
 
+        if (managerPos != null) {
+            ItemKey outKey = ItemKey.of(resultLike);
+            if (outKey != null && outKey != ItemKey.EMPTY) {
+                int acceptedViaCloud = CloudOrderSubmitHelper.submitCraft(world, managerPos, pos, destSide >= 0 ? destSide : EnumFacing.DOWN.getIndex(), outKey, Math.max(1, items));
+                if (acceptedViaCloud > 0) {
+                    logDebug("Cloud order submitted result={} items={} accepted={}", resultLike, items, acceptedViaCloud);
+                    return acceptedViaCloud;
+                }
+            }
+        }
+
         int acceptedCrafts = enqueueTrigger(slot, crafts);
         if (acceptedCrafts <= 0) return 0;
 
@@ -635,20 +647,20 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     }
 
     @Override
-    public List<ItemStack> getRecipeInputsPerCycle(ItemStack resultLike) {
-        if (resultLike == null || resultLike.isEmpty()) return Collections.emptyList();
+    public Map<ItemKey, Integer> getInputsPerCycle(ItemStack resultLike) {
+        if (resultLike == null || resultLike.isEmpty()) return Collections.emptyMap();
         int slot = findPatternSlotFor(resultLike);
-        if (slot < 0) return Collections.emptyList();
+        if (slot < 0) return Collections.emptyMap();
 
         List<PatternResourceList.Entry> entries = getResourcesForSlot(slot);
-        if (entries == null || entries.isEmpty()) return Collections.emptyList();
+        if (entries == null || entries.isEmpty()) return Collections.emptyMap();
 
-        ArrayList<ItemStack> out = new ArrayList<>();
+        LinkedHashMap<ItemKey, Integer> out = new LinkedHashMap<>();
         for (PatternResourceList.Entry e : entries) {
             if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
-            ItemStack st = e.getKey().toStack(Math.max(1, e.getCount()));
-            if (!st.isEmpty()) out.add(st);
+            out.merge(e.getKey(), Math.max(1, e.getCount()), Integer::sum);
         }
+        if (!out.isEmpty()) logDebug("Cloud publish recipe result={} inputs={}", resultLike, out);
         return out;
     }
 
@@ -663,7 +675,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     }
 
     @Override
-    public int countOutput(ItemKey key) {
+    public int getOutputCount(ItemKey key) {
         if (key == null || key == ItemKey.EMPTY) return 0;
         ItemStack like = key.toStack(1);
         if (like.isEmpty()) return 0;
@@ -731,7 +743,29 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     @Override
     public void enqueueCraft(ItemStack resultLike, int crafts) {
-        enqueueFromPatternRequester(resultLike, crafts);
+        enqueueCloudCraft(resultLike, crafts, UUID.randomUUID());
+    }
+
+    @Override
+    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
+        if (taskId == null) return 0;
+        int accepted = enqueueFromPatternRequester(resultLike, cycles);
+        if (accepted > 0) {
+            cloudTaskIds.add(taskId);
+            logDebug("Cloud task accepted id={} result={} cycles={}", taskId, resultLike, accepted);
+        }
+        return accepted;
+    }
+
+    @Override
+    public boolean hasCloudCraftTask(UUID taskId) {
+        if (taskId == null || !cloudTaskIds.contains(taskId)) return false;
+        if (!jobActive && queuedTriggers.isEmpty()) {
+            cloudTaskIds.remove(taskId);
+            logDebug("Cloud task done id={}", taskId);
+            return false;
+        }
+        return true;
     }
 
     @Override

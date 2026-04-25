@@ -26,16 +26,18 @@ import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.api.IPatternedWorksite;
+import therealpant.thaumicattempts.api.ICloudCraftConsumer;
 import therealpant.thaumicattempts.api.IAutomationOrderAcceptor;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
+import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
-
+import therealpant.thaumicattempts.ThaumicAttempts;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -47,7 +49,7 @@ import java.util.*;
  * - Следующий цикл стартует только по следующему фронту 0→1.
  - Стоимость эссенции: 2 * число уникальных типов входов. Эссенция: CRAFT, приём снизу/с боков.
  */
-public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite {
+public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite, ICloudCraftConsumer {
 
     // ===== Константы =====
     public static final int PATTERN_SLOTS = 15;
@@ -84,8 +86,12 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     private final java.util.Deque<Integer> requesterQueue = new java.util.ArrayDeque<>();
     // Флаг: текущая работа запущена от реквестера (чтобы подавить самопровизию)
     private boolean jobViaRequester = false;
+    private final LinkedHashSet<UUID> cloudTaskIds = new LinkedHashSet<>();
 
-
+    private void cloudDebug(String msg, Object... args) {
+        String fmt = msg == null ? "" : msg.replace("{}", "%s");
+        ThaumicAttempts.LOGGER.debug("[GolemCraftConsumer " + pos + "] " + String.format(fmt, args));
+    }
     // ===== Состояние / параметры =====
     private String customName = "";
 
@@ -252,6 +258,105 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     @Override
     public int enqueueFromPatternRequester(ItemStack resultLike, int times) {
         return enqueueCraftsByRequesterLike(resultLike, times);
+    }
+
+    @Override
+    public List<ItemStack> listCraftableResults() {
+        ArrayList<ItemStack> out = new ArrayList<>();
+        for (int i = 0; i < patterns.getSlots(); i++) {
+            ItemStack pat = patterns.getStackInSlot(i);
+            if (pat == null || pat.isEmpty() || !(pat.getItem() instanceof ItemBasePattern)) continue;
+            ItemStack preview = getCraftPreview(pat, getGrid(pat));
+            if (preview.isEmpty()) continue;
+            ItemStack one = preview.copy();
+            one.setCount(Math.max(1, one.getCount()));
+            out.add(one);
+        }
+        return out;
+    }
+
+    @Override
+    public int getPerCraftOutputCountFor(ItemStack like) {
+        if (like == null || like.isEmpty()) return 0;
+        int idx = findPatternIndexForResultLike(like);
+        if (idx < 0) return 0;
+        ItemStack pat = patterns.getStackInSlot(idx);
+        if (pat.isEmpty()) return 0;
+        ItemStack preview = getCraftPreview(pat, getGrid(pat));
+        return preview.isEmpty() ? 0 : Math.max(1, preview.getCount());
+    }
+
+    @Override
+    public void enqueueCraft(ItemStack resultLike, int crafts) {
+        enqueueCloudCraft(resultLike, crafts, UUID.randomUUID());
+    }
+
+    @Override
+    public boolean hasActiveOrQueued() {
+        return jobActive || !requesterQueue.isEmpty();
+    }
+
+    @Override
+    public Map<ItemKey, Integer> getInputsPerCycle(ItemStack resultLike) {
+        LinkedHashMap<ItemKey, Integer> out = new LinkedHashMap<>();
+        int idx = findPatternIndexForResultLike(resultLike);
+        if (idx < 0) return out;
+        ItemStack pat = patterns.getStackInSlot(idx);
+        NonNullList<ItemStack> grid = getGrid(pat);
+        for (int i = 0; i < 9; i++) {
+            ItemStack in = grid.get(i);
+            if (in == null || in.isEmpty()) continue;
+            ItemKey key = ItemKey.of(key1ForGrid(in));
+            if (key == null || key == ItemKey.EMPTY) continue;
+            out.merge(key, Math.max(1, in.getCount()), Integer::sum);
+        }
+        if (!out.isEmpty()) cloudDebug("publish recipe result={} inputs={}", resultLike, out);
+        return out;
+    }
+
+    @Override
+    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
+        if (taskId == null) return 0;
+        int accepted = enqueueCraftsByRequesterLike(resultLike, cycles);
+        if (accepted > 0) {
+            cloudTaskIds.add(taskId);
+            cloudDebug("accepted cloud craft task id={} result={} cycles={}", taskId, resultLike, accepted);
+        }
+        return accepted;
+    }
+
+    @Override
+    public boolean hasCloudCraftTask(UUID taskId) {
+        if (taskId == null || !cloudTaskIds.contains(taskId)) return false;
+        if (!hasActiveOrQueued()) {
+            cloudTaskIds.remove(taskId);
+            cloudDebug("task done id={}", taskId);
+            return false;
+        }
+        return true;
+    }
+
+    @Override
+    public int getOutputCount(ItemKey key) {
+        if (key == null || key == ItemKey.EMPTY) return 0;
+        ItemStack like = key.toStack(1);
+        if (like.isEmpty()) return 0;
+        int total = 0;
+        for (int i = 0; i < output.getSlots(); i++) {
+            ItemStack st = output.getStackInSlot(i);
+            if (!st.isEmpty() && ResourceIdentity.sameResource(st, like)) total += st.getCount();
+        }
+        return total;
+    }
+
+    @Override
+    public CloudEndpointRef getInputEndpoint() {
+        return new CloudEndpointRef(pos, EnumFacing.UP.getIndex());
+    }
+
+    @Override
+    public CloudEndpointRef getOutputEndpoint() {
+        return new CloudEndpointRef(pos, EnumFacing.DOWN.getIndex());
     }
 
     private void tryStartNextRequesterJob() {
@@ -516,6 +621,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     }
     private void pushResult(ItemStack result) {
         if (result == null || result.isEmpty()) return;
+        cloudDebug("output appeared result=%s", result);
         ItemStack left = result.copy();
         for (int i = 0; i < output.getSlots(); i++) {
             left = output.insertItem(i, left, false); // реальная вставка
@@ -726,6 +832,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
 
         markDirty();
+        cloudDebug("task start pattern={} cycles={}", idx, repeats);
     }
 
     protected void startOneCraftCycle(int idx) {
@@ -858,6 +965,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         this.jobViaRequester = false;
         this.suppressSelfProvision = false;
         this.needEnsureWithManager = false;
+        cloudDebug("task completed");
 
         if (world == null) return;
 
