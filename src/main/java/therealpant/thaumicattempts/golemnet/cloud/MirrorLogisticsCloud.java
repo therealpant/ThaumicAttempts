@@ -127,22 +127,51 @@ public class MirrorLogisticsCloud {
             return;
         }
 
+        CloudEndpointRef inputEndpoint = consumer.getInputEndpoint();
+        CloudEndpointRef outputEndpoint = consumer.getOutputEndpoint();
+        if (inputEndpoint == null || outputEndpoint == null) {
+            order.setStatus(CloudOrderStatus.FAILED, tick);
+            order.setFailReason("Consumer endpoints unavailable", tick);
+            return;
+        }
+
         ItemStack resultLike = requestedKey.toStack(1);
         int outPerCycle = Math.max(1, consumer.getPerCraftOutputCountFor(resultLike));
         int cycles = Math.max(1, (requestedAmount + outPerCycle - 1) / outPerCycle);
         int expectedOutput = Math.max(1, cycles * outPerCycle);
-        Map<ItemKey, Integer> recipePerCycle = consumer.getInputsPerCycle(resultLike);
 
-        LinkedHashMap<ItemKey, Integer> totalInputs = new LinkedHashMap<>();
+        Map<ItemKey, Integer> totalInputs = new LinkedHashMap<>();
+        Map<ItemKey, Integer> recipePerCycle = consumer.getInputsPerCycle(resultLike);
         for (Map.Entry<ItemKey, Integer> e : recipePerCycle.entrySet()) {
             if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
             int req = Math.max(1, e.getValue()) * cycles;
             totalInputs.merge(e.getKey(), req, Integer::sum);
         }
 
+        boolean plannerPresent = manager.getConnectedPlannerModifier() != null;
+        if (plannerPresent) {
+            Map<ItemKey, Integer> snapshotStock = new HashMap<>();
+            for (Map.Entry<ItemKey, Integer> en : reachableCatalog.entrySet()) {
+                if (en.getKey() == null || en.getKey() == ItemKey.EMPTY) continue;
+                snapshotStock.put(en.getKey(), Math.max(0, en.getValue()) + Math.max(0, manager.countBuffered(en.getKey())));
+            }
+
+            CraftPlanningService planningService = new CraftPlanningService(8);
+            CraftPlanningService.PlanningResult planning = planningService.plan(manager, requestedKey, requestedAmount, snapshotStock);
+            if (!planning.success) {
+                order.setStatus(CloudOrderStatus.FAILED, tick);
+                order.setFailReason(planning.failReason, tick);
+                return;
+            }
+            order.setMetadataValue("craft.planDump", planning.debugDump);
+            debug("plan order=%s\n%s", order.getOrderId(), planning.debugDump);
+            ensureChildCraftOrders(manager, order, totalInputs, inputEndpoint, tick);
+        }
+
         List<String> missing = new ArrayList<>();
         for (Map.Entry<ItemKey, Integer> e : totalInputs.entrySet()) {
-            int available = Math.max(0, reachableCatalog.getOrDefault(e.getKey(), 0)) + Math.max(0, manager.countBuffered(e.getKey()));
+            int atInput = Math.max(0, manager.countAtDestination(inputEndpoint.getPos(), inputEndpoint.getSide(), e.getKey()));
+            int available = Math.max(0, reachableCatalog.getOrDefault(e.getKey(), 0)) + Math.max(0, manager.countBuffered(e.getKey())) + atInput;
             if (available < e.getValue()) {
                 missing.add(e.getKey() + " " + e.getValue() + "/" + available);
             }
@@ -152,18 +181,10 @@ public class MirrorLogisticsCloud {
             order.setFailReason("Not enough resources for craft: " + String.join(", ", missing), tick);
             long waitSince = parseLong(order.getMetadata().get(META_WAIT_SINCE), tick);
             if (!order.getMetadata().containsKey(META_WAIT_SINCE)) order.setMetadataValue(META_WAIT_SINCE, Long.toString(tick));
-            if (tick - waitSince > WAIT_RESOURCES_FAIL_TICKS) {
+            if (!plannerPresent && tick - waitSince > WAIT_RESOURCES_FAIL_TICKS) {
                 order.setStatus(CloudOrderStatus.FAILED, tick);
                 order.setFailReason("Craft resources timeout after waiting " + (tick - waitSince) + " ticks", tick);
             }
-            return;
-        }
-
-        CloudEndpointRef inputEndpoint = consumer.getInputEndpoint();
-        CloudEndpointRef outputEndpoint = consumer.getOutputEndpoint();
-        if (inputEndpoint == null || outputEndpoint == null) {
-            order.setStatus(CloudOrderStatus.FAILED, tick);
-            order.setFailReason("Consumer endpoints unavailable", tick);
             return;
         }
 
@@ -211,6 +232,57 @@ public class MirrorLogisticsCloud {
         order.setMetadataValue(META_WAIT_SINCE, "");
         order.setFailReason("", tick);
         order.setStatus(CloudOrderStatus.RUNNING, tick);
+    }
+
+    private void ensureChildCraftOrders(TileMirrorManager manager,
+                                        CloudOrder parent,
+                                        Map<ItemKey, Integer> totalInputs,
+                                        CloudEndpointRef parentInput,
+                                        long tick) {
+        if (parent == null || totalInputs == null || totalInputs.isEmpty() || parentInput == null) return;
+
+        LinkedHashMap<ItemKey, Integer> reachableCatalog = manager.getReachableCatalog();
+        for (Map.Entry<ItemKey, Integer> input : totalInputs.entrySet()) {
+            ItemKey key = input.getKey();
+            int needed = Math.max(0, input.getValue());
+            int available = Math.max(0, reachableCatalog.getOrDefault(key, 0))
+                    + Math.max(0, manager.countBuffered(key))
+                    + Math.max(0, manager.countAtDestination(parentInput.getPos(), parentInput.getSide(), key));
+            if (available >= needed) continue;
+
+            ICloudCraftConsumer childConsumer = findConsumerFor(manager, key);
+            if (childConsumer == null) continue;
+
+            int deficit = needed - available;
+            UUID existing = findChildOrder(parent.getOrderId(), key, deficit, childConsumer, "intermediate");
+            if (existing != null) continue;
+
+            CloudOrder child = new CloudOrder(UUID.randomUUID(), CloudOrderKind.CRAFT,
+                    parent.getCustomerPos(), parentInput, key, deficit, tick);
+            child.setParentOrderId(parent.getOrderId());
+            child.setMetadataValue("craft.parentOrder", parent.getOrderId().toString());
+            child.setMetadataValue("craft.stage", "intermediate");
+            child.setMetadataValue("craft.consumer", Long.toString(childConsumer.getOutputEndpoint().getPos().toLong()));
+            orders.put(child.getOrderId(), child);
+        }
+    }
+
+    @Nullable
+    private UUID findChildOrder(UUID parentOrderId, ItemKey itemKey, int amount, ICloudCraftConsumer consumer, String stage) {
+        if (parentOrderId == null || itemKey == null || consumer == null) return null;
+        long consumerPos = consumer.getOutputEndpoint() == null ? 0L : consumer.getOutputEndpoint().getPos().toLong();
+        for (CloudOrder order : orders.values()) {
+            if (order == null) continue;
+            if (!Objects.equals(order.getParentOrderId(), parentOrderId)) continue;
+            if (!Objects.equals(order.getItemKey(), itemKey)) continue;
+            if (Math.max(0, order.getRequestedAmount()) != Math.max(0, amount)) continue;
+            if (!stage.equals(order.getMetadata().get("craft.stage"))) continue;
+            if (!Long.toString(consumerPos).equals(order.getMetadata().get("craft.consumer"))) continue;
+            if (order.getStatus() != CloudOrderStatus.FAILED && order.getStatus() != CloudOrderStatus.CANCELLED) {
+                return order.getOrderId();
+            }
+        }
+        return null;
     }
 
     private void executeTasks(TileMirrorManager manager, long tick) {
@@ -556,6 +628,35 @@ public class MirrorLogisticsCloud {
         if (manager != null && manager.getWorld() != null) {
             network.setBuiltTick(manager.getWorld().getTotalWorldTime());
             network.setRequesterPositions(manager.getRequestersSnapshot());
+            network.setCraftPlannerPresent(manager.getConnectedPlannerModifier() != null);
+
+            LinkedHashMap<ItemKey, Integer> stock = manager.getReachableCatalog();
+            Map<ItemKey, Integer> mergedStock = new LinkedHashMap<>();
+            for (Map.Entry<ItemKey, Integer> en : stock.entrySet()) {
+                if (en == null || en.getKey() == null || en.getKey() == ItemKey.EMPTY) continue;
+                mergedStock.put(en.getKey(), Math.max(0, en.getValue()) + Math.max(0, manager.countBuffered(en.getKey())));
+            }
+            network.setAvailableStock(mergedStock);
+
+            Set<ItemKey> craftablesAll = new LinkedHashSet<>();
+            for (BlockPos pos : manager.getRequestersSnapshot()) {
+                TileEntity te = manager.getWorld().getTileEntity(pos);
+                if (!(te instanceof ICloudCraftConsumer)) continue;
+                ICloudCraftConsumer consumer = (ICloudCraftConsumer) te;
+                List<ItemKey> craftables = new ArrayList<>();
+                List<ItemStack> results = consumer.listCraftableResults();
+                if (results != null) {
+                    for (ItemStack out : results) {
+                        if (out == null || out.isEmpty()) continue;
+                        ItemKey key = ItemKey.of(out);
+                        if (key == null || key == ItemKey.EMPTY) continue;
+                        craftables.add(key);
+                        craftablesAll.add(key);
+                    }
+                }
+                network.putCraftables(pos.toLong(), craftables);
+            }
+            network.setIntermediateCraftables(craftablesAll);
         }
         this.snapshot = network;
     }

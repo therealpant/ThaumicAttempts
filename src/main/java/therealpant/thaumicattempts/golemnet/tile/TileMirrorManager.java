@@ -2081,6 +2081,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return null;
     }
 
+    @Nullable
+    public TileCraftPlanner getConnectedPlannerModifier() {
+        return getConnectedPlanner();
+    }
+
     private boolean canFulfillFromDirectStockOnly(List<Map.Entry<ItemKey, Integer>> moved, Map<ItemKey, Integer> stock) {
         for (Map.Entry<ItemKey, Integer> e : moved) {
             if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
