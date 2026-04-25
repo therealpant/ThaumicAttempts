@@ -824,7 +824,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 if (moved > 0) {
                     Map<ItemKey, Integer> need = new LinkedHashMap<>();
                     need.put(ItemKey.of(order.like1), moved);
-                    manager.ensureDeliveryForExact(order.dest, need, 0);
+                    CloudOrderSubmitHelper.submitBatchDelivery(
+                            world,
+                            manager.getPos(),
+                            order.dest,
+                            order.destSide,
+                            new ArrayList<>(need.entrySet())
+                    );
                 }
             } else {
                 moved = CraftOrderApi.insertIntoDestination(world, order.dest, order.destSide, attempt);
@@ -1162,7 +1168,13 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         if (useManagerForProvision() && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
-            mgr.ensureDeliveryForExact(pos, new LinkedHashMap<>(pendingToRequester), 0);
+            CloudOrderSubmitHelper.submitBatchDelivery(
+                    world,
+                    mgr.getPos(),
+                    pos,
+                    0,
+                    new ArrayList<>(pendingToRequester.entrySet())
+            );
             needsEnsure = false;
             lastEnsureTick = tickCounter;
             logDebug("ensurePendingToRequester via manager={} needs={}", managerPos, pendingToRequester);

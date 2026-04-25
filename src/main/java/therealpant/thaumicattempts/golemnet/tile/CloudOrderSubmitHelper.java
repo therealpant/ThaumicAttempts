@@ -21,11 +21,11 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 
-final class CloudOrderSubmitHelper {
+public final class CloudOrderSubmitHelper {
 
     private CloudOrderSubmitHelper() {}
 
-    static int submitDelivery(World world, BlockPos managerPos, BlockPos requesterPos, int destSide, ItemKey key, int amount) {
+    public static int submitDelivery(World world, BlockPos managerPos, BlockPos requesterPos, int destSide, ItemKey key, int amount) {
         LinkedHashMap<ItemKey, Integer> accepted = submitBatchDelivery(
                 world,
                 managerPos,
@@ -36,7 +36,7 @@ final class CloudOrderSubmitHelper {
         return Math.max(0, accepted.getOrDefault(key, 0));
     }
 
-    static int submitCraft(World world, BlockPos managerPos, BlockPos requesterPos, int destSide, ItemKey key, int amount) {
+    public static int submitCraft(World world, BlockPos managerPos, BlockPos requesterPos, int destSide, ItemKey key, int amount) {
         LinkedHashMap<ItemKey, Integer> accepted = submitBatchCraft(
                 world,
                 managerPos,
@@ -47,7 +47,7 @@ final class CloudOrderSubmitHelper {
         return Math.max(0, accepted.getOrDefault(key, 0));
     }
 
-    static LinkedHashMap<ItemKey, Integer> submitBatchDelivery(World world,
+    public static LinkedHashMap<ItemKey, Integer> submitBatchDelivery(World world,
                                                                BlockPos managerPos,
                                                                BlockPos requesterPos,
                                                                int destSide,
@@ -57,7 +57,6 @@ final class CloudOrderSubmitHelper {
         if (mgr == null || requesterPos == null || requests == null || requests.isEmpty()) return accepted;
 
         MirrorLogisticsCloud cloud = mgr.getCloud();
-        List<Map.Entry<ItemKey, Integer>> fallback = new ArrayList<>();
         long now = world.getTotalWorldTime();
         CloudEndpointRef destination = new CloudEndpointRef(requesterPos, destSide);
 
@@ -68,22 +67,13 @@ final class CloudOrderSubmitHelper {
 
             if (submitCloudOrder(cloud, CloudOrderKind.DELIVERY, requesterPos, destination, key, amount, now)) {
                 accepted.merge(key, amount, Integer::sum);
-            } else {
-                fallback.add(new AbstractMap.SimpleEntry<>(key, amount));
-            }
-        }
-
-        if (!fallback.isEmpty()) {
-            mgr.enqueueBatchDelivery(requesterPos, destSide, 0, fallback);
-            for (Map.Entry<ItemKey, Integer> entry : fallback) {
-                accepted.merge(entry.getKey(), Math.max(1, entry.getValue()), Integer::sum);
             }
         }
 
         return accepted;
     }
 
-    static LinkedHashMap<ItemKey, Integer> submitBatchCraft(World world,
+    public static LinkedHashMap<ItemKey, Integer> submitBatchCraft(World world,
                                                             BlockPos managerPos,
                                                             BlockPos requesterPos,
                                                             int destSide,
@@ -93,7 +83,6 @@ final class CloudOrderSubmitHelper {
         if (mgr == null || requesterPos == null || requests == null || requests.isEmpty()) return accepted;
 
         MirrorLogisticsCloud cloud = mgr.getCloud();
-        List<TerminalStyleCraftSubmitHelper.CraftOrder> fallbackOrders = new ArrayList<>();
         long now = world.getTotalWorldTime();
         CloudEndpointRef destination = new CloudEndpointRef(requesterPos, destSide);
 
@@ -105,22 +94,6 @@ final class CloudOrderSubmitHelper {
             if (canUseCloudCraft(mgr, key)
                     && submitCloudOrder(cloud, CloudOrderKind.CRAFT, requesterPos, destination, key, amount, now)) {
                 accepted.merge(key, amount, Integer::sum);
-            } else {
-                fallbackOrders.add(new TerminalStyleCraftSubmitHelper.CraftOrder(key.toStack(1), amount));
-            }
-        }
-
-        if (!fallbackOrders.isEmpty()) {
-            LinkedHashMap<ItemKey, Integer> fallbackAccepted = TerminalStyleCraftSubmitHelper.submitTerminalStyleCraftOrders(
-                    world,
-                    managerPos,
-                    requesterPos,
-                    destSide,
-                    fallbackOrders,
-                    false
-            );
-            for (Map.Entry<ItemKey, Integer> entry : fallbackAccepted.entrySet()) {
-                accepted.merge(entry.getKey(), Math.max(1, entry.getValue()), Integer::sum);
             }
         }
 

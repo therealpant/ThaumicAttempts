@@ -39,6 +39,7 @@ import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.ITerminalOrderIconProvider;
 import therealpant.thaumicattempts.api.CraftOrderApi;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
+import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
@@ -119,8 +120,14 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
+    @Deprecated
+    @SuppressWarnings("unused")
     private final Map<DeliveryDemandKey, Integer> deliveryInflight = new HashMap<>();
+    @Deprecated
+    @SuppressWarnings("unused")
     private final Map<DeliveryDemandKey, Integer> deliveryLastReqTick = new HashMap<>();
+    @Deprecated
+    @SuppressWarnings("unused")
     private final Map<DeliveryDemandKey, Integer> deliveryLastProgressTick = new HashMap<>();
 
     /**
@@ -1567,6 +1574,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     /* ===================== BATCH-очереди ===================== */
 
+    @Deprecated
+    @SuppressWarnings("unused")
     private static final class Line {
         final ItemStack wanted1;
         public int craftsScheduled;
@@ -1646,6 +1655,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         dispatcherRoundRobinIndex = idx;
     }
 
+    @Deprecated
+    @SuppressWarnings("unused")
     private static final class Batch {
         enum Kind {DELIVERY, CRAFT}
         enum CraftOutputMode {DELIVER_TO_DEST, LEAVE_IN_REQUESTER}
@@ -1685,6 +1696,8 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         DELIVERED
     }
 
+    @Deprecated
+    @SuppressWarnings("unused")
     private static final class OrderTaskTracker {
         final UUID id;
         final BlockPos dest;
@@ -1715,7 +1728,11 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
     }
 
+    @Deprecated
+    @SuppressWarnings("unused")
     private final List<Deque<Batch>> batchQueues = new ArrayList<>(6);
+    @Deprecated
+    @SuppressWarnings("unused")
     private final List<Deque<Batch>> orderMemoryQueues = new ArrayList<>(6);
     private final Map<UUID, OrderTaskTracker> orderTrackers = new LinkedHashMap<>();
     private int activeQueue = 0;
@@ -1807,20 +1824,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     public void enqueueBatchDelivery(BlockPos dest, int destSide, int queueId,
                                      List<Map.Entry<ItemKey, Integer>> moved) {
-        if (dest == null || moved == null || moved.isEmpty()) return;
-        int q = Math.max(0, Math.min(5, queueId));
-        Batch b = new Batch(Batch.Kind.DELIVERY, dest, destSide, q);
-        for (Map.Entry<ItemKey, Integer> e : moved) {
-            ItemStack like1 = e.getKey().toStack(1);
-            int amt = Math.max(1, e.getValue());
-            b.lines.add(new Line(like1, amt));
-        }
-
-        // НОВОЕ:
-        assignLinesToGolemsRoundRobin(b.lines);
-
-        enqueueIntoOrderMemory(b);
-        registerOrderForConsumer(dest);
+        legacyWrapperWarn("enqueueBatchDelivery");
+        if (world == null || world.isRemote || dest == null || moved == null || moved.isEmpty()) return;
+        CloudOrderSubmitHelper.submitBatchDelivery(world, this.pos, dest, destSide, moved);
     }
 
     private int harvestAnyFromCrafterOutput(BlockPos requesterPos) {
@@ -1919,7 +1925,9 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
     public void enqueueBatchCraft(BlockPos dest, int destSide, int queueId,
                                   List<Map.Entry<ItemKey, Integer>> moved, RequesterFinder finder) {
-        enqueueBatchCraft(dest, destSide, queueId, moved, finder, Batch.CraftOutputMode.DELIVER_TO_DEST);
+        legacyWrapperWarn("enqueueBatchCraft");
+        if (world == null || world.isRemote || dest == null || moved == null || moved.isEmpty()) return;
+        CloudOrderSubmitHelper.submitBatchCraft(world, this.pos, dest, destSide, moved);
     }
 
     private void enqueueBatchCraft(BlockPos dest, int destSide, int queueId,
@@ -2910,19 +2918,10 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         tickCounter++;
         cloud.tick(this);
-        retryStalledOrderTasks();
-        drainOrderMemoryToExecutionQueues();
 
         intakeNearbyItems();
         processMirrorItemsInBuffer();
         tickMirrorEjects();
-
-        for (int i = 0; i < REQUEST_BUDGET; i++) {
-            Batch b = peekNextBatch();
-            if (b == null) break;
-            processBatchHead(b);
-            activeQueue = (activeQueue + 1) % 6;
-        }
 
         tickConsumerFocus();
 
@@ -3611,192 +3610,24 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     }
 
     public void reconcileForDelivery(BlockPos dest, ItemStack like, int wantNow) {
-        if (world == null || dest == null || like == null || like.isEmpty()) return;
-
-        int queued = countQueuedFor(dest, like);
-        int missing = wantNow - queued;
-
-        if (missing < 0) {
-            trimQueuedFor(dest, like, -missing);
-        } else if (missing > 0) {
-            int pushed = pushFromBufferTo(dest, -1, like, missing);
-            int need = missing - pushed;
-            if (need > 0) {
-                List<Map.Entry<ItemKey, Integer>> lst = new ArrayList<>(1);
-                lst.add(new AbstractMap.SimpleEntry<>(ItemKey.of(like), need));
-                enqueueBatchDelivery(dest, -1, 0, lst);
-            }
-        }
+        legacyWrapperWarn("reconcileForDelivery");
+        if (world == null || world.isRemote || dest == null || like == null || like.isEmpty() || wantNow <= 0) return;
+        CloudOrderSubmitHelper.submitDelivery(world, this.pos, dest, -1, ItemKey.of(like), wantNow);
     }
 
     public void ensureDeliveryFor(BlockPos dest, Map<ItemKey, Integer> needs, int queueId) {
+        legacyWrapperWarn("ensureDeliveryFor");
         if (world == null || world.isRemote || dest == null || needs == null || needs.isEmpty()) return;
-
-        focusMirrorForDeliveryTarget(dest);
-
-        List<Map.Entry<ItemKey, Integer>> miss = new ArrayList<>();
-
-        for (Map.Entry<ItemKey, Integer> e : needs.entrySet()) {
-            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
-
-            int want = Math.max(1, e.getValue());
-            ItemStack like = e.getKey().toStack(1);
-
-            int atDest = countAtDestLike(dest, -1, like);
-            int queued = countQueuedFor(dest, like);
-            int missing = want - (atDest + queued);
-            if (missing <= 0) continue;
-
-            int pushedNow = pushFromBufferTo(dest, -1, like, missing);
-            missing -= pushedNow;
-
-            if (missing > 0) {
-                miss.add(new AbstractMap.SimpleImmutableEntry<>(e.getKey(), missing));
-            }
-        }
-
-        if (!miss.isEmpty()) {
-            int q = Math.max(0, Math.min(5, queueId));
-            TileCraftPlanner planner = getConnectedPlanner();
-
-            List<Map.Entry<ItemKey, Integer>> toDeliver = new ArrayList<>();
-            List<Map.Entry<ItemKey, Integer>> toCraft = new ArrayList<>();
-
-            LinkedHashMap<ItemKey, Integer> reachable = getReachableCatalog();
-            Map<ItemKey, Integer> directStock = new HashMap<>();
-            for (Map.Entry<ItemKey, Integer> en : reachable.entrySet()) {
-                if (en.getKey() == null || en.getKey() == ItemKey.EMPTY) continue;
-                directStock.put(en.getKey(), Math.max(0, en.getValue()));
-            }
-
-            for (Map.Entry<ItemKey, Integer> missEntry : miss) {
-                ItemKey key = missEntry.getKey();
-                int remaining = Math.max(1, missEntry.getValue());
-
-                int availableDirect = Math.max(0, directStock.getOrDefault(key, 0));
-                if (availableDirect > 0) {
-                    int deliverNow = Math.min(availableDirect, remaining);
-                    toDeliver.add(new AbstractMap.SimpleImmutableEntry<>(key, deliverNow));
-                    directStock.put(key, availableDirect - deliverNow);
-                    remaining -= deliverNow;
-                }
-
-                if (remaining > 0) {
-                    toCraft.add(new AbstractMap.SimpleImmutableEntry<>(key, remaining));
-                }
-            }
-
-            if (!toCraft.isEmpty()) {
-                if (planner != null && planner.canCraftOrderViaPlanner(toCraft, this)) {
-                    enqueueBatchCraft(dest, -1, q, toCraft, this::findRequesterForKey);
-                } else {
-                    toDeliver.addAll(toCraft);
-                }
-            }
-
-            if (!toDeliver.isEmpty()) {
-                LinkedHashMap<ItemKey, Integer> merged = new LinkedHashMap<>();
-                for (Map.Entry<ItemKey, Integer> e : toDeliver) {
-                    if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
-                    merged.merge(e.getKey(), Math.max(1, e.getValue()), Integer::sum);
-                }
-                enqueueBatchDelivery(dest, -1, q, new ArrayList<>(merged.entrySet()));
-            }
-
-            activeQueue = q;
-        }
+        CloudOrderSubmitHelper.submitBatchDelivery(world, this.pos, dest, -1, new ArrayList<>(needs.entrySet()));
     }
 
     public void ensureDeliveryForExact(BlockPos dest, Map<ItemKey, Integer> needs, int queueId) {
+        legacyWrapperWarn("ensureDeliveryForExact");
         if (world == null || world.isRemote || dest == null || needs == null || needs.isEmpty()) return;
-
-        focusMirrorForDeliveryTarget(dest);
-        int q = Math.max(0, Math.min(5, queueId));
-
-        LinkedHashMap<ItemKey, Integer> normalizedNeeds = new LinkedHashMap<>();
-        for (Map.Entry<ItemKey, Integer> e : needs.entrySet()) {
-            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
-            normalizedNeeds.merge(e.getKey(), Math.max(1, e.getValue()), Integer::sum);
-        }
-        if (normalizedNeeds.isEmpty()) return;
-
-        List<Map.Entry<ItemKey, Integer>> miss = new ArrayList<>();
-
-        for (Map.Entry<ItemKey, Integer> e : normalizedNeeds.entrySet()) {
-            ItemKey key = e.getKey();
-            int want = Math.max(1, e.getValue());
-            ItemStack like = key.toStack(1);
-
-            // ВАЖНО:
-            // exact-путь для входов крафтера не должен использовать общий countQueuedFor(),
-            // иначе разные ветки цепочки начинают делить одну и ту же queued-поставку.
-            // Также учитываем только выбранную очередь, чтобы параллельные заказы
-            // с одинаковыми ресурсами (например redstone) не "съедали" расчёт друг друга.
-            int queuedDeliveryOnly = countQueuedDeliveryOnly(dest, like, q);
-
-            int missing = want - queuedDeliveryOnly;
-            if (missing <= 0) continue;
-
-            int pushedNow = pushFromBufferTo(dest, -1, like, missing);
-            missing -= pushedNow;
-
-            if (missing > 0) {
-                miss.add(new AbstractMap.SimpleImmutableEntry<>(key, missing));
-            }
-        }
-
-        if (miss.isEmpty()) return;
-
-        TileCraftPlanner planner = getConnectedPlanner();
-
-        List<Map.Entry<ItemKey, Integer>> toDeliver = new ArrayList<>();
-        List<Map.Entry<ItemKey, Integer>> toCraft = new ArrayList<>();
-
-        LinkedHashMap<ItemKey, Integer> reachable = getReachableCatalog();
-        Map<ItemKey, Integer> directStock = new HashMap<>();
-        for (Map.Entry<ItemKey, Integer> en : reachable.entrySet()) {
-            if (en.getKey() == null || en.getKey() == ItemKey.EMPTY) continue;
-            directStock.put(en.getKey(), Math.max(0, en.getValue()));
-        }
-
-        for (Map.Entry<ItemKey, Integer> missEntry : miss) {
-            ItemKey key = missEntry.getKey();
-            int remaining = Math.max(1, missEntry.getValue());
-
-            int availableDirect = Math.max(0, directStock.getOrDefault(key, 0));
-            if (availableDirect > 0) {
-                int deliverNow = Math.min(availableDirect, remaining);
-                toDeliver.add(new AbstractMap.SimpleImmutableEntry<>(key, deliverNow));
-                directStock.put(key, availableDirect - deliverNow);
-                remaining -= deliverNow;
-            }
-
-            if (remaining > 0) {
-                toCraft.add(new AbstractMap.SimpleImmutableEntry<>(key, remaining));
-            }
-        }
-
-        if (!toCraft.isEmpty()) {
-            if (planner != null && planner.canCraftOrderViaPlanner(toCraft, this)) {
-                enqueueBatchCraft(dest, -1, q, toCraft, this::findRequesterForKey);
-            } else {
-                toDeliver.addAll(toCraft);
-            }
-        }
-
-        if (!toDeliver.isEmpty()) {
-            LinkedHashMap<ItemKey, Integer> merged = new LinkedHashMap<>();
-            for (Map.Entry<ItemKey, Integer> e : toDeliver) {
-                if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
-                merged.merge(e.getKey(), Math.max(1, e.getValue()), Integer::sum);
-            }
-
-            if (!merged.isEmpty()) {
-                enqueueBatchDelivery(dest, -1, q, new ArrayList<>(merged.entrySet()));
-            }
-        }
-
-        activeQueue = q;
+        CloudOrderSubmitHelper.submitBatchDelivery(world, this.pos, dest, -1, new ArrayList<>(needs.entrySet()));
+    }
+    private void legacyWrapperWarn(String methodName) {
+        ThaumicAttempts.LOGGER.warn("legacy logistics wrapper called: {}", methodName);
     }
 
     private int countQueuedDeliveryOnly(BlockPos dest, ItemStack like, int queueId) {

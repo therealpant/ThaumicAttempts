@@ -352,13 +352,15 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         if (world == null || managerPos == null || pending.isEmpty()) return;
         if (!needEnsure && period > 0 && (tickCounter - lastEnsureTick) < period) return;
 
-        TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) return;
-        TileMirrorManager mgr = (TileMirrorManager) te;
-
         Map<ItemKey, Integer> copy = new LinkedHashMap<>(pending);
         if (!copy.isEmpty()) {
-            mgr.ensureDeliveryForExact(this.pos, copy, 0);
+            CloudOrderSubmitHelper.submitBatchDelivery(
+                    world,
+                    managerPos,
+                    this.pos,
+                    -1,
+                    new ArrayList<>(copy.entrySet())
+            );
             lastEnsureTick = tickCounter;
             needEnsure = false;
         }

@@ -390,9 +390,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
             if (!craftTab) {
                 CloudOrderSubmitHelper.submitBatchDelivery(world, managerPos, this.pos, -1, moved);
-                if (!pendingDelivery.isEmpty()) {
-                    mgr.ensureDeliveryFor(this.pos, new LinkedHashMap<>(pendingDelivery));
-                }
             } else {
                 LinkedHashMap<ItemKey, Integer> acceptedCraft = new LinkedHashMap<>();
                 LinkedHashMap<ItemKey, Integer> acceptedRegularCraft = CloudOrderSubmitHelper.submitBatchCraft(
@@ -478,10 +475,9 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         }
 
         if (world != null && !world.isRemote && managerPos != null && keyDel != null) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) {
-                int remainWantDel = Math.max(0, pendingDelivery.getOrDefault(keyDel, 0));
-                ((TileMirrorManager) te).reconcileForDelivery(this.pos, like, remainWantDel);
+            int remainWantDel = Math.max(0, pendingDelivery.getOrDefault(keyDel, 0));
+            if (remainWantDel > 0) {
+                CloudOrderSubmitHelper.submitDelivery(world, managerPos, this.pos, -1, keyDel, remainWantDel);
             }
         }
 
@@ -556,12 +552,14 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         if (managerPos == null) return;
         if (periodTicks > 0 && (tickCounter - lastEnsureTick) < periodTicks) return;
 
-        TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) return;
-
-        TileMirrorManager mgr = (TileMirrorManager) te;
         if (!pendingDelivery.isEmpty()) {
-            mgr.ensureDeliveryForExact(this.pos, new LinkedHashMap<>(pendingDelivery), 0);
+            CloudOrderSubmitHelper.submitBatchDelivery(
+                    world,
+                    managerPos,
+                    this.pos,
+                    -1,
+                    new ArrayList<>(pendingDelivery.entrySet())
+            );
         }
 
         lastEnsureTick = tickCounter;
@@ -571,12 +569,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         if (pendingDelivery.isEmpty()) return;
 
         boolean changed = false;
-
-        TileMirrorManager mgr = null;
-        if (managerPos != null) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) mgr = (TileMirrorManager) te;
-        }
 
         final boolean outerCall = !inRecon;
         inRecon = true;
@@ -604,9 +596,15 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                     int newBase = Math.min(baseline + take, have);
                     deliveryBaselines.put(k, newBase);
 
-                    if (mgr != null) {
-                        if (outerCall) mgr.reconcileForDelivery(this.pos, like1, Math.max(0, left));
-                        else needEnsureWithManager = true;
+                    if (managerPos != null) {
+                        if (outerCall) {
+                            int need = Math.max(0, left);
+                            if (need > 0) {
+                                CloudOrderSubmitHelper.submitDelivery(world, managerPos, this.pos, -1, k, need);
+                            }
+                        } else {
+                            needEnsureWithManager = true;
+                        }
                     }
                     changed = true;
                 }

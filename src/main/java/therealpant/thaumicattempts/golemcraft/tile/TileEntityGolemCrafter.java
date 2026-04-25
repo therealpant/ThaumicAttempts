@@ -738,7 +738,13 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
         TileEntity te = world.getTileEntity(managerPos);
         if (te instanceof TileMirrorManager) {
-            ((TileMirrorManager) te).ensureDeliveryForExact(this.pos, miss, 0);
+            therealpant.thaumicattempts.golemnet.tile.CloudOrderSubmitHelper.submitBatchDelivery(
+                    world,
+                    ((TileMirrorManager) te).getPos(),
+                    this.pos,
+                    -1,
+                    new java.util.ArrayList<>(miss.entrySet())
+            );
             lastEnsureWorldTime = now;
             needEnsureWithManager = false;
         } else {
