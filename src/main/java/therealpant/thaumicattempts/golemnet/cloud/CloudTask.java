@@ -27,6 +27,8 @@ public class CloudTask {
     private int destinationBaseline = -1;
     private long lastProgressTick;
     private boolean commandIssued;
+    @Nullable
+    private String assignedChannelId;
 
     public CloudTask(UUID taskId, UUID orderId, CloudTaskKind kind, ItemKey itemKey, int amount, long createdTick) {
         this.taskId = taskId == null ? UUID.randomUUID() : taskId;
@@ -60,6 +62,7 @@ public class CloudTask {
     public int getDestinationBaseline() { return destinationBaseline; }
     public long getLastProgressTick() { return lastProgressTick; }
     public boolean isCommandIssued() { return commandIssued; }
+    @Nullable public String getAssignedChannelId() { return assignedChannelId; }
 
     public void setStatus(CloudTaskStatus status, long tick) {
         this.status = status == null ? CloudTaskStatus.NEW : status;
@@ -105,6 +108,11 @@ public class CloudTask {
         this.updatedTick = tick;
     }
 
+    public void setAssignedChannelId(@Nullable String assignedChannelId, long tick) {
+        this.assignedChannelId = assignedChannelId;
+        this.updatedTick = tick;
+    }
+
     public int incrementRetry(long tick) {
         this.retryCount++;
         this.updatedTick = tick;
@@ -132,6 +140,7 @@ public class CloudTask {
         nbt.setInteger("destinationBaseline", destinationBaseline);
         nbt.setLong("lastProgressTick", lastProgressTick);
         nbt.setBoolean("commandIssued", commandIssued);
+        if (assignedChannelId != null && !assignedChannelId.isEmpty()) nbt.setString("assignedChannelId", assignedChannelId);
         return nbt;
     }
 
@@ -156,6 +165,7 @@ public class CloudTask {
         task.destinationBaseline = nbt.hasKey("destinationBaseline") ? nbt.getInteger("destinationBaseline") : -1;
         task.lastProgressTick = nbt.hasKey("lastProgressTick") ? nbt.getLong("lastProgressTick") : task.updatedTick;
         task.commandIssued = nbt.getBoolean("commandIssued");
+        task.assignedChannelId = nbt.hasKey("assignedChannelId", 8) ? nbt.getString("assignedChannelId") : null;
         return task;
     }
 }

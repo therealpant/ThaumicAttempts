@@ -43,6 +43,8 @@ import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
 import therealpant.thaumicattempts.golemnet.cloud.MirrorLogisticsCloud;
+import therealpant.thaumicattempts.golemnet.cloud.ProviderChannel;
+import therealpant.thaumicattempts.golemnet.cloud.ProviderChannelStatus;
 import therealpant.thaumicattempts.golemnet.tile.TileRevisionPiedestal;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
@@ -200,6 +202,17 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
 
         GolemHelper.requestProvisioning(world, this.pos, EnumFacing.UP, req, queueId);
         return req.getCount();
+    }
+
+    public int requestFromStorageForChannel(ItemKey key, int amount, @Nullable UUID taskId, @Nullable UUID golemId) {
+        if (golemId == null || !isDispatcherLinkedGolem(golemId)) {
+            return requestFromStorageByGolem(key, amount, taskId);
+        }
+        if (world == null || world.isRemote || key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
+        ItemStack req = normalizeForProvision(key.toStack(1), Math.max(1, amount));
+        if (req.isEmpty()) return 0;
+        boolean accepted = ThaumcraftProvisionHelper.requestProvisioningForManagerWithGolem(this, req, golemId);
+        return accepted ? req.getCount() : 0;
     }
 
     public int transferFromBufferTo(BlockPos dest, int destSide, ItemKey key, int amount, @Nullable UUID taskId) {
@@ -1594,6 +1607,24 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         }
         return all;
     }
+
+    public List<ProviderChannel> getCloudProviderChannelsSnapshot(long tick) {
+        List<ProviderChannel> channels = new ArrayList<>();
+        List<UUID> golems = getDispatcherGolemsSnapshot();
+        if (golems.isEmpty()) {
+            channels.add(new ProviderChannel("default", null, null, tick, ProviderChannelStatus.READY));
+            return channels;
+        }
+        for (UUID golemId : golems) {
+            if (golemId == null) continue;
+            channels.add(new ProviderChannel("golem:" + golemId.toString(), golemId, null, tick, ProviderChannelStatus.READY));
+        }
+        if (channels.isEmpty()) {
+            channels.add(new ProviderChannel("default", null, null, tick, ProviderChannelStatus.READY));
+        }
+        return channels;
+    }
+
     private void assignLinesToGolemsRoundRobin(List<Line> lines) {
         if (world == null || world.isRemote) return;
         if (lines == null || lines.isEmpty()) return;

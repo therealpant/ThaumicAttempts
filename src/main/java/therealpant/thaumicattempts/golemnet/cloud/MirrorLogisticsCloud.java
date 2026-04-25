@@ -6,6 +6,7 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
+import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.api.ICloudCraftConsumer;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
 import therealpant.thaumicattempts.util.ResourceIdentity;
@@ -32,13 +33,16 @@ public class MirrorLogisticsCloud {
     private static final int MAX_RETRIES = 3;
     private static final int REQUEST_CHUNK = 64;
     private static final long WAIT_RESOURCES_FAIL_TICKS = 200L;
+    private final Map<String, ProviderChannel> providerChannels = new LinkedHashMap<>();
 
     public void tick(TileMirrorManager manager) {
         if (manager == null || manager.getWorld() == null || manager.getWorld().isRemote) return;
 
         final long tick = manager.getWorld().getTotalWorldTime();
         planOrders(manager, tick);
-        executeTasksSequentially(manager, tick);
+        refreshProviderChannels(manager, tick);
+        scheduleProviderTasks(tick);
+        executeTasks(manager, tick);
         syncOrderStates(tick);
 
         if ((tick % 100L) == 0L) {
@@ -209,20 +213,24 @@ public class MirrorLogisticsCloud {
         order.setStatus(CloudOrderStatus.RUNNING, tick);
     }
 
-    private void executeTasksSequentially(TileMirrorManager manager, long tick) {
+    private void executeTasks(TileMirrorManager manager, long tick) {
         List<CloudTask> sorted = new ArrayList<>(tasks.values());
         sorted.sort(Comparator.comparingLong(CloudTask::getCreatedTick).thenComparing(CloudTask::getTaskId));
         for (CloudTask task : sorted) {
             if (task == null) continue;
             CloudOrder order = orders.get(task.getOrderId());
             if (order == null || order.getStatus() == CloudOrderStatus.CANCELLED || order.getStatus() == CloudOrderStatus.FAILED) continue;
-            if (task.getStatus() == CloudTaskStatus.NEW) task.setStatus(CloudTaskStatus.READY, tick);
-            if (task.getStatus() == CloudTaskStatus.READY) task.setStatus(CloudTaskStatus.RUNNING, tick);
+            if (task.getStatus() == CloudTaskStatus.NEW) {
+                task.setStatus(CloudTaskStatus.READY, tick);
+            }
+            if (isProviderTask(task) && task.getStatus() == CloudTaskStatus.READY) continue;
             if (task.getStatus() != CloudTaskStatus.RUNNING && task.getStatus() != CloudTaskStatus.BLOCKED) continue;
+            if (isProviderTask(task) && !hasAssignedChannel(task)) continue;
 
             if (task.getStatus() == CloudTaskStatus.BLOCKED) {
                 if (task.getRetryCount() >= MAX_RETRIES) {
                     task.fail("Retries exhausted after BLOCKED state", tick);
+                    releaseChannel(task, tick, "task failed");
                     continue;
                 }
                 task.setStatus(CloudTaskStatus.RUNNING, tick);
@@ -239,13 +247,18 @@ public class MirrorLogisticsCloud {
             }
 
             handleTaskTimeout(task, tick);
+            updateChannelProgressState(task, tick);
+            if (task.getStatus() == CloudTaskStatus.DONE || task.getStatus() == CloudTaskStatus.FAILED) {
+                releaseChannel(task, tick, task.getStatus().name());
+            }
         }
     }
 
     private void runSupplyTask(TileMirrorManager manager, CloudTask task, long tick) {
+        ProviderChannel channel = resolveTaskChannel(task);
         CloudEndpointRef target = task.getTarget();
         if (target == null) {
-            runBufferOnlySupplyTask(manager, task, tick);
+            runBufferOnlySupplyTask(manager, task, channel, tick);
             return;
         }
 
@@ -256,7 +269,7 @@ public class MirrorLogisticsCloud {
         int moved = manager.transferFromBufferTo(target.getPos(), target.getSide(), key, Math.max(0, targetAmount - task.getCompletedAmount()), task.getTaskId());
         if (moved <= 0) {
             int need = Math.max(0, targetAmount - task.getCompletedAmount());
-            if (need > 0) manager.requestFromStorageByGolem(key, Math.min(REQUEST_CHUNK, need), task.getTaskId());
+            if (need > 0) manager.requestFromStorageForChannel(key, Math.min(REQUEST_CHUNK, need), task.getTaskId(), channel == null ? null : channel.getGolemId());
         }
 
         int currentAtTarget = manager.countAtDestination(target.getPos(), target.getSide(), key);
@@ -268,21 +281,19 @@ public class MirrorLogisticsCloud {
         if (task.getCompletedAmount() >= targetAmount) task.setStatus(CloudTaskStatus.DONE, tick);
     }
 
-    private void runBufferOnlySupplyTask(TileMirrorManager manager, CloudTask task, long tick) {
+    private void runBufferOnlySupplyTask(TileMirrorManager manager, CloudTask task, @Nullable ProviderChannel channel, long tick) {
         ItemKey key = task.getItemKey();
         int target = task.getAmount();
-        int buffered = manager.countBuffered(key);
-        int completed = Math.min(target, Math.max(0, buffered));
-        if (completed > task.getCompletedAmount()) task.setCompletedAmount(completed, tick);
-        else task.markNoProgress(tick);
+        int need = Math.max(0, target - task.getCompletedAmount());
+        if (need > 0) {
+            int accepted = manager.requestFromStorageForChannel(key, Math.min(REQUEST_CHUNK, need), task.getTaskId(), channel == null ? null : channel.getGolemId());
+            if (accepted > 0) task.setCompletedAmount(Math.min(target, task.getCompletedAmount() + accepted), tick);
+            else task.markNoProgress(tick);
+        }
 
         if (task.getCompletedAmount() >= target) {
             task.setStatus(CloudTaskStatus.DONE, tick);
-            return;
         }
-
-        int need = Math.max(0, target - task.getCompletedAmount());
-        if (need > 0) manager.requestFromStorageByGolem(key, Math.min(REQUEST_CHUNK, need), task.getTaskId());
     }
 
     private void runCraftTask(TileMirrorManager manager, CloudOrder order, CloudTask task, long tick) {
@@ -375,7 +386,12 @@ public class MirrorLogisticsCloud {
             task.setDestinationBaseline(manager.countAtDestination(dest, side, task.getItemKey()));
         }
 
-        int movedNow = manager.transferFromBufferTo(dest, side, task.getItemKey(), Math.max(0, target - task.getCompletedAmount()), task.getTaskId());
+        int needNow = Math.max(0, target - task.getCompletedAmount());
+        int movedNow = manager.transferFromBufferTo(dest, side, task.getItemKey(), needNow, task.getTaskId());
+        if (movedNow <= 0 && needNow > 0 && order.getKind() == CloudOrderKind.DELIVERY) {
+            ProviderChannel channel = resolveTaskChannel(task);
+            manager.requestFromStorageForChannel(task.getItemKey(), Math.min(REQUEST_CHUNK, needNow), task.getTaskId(), channel == null ? null : channel.getGolemId());
+        }
         int currentAtDest = manager.countAtDestination(dest, side, task.getItemKey());
         int deliveredByBaseline = Math.max(0, currentAtDest - task.getDestinationBaseline());
         int completed = Math.min(target, deliveredByBaseline);
@@ -406,6 +422,11 @@ public class MirrorLogisticsCloud {
             task.fail("Task timeout (" + TASK_TIMEOUT_TICKS + " ticks) and retries exhausted", tick);
         } else {
             task.setStatus(CloudTaskStatus.BLOCKED, tick);
+            ProviderChannel channel = resolveTaskChannel(task);
+            if (channel != null && channel.getStatus() != ProviderChannelStatus.STALLED) {
+                channel.markStalled(tick);
+                debug("stall channel=%s task=%s noProgress=%d", channel.getChannelId(), task.getTaskId(), tick - lastProgressTick);
+            }
         }
     }
 
@@ -514,6 +535,7 @@ public class MirrorLogisticsCloud {
         for (CloudTask task : tasks.values()) {
             if (task != null && orderId != null && orderId.equals(task.getOrderId())) {
                 task.setStatus(CloudTaskStatus.BLOCKED, order.getUpdatedTick());
+                releaseChannel(task, order.getUpdatedTick(), "order-cancelled");
             }
         }
         return true;
@@ -559,6 +581,7 @@ public class MirrorLogisticsCloud {
     public void deserializeNBT(@Nullable NBTTagCompound nbt) {
         orders.clear();
         tasks.clear();
+        providerChannels.clear();
         snapshot = new CloudNetworkSnapshot();
 
         if (nbt == null) return;
@@ -578,6 +601,123 @@ public class MirrorLogisticsCloud {
         if (nbt.hasKey(TAG_NETWORK, 10)) {
             snapshot = CloudNetworkSnapshot.deserializeNBT(nbt.getCompoundTag(TAG_NETWORK));
         }
+    }
+
+    private void refreshProviderChannels(TileMirrorManager manager, long tick) {
+        List<ProviderChannel> snapshotChannels = manager.getCloudProviderChannelsSnapshot(tick);
+        LinkedHashSet<String> seen = new LinkedHashSet<>();
+        for (ProviderChannel ch : snapshotChannels) {
+            if (ch == null || ch.getChannelId() == null || ch.getChannelId().isEmpty()) continue;
+            seen.add(ch.getChannelId());
+            ProviderChannel existing = providerChannels.get(ch.getChannelId());
+            if (existing == null) {
+                providerChannels.put(ch.getChannelId(), ch);
+            } else if (existing.getGolemId() == null && ch.getGolemId() != null) {
+                providerChannels.put(ch.getChannelId(), ch);
+            }
+        }
+        Iterator<Map.Entry<String, ProviderChannel>> it = providerChannels.entrySet().iterator();
+        while (it.hasNext()) {
+            Map.Entry<String, ProviderChannel> e = it.next();
+            if (seen.contains(e.getKey())) continue;
+            String removedChannelId = e.getKey();
+            it.remove();
+            for (CloudTask task : tasks.values()) {
+                if (task == null) continue;
+                if (!removedChannelId.equals(task.getAssignedChannelId())) continue;
+                task.setAssignedChannelId(null, tick);
+                if (task.getStatus() == CloudTaskStatus.RUNNING || task.getStatus() == CloudTaskStatus.BLOCKED) {
+                    task.setStatus(CloudTaskStatus.READY, tick);
+                }
+            }
+        }
+        if (providerChannels.isEmpty()) {
+            providerChannels.put("default", new ProviderChannel("default", null, null, tick, ProviderChannelStatus.READY));
+        }
+        if ((tick % 40L) == 0L) {
+            debug("channels snapshot: %s", describeChannels());
+        }
+    }
+
+    private void scheduleProviderTasks(long tick) {
+        List<CloudTask> candidates = new ArrayList<>();
+        for (CloudTask task : tasks.values()) {
+            if (task == null || !isProviderTask(task) || task.getStatus() != CloudTaskStatus.READY || hasAssignedChannel(task)) continue;
+            candidates.add(task);
+        }
+        candidates.sort(Comparator.comparingLong(CloudTask::getCreatedTick).thenComparing(CloudTask::getTaskId));
+        for (CloudTask task : candidates) {
+            ProviderChannel free = findFreeChannel();
+            if (free == null) break;
+            free.markBusy(task.getTaskId(), tick);
+            task.setAssignedChannelId(free.getChannelId(), tick);
+            task.setStatus(CloudTaskStatus.RUNNING, tick);
+            debug("assign task=%s kind=%s -> channel=%s", task.getTaskId(), task.getKind(), free.getChannelId());
+        }
+    }
+
+    private boolean isProviderTask(CloudTask task) {
+        return task != null && (task.getKind() == CloudTaskKind.SUPPLY || task.getKind() == CloudTaskKind.TRANSFER);
+    }
+
+    private boolean hasAssignedChannel(CloudTask task) {
+        return task != null && task.getAssignedChannelId() != null && !task.getAssignedChannelId().isEmpty();
+    }
+
+    @Nullable
+    private ProviderChannel resolveTaskChannel(@Nullable CloudTask task) {
+        if (task == null || task.getAssignedChannelId() == null) return null;
+        return providerChannels.get(task.getAssignedChannelId());
+    }
+
+    @Nullable
+    private ProviderChannel findFreeChannel() {
+        for (ProviderChannel channel : providerChannels.values()) {
+            if (channel != null && channel.isFree()) return channel;
+        }
+        return null;
+    }
+
+    private void updateChannelProgressState(CloudTask task, long tick) {
+        if (!isProviderTask(task) || !hasAssignedChannel(task)) return;
+        ProviderChannel channel = resolveTaskChannel(task);
+        if (channel == null) return;
+        if (task.getLastProgressTick() >= tick) {
+            channel.markProgress(tick);
+        } else if ((tick - task.getLastProgressTick()) > TASK_TIMEOUT_TICKS) {
+            channel.markStalled(tick);
+        }
+    }
+
+    private void releaseChannel(@Nullable CloudTask task, long tick, String reason) {
+        if (!isProviderTask(task) || task == null || !hasAssignedChannel(task)) return;
+        ProviderChannel channel = resolveTaskChannel(task);
+        String channelId = task.getAssignedChannelId();
+        if (channel != null && task.getTaskId().equals(channel.getBusyTaskId())) {
+            channel.release(tick);
+            debug("release channel=%s task=%s reason=%s", channel.getChannelId(), task.getTaskId(), reason);
+        } else {
+            debug("release skipped channel=%s task=%s reason=%s", channelId, task.getTaskId(), reason);
+        }
+        task.setAssignedChannelId(null, tick);
+    }
+
+    private String describeChannels() {
+        StringBuilder sb = new StringBuilder();
+        for (ProviderChannel ch : providerChannels.values()) {
+            if (sb.length() > 0) sb.append(" | ");
+            sb.append(ch.getChannelId())
+                    .append("{g=").append(ch.getGolemId())
+                    .append(",busy=").append(ch.getBusyTaskId())
+                    .append(",status=").append(ch.getStatus())
+                    .append(",last=").append(ch.getLastProgressTick())
+                    .append("}");
+        }
+        return sb.toString();
+    }
+
+    private void debug(String fmt, Object... args) {
+        ThaumicAttempts.LOGGER.debug("[Cloud] " + String.format(fmt, args));
     }
 
     static void writeItemKey(NBTTagCompound root, String key, ItemKey itemKey) {
