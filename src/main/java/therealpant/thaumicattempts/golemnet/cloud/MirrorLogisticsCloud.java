@@ -33,6 +33,7 @@ public class MirrorLogisticsCloud {
     private static final int MAX_RETRIES = 3;
     private static final int REQUEST_CHUNK = 64;
     private static final long WAIT_RESOURCES_FAIL_TICKS = 200L;
+    private static final long TERMINAL_ORDER_RETENTION_TICKS = 200L;
     private final Map<String, ProviderChannel> providerChannels = new LinkedHashMap<>();
 
     public void tick(TileMirrorManager manager) {
@@ -44,9 +45,11 @@ public class MirrorLogisticsCloud {
         scheduleProviderTasks(tick);
         executeTasks(manager, tick);
         syncOrderStates(tick);
+        cleanupTerminal(tick);
 
         if ((tick % 100L) == 0L) {
             rebuildNetworkSnapshot(manager);
+            debugDumpState(tick);
         }
     }
 
@@ -61,8 +64,7 @@ public class MirrorLogisticsCloud {
         List<CloudOrder> deferredChildOrders = new ArrayList<>();
 
         for (CloudOrder order : orders.values()) {
-            if (order == null || order.getStatus() == CloudOrderStatus.CANCELLED || order.getStatus() == CloudOrderStatus.DONE)
-                continue;
+            if (order == null || isTerminalOrder(order)) continue;
             if (order.getStatus() == CloudOrderStatus.NEW) order.setStatus(CloudOrderStatus.PLANNING, tick);
             if (order.getStatus() != CloudOrderStatus.PLANNING && order.getStatus() != CloudOrderStatus.WAITING_RESOURCES)
                 continue;
@@ -84,9 +86,7 @@ public class MirrorLogisticsCloud {
         ItemKey key = order.getItemKey();
         int requested = Math.max(0, order.getRequestedAmount());
         if (requested <= 0 || key == null || key == ItemKey.EMPTY) {
-            order.setStatus(CloudOrderStatus.FAILED, tick);
-            order.setFailReason("Invalid delivery order payload", tick);
-            info("order failed id=%s kind=%s reason=%s", order.getOrderId(), order.getKind(), order.getFailReason());
+            failOrder(order, "Invalid delivery order payload", tick);
             return;
         }
 
@@ -129,23 +129,20 @@ public class MirrorLogisticsCloud {
         ItemKey requestedKey = order.getItemKey();
         int requestedAmount = Math.max(0, order.getRequestedAmount());
         if (requestedKey == null || requestedKey == ItemKey.EMPTY || requestedAmount <= 0 || order.getDestination() == null) {
-            order.setStatus(CloudOrderStatus.FAILED, tick);
-            order.setFailReason("Invalid craft order payload", tick);
+            failOrder(order, "Invalid craft order payload", tick);
             return;
         }
 
         ICloudCraftConsumer consumer = findConsumerFor(manager, requestedKey);
         if (consumer == null) {
-            order.setStatus(CloudOrderStatus.FAILED, tick);
-            order.setFailReason("No cloud craft consumer for " + requestedKey, tick);
+            failOrder(order, "No cloud craft consumer for " + requestedKey, tick);
             return;
         }
 
         CloudEndpointRef inputEndpoint = consumer.getInputEndpoint();
         CloudEndpointRef outputEndpoint = consumer.getOutputEndpoint();
         if (inputEndpoint == null || outputEndpoint == null) {
-            order.setStatus(CloudOrderStatus.FAILED, tick);
-            order.setFailReason("Consumer endpoints unavailable", tick);
+            failOrder(order, "Consumer endpoints unavailable", tick);
             return;
         }
 
@@ -173,8 +170,7 @@ public class MirrorLogisticsCloud {
             CraftPlanningService planningService = new CraftPlanningService(8);
             CraftPlanningService.PlanningResult planning = planningService.plan(manager, requestedKey, requestedAmount, snapshotStock);
             if (!planning.success) {
-                order.setStatus(CloudOrderStatus.FAILED, tick);
-                order.setFailReason(planning.failReason, tick);
+                failOrder(order, planning.failReason, tick);
                 return;
             }
             order.setMetadataValue("craft.planDump", planning.debugDump);
@@ -196,8 +192,7 @@ public class MirrorLogisticsCloud {
             long waitSince = parseLong(order.getMetadata().get(META_WAIT_SINCE), tick);
             if (!order.getMetadata().containsKey(META_WAIT_SINCE)) order.setMetadataValue(META_WAIT_SINCE, Long.toString(tick));
             if (!plannerPresent && tick - waitSince > WAIT_RESOURCES_FAIL_TICKS) {
-                order.setStatus(CloudOrderStatus.FAILED, tick);
-                order.setFailReason("Craft resources timeout after waiting " + (tick - waitSince) + " ticks", tick);
+                failOrder(order, "Craft resources timeout after waiting " + (tick - waitSince) + " ticks", tick);
             }
             return;
         }
@@ -308,7 +303,14 @@ public class MirrorLogisticsCloud {
         for (CloudTask task : sorted) {
             if (task == null) continue;
             CloudOrder order = orders.get(task.getOrderId());
-            if (order == null || order.getStatus() == CloudOrderStatus.CANCELLED || order.getStatus() == CloudOrderStatus.FAILED) continue;
+            if (isTerminalTask(task)) {
+                releaseChannel(task, tick, "terminal-task");
+                continue;
+            }
+            if (order == null || isTerminalOrder(order)) {
+                failTask(task, "Order is terminal", tick);
+                continue;
+            }
             if (task.getStatus() == CloudTaskStatus.NEW) {
                 task.setStatus(CloudTaskStatus.READY, tick);
             }
@@ -337,7 +339,7 @@ public class MirrorLogisticsCloud {
 
             handleTaskTimeout(task, tick);
             updateChannelProgressState(task, tick);
-            if (task.getStatus() == CloudTaskStatus.DONE || task.getStatus() == CloudTaskStatus.FAILED) {
+            if (isTerminalTask(task)) {
                 releaseChannel(task, tick, task.getStatus().name());
             }
         }
@@ -429,7 +431,7 @@ public class MirrorLogisticsCloud {
 
         ICloudCraftConsumer consumer = resolveConsumer(manager, order);
         if (consumer == null) {
-            task.fail("Craft consumer is unavailable", tick);
+            failTask(task, "Craft consumer is unavailable", tick);
             return;
         }
 
@@ -439,7 +441,7 @@ public class MirrorLogisticsCloud {
             int cycles = Math.max(1, parseInt(order.getMetadata().get(META_CRAFT_CYCLES), 1));
             int accepted = consumer.enqueueCloudCraft(task.getItemKey().toStack(1), cycles, task.getTaskId());
             if (accepted <= 0) {
-                task.fail("Consumer rejected cloud craft task", tick);
+                failTask(task, "Consumer rejected cloud craft task", tick);
                 return;
             }
             task.setCommandIssued(true, tick);
@@ -471,7 +473,7 @@ public class MirrorLogisticsCloud {
         }
         CloudEndpointRef source = task.getSource();
         if (source == null) {
-            task.fail("Missing pickup source endpoint", tick);
+            failTask(task, "Missing pickup source endpoint", tick);
             return;
         }
 
@@ -491,7 +493,7 @@ public class MirrorLogisticsCloud {
     private void runTransferTask(TileMirrorManager manager, CloudTask task, long tick) {
         CloudOrder order = orders.get(task.getOrderId());
         if (order == null || order.getDestination() == null) {
-            task.fail("Missing destination for transfer task", tick);
+            failTask(task, "Missing destination for transfer task", tick);
             return;
         }
 
@@ -547,7 +549,7 @@ public class MirrorLogisticsCloud {
 
         int retries = task.incrementRetry(tick);
         if (retries > MAX_RETRIES) {
-            task.fail("Task timeout (" + TASK_TIMEOUT_TICKS + " ticks) and retries exhausted", tick);
+            failTask(task, "Task timeout (" + TASK_TIMEOUT_TICKS + " ticks) and retries exhausted", tick);
         } else {
             task.setStatus(CloudTaskStatus.BLOCKED, tick);
             ProviderChannel channel = resolveTaskChannel(task);
@@ -560,15 +562,13 @@ public class MirrorLogisticsCloud {
 
     private void syncOrderStates(long tick) {
         for (CloudOrder order : orders.values()) {
-            if (order == null || order.getStatus() == CloudOrderStatus.CANCELLED) continue;
+            if (order == null || isTerminalOrder(order)) continue;
 
             CloudTask transfer = getTaskByOrderAndKind(order.getOrderId(), CloudTaskKind.TRANSFER);
             if (transfer == null) continue;
 
             if (hasFailedTask(order.getOrderId())) {
-                order.setStatus(CloudOrderStatus.FAILED, tick);
-                order.setFailReason("Task failed", tick);
-                warn("order failed id=%s kind=%s reason=%s", order.getOrderId(), order.getKind(), order.getFailReason());
+                failOrder(order, "Task failed", tick);
                 continue;
             }
 
@@ -663,13 +663,17 @@ public class MirrorLogisticsCloud {
     public boolean cancelOrder(UUID orderId) {
         CloudOrder order = orders.get(orderId);
         if (order == null) return false;
+        if (isTerminalOrder(order)) return true;
 
-        order.setStatus(CloudOrderStatus.CANCELLED, order.getUpdatedTick());
-        order.setFailReason("Cancelled by user", order.getUpdatedTick());
+        long tick = order.getUpdatedTick();
+        order.setStatus(CloudOrderStatus.CANCELLED, tick);
+        order.setFailReason("Cancelled by user", tick);
         for (CloudTask task : tasks.values()) {
             if (task != null && orderId != null && orderId.equals(task.getOrderId())) {
-                task.setStatus(CloudTaskStatus.BLOCKED, order.getUpdatedTick());
-                releaseChannel(task, order.getUpdatedTick(), "order-cancelled");
+                if (!isTerminalTask(task)) {
+                    task.setStatus(CloudTaskStatus.CANCELLED, tick);
+                }
+                releaseChannel(task, tick, "order-cancelled");
             }
         }
         return true;
@@ -728,13 +732,16 @@ public class MirrorLogisticsCloud {
 
         NBTTagList orderList = new NBTTagList();
         for (CloudOrder order : orders.values()) {
-            if (order != null) orderList.appendTag(order.serializeNBT());
+            if (order != null && !isTerminalOrder(order)) orderList.appendTag(order.serializeNBT());
         }
         nbt.setTag(TAG_ORDERS, orderList);
 
         NBTTagList taskList = new NBTTagList();
         for (CloudTask task : tasks.values()) {
-            if (task != null) taskList.appendTag(task.serializeNBT());
+            if (task == null || isTerminalTask(task)) continue;
+            CloudOrder order = orders.get(task.getOrderId());
+            if (order == null || isTerminalOrder(order)) continue;
+            taskList.appendTag(task.serializeNBT());
         }
         nbt.setTag(TAG_TASKS, taskList);
         nbt.setTag(TAG_NETWORK, snapshot.serializeNBT());
@@ -752,13 +759,17 @@ public class MirrorLogisticsCloud {
         NBTTagList orderList = nbt.getTagList(TAG_ORDERS, 10);
         for (int i = 0; i < orderList.tagCount(); i++) {
             CloudOrder order = CloudOrder.deserializeNBT(orderList.getCompoundTagAt(i));
-            if (order != null) orders.put(order.getOrderId(), order);
+            if (order == null || isTerminalOrder(order)) continue;
+            orders.put(order.getOrderId(), order);
         }
 
         NBTTagList taskList = nbt.getTagList(TAG_TASKS, 10);
         for (int i = 0; i < taskList.tagCount(); i++) {
             CloudTask task = CloudTask.deserializeNBT(taskList.getCompoundTagAt(i));
-            if (task != null) tasks.put(task.getTaskId(), task);
+            if (task == null || isTerminalTask(task)) continue;
+            CloudOrder order = orders.get(task.getOrderId());
+            if (order == null || isTerminalOrder(order)) continue;
+            tasks.put(task.getTaskId(), task);
         }
 
         if (nbt.hasKey(TAG_NETWORK, 10)) {
@@ -806,6 +817,9 @@ public class MirrorLogisticsCloud {
         List<CloudTask> candidates = new ArrayList<>();
         for (CloudTask task : tasks.values()) {
             if (task == null || !isProviderTask(task) || task.getStatus() != CloudTaskStatus.READY || hasAssignedChannel(task)) continue;
+            if (isTerminalTask(task)) continue;
+            CloudOrder order = orders.get(task.getOrderId());
+            if (order == null || isTerminalOrder(order)) continue;
             candidates.add(task);
         }
         candidates.sort(Comparator.comparingLong(CloudTask::getCreatedTick).thenComparing(CloudTask::getTaskId));
@@ -863,6 +877,116 @@ public class MirrorLogisticsCloud {
             debug("release skipped channel=%s task=%s reason=%s", channelId, task.getTaskId(), reason);
         }
         task.setAssignedChannelId(null, tick);
+    }
+
+    private boolean isTerminalOrder(@Nullable CloudOrder order) {
+        if (order == null) return true;
+        CloudOrderStatus status = order.getStatus();
+        return status == CloudOrderStatus.DONE || status == CloudOrderStatus.FAILED || status == CloudOrderStatus.CANCELLED;
+    }
+
+    private boolean isTerminalTask(@Nullable CloudTask task) {
+        if (task == null) return true;
+        CloudTaskStatus status = task.getStatus();
+        return status == CloudTaskStatus.DONE || status == CloudTaskStatus.FAILED || status == CloudTaskStatus.CANCELLED;
+    }
+
+    private void failOrder(@Nullable CloudOrder order, String reason, long tick) {
+        if (order == null || isTerminalOrder(order)) return;
+        String failReason = reason == null ? "" : reason;
+        order.setStatus(CloudOrderStatus.FAILED, tick);
+        order.setFailReason(failReason, tick);
+        warn("order failed id=%s kind=%s reason=%s", order.getOrderId(), order.getKind(), failReason);
+
+        for (CloudTask task : tasks.values()) {
+            if (task == null || !Objects.equals(task.getOrderId(), order.getOrderId())) continue;
+            if (isTerminalTask(task)) {
+                releaseChannel(task, tick, "order-failed-terminal");
+                continue;
+            }
+            failTask(task, "Order failed: " + failReason, tick);
+        }
+
+        for (ProviderChannel channel : providerChannels.values()) {
+            if (channel == null || channel.getBusyTaskId() == null) continue;
+            CloudTask busyTask = tasks.get(channel.getBusyTaskId());
+            if (busyTask != null && Objects.equals(busyTask.getOrderId(), order.getOrderId())) {
+                channel.release(tick);
+            }
+        }
+    }
+
+    private void failTask(@Nullable CloudTask task, String reason, long tick) {
+        if (task == null || isTerminalTask(task)) return;
+        String failReason = reason == null ? "" : reason;
+        task.fail(failReason, tick);
+        releaseChannel(task, tick, "task-failed");
+    }
+
+    private void cleanupTerminal(long tick) {
+        Iterator<Map.Entry<UUID, CloudTask>> taskIterator = tasks.entrySet().iterator();
+        while (taskIterator.hasNext()) {
+            Map.Entry<UUID, CloudTask> entry = taskIterator.next();
+            CloudTask task = entry.getValue();
+            if (!isTerminalTask(task)) continue;
+            releaseChannel(task, tick, "cleanup-terminal-task");
+            taskIterator.remove();
+        }
+
+        Iterator<Map.Entry<UUID, CloudOrder>> orderIterator = orders.entrySet().iterator();
+        while (orderIterator.hasNext()) {
+            Map.Entry<UUID, CloudOrder> entry = orderIterator.next();
+            CloudOrder order = entry.getValue();
+            if (!isTerminalOrder(order)) continue;
+            if ((tick - order.getUpdatedTick()) >= TERMINAL_ORDER_RETENTION_TICKS) {
+                orderIterator.remove();
+            }
+        }
+
+        for (ProviderChannel channel : providerChannels.values()) {
+            if (channel == null || channel.getBusyTaskId() == null) continue;
+            CloudTask busyTask = tasks.get(channel.getBusyTaskId());
+            if (busyTask == null || isTerminalTask(busyTask)) {
+                channel.release(tick);
+            }
+        }
+    }
+
+    private void debugDumpState(long tick) {
+        int activeOrders = 0;
+        int terminalOrders = 0;
+        for (CloudOrder order : orders.values()) {
+            if (order == null) continue;
+            if (isTerminalOrder(order)) terminalOrders++;
+            else activeOrders++;
+        }
+
+        int activeTasks = 0;
+        for (CloudTask task : tasks.values()) {
+            if (!isTerminalTask(task)) activeTasks++;
+        }
+
+        int busyChannels = 0;
+        int freeChannels = 0;
+        List<String> stuckChannels = new ArrayList<>();
+        for (ProviderChannel channel : providerChannels.values()) {
+            if (channel == null) continue;
+            if (channel.getBusyTaskId() == null) {
+                freeChannels++;
+                continue;
+            }
+            busyChannels++;
+            CloudTask busyTask = tasks.get(channel.getBusyTaskId());
+            if (busyTask == null || isTerminalTask(busyTask)) {
+                stuckChannels.add(channel.getChannelId() + "->" + channel.getBusyTaskId());
+            }
+        }
+
+        info("dump tick=%d activeOrders=%d activeTasks=%d channelsBusy=%d channelsFree=%d terminalOrders=%d",
+                tick, activeOrders, activeTasks, busyChannels, freeChannels, terminalOrders);
+        if (!stuckChannels.isEmpty()) {
+            warn("dump stuckChannels=%s", stuckChannels);
+        }
     }
 
     private void info(String fmt, Object... args) {

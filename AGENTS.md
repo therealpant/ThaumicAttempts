@@ -10,4 +10,4 @@
 
 ## Review guidelines
 - Не повышать версию Java.
-- Сборка не должна изменять публичные API пакетов therealpant.thaumicattempts.*.
+

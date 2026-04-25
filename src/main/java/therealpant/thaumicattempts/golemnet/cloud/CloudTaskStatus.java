@@ -6,5 +6,6 @@ public enum CloudTaskStatus {
     RUNNING,
     DONE,
     FAILED,
-    BLOCKED
+    BLOCKED,
+    CANCELLED
 }
