@@ -86,14 +86,18 @@ public class MirrorLogisticsCloud {
         if (requested <= 0 || key == null || key == ItemKey.EMPTY) {
             order.setStatus(CloudOrderStatus.FAILED, tick);
             order.setFailReason("Invalid delivery order payload", tick);
+            info("order failed id=%s kind=%s reason=%s", order.getOrderId(), order.getKind(), order.getFailReason());
             return;
         }
 
-        int availableInCatalog = Math.max(0, reachableCatalog.getOrDefault(key, 0));
-        int availableInBuffer = Math.max(0, manager.countBuffered(key));
+        int availableInCatalog = countCatalogRelaxed(reachableCatalog, key);
+        int availableInBuffer = countBufferedRelaxed(manager, key);
+        info("plan delivery order id=%s item=%s requested=%d catalog=%d buffer=%d source=%s destination=%s",
+                order.getOrderId(), key, requested, availableInCatalog, availableInBuffer, manager.getPos(), order.getDestination());
         if (availableInCatalog <= 0 && availableInBuffer <= 0) {
             order.setStatus(CloudOrderStatus.WAITING_RESOURCES, tick);
             order.setFailReason("Resource not reachable in provider catalog: " + key, tick);
+            warn("order waiting id=%s kind=%s reason=%s", order.getOrderId(), order.getKind(), order.getFailReason());
             return;
         }
 
@@ -354,7 +358,13 @@ public class MirrorLogisticsCloud {
         int moved = manager.transferFromBufferTo(target.getPos(), target.getSide(), key, Math.max(0, targetAmount - task.getCompletedAmount()), task.getTaskId());
         if (moved <= 0) {
             int need = Math.max(0, targetAmount - task.getCompletedAmount());
-            if (need > 0) manager.requestFromStorageForChannel(key, Math.min(REQUEST_CHUNK, need), task.getTaskId(), channel == null ? null : channel.getGolemId());
+            if (need > 0) {
+                int accepted = manager.requestFromStorageForChannel(key, Math.min(REQUEST_CHUNK, need), task.getTaskId(), channel == null ? null : channel.getGolemId());
+                if (accepted > 0) {
+                    info("supply request issued task=%s order=%s item=%s need=%d accepted=%d channel=%s",
+                            task.getTaskId(), task.getOrderId(), key, need, accepted, task.getAssignedChannelId());
+                }
+            }
         }
 
         int currentAtTarget = manager.countAtDestination(target.getPos(), target.getSide(), key);
@@ -369,14 +379,44 @@ public class MirrorLogisticsCloud {
     private void runBufferOnlySupplyTask(TileMirrorManager manager, CloudTask task, @Nullable ProviderChannel channel, long tick) {
         ItemKey key = task.getItemKey();
         int target = task.getAmount();
-        int need = Math.max(0, target - task.getCompletedAmount());
-        if (need > 0) {
-            int accepted = manager.requestFromStorageForChannel(key, Math.min(REQUEST_CHUNK, need), task.getTaskId(), channel == null ? null : channel.getGolemId());
-            if (accepted > 0) task.setCompletedAmount(Math.min(target, task.getCompletedAmount() + accepted), tick);
-            else task.markNoProgress(tick);
+        int currentBuffer = countBufferedRelaxed(manager, key);
+        if (task.getDestinationBaseline() < 0) {
+            task.setDestinationBaseline(currentBuffer);
+        }
+        int baseline = Math.max(0, task.getDestinationBaseline());
+        int completedByBuffer = Math.min(target, Math.max(0, currentBuffer - baseline));
+        int prevCompleted = Math.max(0, task.getCompletedAmount());
+        int progressDelta = Math.max(0, completedByBuffer - prevCompleted);
+        if (progressDelta > 0) {
+            task.setCompletedAmount(completedByBuffer, tick);
+        } else {
+            task.markNoProgress(tick);
         }
 
-        if (task.getCompletedAmount() >= target) {
+        int inflight = Math.max(0, task.getInflightAmount() - progressDelta);
+        if (inflight != task.getInflightAmount()) {
+            task.setInflightAmount(inflight, tick);
+        }
+
+        int need = Math.max(0, target - completedByBuffer);
+        info("supply buffer baseline/current/completed task=%s item=%s baseline=%d current=%d completed=%d need=%d inflight=%d",
+                task.getTaskId(), key, baseline, currentBuffer, completedByBuffer, need, inflight);
+
+        if (need > inflight) {
+            int request = Math.min(REQUEST_CHUNK, need - inflight);
+            int accepted = manager.requestFromStorageForChannel(key, request, task.getTaskId(), channel == null ? null : channel.getGolemId());
+            if (accepted > 0) {
+                task.setCommandIssued(true, tick);
+                task.setInflightAmount(inflight + accepted, tick);
+                info("supply request issued task=%s order=%s item=%s request=%d accepted=%d inflight=%d channel=%s",
+                        task.getTaskId(), task.getOrderId(), key, request, accepted, inflight + accepted, task.getAssignedChannelId());
+            } else if (!task.isCommandIssued()) {
+                warn("supply request rejected task=%s order=%s item=%s request=%d channel=%s",
+                        task.getTaskId(), task.getOrderId(), key, request, task.getAssignedChannelId());
+            }
+        }
+
+        if (completedByBuffer >= target) {
             task.setStatus(CloudTaskStatus.DONE, tick);
         }
     }
@@ -467,18 +507,6 @@ public class MirrorLogisticsCloud {
                 task.markNoProgress(tick);
                 return;
             }
-            if (supply.getTarget() != null) {
-                int completed = Math.min(task.getAmount(), Math.max(task.getCompletedAmount(), supply.getCompletedAmount()));
-                if (completed > task.getCompletedAmount()) {
-                    task.setCompletedAmount(completed, tick);
-                } else {
-                    task.markNoProgress(tick);
-                }
-                if (task.getCompletedAmount() >= task.getAmount()) {
-                    task.setStatus(CloudTaskStatus.DONE, tick);
-                }
-                return;
-            }
         }
 
         BlockPos dest = order.getDestination().getPos();
@@ -494,11 +522,12 @@ public class MirrorLogisticsCloud {
         int currentAtDest = manager.countAtDestination(dest, side, task.getItemKey());
         int deliveredByBaseline = Math.max(0, currentAtDest - task.getDestinationBaseline());
         int completed = Math.min(target, deliveredByBaseline);
+        info("transfer baseline/current/moved/completed task=%s order=%s item=%s baseline=%d current=%d moved=%d completed=%d/%d",
+                task.getTaskId(), task.getOrderId(), task.getItemKey(),
+                task.getDestinationBaseline(), currentAtDest, movedNow, completed, target);
 
         if (completed > task.getCompletedAmount()) {
             task.setCompletedAmount(completed, tick);
-        } else if (movedNow > 0) {
-            task.setCompletedAmount(Math.min(target, task.getCompletedAmount() + movedNow), tick);
         } else {
             task.markNoProgress(tick);
         }
@@ -539,6 +568,7 @@ public class MirrorLogisticsCloud {
             if (hasFailedTask(order.getOrderId())) {
                 order.setStatus(CloudOrderStatus.FAILED, tick);
                 order.setFailReason("Task failed", tick);
+                warn("order failed id=%s kind=%s reason=%s", order.getOrderId(), order.getKind(), order.getFailReason());
                 continue;
             }
 
@@ -552,6 +582,8 @@ public class MirrorLogisticsCloud {
                 }
                 order.setStatus(CloudOrderStatus.DONE, tick);
                 order.setFailReason("", tick);
+                info("order done id=%s kind=%s item=%s amount=%d destination=%s",
+                        order.getOrderId(), order.getKind(), order.getItemKey(), expected, order.getDestination());
             } else if (order.getStatus() != CloudOrderStatus.WAITING_RESOURCES) {
                 order.setStatus(CloudOrderStatus.RUNNING, tick);
             }
@@ -831,6 +863,35 @@ public class MirrorLogisticsCloud {
             debug("release skipped channel=%s task=%s reason=%s", channelId, task.getTaskId(), reason);
         }
         task.setAssignedChannelId(null, tick);
+    }
+
+    private void info(String fmt, Object... args) {
+        ThaumicAttempts.LOGGER.info("[Cloud] " + String.format(fmt, args));
+    }
+
+    private void warn(String fmt, Object... args) {
+        ThaumicAttempts.LOGGER.warn("[Cloud] " + String.format(fmt, args));
+    }
+
+    private int countCatalogRelaxed(@Nullable Map<ItemKey, Integer> catalog, @Nullable ItemKey requested) {
+        if (catalog == null || catalog.isEmpty() || requested == null || requested == ItemKey.EMPTY) return 0;
+        ItemStack like = requested.toStack(1);
+        if (like.isEmpty()) return 0;
+        int sum = 0;
+        for (Map.Entry<ItemKey, Integer> e : catalog.entrySet()) {
+            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+            ItemStack candidate = e.getKey().toStack(1);
+            if (candidate.isEmpty()) continue;
+            if (ResourceIdentity.sameResource(candidate, like)) {
+                sum += Math.max(0, e.getValue());
+            }
+        }
+        return sum;
+    }
+
+    private int countBufferedRelaxed(@Nullable TileMirrorManager manager, @Nullable ItemKey requested) {
+        if (manager == null || requested == null || requested == ItemKey.EMPTY) return 0;
+        return Math.max(0, manager.countBuffered(requested));
     }
 
     private String describeChannels() {

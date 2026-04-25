@@ -3,6 +3,7 @@ package therealpant.thaumicattempts.golemnet.tile;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.golemnet.cloud.CloudOrder;
 import therealpant.thaumicattempts.golemnet.cloud.CloudOrderKind;
@@ -144,6 +145,14 @@ public final class CloudOrderSubmitHelper {
                 amount,
                 now
         );
-        return cloud.submitOrder(order) != null;
+        UUID submitted = cloud.submitOrder(order);
+        if (submitted != null) {
+            ThaumicAttempts.LOGGER.info("[Cloud] submit CloudOrder id=%s kind=%s item=%s amount=%d source=%s destination=%s",
+                    submitted, kind, key, amount, requesterPos, destination);
+            return true;
+        }
+        ThaumicAttempts.LOGGER.warn("[Cloud] submit CloudOrder failed kind=%s item=%s amount=%d source=%s destination=%s",
+                kind, key, amount, requesterPos, destination);
+        return false;
     }
 }

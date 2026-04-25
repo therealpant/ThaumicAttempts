@@ -217,10 +217,8 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
     /* ===== Служебные флаги ===== */
     private boolean inRecon = false;
-    private boolean needEnsureWithManager = false;
 
     private int tickCounter = 0;
-    private int lastEnsureTick = -9999;
 
     public ItemStackHandler getBuffer() { return buffer; }
     public net.minecraftforge.items.IItemHandler getBufferHandler() { return buffer; }
@@ -474,13 +472,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
             }
         }
 
-        if (world != null && !world.isRemote && managerPos != null && keyDel != null) {
-            int remainWantDel = Math.max(0, pendingDelivery.getOrDefault(keyDel, 0));
-            if (remainWantDel > 0) {
-                CloudOrderSubmitHelper.submitDelivery(world, managerPos, this.pos, -1, keyDel, remainWantDel);
-            }
-        }
-
         markDirty();
         sendSnapshotToViewers(false);
         sendSnapshotToViewers(true);
@@ -515,13 +506,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
         tickCounter++;
 
-        if (needEnsureWithManager) {
-            ensurePendingWithManager(0);
-            needEnsureWithManager = false;
-        }
-
-        ensurePendingWithManager(30);
-
         if ((tickCounter % 20) == 0) autoReconcilePendingByBuffer();
     }
 
@@ -548,29 +532,10 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         this.bookPitch += dPitch;
     }
 
-    private void ensurePendingWithManager(int periodTicks) {
-        if (managerPos == null) return;
-        if (periodTicks > 0 && (tickCounter - lastEnsureTick) < periodTicks) return;
-
-        if (!pendingDelivery.isEmpty()) {
-            CloudOrderSubmitHelper.submitBatchDelivery(
-                    world,
-                    managerPos,
-                    this.pos,
-                    -1,
-                    new ArrayList<>(pendingDelivery.entrySet())
-            );
-        }
-
-        lastEnsureTick = tickCounter;
-    }
-
     private void reconcilePendingByBufferInstant() {
         if (pendingDelivery.isEmpty()) return;
 
         boolean changed = false;
-
-        final boolean outerCall = !inRecon;
         inRecon = true;
         try {
             List<Map.Entry<ItemKey,Integer>> snapshot = new ArrayList<>(pendingDelivery.entrySet());
@@ -596,16 +561,6 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
                     int newBase = Math.min(baseline + take, have);
                     deliveryBaselines.put(k, newBase);
 
-                    if (managerPos != null) {
-                        if (outerCall) {
-                            int need = Math.max(0, left);
-                            if (need > 0) {
-                                CloudOrderSubmitHelper.submitDelivery(world, managerPos, this.pos, -1, k, need);
-                            }
-                        } else {
-                            needEnsureWithManager = true;
-                        }
-                    }
                     changed = true;
                 }
             }
