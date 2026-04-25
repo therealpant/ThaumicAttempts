@@ -26,6 +26,7 @@ public class CloudTask {
     private int retryCount;
     private int destinationBaseline = -1;
     private long lastProgressTick;
+    private boolean commandIssued;
 
     public CloudTask(UUID taskId, UUID orderId, CloudTaskKind kind, ItemKey itemKey, int amount, long createdTick) {
         this.taskId = taskId == null ? UUID.randomUUID() : taskId;
@@ -58,6 +59,7 @@ public class CloudTask {
     public int getRetryCount() { return retryCount; }
     public int getDestinationBaseline() { return destinationBaseline; }
     public long getLastProgressTick() { return lastProgressTick; }
+    public boolean isCommandIssued() { return commandIssued; }
 
     public void setStatus(CloudTaskStatus status, long tick) {
         this.status = status == null ? CloudTaskStatus.NEW : status;
@@ -98,6 +100,11 @@ public class CloudTask {
         if (lastProgressTick <= 0L) lastProgressTick = tick;
     }
 
+    public void setCommandIssued(boolean commandIssued, long tick) {
+        this.commandIssued = commandIssued;
+        this.updatedTick = tick;
+    }
+
     public int incrementRetry(long tick) {
         this.retryCount++;
         this.updatedTick = tick;
@@ -124,6 +131,7 @@ public class CloudTask {
         nbt.setInteger("retryCount", retryCount);
         nbt.setInteger("destinationBaseline", destinationBaseline);
         nbt.setLong("lastProgressTick", lastProgressTick);
+        nbt.setBoolean("commandIssued", commandIssued);
         return nbt;
     }
 
@@ -147,6 +155,7 @@ public class CloudTask {
         task.retryCount = nbt.getInteger("retryCount");
         task.destinationBaseline = nbt.hasKey("destinationBaseline") ? nbt.getInteger("destinationBaseline") : -1;
         task.lastProgressTick = nbt.hasKey("lastProgressTick") ? nbt.getLong("lastProgressTick") : task.updatedTick;
+        task.commandIssued = nbt.getBoolean("commandIssued");
         return task;
     }
 }

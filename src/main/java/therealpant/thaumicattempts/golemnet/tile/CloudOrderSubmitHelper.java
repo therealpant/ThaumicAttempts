@@ -7,6 +7,9 @@ import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.golemnet.cloud.CloudOrder;
 import therealpant.thaumicattempts.golemnet.cloud.CloudOrderKind;
 import therealpant.thaumicattempts.golemnet.cloud.MirrorLogisticsCloud;
+import therealpant.thaumicattempts.api.ICloudCraftConsumer;
+import therealpant.thaumicattempts.util.ResourceIdentity;
+import net.minecraft.item.ItemStack;
 import therealpant.thaumicattempts.util.ItemKey;
 
 import javax.annotation.Nullable;
@@ -99,7 +102,8 @@ final class CloudOrderSubmitHelper {
             int amount = Math.max(1, entry.getValue());
             ItemKey key = entry.getKey();
 
-            if (submitCloudOrder(cloud, CloudOrderKind.CRAFT, requesterPos, destination, key, amount, now)) {
+            if (canUseCloudCraft(mgr, key)
+                    && submitCloudOrder(cloud, CloudOrderKind.CRAFT, requesterPos, destination, key, amount, now)) {
                 accepted.merge(key, amount, Integer::sum);
             } else {
                 fallbackOrders.add(new TerminalStyleCraftSubmitHelper.CraftOrder(key.toStack(1), amount));
@@ -121,6 +125,25 @@ final class CloudOrderSubmitHelper {
         }
 
         return accepted;
+    }
+
+    private static boolean canUseCloudCraft(TileMirrorManager mgr, ItemKey key) {
+        if (mgr == null || mgr.getWorld() == null || key == null || key == ItemKey.EMPTY) return false;
+        ItemStack like = key.toStack(1);
+        if (like.isEmpty()) return false;
+
+        for (BlockPos pos : mgr.getRequestersSnapshot()) {
+            TileEntity te = mgr.getWorld().getTileEntity(pos);
+            if (!(te instanceof ICloudCraftConsumer)) continue;
+            List<ItemStack> craftable = ((ICloudCraftConsumer) te).listCraftableResults();
+            if (craftable == null) continue;
+            for (ItemStack out : craftable) {
+                if (out != null && !out.isEmpty() && ResourceIdentity.sameResource(out, like)) {
+                    return true;
+                }
+            }
+        }
+        return false;
     }
 
     @Nullable

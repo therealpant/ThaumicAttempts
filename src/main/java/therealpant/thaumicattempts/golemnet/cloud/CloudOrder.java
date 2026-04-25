@@ -18,6 +18,7 @@ public class CloudOrder {
     private CloudEndpointRef destination;
     private ItemKey itemKey;
     private int requestedAmount;
+    private int plannedOutputAmount;
     private long createdTick;
     private long updatedTick;
     private CloudOrderStatus status;
@@ -33,6 +34,7 @@ public class CloudOrder {
         this.destination = destination;
         this.itemKey = itemKey;
         this.requestedAmount = Math.max(0, requestedAmount);
+        this.plannedOutputAmount = this.requestedAmount;
         this.createdTick = createdTick;
         this.updatedTick = createdTick;
         this.status = CloudOrderStatus.NEW;
@@ -45,6 +47,7 @@ public class CloudOrder {
     public CloudEndpointRef getDestination() { return destination; }
     public ItemKey getItemKey() { return itemKey; }
     public int getRequestedAmount() { return requestedAmount; }
+    public int getPlannedOutputAmount() { return plannedOutputAmount; }
     public long getCreatedTick() { return createdTick; }
     public long getUpdatedTick() { return updatedTick; }
     public CloudOrderStatus getStatus() { return status; }
@@ -59,6 +62,11 @@ public class CloudOrder {
 
     public void setFailReason(String failReason, long tick) {
         this.failReason = failReason == null ? "" : failReason;
+        this.updatedTick = tick;
+    }
+
+    public void setPlannedOutputAmount(int plannedOutputAmount, long tick) {
+        this.plannedOutputAmount = Math.max(0, plannedOutputAmount);
         this.updatedTick = tick;
     }
 
@@ -79,6 +87,7 @@ public class CloudOrder {
         if (destination != null) nbt.setTag("destination", destination.serializeNBT());
         MirrorLogisticsCloud.writeItemKey(nbt, "item", itemKey);
         nbt.setInteger("requestedAmount", requestedAmount);
+        nbt.setInteger("plannedOutputAmount", plannedOutputAmount);
         nbt.setLong("createdTick", createdTick);
         nbt.setLong("updatedTick", updatedTick);
         nbt.setString("status", status.name());
@@ -107,6 +116,7 @@ public class CloudOrder {
         ItemKey itemKey = MirrorLogisticsCloud.readItemKey(nbt, "item");
         CloudOrder order = new CloudOrder(orderId, kind, customerPos, destination, itemKey,
                 nbt.getInteger("requestedAmount"), nbt.getLong("createdTick"));
+        order.plannedOutputAmount = nbt.hasKey("plannedOutputAmount") ? nbt.getInteger("plannedOutputAmount") : order.requestedAmount;
         order.updatedTick = nbt.getLong("updatedTick");
         order.status = MirrorLogisticsCloud.safeEnum(CloudOrderStatus.class, nbt.getString("status"), CloudOrderStatus.NEW);
         order.failReason = nbt.getString("failReason");

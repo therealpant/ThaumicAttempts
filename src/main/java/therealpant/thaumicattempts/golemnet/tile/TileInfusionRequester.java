@@ -47,6 +47,7 @@ import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
 import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
+import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -68,7 +69,7 @@ import java.util.function.Consumer;
  * - Then pull EVERYTHING from ALL bound storages into results (leftovers -> drop)
  */
 public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
-        ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider, ICraftEndpoint, CraftOrderApi.TagProvider,
+        ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider, ICloudCraftConsumer, CraftOrderApi.TagProvider,
         IAnimatable, IEssentiaTransport {
 
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/InfusionRequester");
@@ -631,6 +632,48 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         tryStartNextJob();
         markDirtyAndSync();
         return acceptedItems;
+    }
+
+    @Override
+    public List<ItemStack> getRecipeInputsPerCycle(ItemStack resultLike) {
+        if (resultLike == null || resultLike.isEmpty()) return Collections.emptyList();
+        int slot = findPatternSlotFor(resultLike);
+        if (slot < 0) return Collections.emptyList();
+
+        List<PatternResourceList.Entry> entries = getResourcesForSlot(slot);
+        if (entries == null || entries.isEmpty()) return Collections.emptyList();
+
+        ArrayList<ItemStack> out = new ArrayList<>();
+        for (PatternResourceList.Entry e : entries) {
+            if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+            ItemStack st = e.getKey().toStack(Math.max(1, e.getCount()));
+            if (!st.isEmpty()) out.add(st);
+        }
+        return out;
+    }
+
+    @Override
+    public CloudEndpointRef getInputEndpoint() {
+        return new CloudEndpointRef(pos, EnumFacing.UP.getIndex());
+    }
+
+    @Override
+    public CloudEndpointRef getOutputEndpoint() {
+        return new CloudEndpointRef(pos, EnumFacing.DOWN.getIndex());
+    }
+
+    @Override
+    public int countOutput(ItemKey key) {
+        if (key == null || key == ItemKey.EMPTY) return 0;
+        ItemStack like = key.toStack(1);
+        if (like.isEmpty()) return 0;
+
+        int total = 0;
+        for (int i = 0; i < results.getSlots(); i++) {
+            ItemStack st = results.getStackInSlot(i);
+            if (!st.isEmpty() && ResourceIdentity.sameResource(st, like)) total += st.getCount();
+        }
+        return total;
     }
 
     @Override

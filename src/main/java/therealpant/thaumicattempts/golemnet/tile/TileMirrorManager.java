@@ -217,6 +217,34 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return countAtDestLike(dest, destSide, like);
     }
 
+    public int pickupFromEndpointToBuffer(BlockPos source, int sourceSide, ItemKey key, int amount, @Nullable UUID taskId) {
+        if (world == null || world.isRemote || source == null || key == null || key == ItemKey.EMPTY || amount <= 0) return 0;
+        ItemStack like = key.toStack(1);
+        if (like.isEmpty()) return 0;
+
+        IItemHandler handler = getItemHandlerAt(source, sourceSide);
+        if (handler == null) return 0;
+
+        int moved = 0;
+        for (int s = 0; s < handler.getSlots() && moved < amount; s++) {
+            ItemStack peek = handler.extractItem(s, Math.min(64, amount - moved), true);
+            if (peek.isEmpty() || !ResourceIdentity.sameResource(peek, like)) continue;
+
+            ItemStack taken = handler.extractItem(s, Math.min(peek.getCount(), amount - moved), false);
+            if (taken.isEmpty()) continue;
+
+            ItemStack rest = ItemHandlerHelper.insertItem(buffer, taken, false);
+            int accepted = taken.getCount() - (rest.isEmpty() ? 0 : rest.getCount());
+            if (accepted > 0) moved += accepted;
+            if (!rest.isEmpty()) {
+                handler.insertItem(s, rest, false);
+                break;
+            }
+        }
+        if (moved > 0) markDirty();
+        return moved;
+    }
+
     private int queueIdFromTask(@Nullable UUID taskId) {
         if (taskId == null) return 0;
         int mixed = taskId.hashCode();

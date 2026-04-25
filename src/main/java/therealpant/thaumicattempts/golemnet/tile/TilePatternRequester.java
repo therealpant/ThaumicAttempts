@@ -8,6 +8,7 @@ import net.minecraft.item.crafting.CraftingManager;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.NonNullList;
 import net.minecraft.util.math.BlockPos;
@@ -22,6 +23,7 @@ import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
+import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -45,7 +47,7 @@ import java.util.*;
  *      getRecipeInputsFor(result, times)
  * - Поддерживает привязку к менеджеру: get/set/clearManagerPos*.
  */
-public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICraftEndpoint,
+public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICloudCraftConsumer,
         CraftOrderApi.TagProvider, ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider {
     private final AnimationFactory factory = new AnimationFactory(this);
 
@@ -276,6 +278,41 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
      *  - нестакуемые — item+meta (NBT игнорируется);
      *  - стакаемые — relaxed.
      */
+    @Override
+    public List<ItemStack> getRecipeInputsPerCycle(ItemStack resultLike) {
+        return getRecipeInputsFor(resultLike, 1);
+    }
+
+    @Override
+    public CloudEndpointRef getInputEndpoint() {
+        return new CloudEndpointRef(pos.down(), EnumFacing.UP.getIndex());
+    }
+
+    @Override
+    public CloudEndpointRef getOutputEndpoint() {
+        return new CloudEndpointRef(pos.down(), EnumFacing.DOWN.getIndex());
+    }
+
+    @Override
+    public int countOutput(ItemKey key) {
+        if (key == null || key == ItemKey.EMPTY) return 0;
+        TileEntityGolemCrafter crafter = getCrafterBelow();
+        if (crafter == null) return 0;
+
+        IItemHandler out = crafter.getOutputHandler();
+        if (out == null) return 0;
+
+        ItemStack like = key.toStack(1);
+        if (like.isEmpty()) return 0;
+
+        int total = 0;
+        for (int i = 0; i < out.getSlots(); i++) {
+            ItemStack st = out.getStackInSlot(i);
+            if (!st.isEmpty() && ResourceIdentity.sameResource(st, like)) total += st.getCount();
+        }
+        return total;
+    }
+
     public List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times) {
         if (resultLike == null || resultLike.isEmpty() || times <= 0) return Collections.emptyList();
 
