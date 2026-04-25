@@ -448,6 +448,12 @@ public class MirrorLogisticsCloud {
                 task.markNoProgress(tick);
                 return;
             }
+        } else if (order.getKind() == CloudOrderKind.DELIVERY) {
+            CloudTask supply = getTaskByOrderAndKind(order.getOrderId(), CloudTaskKind.SUPPLY);
+            if (supply == null || supply.getStatus() != CloudTaskStatus.DONE) {
+                task.markNoProgress(tick);
+                return;
+            }
         }
 
         BlockPos dest = order.getDestination().getPos();
@@ -460,10 +466,6 @@ public class MirrorLogisticsCloud {
 
         int needNow = Math.max(0, target - task.getCompletedAmount());
         int movedNow = manager.transferFromBufferTo(dest, side, task.getItemKey(), needNow, task.getTaskId());
-        if (movedNow <= 0 && needNow > 0 && order.getKind() == CloudOrderKind.DELIVERY) {
-            ProviderChannel channel = resolveTaskChannel(task);
-            manager.requestFromStorageForChannel(task.getItemKey(), Math.min(REQUEST_CHUNK, needNow), task.getTaskId(), channel == null ? null : channel.getGolemId());
-        }
         int currentAtDest = manager.countAtDestination(dest, side, task.getItemKey());
         int deliveredByBaseline = Math.max(0, currentAtDest - task.getDestinationBaseline());
         int completed = Math.min(target, deliveredByBaseline);

@@ -242,7 +242,7 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         ItemStack like = key.toStack(1);
         if (like.isEmpty()) return 0;
 
-        IItemHandler handler = getItemHandlerAt(source, sourceSide);
+        IItemHandler handler = getDestHandler(source, sourceSide);
         if (handler == null) return 0;
 
         int moved = 0;
