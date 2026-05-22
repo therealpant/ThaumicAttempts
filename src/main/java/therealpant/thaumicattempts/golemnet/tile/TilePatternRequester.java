@@ -23,7 +23,6 @@ import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
-import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -47,7 +46,7 @@ import java.util.*;
  *      getRecipeInputsFor(result, times)
  * - Поддерживает привязку к менеджеру: get/set/clearManagerPos*.
  */
-public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICloudCraftConsumer,
+public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable,
         CraftOrderApi.TagProvider, ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider {
     private final AnimationFactory factory = new AnimationFactory(this);
     private final LinkedHashSet<UUID> cloudTasks = new LinkedHashSet<>();
@@ -198,30 +197,9 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     }
 
 
-    @Override
-    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter == null || resultLike == null || resultLike.isEmpty() || cycles <= 0 || taskId == null) return 0;
-        int accepted = crafter.enqueueFromPatternRequester(resultLike, cycles);
-        if (accepted > 0) {
-            cloudTasks.add(taskId);
-            debugCloud("accepted cloud craft task id={} result={} cycles={}", taskId, resultLike, accepted);
-        }
-        return accepted;
-    }
 
-    @Override
-    public boolean hasCloudCraftTask(UUID taskId) {
-        if (taskId == null) return false;
-        if (!cloudTasks.contains(taskId)) return false;
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter == null || !crafter.hasRequesterQueue()) {
-            cloudTasks.remove(taskId);
-            debugCloud("task done id={}", taskId);
-            return false;
-        }
-        return true;
-    }
+
+
 
     @Override
     public List<ItemStack> listTerminalOrderIcons() {
@@ -266,7 +244,6 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         if (managerPos != null) {
             ItemKey outKey = ItemKey.of(resultLike);
             if (outKey != null && outKey != ItemKey.EMPTY) {
-                int acceptedItems = CloudOrderSubmitHelper.submitCraft(world, managerPos, pos, destSide >= 0 ? destSide : EnumFacing.DOWN.getIndex(), outKey, Math.max(1, items));
                 if (acceptedItems > 0) {
                     debugCloud("redstone/terminal submit via cloud result={} items={} accepted={}", resultLike, items, acceptedItems);
                     return acceptedItems;
@@ -313,15 +290,9 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         return out;
     }
 
-    @Override
-    public CloudEndpointRef getInputEndpoint() {
-        return new CloudEndpointRef(pos.down(), EnumFacing.UP.getIndex());
-    }
 
-    @Override
-    public CloudEndpointRef getOutputEndpoint() {
-        return new CloudEndpointRef(pos.down(), EnumFacing.DOWN.getIndex());
-    }
+
+
 
     @Override
     public int getOutputCount(ItemKey key) {

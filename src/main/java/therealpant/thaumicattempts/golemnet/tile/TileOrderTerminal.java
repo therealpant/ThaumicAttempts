@@ -280,12 +280,9 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
 
     /* ===== Подсчёты ===== */
     private int getAvailableFromManager(ItemKey k) {
-        if (world == null || managerPos == null) return 0;
-        TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) return 0;
-        LinkedHashMap<ItemKey, Integer> cat = ((TileMirrorManager) te).getReachableCatalog();
-        return countInCatalogRelaxed(cat, k.toStack(1));
+        return Integer.MAX_VALUE;
     }
+
 
     private static int countInCatalogRelaxed(Map<ItemKey,Integer> cat, ItemStack like) {
         if (cat == null || cat.isEmpty() || like == null || like.isEmpty()) return 0;
@@ -322,106 +319,18 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         Map<ItemKey, Integer> draft = craftTab ? draftCraft : draftDelivery;
         Map<ItemKey, Integer> pend  = craftTab ? pendingCraft : pendingDelivery;
         if (draft.isEmpty()) { sendSnapshotToViewers(craftTab); return; }
-
         int freeDistinct = Math.max(0, 9 - pend.size());
-        List<Map.Entry<ItemKey, Integer>> movedRaw = new ArrayList<>();
-        List<Map.Entry<ItemKey, Integer>> directCraftOrdersRaw = new ArrayList<>();
-
         for (Map.Entry<ItemKey, Integer> e : new ArrayList<>(draft.entrySet())) {
-            ItemKey key = e.getKey();
+            if (freeDistinct <= 0 && !pend.containsKey(e.getKey())) continue;
             int amt = Math.max(1, e.getValue());
-
-            ItemStack keyStack = key.toStack(1);
-            if (TerminalOrderApi.isOrderIcon(keyStack)) {
-                ItemStack crafted = TerminalOrderApi.stripOrderIconData(keyStack);
-                ItemKey craftKey = (crafted == null || crafted.isEmpty()) ? ItemKey.EMPTY : ItemKey.of(crafted);
-                if (craftKey != ItemKey.EMPTY) {
-                    directCraftOrdersRaw.add(new AbstractMap.SimpleEntry<>(craftKey, amt));
-                }
-                draft.remove(key);
-                continue;
-            }
-
-            int toMove = amt;
-            if (!craftTab) {
-                int available = getAvailableFromManager(key);
-                int havePend  = pendingDelivery.getOrDefault(key, 0);
-                int room = Math.max(0, available - havePend);
-                toMove = Math.min(toMove, room);
-            }
-            if (toMove <= 0) continue;
-
-            boolean alreadyInPend = pend.containsKey(key);
-            if (!alreadyInPend && freeDistinct <= 0) continue;
-
-            addToMap(pend, key, toMove);
-
-            if (!craftTab && !alreadyInPend && !deliveryBaselines.containsKey(key)) {
-                int base = countInBufferLike(key.toStack(1));
-                deliveryBaselines.put(key, base);
-            }
-
-            int remain = e.getValue() - toMove;
-            if (remain > 0) draft.put(key, remain); else draft.remove(key);
-
-            movedRaw.add(new AbstractMap.SimpleEntry<>(key, toMove));
-            if (!alreadyInPend) freeDistinct--;
+            addToMap(pend, e.getKey(), amt);
+            draft.remove(e.getKey());
+            if (!pend.containsKey(e.getKey())) freeDistinct--;
         }
-
-        if (movedRaw.isEmpty()) {
-            if (!craftTab || directCraftOrdersRaw.isEmpty()) {
-                markDirty();
-                sendSnapshotToViewers(craftTab);
-                return;
-            }
-        }
-
-        LinkedHashMap<ItemKey, Integer> merged = new LinkedHashMap<>();
-        for (Map.Entry<ItemKey, Integer> e : movedRaw) merged.merge(e.getKey(), e.getValue(), Integer::sum);
-        List<Map.Entry<ItemKey, Integer>> moved = new ArrayList<>(merged.entrySet());
-
         markDirty();
-
-        TileEntity mte = (managerPos == null) ? null : world.getTileEntity(managerPos);
-        if (mte instanceof TileMirrorManager) {
-            TileMirrorManager mgr = (TileMirrorManager) mte;
-
-            if (!craftTab) {
-                CloudOrderSubmitHelper.submitBatchDelivery(world, managerPos, this.pos, -1, moved);
-            } else {
-                LinkedHashMap<ItemKey, Integer> acceptedCraft = new LinkedHashMap<>();
-                LinkedHashMap<ItemKey, Integer> acceptedRegularCraft = CloudOrderSubmitHelper.submitBatchCraft(
-                        world, managerPos, this.pos, -1, moved
-                );
-                for (Map.Entry<ItemKey, Integer> e : acceptedRegularCraft.entrySet()) {
-                    acceptedCraft.merge(e.getKey(), e.getValue(), Integer::sum);
-                }
-                LinkedHashMap<ItemKey, Integer> acceptedDirectCraft = CloudOrderSubmitHelper.submitBatchCraft(
-                        world, managerPos, this.pos, -1, directCraftOrdersRaw
-                );
-                for (Map.Entry<ItemKey, Integer> e : acceptedDirectCraft.entrySet()) {
-                    acceptedCraft.merge(e.getKey(), e.getValue(), Integer::sum);
-                }
-
-                if (!acceptedCraft.isEmpty()) {
-                    LinkedHashMap<ItemKey, Integer> acceptedNonIcons = new LinkedHashMap<>();
-                    for (Map.Entry<ItemKey, Integer> e : moved) {
-                        acceptedNonIcons.merge(e.getKey(), Math.max(1, e.getValue()), Integer::sum);
-                    }
-                    boolean pendingCraftChanged = false;
-                    for (Map.Entry<ItemKey, Integer> e : acceptedCraft.entrySet()) {
-                        int alreadyTracked = acceptedNonIcons.getOrDefault(e.getKey(), 0);
-                        int iconAccepted = Math.max(0, e.getValue() - alreadyTracked);
-                        if (iconAccepted <= 0) continue;
-                        addToMap(pendingCraft, e.getKey(), iconAccepted);
-                        pendingCraftChanged = true;
-                    }
-                    if (pendingCraftChanged) sendSnapshotToViewers(true);
-                }
-            }
-        }
         sendSnapshotToViewers(craftTab);
     }
+
 
     @Nullable
     private ItemKey findMatchingKeyRelaxed(Map<ItemKey, Integer> map, ItemStack like) {
@@ -611,7 +520,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         super.writeToNBT(nbt);
 
         nbt.setTag("buffer", buffer.serializeNBT());
-        if (managerPos != null) nbt.setLong("manager", managerPos.toLong());
+        
 
         nbt.setTag("draftD", writeMap(draftDelivery));
         nbt.setTag("draftC", writeMap(draftCraft));
@@ -635,7 +544,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
         super.readFromNBT(nbt);
 
         if (nbt.hasKey("buffer")) buffer.deserializeNBT(nbt.getCompoundTag("buffer"));
-        managerPos = nbt.hasKey("manager") ? BlockPos.fromLong(nbt.getLong("manager")) : null;
+        managerPos = null;
 
         readMap(nbt.getTagList("draftD", 10), draftDelivery);
         readMap(nbt.getTagList("draftC", 10), draftCraft);
@@ -698,10 +607,7 @@ public class TileOrderTerminal extends TileEntity implements ITickable {
     @Override
     public void invalidate() {
         super.invalidate();
-        if (world != null && !world.isRemote && managerPos != null) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) ((TileMirrorManager) te).cancelAllForDestination(this.pos);
-        }
+        
     }
     @Override public void onChunkUnload() { invalidate(); }
 
