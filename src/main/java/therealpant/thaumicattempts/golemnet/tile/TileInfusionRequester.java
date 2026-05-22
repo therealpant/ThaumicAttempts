@@ -47,7 +47,6 @@ import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
 import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
-import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -69,7 +68,7 @@ import java.util.function.Consumer;
  * - Then pull EVERYTHING from ALL bound storages into results (leftovers -> drop)
  */
 public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
-        ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider, ICloudCraftConsumer, CraftOrderApi.TagProvider,
+        ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider, CraftOrderApi.TagProvider,
         IAnimatable, IEssentiaTransport {
 
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/InfusionRequester");
@@ -623,7 +622,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (managerPos != null) {
             ItemKey outKey = ItemKey.of(resultLike);
             if (outKey != null && outKey != ItemKey.EMPTY) {
-                int acceptedViaCloud = CloudOrderSubmitHelper.submitCraft(world, managerPos, pos, destSide >= 0 ? destSide : EnumFacing.DOWN.getIndex(), outKey, Math.max(1, items));
                 if (acceptedViaCloud > 0) {
                     logDebug("Cloud order submitted result={} items={} accepted={}", resultLike, items, acceptedViaCloud);
                     return acceptedViaCloud;
@@ -664,15 +662,9 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         return out;
     }
 
-    @Override
-    public CloudEndpointRef getInputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.UP.getIndex());
-    }
 
-    @Override
-    public CloudEndpointRef getOutputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.DOWN.getIndex());
-    }
+
+
 
     @Override
     public int getOutputCount(ItemKey key) {
@@ -746,27 +738,9 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         enqueueCloudCraft(resultLike, crafts, UUID.randomUUID());
     }
 
-    @Override
-    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
-        if (taskId == null) return 0;
-        int accepted = enqueueFromPatternRequester(resultLike, cycles);
-        if (accepted > 0) {
-            cloudTaskIds.add(taskId);
-            logDebug("Cloud task accepted id={} result={} cycles={}", taskId, resultLike, accepted);
-        }
-        return accepted;
-    }
 
-    @Override
-    public boolean hasCloudCraftTask(UUID taskId) {
-        if (taskId == null || !cloudTaskIds.contains(taskId)) return false;
-        if (!jobActive && queuedTriggers.isEmpty()) {
-            cloudTaskIds.remove(taskId);
-            logDebug("Cloud task done id={}", taskId);
-            return false;
-        }
-        return true;
-    }
+
+
 
     @Override
     public boolean hasActiveOrQueued() {
@@ -824,7 +798,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
                 if (moved > 0) {
                     Map<ItemKey, Integer> need = new LinkedHashMap<>();
                     need.put(ItemKey.of(order.like1), moved);
-                    CloudOrderSubmitHelper.submitBatchDelivery(
                             world,
                             manager.getPos(),
                             order.dest,
@@ -1168,7 +1141,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
         if (useManagerForProvision() && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
             TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
-            CloudOrderSubmitHelper.submitBatchDelivery(
                     world,
                     mgr.getPos(),
                     pos,

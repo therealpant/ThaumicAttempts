@@ -41,11 +41,10 @@ import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import javax.annotation.Nullable;
 import java.util.*;
 import therealpant.thaumicattempts.api.PatternResourceList;
-import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 
 public class TileResourceRequester extends TileEntity implements ITickable, IAnimatable, IPatternedWorksite,
         therealpant.thaumicattempts.api.ITerminalOrderAcceptor, IAutomationOrderAcceptor,
-        therealpant.thaumicattempts.api.ITerminalOrderIconProvider, therealpant.thaumicattempts.api.ICloudCraftConsumer {
+        therealpant.thaumicattempts.api.ITerminalOrderIconProvider,  {
     private static final int PATTERN_SLOT_COUNT = 15;
     private static final int REQUEST_STALE_TICKS = 100;
     private static final int REQUEST_RETRY_TICKS = 200;
@@ -354,7 +353,6 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
 
         Map<ItemKey, Integer> copy = new LinkedHashMap<>(pending);
         if (!copy.isEmpty()) {
-            CloudOrderSubmitHelper.submitBatchDelivery(
                     world,
                     managerPos,
                     this.pos,
@@ -826,7 +824,6 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         if (managerPos != null && !preview.isEmpty()) {
             ItemKey outKey = ItemKey.of(preview);
             if (outKey != null && outKey != ItemKey.EMPTY) {
-                int acceptedViaCloud = CloudOrderSubmitHelper.submitCraft(world, managerPos, pos, destSide >= 0 ? destSide : EnumFacing.DOWN.getIndex(), outKey, Math.max(1, items));
                 if (acceptedViaCloud > 0) return acceptedViaCloud;
             }
         }
@@ -910,30 +907,9 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         return Collections.emptyMap();
     }
 
-    @Override
-    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
-        if (resultLike == null || resultLike.isEmpty() || cycles <= 0 || taskId == null) return 0;
-        int slot = -1;
-        for (int i = 0; i < patterns.getSlots(); i++) {
-            ItemStack pat = patterns.getStackInSlot(i);
-            ItemStack preview = pat.isEmpty() ? ItemStack.EMPTY : ItemResourceList.getPreviewOrFirstEntry(pat);
-            if (!preview.isEmpty() && ResourceIdentity.sameResource(preview, resultLike)) { slot = i; break; }
-        }
-        if (slot < 0) return 0;
-        int accepted = enqueueTrigger(slot, cycles);
-        if (accepted > 0) cloudTaskIds.add(taskId);
-        return accepted;
-    }
 
-    @Override
-    public boolean hasCloudCraftTask(UUID taskId) {
-        if (taskId == null || !cloudTaskIds.contains(taskId)) return false;
-        if (!jobActive && queuedSignals.isEmpty()) {
-            cloudTaskIds.remove(taskId);
-            return false;
-        }
-        return true;
-    }
+
+
 
     @Override
     public int getOutputCount(ItemKey key) {
@@ -942,15 +918,9 @@ public class TileResourceRequester extends TileEntity implements ITickable, IAni
         return countInBufferLike(like);
     }
 
-    @Override
-    public CloudEndpointRef getInputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.UP.getIndex());
-    }
 
-    @Override
-    public CloudEndpointRef getOutputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.DOWN.getIndex());
-    }
+
+
 
     @Override
     public boolean hasCapability(Capability<?> capability, @Nullable EnumFacing facing) {

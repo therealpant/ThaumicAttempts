@@ -274,7 +274,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             output.deserializeNBT(compound.getCompoundTag(TAG_OUTPUT));
         }
         outSignal = Math.max(0, Math.min(15, compound.getInteger("OutSignal")));
-        managerPos = compound.hasKey(TAG_MANAGER_POS) ? BlockPos.fromLong(compound.getLong(TAG_MANAGER_POS)) : null;
+        managerPos = null;
         nextRetryTick = compound.getLong(TAG_NEXT_RETRY_TICK);
         lastOrderAvailable = compound.hasKey(TAG_LAST_ORDER_AVAILABLE) ? compound.getInteger(TAG_LAST_ORDER_AVAILABLE) : -1;
         awaitingOrderCompletion = compound.getBoolean(TAG_AWAITING_ORDER_COMPLETION);
@@ -294,9 +294,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             compound.setTag(TAG_ITEM, pedestalItem.writeToNBT(new NBTTagCompound()));
         }
         compound.setTag(TAG_OUTPUT, output.serializeNBT());
-        if (managerPos != null) {
-            compound.setLong(TAG_MANAGER_POS, managerPos.toLong());
-        }
+        
         compound.setLong(TAG_NEXT_RETRY_TICK, Math.max(0L, nextRetryTick));
         if (lastOrderAvailable >= 0) {
             compound.setInteger(TAG_LAST_ORDER_AVAILABLE, lastOrderAvailable);
@@ -311,18 +309,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
 
     private void recalcSignalAndNotify(boolean notifyNeighbors) {
         int newSignal = 0;
-        ItemStack requested = getRequestedItem();
-        if (active && world != null && !world.isRemote && managerPos != null && !requested.isEmpty()) {
-            TileEntity te = world.getTileEntity(managerPos);
-            if (te instanceof TileMirrorManager) {
-                int count = ((TileMirrorManager) te).getAvailableCountFor(requested);
-                int threshold = getThreshold();
-                if (count > 0 && threshold > 0) {
-                    newSignal = Math.max(1, Math.min(15, (count * 15) / threshold));
-                }
-            }
-        }
-
+        if (!getRequestedItem().isEmpty()) newSignal = 15;
         if (newSignal != outSignal) {
             outSignal = newSignal;
             markDirtyAndSync();
@@ -332,6 +319,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         }
     }
 
+
     @Override
     public void update() {
         if (world == null || world.isRemote) return;
@@ -339,100 +327,8 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             tickAccumulator = 0;
             recalcSignalAndNotify(true);
         }
-
-        boolean powered = world.isBlockPowered(pos);
-        if (active || managerPos == null || pedestalItem.isEmpty()) {
-            lastRedstonePowered = powered;
-            return;
-        }
-
-        TileEntity te = world.getTileEntity(managerPos);
-        if (!(te instanceof TileMirrorManager)) {
-            lastRedstonePowered = powered;
-            return;
-        }
-
-        ItemStack requested = getRequestedItem();
-
-        long now = world.getTotalWorldTime();
-
-        if (awaitingOrderCompletion) {
-            reconcilePendingByOutputInstant();
-            if (pendingCraft.isEmpty()) {
-                if (isOutputEmpty()) {
-                    awaitingOrderCompletion = false;
-                    lastOrderAvailable = -1;
-                    nextRetryTick = now + SUCCESS_COOLDOWN_TICKS;
-                    markDirtyAndSync();
-                }
-            } else {
-                markDirtyAndSync();
-            }
-            return;
-        }
-
-        if (!powered) {
-            return;
-        }
-
-        if (now < nextRetryTick) {
-            return;
-        }
-
-        if (!isOutputEmpty()) {
-            return;
-        }
-
-        int orderBatch = Math.max(1, counter);
-
-        if (requested.isEmpty()) {
-            impossibleOrderLocked = false;
-            lastOrderAvailable = -1;
-            nextRetryTick = now + RETRY_COOLDOWN_TICKS;
-            markDirtyAndSync();
-            return;
-        }
-
-        requested.setCount(1);
-        ItemKey requestedKey = ItemKey.of(requested);
-        if (requestedKey == ItemKey.EMPTY) {
-            impossibleOrderLocked = false;
-            lastOrderAvailable = -1;
-            nextRetryTick = now + RETRY_COOLDOWN_TICKS;
-            markDirtyAndSync();
-            return;
-        }
-
-        LinkedHashMap<ItemKey, Integer> acceptedByOutput = CloudOrderSubmitHelper.submitBatchCraft(
-                world,
-                managerPos,
-                this.pos,
-                -1,
-                Collections.singletonList(new java.util.AbstractMap.SimpleEntry<>(requestedKey, orderBatch))
-        );
-
-        int accepted = 0;
-        for (Map.Entry<ItemKey, Integer> e : acceptedByOutput.entrySet()) {
-            int take = Math.max(0, e.getValue());
-            if (take <= 0) continue;
-            pendingCraft.merge(e.getKey(), take, Integer::sum);
-            accepted += take;
-        }
-
-        if (accepted > 0) {
-            lastOrderAvailable = -1;
-            awaitingOrderCompletion = true;
-            impossibleOrderLocked = false;
-            nextRetryTick = 0L;
-            markDirtyAndSync();
-        } else {
-            awaitingOrderCompletion = false;
-            impossibleOrderLocked = false;
-            lastOrderAvailable = -1;
-            nextRetryTick = now + RETRY_COOLDOWN_TICKS;
-            markDirtyAndSync();
-        }
     }
+
 
     public void beginManagerBufferInsert() { suppressOutputReconcileDepth++; }
     public void endManagerBufferInsert() { if (suppressOutputReconcileDepth > 0) suppressOutputReconcileDepth--; }

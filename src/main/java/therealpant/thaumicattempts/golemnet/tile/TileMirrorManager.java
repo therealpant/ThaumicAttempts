@@ -43,9 +43,6 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim;
-import therealpant.thaumicattempts.golemnet.cloud.MirrorLogisticsCloud;
-import therealpant.thaumicattempts.golemnet.cloud.ProviderChannel;
-import therealpant.thaumicattempts.golemnet.cloud.ProviderChannelStatus;
 import therealpant.thaumicattempts.golemnet.tile.TileRevisionPiedestal;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.integration.TcLogisticsCompat;
@@ -189,7 +186,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return dispatcherSealColor & 15;
     }
 
-    public MirrorLogisticsCloud getCloud() {
         return cloud;
     }
 
@@ -364,7 +360,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     private static final String TAG_CONSUMER_FOCUS_GRACE = "consumerFocusGrace";
     private static final String TAG_CLOUD = "cloud";
 
-    private final MirrorLogisticsCloud cloud = new MirrorLogisticsCloud();
     // ЕДИНАЯ занятость слотов
     private final boolean[][] slotBusy = new boolean[RINGS][SLOTS_PER_RING];
 
@@ -1617,23 +1612,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
         return all;
     }
 
-    public List<ProviderChannel> getCloudProviderChannelsSnapshot(long tick) {
-        List<ProviderChannel> channels = new ArrayList<>();
-        List<UUID> golems = getDispatcherGolemsSnapshot();
-        if (golems.isEmpty()) {
-            channels.add(new ProviderChannel("default", null, null, tick, ProviderChannelStatus.READY));
-            return channels;
-        }
-        for (UUID golemId : golems) {
-            if (golemId == null) continue;
-            channels.add(new ProviderChannel("golem:" + golemId.toString(), golemId, null, tick, ProviderChannelStatus.READY));
-        }
-        if (channels.isEmpty()) {
-            channels.add(new ProviderChannel("default", null, null, tick, ProviderChannelStatus.READY));
-        }
-        return channels;
-    }
-
     private void assignLinesToGolemsRoundRobin(List<Line> lines) {
         if (world == null || world.isRemote) return;
         if (lines == null || lines.isEmpty()) return;
@@ -1826,7 +1804,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                                      List<Map.Entry<ItemKey, Integer>> moved) {
         legacyWrapperWarn("enqueueBatchDelivery");
         if (world == null || world.isRemote || dest == null || moved == null || moved.isEmpty()) return;
-        CloudOrderSubmitHelper.submitBatchDelivery(world, this.pos, dest, destSide, moved);
     }
 
     private int harvestAnyFromCrafterOutput(BlockPos requesterPos) {
@@ -1927,7 +1904,6 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
                                   List<Map.Entry<ItemKey, Integer>> moved, RequesterFinder finder) {
         legacyWrapperWarn("enqueueBatchCraft");
         if (world == null || world.isRemote || dest == null || moved == null || moved.isEmpty()) return;
-        CloudOrderSubmitHelper.submitBatchCraft(world, this.pos, dest, destSide, moved);
     }
 
     private void enqueueBatchCraft(BlockPos dest, int destSide, int queueId,
@@ -3612,19 +3588,16 @@ public class TileMirrorManager extends TileEntity implements ITickable, IAnimata
     public void reconcileForDelivery(BlockPos dest, ItemStack like, int wantNow) {
         legacyWrapperWarn("reconcileForDelivery");
         if (world == null || world.isRemote || dest == null || like == null || like.isEmpty() || wantNow <= 0) return;
-        CloudOrderSubmitHelper.submitDelivery(world, this.pos, dest, -1, ItemKey.of(like), wantNow);
     }
 
     public void ensureDeliveryFor(BlockPos dest, Map<ItemKey, Integer> needs, int queueId) {
         legacyWrapperWarn("ensureDeliveryFor");
         if (world == null || world.isRemote || dest == null || needs == null || needs.isEmpty()) return;
-        CloudOrderSubmitHelper.submitBatchDelivery(world, this.pos, dest, -1, new ArrayList<>(needs.entrySet()));
     }
 
     public void ensureDeliveryForExact(BlockPos dest, Map<ItemKey, Integer> needs, int queueId) {
         legacyWrapperWarn("ensureDeliveryForExact");
         if (world == null || world.isRemote || dest == null || needs == null || needs.isEmpty()) return;
-        CloudOrderSubmitHelper.submitBatchDelivery(world, this.pos, dest, -1, new ArrayList<>(needs.entrySet()));
     }
     private void legacyWrapperWarn(String methodName) {
         ThaumicAttempts.LOGGER.warn("legacy logistics wrapper called: {}", methodName);

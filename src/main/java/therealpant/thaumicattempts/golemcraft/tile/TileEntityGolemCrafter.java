@@ -26,13 +26,11 @@ import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.api.IPatternedWorksite;
-import therealpant.thaumicattempts.api.ICloudCraftConsumer;
 import therealpant.thaumicattempts.api.IAutomationOrderAcceptor;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
-import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
@@ -49,7 +47,7 @@ import java.util.*;
  * - Следующий цикл стартует только по следующему фронту 0→1.
  - Стоимость эссенции: 2 * число уникальных типов входов. Эссенция: CRAFT, приём снизу/с боков.
  */
-public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite, ICloudCraftConsumer {
+public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite {
 
     // ===== Константы =====
     public static final int PATTERN_SLOTS = 15;
@@ -314,27 +312,9 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return out;
     }
 
-    @Override
-    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
-        if (taskId == null) return 0;
-        int accepted = enqueueCraftsByRequesterLike(resultLike, cycles);
-        if (accepted > 0) {
-            cloudTaskIds.add(taskId);
-            cloudDebug("accepted cloud craft task id={} result={} cycles={}", taskId, resultLike, accepted);
-        }
-        return accepted;
-    }
 
-    @Override
-    public boolean hasCloudCraftTask(UUID taskId) {
-        if (taskId == null || !cloudTaskIds.contains(taskId)) return false;
-        if (!hasActiveOrQueued()) {
-            cloudTaskIds.remove(taskId);
-            cloudDebug("task done id={}", taskId);
-            return false;
-        }
-        return true;
-    }
+
+
 
     @Override
     public int getOutputCount(ItemKey key) {
@@ -349,15 +329,9 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return total;
     }
 
-    @Override
-    public CloudEndpointRef getInputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.UP.getIndex());
-    }
 
-    @Override
-    public CloudEndpointRef getOutputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.DOWN.getIndex());
-    }
+
+
 
     private void tryStartNextRequesterJob() {
         if (jobActive) return;
@@ -738,7 +712,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
         TileEntity te = world.getTileEntity(managerPos);
         if (te instanceof TileMirrorManager) {
-            therealpant.thaumicattempts.golemnet.tile.CloudOrderSubmitHelper.submitBatchDelivery(
                     world,
                     ((TileMirrorManager) te).getPos(),
                     this.pos,
