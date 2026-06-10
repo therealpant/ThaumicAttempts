@@ -56,6 +56,11 @@ public final class InfectedChunkAnomalyManager {
 
     private InfectedChunkAnomalyManager() {}
 
+    private static void logDebugInfo(String message, Object... args) {
+        if (!TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) return;
+        ThaumicAttempts.LOGGER.info(message, args);
+    }
+
     @SubscribeEvent
     public static void onChunkPopulate(PopulateChunkEvent.Post event) {
         World world = event.getWorld();
@@ -73,7 +78,7 @@ public final class InfectedChunkAnomalyManager {
         if (chance <= 0) return;
 
         if (event.getRand().nextDouble() < chance) {
-            ThaumicAttempts.LOGGER.info(
+            logDebugInfo(
                     "[AnomSpawn] chunk infected cx={} cz={} stage={}",
                     event.getChunkX(), event.getChunkZ(), fluxData.stage
             );
@@ -112,7 +117,7 @@ public final class InfectedChunkAnomalyManager {
         TAWorldFluxData fluxData = null;
 
         fluxData = TAWorldFluxData.get(world);
-        ThaumicAttempts.LOGGER.info(
+        logDebugInfo(
                 "[AnomSpawn] attempt tick={} stage={} players={} infectedTotal={} active={}",
                 now,
                 fluxData.stage,
@@ -187,7 +192,7 @@ public final class InfectedChunkAnomalyManager {
             }
         }
 
-        ThaumicAttempts.LOGGER.info(
+        logDebugInfo(
                 "[AnomSpawn] scan result: infectedNearPlayer={} candidates={} blockedByCleaned={} tooClose={} activeNearby={}",
                 infectedNearPlayer,
                 candidates.size(),
@@ -211,7 +216,7 @@ public final class InfectedChunkAnomalyManager {
         }
 
         Chunk target = candidates.get(rand.nextInt(candidates.size()));
-        ThaumicAttempts.LOGGER.info(
+        logDebugInfo(
                 "[AnomSpawn] selected chunk cx={} cz={} dist={} blocks",
                 target.x,
                 target.z,
@@ -242,7 +247,7 @@ public final class InfectedChunkAnomalyManager {
         WorldServer serverWorld = (WorldServer) world;
         TAInfectedChunksData data = TAInfectedChunksData.get(world);
 
-        ThaumicAttempts.LOGGER.info(
+        logDebugInfo(
                 "[AnomSpawn] anomaly ended seed={} anomaly={} chunkKey={}",
                 seedId, anomalyId, chunkKey
         );
@@ -267,7 +272,7 @@ public final class InfectedChunkAnomalyManager {
         TAWorldFluxData fluxData = TAWorldFluxData.get(world);
         if (fluxData.stage < 1) return;
 
-        ThaumicAttempts.LOGGER.info(
+        logDebugInfo(
                 "[AnomSpawn] migration from chunkKey={} cleanedRadius={}",
                 originChunkKey, CLEANED_RADIUS_CHUNKS
         );
@@ -322,7 +327,7 @@ public final class InfectedChunkAnomalyManager {
         FluxAnomalySettings settings = FluxAnomalyPresets.createSettings(tier);
         try {
             EntityFluxAnomalyBurst anomaly = FluxAnomalyApi.spawn(world, location.pos, settings);
-            ThaumicAttempts.LOGGER.info(
+            logDebugInfo(
                     "[AnomSpawn] spawning anomaly in chunk {} {} tier={}",
                     chunk.x, chunk.z, tier
             );
@@ -545,7 +550,7 @@ public final class InfectedChunkAnomalyManager {
         data.lastActivationFailReason = reason;
         data.lastCandidatesChecked = candidates;
         data.markDirty();
-        ThaumicAttempts.LOGGER.info("[AnomSpawn] reason={} infectedNear={} time={}",
+        logDebugInfo("[AnomSpawn] reason={} infectedNear={} time={}",
                 reason, candidates, data.lastActivationAttemptTime);
     }
 

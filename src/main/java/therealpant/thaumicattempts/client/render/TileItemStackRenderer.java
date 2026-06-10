@@ -27,19 +27,25 @@ public class TileItemStackRenderer<T extends TileEntity> extends TileEntityItemS
 
     @Override
     public void renderByItem(ItemStack itemStackIn, float partialTicks) {
-        World world = Minecraft.getMinecraft().world;
+        Minecraft mc = Minecraft.getMinecraft();
+        World world = mc.world;
         if (world != null) {
             tile.setWorld(world);
+            tile.setPos(mc.player != null ? mc.player.getPosition() : BlockPos.ORIGIN);
         }
 
+        RenderSafety.GlStateSnapshot prevState = RenderSafety.captureGlState();
         float[] prevLight = RenderSafety.captureLightmap();
         RenderSafety.pushItemRender();
         try {
+            RenderSafety.beginItemLighting();
+            RenderSafety.setFullBrightLightmap();
             TileEntityRendererDispatcher.instance.render(tile, 0d, 0d, 0d, partialTicks);
         } finally {
             RenderSafety.popItemRender();
             RenderSafety.restoreLightmap(prevLight);
-            RenderSafety.resetGlState();
+            RenderSafety.endItemLighting();
+            RenderSafety.restoreGlState(prevState);
         }
     }
 }

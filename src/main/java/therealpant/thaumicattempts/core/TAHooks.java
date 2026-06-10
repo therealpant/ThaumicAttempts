@@ -52,6 +52,22 @@ public final class TAHooks {
     // ProvisionRequest -> golemUUID, пока не будет создан Task.setLinkedProvision(...)
     private static final Map<ProvisionRequest, UUID> PROVISION_GOLEM =
             Collections.synchronizedMap(new WeakHashMap<>());
+    private static final ThreadLocal<ProvisionTrace> PROVISION_TRACE_CTX = new ThreadLocal<>();
+
+    public static final class ProvisionTrace {
+        private int constructedRequests;
+        private int linkedTasks;
+
+        private ProvisionTrace() {}
+
+        public int getConstructedRequests() {
+            return constructedRequests;
+        }
+
+        public int getLinkedTasks() {
+            return linkedTasks;
+        }
+    }
 
     private static final ResourceLocation AMBER_ID =
             new ResourceLocation(ThaumicAttempts.MODID, "amber");
@@ -81,6 +97,18 @@ public final class TAHooks {
         DISPATCH_GOLEM_CTX.remove();
     }
 
+    public static ProvisionTrace beginProvisionTrace() {
+        ProvisionTrace trace = new ProvisionTrace();
+        PROVISION_TRACE_CTX.set(trace);
+        return trace;
+    }
+
+    public static void endProvisionTrace(ProvisionTrace trace) {
+        if (trace != null && PROVISION_TRACE_CTX.get() == trace) {
+            PROVISION_TRACE_CTX.remove();
+        }
+    }
+
     /* ===================== Хуки из пропатченных TC классов ===================== */
 
     /**
@@ -89,6 +117,9 @@ public final class TAHooks {
      */
     public static void onProvisionConstruct(ProvisionRequest req) {
         if (req == null) return;
+        ProvisionTrace trace = PROVISION_TRACE_CTX.get();
+        if (trace != null) trace.constructedRequests++;
+
         UUID gid = DISPATCH_GOLEM_CTX.get();
         if (gid != null) {
             PROVISION_GOLEM.put(req, gid);
@@ -101,6 +132,8 @@ public final class TAHooks {
      */
     public static void onTaskLinkedProvision(Task task, ProvisionRequest req) {
         if (task == null || req == null) return;
+        ProvisionTrace trace = PROVISION_TRACE_CTX.get();
+        if (trace != null) trace.linkedTasks++;
 
         UUID gid = PROVISION_GOLEM.remove(req);
         if (gid != null) {

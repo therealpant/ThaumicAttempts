@@ -137,12 +137,11 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
             // 1) Базовая гео-модель
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
 
+            // 2) Эмиссивный проход
+            renderEmissiveLayer(te, x, y, z, partialTicks);
             if (RenderSafety.isItemRender()) {
                 return;
             }
-
-            // 2) Эмиссивный проход
-            renderEmissiveLayer(te, x, y, z, partialTicks);
 
             // 3) Орбита и flying items
             GlStateManager.pushMatrix();
@@ -337,13 +336,16 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                 }
 
                 float tt2 = (t + partialTicks) - f.start;
+                if (tt2 < 0f) continue;
                 float p = MathHelper.clamp(tt2 / (float) f.duration, 0f, 1f);
 
                 float ease = (p < 0.5f)
                         ? (2f * p * p)
                         : (1f - (float) Math.pow(-2f * p + 2f, 2) / 2f);
 
-                float cut = 0.88f;
+                boolean mirrorTransit = f.mode == therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim.MODE_MIRROR_TO_MIRROR
+                        && f.srcRing >= 0 && f.srcSlot >= 0;
+                float cut = mirrorTransit ? 0.96f : 0.88f;
                 if (ease >= cut) continue;
 
                 float tail = 0.06f;
@@ -352,11 +354,25 @@ public class RenderMirrorManagerGeo extends GeoBlockRenderer<TileMirrorManager> 
                     a = MathHelper.clamp((cut - ease) / tail, 0f, 1f);
                 }
 
-                double tSeg = ease;
-                double it = 1.0 - tSeg;
-                Vec3d pos = P0.scale(it * it)
-                        .add(control.scale(2 * it * tSeg))
-                        .add(P2.scale(tSeg * tSeg));
+                Vec3d pos;
+                if (mirrorTransit) {
+                    Vec3d center = new Vec3d(0.0, BASE_Y + 0.15, 0.0);
+                    boolean firstHalf = ease < 0.5f;
+                    double tSeg = firstHalf ? ease / 0.5 : (ease - 0.5) / 0.5;
+                    double it = 1.0 - tSeg;
+                    Vec3d aP = firstHalf ? P0 : center;
+                    Vec3d bP = firstHalf ? center : P2;
+                    Vec3d cP = aP.add(bP).scale(0.5).add(new Vec3d(0.0, 0.34, 0.0));
+                    pos = aP.scale(it * it)
+                            .add(cP.scale(2 * it * tSeg))
+                            .add(bP.scale(tSeg * tSeg));
+                } else {
+                    double tSeg = ease;
+                    double it = 1.0 - tSeg;
+                    pos = P0.scale(it * it)
+                            .add(control.scale(2 * it * tSeg))
+                            .add(P2.scale(tSeg * tSeg));
+                }
 
                 float wob = (float) Math.sin((f.seed % 1000) * 0.013 + (t + partialTicks) * 0.25) * 6f;
                 float spin = ((t + partialTicks) * (1.2f + ((f.seed & 255) / 255f))) % 360f;

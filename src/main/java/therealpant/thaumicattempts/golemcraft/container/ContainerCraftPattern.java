@@ -203,7 +203,8 @@ public class ContainerCraftPattern extends Container implements IPatternContaine
         }
 
         if (patternStack.getItem() instanceof ItemCraftPattern) {
-            ItemCraftPattern.writeInventoryToStack(patternStack, grid, ItemStack.EMPTY);
+            ItemStack preview = ghostInv.getStackInSlot(resultIndex).copy();
+            ItemCraftPattern.writeInventoryToStack(patternStack, grid, preview);
         } else if (patternStack.getItem() instanceof ItemResourceList) {
             ItemStack preview = ghostInv.getStackInSlot(resultIndex).copy();
             ItemResourceList.writeInventoryToStack(patternStack, grid, preview);

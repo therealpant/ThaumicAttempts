@@ -190,6 +190,9 @@ public class ThaumicAttempts {
         NET.registerMessage(therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim.Handler.class,
                 therealpant.thaumicattempts.golemnet.net.msg.S2CFlyAnim.class, id++, Side.CLIENT);
 
+        NET.registerMessage(therealpant.thaumicattempts.golemnet.net.msg.S2CPatternRequesterAnim.Handler.class,
+                therealpant.thaumicattempts.golemnet.net.msg.S2CPatternRequesterAnim.class, id++, Side.CLIENT);
+
         NET.registerMessage(therealpant.thaumicattempts.golemnet.net.msg.S2C_SnapshotCreated.Handler.class,
                 therealpant.thaumicattempts.golemnet.net.msg.S2C_SnapshotCreated.class, id++, Side.CLIENT);
 

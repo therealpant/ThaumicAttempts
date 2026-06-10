@@ -94,12 +94,24 @@ public final class RiftMomentumHandler {
 
     private static boolean isWeapon(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
-        return stack.getItem() instanceof net.minecraft.item.ItemSword || stack.getItem() instanceof ItemAxe;
+        if (stack.getItem() instanceof net.minecraft.item.ItemSword || stack.getItem() instanceof ItemAxe) return true;
+        return hasAttackDamageAttribute(stack);
     }
 
     private static boolean isTool(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return false;
         return stack.getItem() instanceof ItemTool;
+    }
+
+    private static boolean hasAttackDamageAttribute(ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return false;
+        for (AttributeModifier modifier : stack.getAttributeModifiers(net.minecraft.inventory.EntityEquipmentSlot.MAINHAND)
+                .get(SharedMonsterAttributes.ATTACK_DAMAGE.getName())) {
+            if (modifier != null && modifier.getAmount() > 0.0d) {
+                return true;
+            }
+        }
+        return false;
     }
 
     private static float getAttackSpeedBonusPercent(int lvl) {

@@ -79,11 +79,10 @@ public class RenderRiftExtractor extends GeoBlockRenderer<TileRiftExtractor> {
         try {
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
 
+            renderEmissiveLayer(te, x, y, z, partialTicks);
             if (RenderSafety.isItemRender()) {
                 return;
             }
-
-            renderEmissiveLayer(te, x, y, z, partialTicks);
             renderItemStack(te.getCrownStack(), x, y + CROWN_Y, z, partialTicks, 1.0F);
             float coreAlpha = te.getCoreAlphaSmooth(partialTicks);
             renderItemStack(te.getCoreRenderStack(), x, y + CORE_Y, z, partialTicks, coreAlpha);

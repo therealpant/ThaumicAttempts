@@ -45,11 +45,10 @@ public class RenderRevisionPiedestalGeo extends GeoBlockRenderer<TileRevisionPie
         try {
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
 
+            renderEmissiveLayer(te, x, y, z, partialTicks);
             if (RenderSafety.isItemRender()) {
                 return;
             }
-
-            renderEmissiveLayer(te, x, y, z, partialTicks);
             renderFloatingItem(te, x, y, z, partialTicks);
             renderCounter(te, x, y, z);
         } finally {

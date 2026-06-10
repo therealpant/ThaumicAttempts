@@ -31,7 +31,7 @@ import therealpant.thaumicattempts.util.ResourceIdentity;
 
 import javax.annotation.Nullable;
 import java.util.LinkedHashMap;
-import java.util.Collections;
+import java.util.List;
 import java.util.Map;
 
 public class TileRevisionPiedestal extends TileEntity implements IAnimatable, ITickable {
@@ -383,8 +383,6 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             return;
         }
 
-        int orderBatch = Math.max(1, counter);
-
         if (requested.isEmpty()) {
             impossibleOrderLocked = false;
             lastOrderAvailable = -1;
@@ -394,8 +392,7 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         }
 
         requested.setCount(1);
-        ItemKey requestedKey = ItemKey.of(requested);
-        if (requestedKey == ItemKey.EMPTY) {
+        if (ItemKey.of(requested) == ItemKey.EMPTY) {
             impossibleOrderLocked = false;
             lastOrderAvailable = -1;
             nextRetryTick = now + RETRY_COOLDOWN_TICKS;
@@ -403,35 +400,51 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
             return;
         }
 
-        LinkedHashMap<ItemKey, Integer> acceptedByOutput = CloudOrderSubmitHelper.submitBatchCraft(
-                world,
-                managerPos,
-                this.pos,
-                -1,
-                Collections.singletonList(new java.util.AbstractMap.SimpleEntry<>(requestedKey, orderBatch))
-        );
-
-        int accepted = 0;
-        for (Map.Entry<ItemKey, Integer> e : acceptedByOutput.entrySet()) {
-            int take = Math.max(0, e.getValue());
-            if (take <= 0) continue;
-            pendingCraft.merge(e.getKey(), take, Integer::sum);
-            accepted += take;
-        }
-
-        if (accepted > 0) {
-            lastOrderAvailable = -1;
+        int ordered = submitCraftOrder((TileMirrorManager) te, requested, Math.max(1, counter));
+        if (ordered > 0) {
+            pendingCraft.clear();
+            ItemKey key = ItemKey.of(requested);
+            if (key != ItemKey.EMPTY) pendingCraft.put(key, ordered);
             awaitingOrderCompletion = true;
             impossibleOrderLocked = false;
+            lastOrderAvailable = ordered;
             nextRetryTick = 0L;
-            markDirtyAndSync();
         } else {
             awaitingOrderCompletion = false;
-            impossibleOrderLocked = false;
-            lastOrderAvailable = -1;
+            impossibleOrderLocked = true;
+            lastOrderAvailable = 0;
             nextRetryTick = now + RETRY_COOLDOWN_TICKS;
-            markDirtyAndSync();
         }
+        markDirtyAndSync();
+    }
+
+    private int submitCraftOrder(TileMirrorManager manager, ItemStack requested, int amount) {
+        if (manager == null || requested == null || requested.isEmpty() || amount <= 0) return 0;
+
+        ItemStack orderIcon = findCraftOrderIcon(manager, requested);
+        if (orderIcon == null || orderIcon.isEmpty()) return 0;
+
+        BlockPos endpointPos = TerminalOrderApi.getOrderIconPos(orderIcon);
+        int patternSlot = TerminalOrderApi.getOrderIconSlot(orderIcon);
+        ItemStack resultLike = TerminalOrderApi.stripOrderIconData(orderIcon);
+        if (endpointPos == null || patternSlot < 0 || resultLike == null || resultLike.isEmpty()) return 0;
+
+        return manager.enqueueTerminalCraftOrder(pos, endpointPos, patternSlot, resultLike, amount);
+    }
+
+    @Nullable
+    private ItemStack findCraftOrderIcon(TileMirrorManager manager, ItemStack requested) {
+        if (manager == null || requested == null || requested.isEmpty()) return ItemStack.EMPTY;
+        List<ItemStack> craftables = manager.getCraftablesCatalog();
+        if (craftables == null || craftables.isEmpty()) return ItemStack.EMPTY;
+
+        for (ItemStack icon : craftables) {
+            if (icon == null || icon.isEmpty() || !TerminalOrderApi.isOrderIcon(icon)) continue;
+            ItemStack resultLike = TerminalOrderApi.stripOrderIconData(icon);
+            if (resultLike == null || resultLike.isEmpty()) continue;
+            if (ResourceIdentity.sameResource(resultLike, requested)) return icon.copy();
+        }
+        return ItemStack.EMPTY;
     }
 
     public void beginManagerBufferInsert() { suppressOutputReconcileDepth++; }
@@ -446,6 +459,19 @@ public class TileRevisionPiedestal extends TileEntity implements IAnimatable, IT
         int left = have - take;
         if (left <= 0) pendingCraft.remove(key); else pendingCraft.put(key, left);
         markDirty();
+    }
+
+    public void onCraftOrderFailed(ItemStack like, int count) {
+        if (like == null || like.isEmpty() || count <= 0) return;
+        ItemKey key = findMatchingKeyRelaxed(pendingCraft, like);
+        if (key != null) pendingCraft.remove(key);
+        if (pendingCraft.isEmpty()) {
+            awaitingOrderCompletion = false;
+            impossibleOrderLocked = true;
+            lastOrderAvailable = 0;
+            nextRetryTick = world == null ? 0L : world.getTotalWorldTime() + RETRY_COOLDOWN_TICKS;
+        }
+        markDirtyAndSync();
     }
 
     private boolean isOutputEmpty() {

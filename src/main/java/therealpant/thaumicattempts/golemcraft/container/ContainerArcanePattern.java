@@ -216,6 +216,7 @@ public class ContainerArcanePattern extends Container {
         if (!arcaneMatchesCurrent(grid, crystals)) {
             out = ItemStack.EMPTY;
         }
+        ItemArcanePattern.setResultPreview(patternStack, out);
         ghostInv.setInventorySlotContents(RESULT_IDX, out == null ? ItemStack.EMPTY : out);
     }
 
@@ -268,6 +269,9 @@ public class ContainerArcanePattern extends Container {
         for (int i = 0; i < GRID_SIZE; i++) grid.set(i, ghostInv.getStackInSlot(i).copy());
         ItemArcanePattern.writeInventoryToStack(patternStack, grid, ItemStack.EMPTY);
         ItemArcanePattern.setCrystalCounts(patternStack, crystals);
+        ItemStack out = ItemArcanePattern.calcArcaneResultPreview(patternStack, playerInv.player.world);
+        if (!arcaneMatchesCurrent(grid, crystals)) out = ItemStack.EMPTY;
+        ItemArcanePattern.setResultPreview(patternStack, out);
     }
 
     public int[] getCrystalCountsView() {

@@ -228,6 +228,31 @@ public final class TAInfusionRecipes {
                     )
             );
         }
+        // ------------ Планировщик Крафтов ------------ \\
+        {
+            ThaumcraftApi.addInfusionCraftingRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "craft_planner_infusion"),
+                    new InfusionRecipe(
+                            "TA_CRAFTCONTROLER",
+                            new ItemStack(TABlocks.CRAFT_PLANNER_ITEM),
+                            9,
+                            new AspectList()
+                                    .add(Aspect.MECHANISM, 150)
+                                    .add(Aspect.ELDRITCH, 50)
+                                    .add(Aspect.MIND, 250),
+                            new ItemStack(Item.getItemFromBlock(ModBlocksItems.MIRROR_STABILIZER)),
+                            new ItemStack(ItemsTC.plate, 1, 3),
+                            new ItemStack(Item.getByNameOrId("thaumcraft:brain_box")),
+                            new ItemStack(ItemsTC.mind, 1, 1),
+                            new ItemStack(Item.getByNameOrId("thaumcraft:brain_box")),
+                            new ItemStack(ItemsTC.plate, 1, 3),
+                            new ItemStack(Item.getByNameOrId("thaumcraft:brain_box")),
+                            new ItemStack(ItemsTC.mind, 1, 1),
+                            new ItemStack(Item.getByNameOrId("thaumcraft:brain_box"))
+
+                    )
+            );
+        }
         // ------------ Управляющий Наполнением ------------ \\
        {
             ThaumcraftApi.addInfusionCraftingRecipe(

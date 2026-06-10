@@ -28,6 +28,7 @@ public class ItemCraftPattern extends ItemBasePattern implements IPatternResourc
 
     /** Ключ NBT для сетки 3×3 (список из 9 TAG_Compound). */
     public static final String TAG_GRID = "Grid";
+    public static final String TAG_RESULT = "Result";
 
     public static final int GRID_SIZE = 9;
 
@@ -68,8 +69,10 @@ public class ItemCraftPattern extends ItemBasePattern implements IPatternResourc
     public static ItemStack calcResultPreview(ItemStack pattern, World world) {
         if (pattern == null || pattern.isEmpty() || world == null) return ItemStack.EMPTY;
 
+        ItemStack stored = getResultPreview(pattern);
+
         ItemStack[] grid = readGrid3x3FromPattern(pattern);
-        if (grid == null) return ItemStack.EMPTY;
+        if (grid == null) return stored.isEmpty() ? ItemStack.EMPTY : stored;
 
         InventoryCrafting inv = new InventoryCrafting(new Container() {
             @Override public boolean canInteractWith(EntityPlayer playerIn) { return false; }
@@ -80,7 +83,23 @@ public class ItemCraftPattern extends ItemBasePattern implements IPatternResourc
         }
 
         ItemStack out = CraftingManager.findMatchingResult(inv, world);
-        return (out == null) ? ItemStack.EMPTY : out;
+        if (out == null || out.isEmpty()) return stored.isEmpty() ? ItemStack.EMPTY : stored;
+        if (!stored.isEmpty()
+                && therealpant.thaumicattempts.util.ResourceIdentity.sameResource(stored, out)
+                && stored.getCount() >= out.getCount()) {
+            return stored;
+        }
+        return out.copy();
+    }
+
+    public static ItemStack getResultPreview(ItemStack pattern) {
+        if (pattern == null || pattern.isEmpty()) return ItemStack.EMPTY;
+        NBTTagCompound tag = pattern.getTagCompound();
+        if (tag != null && tag.hasKey(TAG_RESULT, Constants.NBT.TAG_COMPOUND)) {
+            ItemStack s = new ItemStack(tag.getCompoundTag(TAG_RESULT));
+            return s == null ? ItemStack.EMPTY : s;
+        }
+        return ItemStack.EMPTY;
     }
 
     /** Читает сетку 3×3 из NBT шаблона. Возвращает null, если ничего не найдено. */
@@ -119,7 +138,7 @@ public class ItemCraftPattern extends ItemBasePattern implements IPatternResourc
     }
 
     /** Записывает сетку 3×3 обратно в NBT шаблона. */
-    public static void writeInventoryToStack(ItemStack pattern, NonNullList<ItemStack> grid, ItemStack unusedResult) {
+    public static void writeInventoryToStack(ItemStack pattern, NonNullList<ItemStack> grid, ItemStack result) {
         ensureNBT(pattern);
         NBTTagCompound tag = pattern.getTagCompound();
 
@@ -135,6 +154,14 @@ public class ItemCraftPattern extends ItemBasePattern implements IPatternResourc
             list.appendTag(st);
         }
         tag.setTag(TAG_GRID, list);
+
+        if (result != null && !result.isEmpty()) {
+            NBTTagCompound r = new NBTTagCompound();
+            result.copy().writeToNBT(r);
+            tag.setTag(TAG_RESULT, r);
+        } else {
+            tag.removeTag(TAG_RESULT);
+        }
     }
 
     /** ПКМ по воздуху — открыть GUI редактирования шаблона. */

@@ -63,6 +63,8 @@ public final class FluxChunkSampler {
         }
 
         int processed = 0;
+        boolean fluxChanged = false;
+        TAWorldFluxData fluxData = TAWorldFluxData.get(world);
 
         while (cursor < snapshotChunks.size() && processed < BATCH_SIZE) {
             long key = snapshotChunks.get(cursor++);
@@ -85,13 +87,18 @@ public final class FluxChunkSampler {
 
             // Порог, чтобы не ловить шум
             if (delta > 0.25f) {
-                TAWorldFluxData.get(world).addFlux((double) delta);
+                fluxData.addFlux((double) delta);
+                fluxChanged = true;
             }
 
             processed++;
         }
 
         lastBatchProcessed = processed;
+
+        if (fluxChanged) {
+            FluxResearchUnlockHandler.grantForWorld(world, fluxData);
+        }
 
         // Чистка, если карта распухла: удаляем записи по чанкам, которые больше не загружены.
         if (lastFluxByChunk.size() > 50000) {

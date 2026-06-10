@@ -41,11 +41,10 @@ public class RenderAuraBoosterGeo extends GeoBlockRenderer<TileAuraBooster> {
         try {
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
 
+            renderEmissiveLayer(te, x, y, z, partialTicks);
             if (RenderSafety.isItemRender()) {
                 return;
             }
-
-            renderEmissiveLayer(te, x, y, z, partialTicks);
             renderPearlLikePedestal(te, x, y - 0.3, z, partialTicks);
         } finally {
             RenderSafety.restoreLightmap(prevLight);

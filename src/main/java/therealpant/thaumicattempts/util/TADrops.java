@@ -19,10 +19,7 @@ public final class TADrops {
      * 10% - 2 шт
      */
     public static int rollCount(Random rand) {
-        int roll = rand.nextInt(100); // 0..99
-        if (roll < 5)  return 0;      // 5%  (0..4)
-        if (roll < 90) return 1;      // 85% (5..89)
-        return 2;                      // 10% (90..99)
+        return 2 + rand.nextInt(3);
     }
 
     /**

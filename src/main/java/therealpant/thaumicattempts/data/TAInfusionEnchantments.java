@@ -149,8 +149,6 @@ public final class TAInfusionEnchantments {
                         displayArcaneGuard,
                         1,
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
-                        new ItemStack(ItemsTC.voidSeed),
-                        new ItemStack(ItemsTC.visResonator),
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767)
                 )
         );
@@ -165,8 +163,6 @@ public final class TAInfusionEnchantments {
                         2,
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
-                        new ItemStack(ItemsTC.voidSeed),
-                        new ItemStack(ItemsTC.visResonator),
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767)
                 )
         );
@@ -182,8 +178,6 @@ public final class TAInfusionEnchantments {
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
                         new ItemStack(ModBlocksItems.RIFT_AMETIST),
-                        new ItemStack(ItemsTC.voidSeed),
-                        new ItemStack(ItemsTC.visResonator),
                         new ItemStack(ItemsTC.primordialPearl, 1, 32767)
                 )
         );

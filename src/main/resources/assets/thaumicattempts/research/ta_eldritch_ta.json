@@ -74,11 +74,13 @@
       "stages": [
         {
           "text": "research.TA_ANOMALY.text.0",
+          "required_research": ["f_ta_flux_10000"],
           "required_knowledge": ["THEORY;ELDRITCH;3"],
           "required_item": ["thaumicattempts:rift_flover", "thaumicattempts:rift_stone", "thaumicattempts:rift_cristal"]
         },
         {
           "text": "research.TA_ANOMALY.text.1",
+          "required_research": ["f_ta_flux_20000"],
           "required_knowledge": ["THEORY;ELDRITCH;1", "THEORY;ALCHEMY;2"],
           "recipes": ["thaumicattempts:rift_ember_infusion", "thaumicattempts:rift_ametist_infusion", "thaumicattempts:rift_briliant_infusion"],
           "required_item": [
@@ -89,6 +91,7 @@
         },
         {
           "text": "research.TA_ANOMALY.text.2",
+          "required_research": ["f_ta_flux_30000"],
           "recipes": ["thaumicattempts:rift_ember_infusion",
             "thaumicattempts:rift_ametist_infusion",
             "thaumicattempts:rift_briliant_infusion",

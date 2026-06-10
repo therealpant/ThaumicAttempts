@@ -7,6 +7,7 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.fml.common.network.ByteBufUtils;
 import net.minecraftforge.fml.common.network.simpleimpl.*;
+import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.util.CraftYieldHelper;
@@ -24,7 +25,9 @@ public class C2S_OrderAdjust implements IMessage {
     public C2S_OrderAdjust() {}
     public C2S_OrderAdjust(BlockPos pos, ItemStack key, int delta, boolean craftTab) {
         this.pos = pos;
-        this.key = key.copy(); this.key.setCount(1);
+        this.key = key.copy();
+        if (!craftTab || !TerminalOrderApi.isOrderIcon(this.key)) this.key.setCount(1);
+        else if (this.key.getCount() <= 0) this.key.setCount(1);
         this.delta = delta;
         this.craftTab = craftTab;
     }
@@ -58,9 +61,9 @@ public class C2S_OrderAdjust implements IMessage {
 
                 // В крафтовой вкладке «+1» означает «1 крафт».
                 // Преобразуем в количество РЕЗУЛЬТАТА (умножаем на выход рецепта).
-                boolean resourceOrderIcon = msg.key != null && TerminalOrderApi.isOrderIcon(msg.key);
+                boolean orderIcon = msg.key != null && TerminalOrderApi.isOrderIcon(msg.key);
 
-                if (msg.craftTab && delta != 0 && !resourceOrderIcon) {
+                if (msg.craftTab && delta != 0 && !orderIcon) {
                     int yield = CraftYieldHelper.getCraftYield(w, msg.key);
                     if (yield < 1) yield = 1;
                     // знак delta сохраняем (ЛКМ/ПКМ), домножаем модуль.
@@ -68,8 +71,17 @@ public class C2S_OrderAdjust implements IMessage {
                     else delta = -(Math.abs(delta) * yield);
                 }
 
-                if (resourceOrderIcon && delta != 0) {
-                    int magnitude = Math.max(1, Math.abs(delta));
+                if (msg.craftTab && orderIcon && delta != 0) {
+                    int yield = 1;
+                    BlockPos endpointPos = TerminalOrderApi.getOrderIconPos(msg.key);
+                    ItemStack resultLike = TerminalOrderApi.stripOrderIconData(msg.key);
+                    if (endpointPos != null && resultLike != null && !resultLike.isEmpty()) {
+                        TileEntity endpoint = w.getTileEntity(endpointPos);
+                        if (endpoint instanceof ICraftEndpoint) {
+                            yield = Math.max(1, ((ICraftEndpoint) endpoint).getPerCraftOutputCountFor(resultLike));
+                        }
+                    }
+                    int magnitude = Math.max(1, Math.abs(delta)) * Math.max(1, yield);
                     delta = delta >= 0 ? magnitude : -magnitude;
                 }
 

@@ -19,6 +19,9 @@ import java.util.UUID;
 public class TAWorldFluxData extends WorldSavedData {
 
     private static final String DATA_NAME = "thaumicattempts_flux";
+    public static final double SURFACE_ANOMALY_FLUX = 10000.0D;
+    public static final double SHALLOW_ANOMALY_FLUX = 20000.0D;
+    public static final double DEEP_ANOMALY_FLUX = 30000.0D;
 
     public double fluxGeneratedTotal;
     public int stage;
@@ -84,11 +87,11 @@ public class TAWorldFluxData extends WorldSavedData {
     }
 
     public void recomputeStage() {
-        if (fluxGeneratedTotal < 10000) {
+        if (fluxGeneratedTotal < SURFACE_ANOMALY_FLUX) {
             stage = 0;
-        } else if (fluxGeneratedTotal < 15000) {
+        } else if (fluxGeneratedTotal < SHALLOW_ANOMALY_FLUX) {
             stage = 1;
-        } else if (fluxGeneratedTotal < 30000) {
+        } else if (fluxGeneratedTotal < DEEP_ANOMALY_FLUX) {
             stage = 2;
         } else {
             stage = 3;

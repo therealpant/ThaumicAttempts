@@ -26,18 +26,17 @@ import thaumcraft.api.golems.GolemHelper;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.api.IPatternedWorksite;
-import therealpant.thaumicattempts.api.ICloudCraftConsumer;
+import therealpant.thaumicattempts.api.ICraftEndpoint;
 import therealpant.thaumicattempts.api.IAutomationOrderAcceptor;
+import therealpant.thaumicattempts.api.ITerminalOrderAcceptor;
 import therealpant.thaumicattempts.api.PatternProvisioningSpec;
 import therealpant.thaumicattempts.api.PatternRedstoneMode;
 import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
-import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
-import therealpant.thaumicattempts.ThaumicAttempts;
 
 import javax.annotation.Nullable;
 import java.util.*;
@@ -49,7 +48,8 @@ import java.util.*;
  * - Следующий цикл стартует только по следующему фронту 0→1.
  - Стоимость эссенции: 2 * число уникальных типов входов. Эссенция: CRAFT, приём снизу/с боков.
  */
-public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite, ICloudCraftConsumer {
+public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEssentiaTransport, IPatternedWorksite, ICraftEndpoint,
+        ITerminalOrderAcceptor, IAutomationOrderAcceptor {
 
     // ===== Константы =====
     public static final int PATTERN_SLOTS = 15;
@@ -84,14 +84,9 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
     // Очередь запусков от реквестера (индексы паттернов, 0-based)
     private final java.util.Deque<Integer> requesterQueue = new java.util.ArrayDeque<>();
+    private final java.util.Deque<LocalCraftRequest> standaloneQueue = new java.util.ArrayDeque<>();
     // Флаг: текущая работа запущена от реквестера (чтобы подавить самопровизию)
     private boolean jobViaRequester = false;
-    private final LinkedHashSet<UUID> cloudTaskIds = new LinkedHashSet<>();
-
-    private void cloudDebug(String msg, Object... args) {
-        String fmt = msg == null ? "" : msg.replace("{}", "%s");
-        ThaumicAttempts.LOGGER.debug("[GolemCraftConsumer " + pos + "] " + String.format(fmt, args));
-    }
     // ===== Состояние / параметры =====
     private String customName = "";
 
@@ -122,6 +117,16 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
     private boolean suppressSelfProvision = false;
     public void setSuppressSelfProvision(boolean v){ suppressSelfProvision = v; }
+
+    private static final class LocalCraftRequest {
+        final int patternIndex;
+        final int repeats;
+
+        LocalCraftRequest(int patternIndex, int repeats) {
+            this.patternIndex = patternIndex;
+            this.repeats = Math.max(1, repeats);
+        }
+    }
 
     // ===== Инвентари =====
     protected final ItemStackHandler patterns = new ItemStackHandler(PATTERN_SLOTS) {
@@ -288,15 +293,24 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
 
     @Override
     public void enqueueCraft(ItemStack resultLike, int crafts) {
-        enqueueCloudCraft(resultLike, crafts, UUID.randomUUID());
+        enqueueCraftsByRequesterLike(resultLike, crafts);
     }
 
     @Override
     public boolean hasActiveOrQueued() {
-        return jobActive || !requesterQueue.isEmpty();
+        return jobActive || !requesterQueue.isEmpty() || !standaloneQueue.isEmpty();
     }
 
-    @Override
+    private int enqueueStandaloneCraftsByIndex(int patternIndex, int crafts) {
+        if (patternIndex < 0 || patternIndex >= PATTERN_SLOTS) return 0;
+        if (!patternIndexValid(patternIndex)) return 0;
+        int n = Math.max(1, crafts);
+        standaloneQueue.addLast(new LocalCraftRequest(patternIndex, n));
+        tryStartNextStandaloneJob();
+        markDirty();
+        return n;
+    }
+
     public Map<ItemKey, Integer> getInputsPerCycle(ItemStack resultLike) {
         LinkedHashMap<ItemKey, Integer> out = new LinkedHashMap<>();
         int idx = findPatternIndexForResultLike(resultLike);
@@ -310,33 +324,9 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             if (key == null || key == ItemKey.EMPTY) continue;
             out.merge(key, Math.max(1, in.getCount()), Integer::sum);
         }
-        if (!out.isEmpty()) cloudDebug("publish recipe result={} inputs={}", resultLike, out);
         return out;
     }
 
-    @Override
-    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
-        if (taskId == null) return 0;
-        int accepted = enqueueCraftsByRequesterLike(resultLike, cycles);
-        if (accepted > 0) {
-            cloudTaskIds.add(taskId);
-            cloudDebug("accepted cloud craft task id={} result={} cycles={}", taskId, resultLike, accepted);
-        }
-        return accepted;
-    }
-
-    @Override
-    public boolean hasCloudCraftTask(UUID taskId) {
-        if (taskId == null || !cloudTaskIds.contains(taskId)) return false;
-        if (!hasActiveOrQueued()) {
-            cloudTaskIds.remove(taskId);
-            cloudDebug("task done id={}", taskId);
-            return false;
-        }
-        return true;
-    }
-
-    @Override
     public int getOutputCount(ItemKey key) {
         if (key == null || key == ItemKey.EMPTY) return 0;
         ItemStack like = key.toStack(1);
@@ -349,16 +339,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         return total;
     }
 
-    @Override
-    public CloudEndpointRef getInputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.UP.getIndex());
-    }
-
-    @Override
-    public CloudEndpointRef getOutputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.DOWN.getIndex());
-    }
-
     private void tryStartNextRequesterJob() {
         if (jobActive) return;
         Integer next = requesterQueue.pollFirst();
@@ -368,6 +348,20 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         this.suppressSelfProvision = true; // от реквестера — без заявок снабжения
         this.jobViaRequester = true;
         startOneCraftCycle(next);
+    }
+
+    private void tryStartNextStandaloneJob() {
+        if (jobActive || !requesterQueue.isEmpty()) return;
+
+        while (!standaloneQueue.isEmpty()) {
+            LocalCraftRequest next = standaloneQueue.pollFirst();
+            if (next == null || !patternIndexValid(next.patternIndex)) continue;
+
+            this.suppressSelfProvision = false;
+            this.jobViaRequester = false;
+            startOneCraftCycle(next.patternIndex, next.repeats);
+            return;
+        }
     }
 
 
@@ -523,7 +517,22 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         NBTTagCompound tag = pattern.getTagCompound();
         if (tag != null && tag.hasKey(TAG_RESULT, Constants.NBT.TAG_COMPOUND)) {
             ItemStack res = new ItemStack(tag.getCompoundTag(TAG_RESULT));
-            if (!res.isEmpty()) return res;
+            if (!res.isEmpty()) {
+                NonNullList<ItemStack> grid = getGrid(pattern);
+                if (grid != null) {
+                    InventoryCrafting inv = new InventoryCrafting(new Container() {
+                        @Override public boolean canInteractWith(EntityPlayer p) { return false; }
+                    }, 3, 3);
+                    for (int i = 0; i < 9; i++) inv.setInventorySlotContents(i, grid.get(i).copy());
+                    ItemStack direct = CraftingManager.findMatchingResult(inv, world);
+                    if (direct != null && !direct.isEmpty()
+                            && ResourceIdentity.sameResource(res, direct)
+                            && direct.getCount() > res.getCount()) {
+                        return direct.copy();
+                    }
+                }
+                return res;
+            }
         }
         return ItemStack.EMPTY;
     }
@@ -621,7 +630,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
     }
     private void pushResult(ItemStack result) {
         if (result == null || result.isEmpty()) return;
-        cloudDebug("output appeared result=%s", result);
         ItemStack left = result.copy();
         for (int i = 0; i < output.getSlots(); i++) {
             left = output.insertItem(i, left, false); // реальная вставка
@@ -707,6 +715,51 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
     }
 
+    public void triggerExternalRequest(int slot, int count) {
+        submitAutomationOrder(slot, count, managerPos, null, -1);
+    }
+
+    @Override
+    public void triggerFromTerminal(int slot, int count) {
+        submitAutomationOrder(slot, count, managerPos, null, -1);
+    }
+
+    @Override
+    public int submitAutomationOrder(int slot, int items, @Nullable BlockPos managerPos, @Nullable BlockPos dest, int destSide) {
+        if (world == null || world.isRemote || items <= 0) return 0;
+        if (slot < 0 || slot >= patterns.getSlots()) return 0;
+        if (!patternIndexValid(slot)) return 0;
+
+        if (managerPos != null && (this.managerPos == null || !this.managerPos.equals(managerPos))) {
+            setManagerPos(managerPos, hasPatternRequesterAbove());
+        } else if (managerPos == null && this.managerFromPattern) {
+            syncManagerFromPattern();
+        }
+
+        ItemStack pattern = patterns.getStackInSlot(slot);
+        ItemStack preview = getCraftPreview(pattern, getGrid(pattern));
+        if (preview.isEmpty()) return 0;
+
+        int perCraft = Math.max(1, preview.getCount());
+        int crafts = (items + perCraft - 1) / perCraft;
+        if (crafts <= 0) return 0;
+
+        int acceptedCrafts = enqueueStandaloneCraftsByIndex(slot, crafts);
+        if (acceptedCrafts <= 0) return 0;
+        return Math.max(1, acceptedCrafts * perCraft);
+    }
+
+    private int getRedstoneOrderItems(int patternIndex) {
+        if (patternIndex < 0 || patternIndex >= patterns.getSlots()) return 0;
+        ItemStack pattern = patterns.getStackInSlot(patternIndex);
+        ItemStack preview = getCraftPreview(pattern, getGrid(pattern));
+        if (preview.isEmpty()) return 0;
+
+        int repeats = Math.max(1, getPatternRepeatCount(pattern));
+        int perCraft = Math.max(1, preview.getCount());
+        return repeats * perCraft;
+    }
+
     private Map<ItemKey, Integer> collectMissingForJob() {
         Map<ItemKey, Integer> miss = new LinkedHashMap<>();
         if (seq.isEmpty()) return miss;
@@ -736,15 +789,7 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
             return;
         }
 
-        TileEntity te = world.getTileEntity(managerPos);
-        if (te instanceof TileMirrorManager) {
-            therealpant.thaumicattempts.golemnet.tile.CloudOrderSubmitHelper.submitBatchDelivery(
-                    world,
-                    ((TileMirrorManager) te).getPos(),
-                    this.pos,
-                    -1,
-                    new java.util.ArrayList<>(miss.entrySet())
-            );
+        if (world.getTileEntity(managerPos) instanceof TileMirrorManager) {
             lastEnsureWorldTime = now;
             needEnsureWithManager = false;
         } else {
@@ -791,21 +836,19 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (!jobActive && !requesterQueue.isEmpty()) {
             tryStartNextRequesterJob();
         }
+        if (!jobActive && requesterQueue.isEmpty() && !standaloneQueue.isEmpty()) {
+            tryStartNextStandaloneJob();
+        }
 
         // Триггер по редстоуну работает только в standalone-режиме.
         // Если крафтер подключён к MirrorManager (через PatternRequester сверху),
         // redstone-заказы отключены: крафт запускается только через manager/терминал.
         if (!useManagerForProvision() && lastSignal == 0 && signal > 0) {
-            TileEntity above = world.getTileEntity(pos.up());
-            if (above instanceof IAutomationOrderAcceptor) {
-                int idx = choosePatternIndexForSignal(signal);
-                if (idx >= 0) {
-                    ItemStack pat = patterns.getStackInSlot(idx);
-                    int repeats = Math.max(1, getPatternRepeatCount(pat));
-                    BlockPos manager = (above instanceof TilePatternRequester)
-                            ? ((TilePatternRequester) above).getManagerPos()
-                            : null;
-                    ((IAutomationOrderAcceptor) above).submitAutomationOrder(idx, repeats, manager, null, -1);
+            int idx = choosePatternIndexForSignal(signal);
+            if (idx >= 0) {
+                int items = getRedstoneOrderItems(idx);
+                if (items > 0) {
+                    submitAutomationOrder(idx, items, managerPos, null, -1);
                 }
             }
         }
@@ -838,7 +881,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
 
         markDirty();
-        cloudDebug("task start pattern={} cycles={}", idx, repeats);
     }
 
     protected void startOneCraftCycle(int idx) {
@@ -971,7 +1013,6 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         this.jobViaRequester = false;
         this.suppressSelfProvision = false;
         this.needEnsureWithManager = false;
-        cloudDebug("task completed");
 
         if (world == null) return;
 
@@ -979,6 +1020,9 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         if (!requesterQueue.isEmpty()) {
             tryStartNextRequesterJob();
             return;
+        }
+        if (!standaloneQueue.isEmpty()) {
+            tryStartNextStandaloneJob();
         }
 
     }
@@ -1095,6 +1139,15 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
         }
         nbt.setTag("RequesterQ", rq);
 
+        net.minecraft.nbt.NBTTagList lq = new net.minecraft.nbt.NBTTagList();
+        for (LocalCraftRequest req : standaloneQueue) {
+            net.minecraft.nbt.NBTTagCompound c = new net.minecraft.nbt.NBTTagCompound();
+            c.setInteger("I", req == null ? -1 : req.patternIndex);
+            c.setInteger("R", req == null ? 1 : req.repeats);
+            lq.appendTag(c);
+        }
+        nbt.setTag("StandaloneQ", lq);
+
         if (managerPos != null) nbt.setLong("Manager", managerPos.toLong());
         nbt.setBoolean("ManagerPattern", managerFromPattern && managerPos != null);
 
@@ -1137,6 +1190,17 @@ public class TileEntityGolemCrafter extends TileEntity implements ITickable, IEs
                 net.minecraft.nbt.NBTTagCompound c = rq.getCompoundTagAt(i);
                 int idx = c.getInteger("I");
                 if (idx >= 0 && idx < PATTERN_SLOTS) requesterQueue.addLast(idx);
+            }
+        }
+
+        standaloneQueue.clear();
+        if (nbt.hasKey("StandaloneQ", Constants.NBT.TAG_LIST)) {
+            net.minecraft.nbt.NBTTagList lq = nbt.getTagList("StandaloneQ", Constants.NBT.TAG_COMPOUND);
+            for (int i = 0; i < lq.tagCount(); i++) {
+                net.minecraft.nbt.NBTTagCompound c = lq.getCompoundTagAt(i);
+                int idx = c.getInteger("I");
+                int repeats = Math.max(1, c.getInteger("R"));
+                if (idx >= 0 && idx < PATTERN_SLOTS) standaloneQueue.addLast(new LocalCraftRequest(idx, repeats));
             }
         }
 

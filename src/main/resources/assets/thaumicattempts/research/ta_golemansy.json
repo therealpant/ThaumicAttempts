@@ -8,7 +8,7 @@
       ],
       "category": "GOLEMANCY",
       "parents": [
-        "GOLEMLOGISTICS"
+        "GOLEMLOGISTICS","TA_ELDRITCH_CONSTRUCTION"
       ],
       "siblings": [],
       "location": [
@@ -220,7 +220,7 @@
       ],
       "siblings": [],
       "location": [
-        5,
+        6,
         -2
       ],
       "stages": [
@@ -236,6 +236,70 @@
           "text": "research.TA_GOLEMCONTROLER.text.main",
           "recipes": [
             "thaumicattempts:dispatcher_infusion"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_CRAFTCONTROLER",
+      "name": "research.TA_CRAFTCONTROLER.title",
+      "icons": [
+        "thaumicattempts:craft_planner"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "TA_GOLEM_INTEGRATION"
+      ],
+      "siblings": [],
+      "location": [
+        4,
+        -2
+      ],
+      "stages": [
+        {
+          "text": "research.TA_CRAFTCONTROLER.text.intro",
+          "required_knowledge": ["THEORY;GOLEMANCY;2", "THEORY;ELDRITCH;1"],
+          "required_item": [
+            "thaumcraft:mind;1;1",
+            "thaumcraft:brain_box"
+          ]
+        },
+        {
+          "text": "research.TA_CRAFTCONTROLER.text.main",
+          "recipes": [
+            "thaumicattempts:craft_planner_infusion"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_AUTOORDERS",
+      "name": "research.TA_AUTOORDERS.title",
+      "icons": [
+        "thaumicattempts:revision_piedestal"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "TA_GOLEM_INTEGRATION"
+      ],
+      "siblings": [],
+      "location": [
+        5,
+        -3
+      ],
+      "stages": [
+        {
+          "text": "research.TA_AUTOORDERS.text.intro",
+          "required_knowledge": ["THEORY;GOLEMANCY;2", "THEORY;ELDRITCH;1"],
+          "required_item": [
+            "thaumcraft:mind;1;1",
+            "thaumcraft:brain_box"
+          ]
+        },
+        {
+          "text": "research.TA_AUTOORDERS.text.main",
+          "recipes": [
+            "thaumicattempts:revision_piedestal_arcane"
           ]
         }
       ]

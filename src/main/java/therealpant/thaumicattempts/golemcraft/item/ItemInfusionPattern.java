@@ -14,8 +14,12 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.api.IPatternResourceProvider;
 import therealpant.thaumicattempts.api.PatternResourceList;
 import therealpant.thaumicattempts.client.gui.GuiHandler;
+import therealpant.thaumicattempts.util.ItemKey;
+import therealpant.thaumicattempts.util.ResourceIdentity;
 
+import java.util.LinkedHashMap;
 import java.util.List;
+import java.util.Map;
 
 /**
  * Шаблон инфузии: запоминает предметы в порядке добавления (первый в центре,
@@ -115,7 +119,7 @@ public class ItemInfusionPattern extends ItemBasePattern implements IPatternReso
         if (result != null && !result.isEmpty()) {
             NBTTagCompound rt = new NBTTagCompound();
             ItemStack one = therealpant.thaumicattempts.api.TerminalOrderApi.stripOrderIconData(result);
-            one.setCount(1);
+            if (one.getCount() <= 0) one.setCount(1);
             one.writeToNBT(rt);
             tag.setTag(TAG_RESULT, rt);
         } else {
@@ -156,7 +160,14 @@ public class ItemInfusionPattern extends ItemBasePattern implements IPatternReso
 
     @Override
     public List<PatternResourceList.Entry> buildResourceList(ItemStack pattern) {
-        return PatternResourceList.aggregate(readOrder(pattern), false);
+        Map<ItemKey, Integer> map = new LinkedHashMap<>();
+        for (ItemStack stack : readOrder(pattern)) {
+            if (stack == null || stack.isEmpty()) continue;
+            ItemKey key = ResourceIdentity.keyOfProvisionIngredient(stack);
+            if (key == null || key == ItemKey.EMPTY) continue;
+            map.merge(key, 1, Integer::sum);
+        }
+        return PatternResourceList.toEntries(map);
     }
 
     @Override

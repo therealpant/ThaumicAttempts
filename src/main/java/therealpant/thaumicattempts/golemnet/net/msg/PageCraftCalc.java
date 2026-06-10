@@ -3,9 +3,9 @@ package therealpant.thaumicattempts.golemnet.net.msg;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
+import therealpant.thaumicattempts.api.ICraftEndpoint;
+import therealpant.thaumicattempts.api.TerminalOrderApi;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
-import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
-import therealpant.thaumicattempts.golemnet.tile.TileResourceRequester;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -57,13 +57,9 @@ public final class PageCraftCalc {
                 continue;
             }
 
-            if (TileResourceRequester.isOrderIcon(result)) {
-                makeCounts.add(0);
-                possible.add(true);
-                continue;
-            }
+            ItemStack resultLike = TerminalOrderApi.stripOrderIconData(result);
 
-            TilePatternRequester requester = findRequesterForResult(mgr, reqs, result);
+            ICraftEndpoint requester = findRequesterForResult(mgr, reqs, resultLike);
             if (requester == null) {
                 makeCounts.add(0);
                 possible.add(false);
@@ -71,20 +67,23 @@ public final class PageCraftCalc {
             }
 
             // «выход за крафт» может пригодиться для UI, но здесь мы считаем именно КРАФТЫ
-            int perCraft = Math.max(1, requester.getPerCraftOutputCountFor(result));
+            int perCraft = Math.max(1, requester.getPerCraftOutputCountFor(resultLike));
 
             // верхняя грубая оценка (по самому узкому ингредиенту), чтобы ограничить бинпоиск
-            int upper = roughUpperBound(catalog, requester, result, perCraft);
+            int upper = roughUpperBound(catalog, requester, resultLike, perCraft);
 
             int lo = 0, hi = Math.max(0, upper);
             while (lo < hi) {
                 int mid = lo + (hi - lo + 1) / 2;
-                if (canMakeTimes(catalog, requester, result, mid)) lo = mid; else hi = mid - 1;
+                if (canMakeTimes(catalog, requester, resultLike, mid)) lo = mid; else hi = mid - 1;
             }
             int crafts = lo;
+            if (crafts <= 0 && mgr.canPlanCraft(resultLike, perCraft)) {
+                crafts = 1;
+            }
 
             // ВАЖНО: в makeCounts пишем число КРАФТОВ, а не предметов!
-            makeCounts.add(crafts);
+            makeCounts.add(crafts * perCraft);
             possible.add(crafts > 0);
         }
 
@@ -96,28 +95,32 @@ public final class PageCraftCalc {
     /* ===================== внутрянка ===================== */
 
     @Nullable
-    private static TilePatternRequester findRequesterForResult(TileMirrorManager mgr, Set<BlockPos> reqs, ItemStack like) {
+    private static ICraftEndpoint findRequesterForResult(TileMirrorManager mgr, Set<BlockPos> reqs, ItemStack like) {
         if (reqs == null || reqs.isEmpty() || mgr.getWorld() == null) return null;
         for (BlockPos rp : reqs) {
             TileEntity te = mgr.getWorld().getTileEntity(rp);
-            if (!(te instanceof TilePatternRequester)) continue;
-            TilePatternRequester r = (TilePatternRequester) te;
-            int idx = r.findPatternIndexForResultLike(like);
-            if (idx >= 0) return r;
+            if (!(te instanceof ICraftEndpoint)) continue;
+            ICraftEndpoint endpoint = (ICraftEndpoint) te;
+            List<ItemStack> results = endpoint.listCraftableResults();
+            if (results == null) continue;
+            for (ItemStack result : results) {
+                if (result != null && !result.isEmpty() && ResourceIdentity.sameResource(result, like)) return endpoint;
+            }
         }
         return null;
     }
 
     /** Грубый верхний предел по самому «узкому» ингредиенту из каталога. */
-    private static int roughUpperBound(Map<ItemKey,Integer> catalog, TilePatternRequester req, ItemStack result, int perCraft) {
-        List<ItemStack> one = req.getRecipeInputsFor(result, 1);
+    private static int roughUpperBound(Map<ItemKey,Integer> catalog, ICraftEndpoint req, ItemStack result, int perCraft) {
+        Map<ItemKey, Integer> one = req.getInputsPerCycle(result);
         if (one == null || one.isEmpty()) return 0;
 
         int minTimes = Integer.MAX_VALUE;
-        for (ItemStack need : one) {
-            if (need == null || need.isEmpty()) continue;
+        for (Map.Entry<ItemKey, Integer> en : one.entrySet()) {
+            if (en == null || en.getKey() == null || en.getKey() == ItemKey.EMPTY) continue;
+            ItemStack need = en.getKey().toStack(1);
             int have = countInCatalogForNeed(catalog, need);
-            int onetimes = Math.max(1, need.getCount());
+            int onetimes = Math.max(1, en.getValue());
             int bound = have / onetimes;
             if (bound < minTimes) minTimes = bound;
             if (minTimes == 0) break;
@@ -126,9 +129,17 @@ public final class PageCraftCalc {
     }
 
     /** Проверяем, хватит ли каталога на 'times' крафтов (с учётом их правил совпадения). */
-    private static boolean canMakeTimes(Map<ItemKey,Integer> catalog, TilePatternRequester req, ItemStack result, int times) {
+    private static boolean canMakeTimes(Map<ItemKey,Integer> catalog, ICraftEndpoint req, ItemStack result, int times) {
         if (times <= 0) return true;
-        List<ItemStack> needs = req.getRecipeInputsFor(result, times);
+        Map<ItemKey, Integer> perCycle = req.getInputsPerCycle(result);
+        if (perCycle == null || perCycle.isEmpty()) return true;
+
+        List<ItemStack> needs = new ArrayList<>();
+        for (Map.Entry<ItemKey, Integer> en : perCycle.entrySet()) {
+            if (en == null || en.getKey() == null || en.getKey() == ItemKey.EMPTY) continue;
+            ItemStack stack = en.getKey().toStack(Math.max(1, en.getValue()) * times);
+            if (!stack.isEmpty()) needs.add(stack);
+        }
         if (needs == null || needs.isEmpty()) return true;
 
         Map<ItemKey,Integer> pool = new LinkedHashMap<>(catalog);

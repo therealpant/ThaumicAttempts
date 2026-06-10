@@ -33,6 +33,24 @@ public final class ResourceIdentity {
         return normalized.isEmpty() ? ItemKey.EMPTY : ItemKey.of(normalized);
     }
 
+    public static ItemStack normalizeForProvisionIngredient(@Nullable ItemStack source) {
+        if (source == null || source.isEmpty()) return ItemStack.EMPTY;
+        if (isCrystal(source)) {
+            Aspect aspect = aspectOf(source);
+            return aspect == null ? ItemStack.EMPTY : ThaumcraftApiHelper.makeCrystal(aspect, 1);
+        }
+        if (source.getItem().isDamageable()) {
+            int meta = source.getHasSubtypes() ? source.getMetadata() : 0;
+            return new ItemStack(source.getItem(), 1, meta);
+        }
+        return normalizeForKey(source);
+    }
+
+    public static ItemKey keyOfProvisionIngredient(@Nullable ItemStack source) {
+        ItemStack normalized = normalizeForProvisionIngredient(source);
+        return normalized.isEmpty() ? ItemKey.EMPTY : ItemKey.of(normalized);
+    }
+
     public static boolean sameResource(@Nullable ItemStack a, @Nullable ItemStack b) {
         ItemKey ka = keyOf(a);
         if (ka == ItemKey.EMPTY) return false;
@@ -42,6 +60,21 @@ public final class ResourceIdentity {
     public static boolean sameResource(@Nullable ItemStack stack, @Nullable ItemKey key) {
         if (key == null || key == ItemKey.EMPTY) return false;
         return key.equals(keyOf(stack));
+    }
+
+    public static boolean sameProvisionResource(@Nullable ItemStack a, @Nullable ItemStack b) {
+        if (a == null || b == null || a.isEmpty() || b.isEmpty()) return false;
+        if (isCrystal(a) || isCrystal(b)) {
+            Aspect aa = aspectOf(a);
+            Aspect ba = aspectOf(b);
+            return aa != null && ba != null && aa == ba;
+        }
+        if (a.getItem() != b.getItem()) return false;
+        if (a.getHasSubtypes() || b.getHasSubtypes()) {
+            if (a.getMetadata() != b.getMetadata()) return false;
+        }
+        if (a.getItem().isDamageable() || b.getItem().isDamageable()) return true;
+        return sameResource(a, b);
     }
 
     public static ItemStack stackForRequest(@Nullable ItemStack like, int amount) {

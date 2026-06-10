@@ -35,9 +35,7 @@ public class CraftPlannerRenderer extends GeoBlockRenderer<TileCraftPlanner> {
         float[] prevLight = RenderSafety.captureLightmap();
         try {
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
-            if (!RenderSafety.isItemRender()) {
-                renderEmissiveLayer(te, x, y, z, partialTicks);
-            }
+            renderEmissiveLayer(te, x, y, z, partialTicks);
         } finally {
             RenderSafety.restoreLightmap(prevLight);
             RenderSafety.resetGlState();

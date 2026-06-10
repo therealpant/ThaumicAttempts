@@ -39,7 +39,6 @@ item.thaumicattempts.anomaly_stone.name=Anomalous Ore
 item.thaumicattempts.rift_bush.name=Abyssbloom Bush
 item.thaumicattempts.rift_geod.name=Abyssalite Geode
 item.thaumicattempts.anomaly_seeds.name=Mutable Seed
-item.thaumicattempts.ta_anomaly_seeds.name=Mutable Seed
 item.thaumicattempts.mind_fruit.name=Fruit of Pure Mind
 item.thaumicattempts.tainted_mind_fruit.name=Taint-Soaked Fruit
 item.thaumicattempts.mature_mind_fruit.name=Ripe Fruit of Pure Mind
@@ -56,8 +55,12 @@ container.arcane_crafter=Arcane Golem Workbench
 mod.thaumicattempts.name=ThaumicAttempts
 itemGroup.thaumicattempts=Thaumic Attempts
 
+research.f_ta_flux_10000.text=Saturate this world's aura with an enormous amount of Flux
+research.f_ta_flux_20000.text=Saturate this world's aura with a colossal amount of Flux
+research.f_ta_flux_30000.text=Saturate this world's aura with a catastrophic amount of Flux
+
 research.ARCANEEAR.ta_addendum_ear_band=Experiments with the Clockwork Mind have borne fruit. The calibrated Arcane Ear is now capable of hearing an entire range of notes. And the higher the note, the stronger the signal I was able to obtain.
-research.BASEELDRITCH.ta_addendum_voidtile_from_seed=The seeds are highly volatile and malleable. By selecting the proper essentia, I was able to transform them into a полноценный строительный материал.
+research.BASEELDRITCH.ta_addendum_voidtile_from_seed=The seeds are highly volatile and malleable. By selecting the proper essentia, I was able to transform them into a proper building material.
 
 research.TA_GOLEMCRAFT.title=Golem Craftsmen
 research.TA_GOLEMCRAFT.text.intro=Research consumes nearly all my attention. And how irritating it is when, in the middle of the process, I have to run back to a workbench just to make yet another trinket. Fortunately, my latest studies in golemancy may solve this once and for all.
@@ -83,6 +86,14 @@ research.TA_GOLEMCONTROLER.title=Proper Management
 research.TA_GOLEMCONTROLER.text.intro=There is often utter chaos in the warehouse. I need a device capable of organizing the way golems work with resources.
 research.TA_GOLEMCONTROLER.text.main=Success! The Task Distributor is ready! <BR>Now the Mirror Manipulator is capable not only of processing orders in parallel, but of understanding exactly how many golems are assigned to it. First, connect the Distributor to the Manipulator, then Shift-right-click the Distributor and right-click a Golem. From then on, only that Golem will work for the Manipulator. <BR>The Distributor consumes one mathematical slot of the Manipulator for each Golem assigned to it.
 
+research.TA_CRAFTCONTROLER.title=A Well-Laid Plan
+research.TA_CRAFTCONTROLER.text.intro=Sometimes I have to keep too much in mind: whether the warehouse has the materials I need, whether there are enough components for a craft. This must be automated.
+research.TA_CRAFTCONTROLER.text.main=I have created a device that solves several problems at once. First, if I order something and the warehouse lacks a required material, the order will not be placed. Second, if the shortage can be covered by crafting from materials already available, the warehouse will be restocked as needed and the Mirror Manipulator will perform the required crafts on its own.
+
+research.TA_AUTOORDERS.title=Inspect and Order
+research.TA_AUTOORDERS.text.intro=Resource supplies always demand attention, and it is impossible to keep track of everything. But if the warehouse gains an Auditor, life becomes easier.
+research.TA_AUTOORDERS.text.main=The Revision Piedestal is another helper for warehouse work. It has two modes: §l"Order"§r and §l"Comparator"§r. The piedestal connects to a §lMirror Manipulator§r and can hold a single item. <BR>In §l"Comparator"§r mode, it emits a redstone signal with strength proportional to the number of that item in the warehouse. The threshold can be adjusted with Shift-left-click, and if an arcane or otherworld stone is placed beneath it, the threshold is increased further. <BR>In §l"Order"§r mode, the piedestal does not emit redstone; it receives it. When it receives a redstone signal, it places a crafting order equal to the configured threshold. The craft result will be sent back into this piedestal, and if a golem seal is placed below it, the items will be extracted safely.
+
 research.TA_GOLEMINFUSION.title=Remote Infusion
 research.TA_GOLEMINFUSION.text.intro=Infusion at the matrix takes a great deal of time and demands constant supervision. Yet I have begun to wonder whether this process might be automated.
 research.TA_GOLEMINFUSION.text.main=The §lInfusion Controller§r is a block capable of performing operations with the Infusion Matrix without my direct involvement, provided it is supplied with §lInfusion Instructions§r.<BR>The Controller must be bound to the pedestals and the runic matrix it is meant to operate. Shift-right-clicking the Controller begins the linking process, right-click is used to bind pedestals—the §lcentral pedestal§r must be linked first—and Shift-right-click is used to bind the matrix. <BR>Each placement of an item upon a pedestal consumes Alienis essentia. <BR>The ritual may be started by a redstone signal.
@@ -93,7 +104,7 @@ research.TA_BOTANY.text.1=Chorus Fruits turned out to be excellent vessels for t
 research.TA_BOTANY.text.2=After gathering the harvest, I returned to the laboratory. Feeding the plants with Purifying Salts Solution produced two results: Fruits of Pure Mind. They can ripen fully if the surrounding aura is rich in vis, or remain unripe if the aura is poor. Feeding them with Liquid Death always produces fruits saturated with Flux. I have managed to find a use for every harvest, and the fruits of Mutable Seeds are themselves valuable alchemical ingredients.
 
 research.TA_ANOMALY.title=Distortion Anomalies
-research.TA_ANOMALY.text.0=I have begun to notice strange disturbances in the aura, as though my research is leaving an irreparable scar upon this world. It seems I have underestimated the influence of Flux upon the aura, and the consequences may become irreversible. <BR>No anomalies are visible in the lands where I currently reside, but what lurks in the far corners of this world and its dark caves remains to be discovered.
+research.TA_ANOMALY.text.0=While closing rifts I found something clearly not of this world, alongside the usual void seeds. It feels as if the collapse tears out a fragment of another nearby world; perhaps in other dimensions I will find something rarer still. <BR>I have also begun to notice strange disturbances in the aura, as though my research is leaving an irreparable scar upon this world. It seems I have underestimated the influence of Flux upon the aura, and the consequences may become irreversible. <BR>No anomalies are visible in the lands where I currently reside, but what lurks in the far corners of this world and its dark caves remains to be discovered.
 research.TA_ANOMALY.text.1=My fears were justified. The Flux I create slowly but surely distorts the aura of this world; the process is so severe that it affects everything from the deepest caverns to the very surface. Materials extracted from anomalies are unique and highly suited to alchemy and infusion. But my samples have run out, and I have managed to develop only purification methods. I must find more.
 research.TA_ANOMALY.text.2=Anomalies have firmly taken root in this world. They appear chaotically whenever several distorted currents of aura collide. After conducting further experiments, I have developed transformation formulas for all of these materials.
 

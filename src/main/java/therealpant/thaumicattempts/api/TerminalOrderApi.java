@@ -25,7 +25,7 @@ public final class TerminalOrderApi {
         if (base == null || base.isEmpty() || pos == null) return ItemStack.EMPTY;
 
         ItemStack icon = base.copy();
-        icon.setCount(1);
+        if (icon.getCount() <= 0) icon.setCount(1);
 
         NBTTagCompound tag = icon.hasTagCompound() ? icon.getTagCompound().copy() : new NBTTagCompound();
         NBTTagCompound inner = new NBTTagCompound();

@@ -172,9 +172,12 @@ public final class ClientModels extends CommonProxy {
         registerItemModel(TABlocks.MIRROR_MANAGER_ITEM);
         attachTileRenderer(TABlocks.MIRROR_MANAGER_ITEM, TileMirrorManager::new);
         registerItemModel(TABlocks.MIRROR_MANAGER_CORE_ITEM);
+        attachTileRenderer(TABlocks.MIRROR_MANAGER_CORE_ITEM, TileMirrorManagerCore::new);
         registerItemModel(TABlocks.RIFT_STONE_BASE_ITEM);
+        attachTileRenderer(TABlocks.RIFT_STONE_BASE_ITEM, TileRiftStoneBase::new);
         registerItemModel(TABlocks.ORDER_TERMINAL_ITEM);
         registerItemModel(TABlocks.PATTERN_REQUESTER_ITEM);
+        attachTileRenderer(TABlocks.PATTERN_REQUESTER_ITEM, TilePatternRequester::new);
         registerItemModel(TABlocks.RESOURCE_REQUESTER_ITEM);
         attachTileRenderer(TABlocks.RESOURCE_REQUESTER_ITEM, TileResourceRequester::new);
         registerItemModel(TABlocks.INFUSION_REQUESTER_ITEM);

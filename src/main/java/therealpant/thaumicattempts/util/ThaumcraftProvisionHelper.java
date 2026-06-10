@@ -121,6 +121,37 @@ public class ThaumcraftProvisionHelper {
      *
      * Если нет — падаем обратно на обычный Thaumcraft'овский provisioning.
      */
+    private static int countActiveTasks(@SuppressWarnings("rawtypes") ConcurrentHashMap tasks) {
+        if (tasks == null) return -1;
+        int count = 0;
+        for (Object value : tasks.values()) {
+            if (!(value instanceof Task)) continue;
+            Task task = (Task) value;
+            if (!task.isCompleted() && !task.isSuspended()) count++;
+        }
+        return count;
+    }
+
+    private static boolean taskWasCreated(int before, int after) {
+        return before < 0 || after < 0 || after > before;
+    }
+
+    private static boolean requestProvisioningTracked(World world, BlockPos pos, EnumFacing side,
+                                                      ItemStack stack, int color, int beforeTasks) {
+        TAHooks.ProvisionTrace trace = TAHooks.beginProvisionTrace();
+        try {
+            GolemHelper.requestProvisioning(world, pos, side, stack, color);
+        } finally {
+            TAHooks.endProvisionTrace(trace);
+        }
+
+        if (trace.getLinkedTasks() > 0) {
+            return true;
+        }
+
+        return taskWasCreated(beforeTasks, countActiveTasks(getTasksSafe()));
+    }
+
     public static boolean requestProvisioningForManager(TileMirrorManager manager, ItemStack stack) {
         if (manager == null || stack == null || stack.isEmpty()) return false;
         if (manager.getWorld() == null) return false;
@@ -128,36 +159,43 @@ public class ThaumcraftProvisionHelper {
         // Берём текущие таски — нужно, чтобы findFreeDispatcherGolemUUID
         // понимал, какие големы уже заняты.
         ConcurrentHashMap<Integer, Task> tasks = getTasksSafe();
+        int beforeTasks = countActiveTasks(tasks);
 
         // Ищем СВОБОДНОГО голема среди привязанных к диспетчерам менеджера.
-        UUID golemId = manager.findFreeDispatcherGolemUUID(tasks);
+        UUID golemId = manager.reserveFreeDispatcherGolemUUID(tasks);
 
         // Цвет канала менеджера (для ProvisionRequest / печати)
         int color = manager.getDispatcherSealColor();
 
         if (golemId == null) {
-            // Нет свободного линкованного курьера:
-            // НИЧЕГО НЕ СОЗДАЁМ.
-            // Менеджерская очередь подождёт следующий тик.
-            return false;
+            if (manager.hasActiveDispatchers()) {
+                return false;
+            }
+            return requestProvisioningTracked(
+                    manager.getWorld(),
+                    manager.getPos(),
+                    EnumFacing.UP,
+                    stack,
+                    0,
+                    beforeTasks
+            );
         }
 
         // Сообщаем патчу, какого голема зашить в создаваемый ProvisionRequest/Task.
         // onProvisionConstruct в TAHooks достанет этот UUID и пропишет в Task.golemUUID.
         TAHooks.pushDispatchGolem(golemId);
         try {
-            GolemHelper.requestProvisioning(
+            return requestProvisioningTracked(
                     manager.getWorld(),
                     manager.getPos(),
                     EnumFacing.UP,
                     stack,
-                    color
+                    color,
+                    beforeTasks
             );
         } finally {
             TAHooks.popDispatchGolem();
         }
-
-        return true;
     }
 
     public static boolean requestProvisioningForManagerWithGolem(TileMirrorManager manager,
@@ -167,21 +205,22 @@ public class ThaumcraftProvisionHelper {
         if (manager.getWorld() == null) return false;
         if (golemId == null) return false;
 
+        int beforeTasks = countActiveTasks(getTasksSafe());
+
         // Тут НЕ ищем свободных, не фоллбэкаем — считаем, что зовущий уже решил.
         TAHooks.pushDispatchGolem(golemId);
         try {
-            GolemHelper.requestProvisioning(
+            return requestProvisioningTracked(
                     manager.getWorld(),
                     manager.getPos(),
                     EnumFacing.UP,
                     stack,
-                    manager.getDispatcherSealColor()
+                    manager.getDispatcherSealColor(),
+                    beforeTasks
             );
         } finally {
             TAHooks.popDispatchGolem();
         }
-
-        return true;
     }
 
 }

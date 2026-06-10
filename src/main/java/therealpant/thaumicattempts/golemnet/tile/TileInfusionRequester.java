@@ -47,7 +47,6 @@ import thaumcraft.common.tiles.crafting.TileInfusionMatrix;
 import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
-import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -68,8 +67,8 @@ import java.util.function.Consumer;
  * - Then wait until it becomes FALSE (craft finished)
  * - Then pull EVERYTHING from ALL bound storages into results (leftovers -> drop)
  */
-public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite,
-        ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider, ICloudCraftConsumer, CraftOrderApi.TagProvider,
+public class TileInfusionRequester extends TileEntity implements ITickable, IPatternedWorksite, ICraftEndpoint,
+        ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider, CraftOrderApi.TagProvider,
         IAnimatable, IEssentiaTransport {
 
     private static final Logger LOG = LogManager.getLogger("ThaumicAttempts/InfusionRequester");
@@ -185,7 +184,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
     // -------------------- job state --------------------
 
     private final ArrayDeque<PendingCrafterDelivery> pendingCraftDeliveries = new ArrayDeque<>();
-    private final LinkedHashSet<UUID> cloudTaskIds = new LinkedHashSet<>();
     private boolean jobActive = false;
     private int activeSlot = -1;
     private int jobCraftsTotal = 1;
@@ -620,17 +618,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             setManagerPos(managerPos, true);
         }
 
-        if (managerPos != null) {
-            ItemKey outKey = ItemKey.of(resultLike);
-            if (outKey != null && outKey != ItemKey.EMPTY) {
-                int acceptedViaCloud = CloudOrderSubmitHelper.submitCraft(world, managerPos, pos, destSide >= 0 ? destSide : EnumFacing.DOWN.getIndex(), outKey, Math.max(1, items));
-                if (acceptedViaCloud > 0) {
-                    logDebug("Cloud order submitted result={} items={} accepted={}", resultLike, items, acceptedViaCloud);
-                    return acceptedViaCloud;
-                }
-            }
-        }
-
         int acceptedCrafts = enqueueTrigger(slot, crafts);
         if (acceptedCrafts <= 0) return 0;
 
@@ -646,7 +633,6 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         return acceptedItems;
     }
 
-    @Override
     public Map<ItemKey, Integer> getInputsPerCycle(ItemStack resultLike) {
         if (resultLike == null || resultLike.isEmpty()) return Collections.emptyMap();
         int slot = findPatternSlotFor(resultLike);
@@ -660,21 +646,9 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
             out.merge(e.getKey(), Math.max(1, e.getCount()), Integer::sum);
         }
-        if (!out.isEmpty()) logDebug("Cloud publish recipe result={} inputs={}", resultLike, out);
         return out;
     }
 
-    @Override
-    public CloudEndpointRef getInputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.UP.getIndex());
-    }
-
-    @Override
-    public CloudEndpointRef getOutputEndpoint() {
-        return new CloudEndpointRef(pos, EnumFacing.DOWN.getIndex());
-    }
-
-    @Override
     public int getOutputCount(ItemKey key) {
         if (key == null || key == ItemKey.EMPTY) return 0;
         ItemStack like = key.toStack(1);
@@ -743,29 +717,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
 
     @Override
     public void enqueueCraft(ItemStack resultLike, int crafts) {
-        enqueueCloudCraft(resultLike, crafts, UUID.randomUUID());
-    }
-
-    @Override
-    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
-        if (taskId == null) return 0;
-        int accepted = enqueueFromPatternRequester(resultLike, cycles);
-        if (accepted > 0) {
-            cloudTaskIds.add(taskId);
-            logDebug("Cloud task accepted id={} result={} cycles={}", taskId, resultLike, accepted);
-        }
-        return accepted;
-    }
-
-    @Override
-    public boolean hasCloudCraftTask(UUID taskId) {
-        if (taskId == null || !cloudTaskIds.contains(taskId)) return false;
-        if (!jobActive && queuedTriggers.isEmpty()) {
-            cloudTaskIds.remove(taskId);
-            logDebug("Cloud task done id={}", taskId);
-            return false;
-        }
-        return true;
+        enqueueFromPatternRequester(resultLike, crafts);
     }
 
     @Override
@@ -812,35 +764,14 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemStack attempt = stack.copy();
             attempt.setCount(toSend);
 
-            TileMirrorManager manager = null;
-            if (order.manager != null && world.getTileEntity(order.manager) instanceof TileMirrorManager) {
-                manager = (TileMirrorManager) world.getTileEntity(order.manager);
-            }
-
             int moved;
-            if (manager != null) {
-                ItemStack remain = manager.acceptProvisionResult(attempt);
-                moved = toSend - (remain.isEmpty() ? 0 : remain.getCount());
-                if (moved > 0) {
-                    Map<ItemKey, Integer> need = new LinkedHashMap<>();
-                    need.put(ItemKey.of(order.like1), moved);
-                    CloudOrderSubmitHelper.submitBatchDelivery(
-                            world,
-                            manager.getPos(),
-                            order.dest,
-                            order.destSide,
-                            new ArrayList<>(need.entrySet())
-                    );
-                }
-            } else {
-                moved = CraftOrderApi.insertIntoDestination(world, order.dest, order.destSide, attempt);
-                if (moved > 0) {
-                    ItemStack delivered = attempt.copy();
-                    delivered.setCount(moved);
-                    TileEntity te = world.getTileEntity(order.dest);
-                    if (te instanceof TileOrderTerminal) {
-                        ((TileOrderTerminal) te).onDelivered(delivered, moved);
-                    }
+            moved = CraftOrderApi.insertIntoDestination(world, order.dest, order.destSide, attempt);
+            if (moved > 0) {
+                ItemStack delivered = attempt.copy();
+                delivered.setCount(moved);
+                TileEntity te = world.getTileEntity(order.dest);
+                if (te instanceof TileOrderTerminal) {
+                    ((TileOrderTerminal) te).onDelivered(delivered, moved);
                 }
             }
 
@@ -955,14 +886,22 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
             ItemKey key = entry.getKey();
             int count = Math.max(1, entry.getCount());
             int total = Math.max(1, count) * jobCraftsLeft;
+            int have = countInInputLike(key);
+            int missing = Math.max(0, total - have);
 
-            baselineToRequester.putIfAbsent(key, countInInputLike(key));
-            pendingToRequester.merge(key, total, Integer::sum);
+            if (missing > 0) {
+                baselineToRequester.putIfAbsent(key, have);
+                pendingToRequester.merge(key, missing, Integer::sum);
+            }
         }
 
         buildPendingByStorageForCraft(resources, storageCount);
 
-        ensurePendingToRequester(0);
+        if (pendingToRequester.isEmpty()) {
+            stage = Stage.INTERACT_TARGET;
+        } else {
+            ensurePendingToRequester(0);
+        }
         markDirtyAndSync();
     }
 
@@ -1093,7 +1032,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         for (int i = 0; i < input.getSlots(); i++) {
             ItemStack slot = input.getStackInSlot(i);
             if (slot.isEmpty()) continue;
-            if (ResourceIdentity.sameResource(slot, like)) total += slot.getCount();
+            if (ResourceIdentity.sameProvisionResource(slot, like)) total += slot.getCount();
         }
         return total;
     }
@@ -1167,17 +1106,8 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         if (!needsEnsure && (tickCounter - lastEnsureTick) < interval) return;
 
         if (useManagerForProvision() && world.getTileEntity(managerPos) instanceof TileMirrorManager) {
-            TileMirrorManager mgr = (TileMirrorManager) world.getTileEntity(managerPos);
-            CloudOrderSubmitHelper.submitBatchDelivery(
-                    world,
-                    mgr.getPos(),
-                    pos,
-                    0,
-                    new ArrayList<>(pendingToRequester.entrySet())
-            );
             needsEnsure = false;
             lastEnsureTick = tickCounter;
-            logDebug("ensurePendingToRequester via manager={} needs={}", managerPos, pendingToRequester);
             return;
         }
 
@@ -1207,7 +1137,7 @@ public class TileInfusionRequester extends TileEntity implements ITickable, IPat
         for (int i = 0; i < input.getSlots() && maxAmount > 0; i++) {
             ItemStack slot = input.getStackInSlot(i);
             if (slot.isEmpty()) continue;
-            if (!ResourceIdentity.sameResource(slot, like)) continue;
+            if (!ResourceIdentity.sameProvisionResource(slot, like)) continue;
 
             int extract = Math.min(maxAmount, slot.getCount());
             ItemStack toInsert = input.extractItem(i, extract, true);

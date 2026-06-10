@@ -1,8 +1,10 @@
 package therealpant.thaumicattempts.api;
 
 import net.minecraft.item.ItemStack;
+import therealpant.thaumicattempts.util.ItemKey;
 
 import java.util.List;
+import java.util.Map;
 
 public interface ICraftEndpoint {
     /**
@@ -21,6 +23,10 @@ public interface ICraftEndpoint {
      * Реализация сама объединяет с существующей очередью.
      */
     void enqueueCraft(ItemStack resultLike, int crafts);
+
+    Map<ItemKey, Integer> getInputsPerCycle(ItemStack resultLike);
+
+    int getOutputCount(ItemKey key);
 
     /**
      * Есть ли активные или поставленные в очередь циклы.

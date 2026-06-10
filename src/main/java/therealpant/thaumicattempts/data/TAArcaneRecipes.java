@@ -19,6 +19,7 @@ import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.api.crafting.ShapedArcaneRecipe;
 import thaumcraft.api.items.ItemsTC;
 
+import thaumcraft.common.blocks.BlockTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
@@ -264,6 +265,24 @@ public final class TAArcaneRecipes {
                     'G',new ItemStack(ModBlocksItems.RIFT_CRISTAL)
             );
             item_list.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "cristal_mas_arcane"));
+            e.getRegistry().register(item_list);
+        }
+        // --------- Пьедестал Ревизии (Arcane Workbench, 250 vis)
+        {
+            ShapedArcaneRecipe item_list = new ShapedArcaneRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "revision_piedestal_arcane"),
+                    "TA_AUTOORDERS",
+                    250,
+                    new AspectList().add(Aspect.ORDER, 2).add(Aspect.FIRE, 2),
+                    new ItemStack(TABlocks.REVISION_PIEDESTAL),
+                    "E E", " P ", "CSM",
+                    'E', new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION),
+                    'P', new ItemStack(Item.getItemFromBlock(pedestalEldritch)),
+                    'S', new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
+                    'C',  new ItemStack(Item.getByNameOrId(ThaumicAttempts.MODID + ":mirror_stabilizer")),
+                    'M', new ItemStack(Item.getByNameOrId(ThaumicAttempts.MODID + ":math_core"))
+            );
+            item_list.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "revision_piedestal_arcane"));
             e.getRegistry().register(item_list);
         }
     }

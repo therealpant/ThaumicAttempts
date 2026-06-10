@@ -9,6 +9,7 @@ import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
+import net.minecraft.util.math.Vec3d;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import software.bernie.geckolib3.geo.render.built.GeoModel;
@@ -17,7 +18,10 @@ import thaumcraft.api.blocks.BlocksTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.client.model.PatternRequesterModel;
 import therealpant.thaumicattempts.golemnet.block.BlockPatternRequester;
+import therealpant.thaumicattempts.golemnet.net.msg.S2CPatternRequesterAnim;
 import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
+
+import java.util.List;
 
 @SideOnly(Side.CLIENT)
 public class RenderPatternRequesterGeo extends GeoBlockRenderer<TilePatternRequester> {
@@ -94,12 +98,13 @@ public class RenderPatternRequesterGeo extends GeoBlockRenderer<TilePatternReque
         try {
             super.render(te, x, y, z, partialTicks, destroyStage, alpha);
 
+            renderEmissiveLayer(te, x, y, z, partialTicks);
             if (RenderSafety.isItemRender()) {
                 return;
             }
 
             renderMirror(te, x, y, z, partialTicks);
-            renderEmissiveLayer(te, x, y, z, partialTicks);
+            renderFlyingItems(te, x, y, z, partialTicks);
         } finally {
             RenderSafety.restoreLightmap(prevLight);
             RenderSafety.resetGlState();
@@ -141,6 +146,111 @@ public class RenderPatternRequesterGeo extends GeoBlockRenderer<TilePatternReque
             RenderSafety.restoreLightmap(prevLight);
             RenderSafety.resetGlState();
         }
+    }
+
+    private void renderFlyingItems(TilePatternRequester te, double x, double y, double z, float partialTicks) {
+        te.clientCullFlying();
+        List<TilePatternRequester.FlyingItem> flying = te.getFlying();
+        if (flying.isEmpty()) return;
+
+        long t = te.getWorld().getTotalWorldTime();
+        float tt = t + partialTicks;
+        float bob = MathHelper.sin(tt * BOB_SPEED) * BOB_AMPL;
+        EnumFacing facing = getFacing(te);
+        float mirrorY = ((facing == EnumFacing.DOWN) ? OFFSET_DN : OFFSET_UP) + bob;
+
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(x + 0.5, y + 0.5, z + 0.5);
+            applyFacingTransform(facing);
+            GlStateManager.enableBlend();
+            GlStateManager.enableAlpha();
+            GlStateManager.tryBlendFuncSeparate(
+                    GlStateManager.SourceFactor.SRC_ALPHA,
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO
+            );
+
+            for (TilePatternRequester.FlyingItem f : flying) {
+                if (f.stack.isEmpty()) continue;
+
+                float age = (t + partialTicks) - f.start;
+                if (age < 0f) continue;
+
+                float p = MathHelper.clamp(age / (float) f.duration, 0f, 1f);
+                float ease = smooth(p);
+                Vec3d pos = requesterPath(f.mode, ease, mirrorY, f.seed);
+
+                float spin = ((t + partialTicks) * (5.2f + ((f.seed & 127) / 36f))) % 360f;
+                float wob = MathHelper.sin((t + partialTicks) * 0.33f + (f.seed & 255) * 0.017f) * 8f;
+
+                GlStateManager.pushMatrix();
+                try {
+                    GlStateManager.translate(pos.x, pos.y, pos.z);
+                    GlStateManager.rotate(spin, 0f, 1f, 0f);
+                    GlStateManager.rotate(wob, 0f, 0f, 1f);
+                    GlStateManager.scale(0.42f, 0.42f, 0.42f);
+
+                    float[] prevLight = RenderSafety.captureLightmap();
+                    try {
+                        int light = te.getWorld().getCombinedLight(te.getPos(), 0);
+                        RenderSafety.setLightmapFromPacked(light);
+                        RenderSafety.beginItemLighting();
+                        Minecraft.getMinecraft().getRenderItem().renderItem(f.stack, ItemCameraTransforms.TransformType.FIXED);
+                        RenderSafety.endItemLighting();
+                    } finally {
+                        RenderSafety.restoreLightmap(prevLight);
+                        RenderSafety.resetGlState();
+                    }
+                } finally {
+                    GlStateManager.popMatrix();
+                }
+            }
+        } finally {
+            GlStateManager.disableBlend();
+            GlStateManager.enableAlpha();
+            GlStateManager.color(1F, 1F, 1F, 1F);
+            GlStateManager.popMatrix();
+        }
+    }
+
+    private static float smooth(float p) {
+        p = MathHelper.clamp(p, 0f, 1f);
+        return p * p * (3f - 2f * p);
+    }
+
+    private static Vec3d requesterPath(int mode, float p, float mirrorY, long seed) {
+        if (mode == S2CPatternRequesterAnim.MODE_BOUNCE) {
+            if (p < 0.5f) {
+                return spiralPath(p * 2f, mirrorY, false, false, seed);
+            }
+            return spiralPath((p - 0.5f) * 2f, mirrorY, true, true, seed);
+        }
+
+        boolean toBlock = mode != S2CPatternRequesterAnim.MODE_BLOCK_TO_MIRROR;
+        return spiralPath(p, mirrorY, toBlock, false, seed);
+    }
+
+    private static Vec3d spiralPath(float p, float mirrorY, boolean mirrorToBlock, boolean mirrored, long seed) {
+        float q = mirrorToBlock ? p : 1f - p;
+        q = smooth(q);
+
+        double base = ((seed & 1023L) / 1023.0) * Math.PI * 2.0;
+        double dir = (((seed >> 10) & 1L) == 0L) ? 1.0 : -1.0;
+        if (mirrored) dir = -dir;
+
+        double theta = base + dir * (Math.PI * 0.5) * q;
+        double radius = 0.34 * Math.sin(Math.PI * q);
+        double x = Math.cos(theta) * radius;
+        double z = Math.sin(theta) * radius;
+
+        double targetY = -1.125;
+        double y = mirrorY + (targetY - mirrorY) * q;
+        double latePeak = Math.sin(Math.PI * Math.pow(q, 0.72));
+        y += 0.24 * Math.max(0.0, latePeak);
+
+        return new Vec3d(x, y, z);
     }
 
     private void renderEmissiveLayer(TilePatternRequester te,

@@ -21,9 +21,10 @@ import thaumcraft.common.items.ItemTCEssentiaContainer;
 import therealpant.thaumicattempts.api.*;
 import therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern;
 import therealpant.thaumicattempts.golemcraft.item.ItemBasePattern;
+import therealpant.thaumicattempts.golemcraft.item.ItemResourceList;
 import therealpant.thaumicattempts.golemcraft.tile.TileEntityGolemCrafter;
 import therealpant.thaumicattempts.golemcraft.item.ItemInfusionPattern;
-import therealpant.thaumicattempts.golemnet.cloud.CloudEndpointRef;
+import therealpant.thaumicattempts.golemnet.net.msg.S2CPatternRequesterAnim;
 import therealpant.thaumicattempts.util.ItemKey;
 import therealpant.thaumicattempts.util.ResourceIdentity;
 
@@ -47,15 +48,44 @@ import java.util.*;
  *      getRecipeInputsFor(result, times)
  * - Поддерживает привязку к менеджеру: get/set/clearManagerPos*.
  */
-public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICloudCraftConsumer,
+public class TilePatternRequester extends TileEntity implements ITickable, IAnimatable, ICraftEndpoint,
         CraftOrderApi.TagProvider, ITerminalOrderAcceptor, IAutomationOrderAcceptor, ITerminalOrderIconProvider {
     private final AnimationFactory factory = new AnimationFactory(this);
-    private final LinkedHashSet<UUID> cloudTasks = new LinkedHashSet<>();
 
-    private void debugCloud(String msg, Object... args) {
-        String fmt = msg == null ? "" : msg.replace("{}", "%s");
-        therealpant.thaumicattempts.ThaumicAttempts.LOGGER.debug("[PatternConsumer " + pos + "] " + String.format(fmt, args));
+    public static final class FlyingItem {
+        public ItemStack stack = ItemStack.EMPTY;
+        public int mode = S2CPatternRequesterAnim.MODE_MIRROR_TO_BLOCK;
+        public long start;
+        public int duration;
+        public long seed;
+
+        public FlyingItem(ItemStack stack, int mode, long start, int duration, long seed) {
+            this.stack = stack == null ? ItemStack.EMPTY : stack.copy();
+            if (!this.stack.isEmpty()) this.stack.setCount(1);
+            this.mode = mode;
+            this.start = start;
+            this.duration = Math.max(5, duration);
+            this.seed = seed;
+        }
     }
+
+    private final List<FlyingItem> flying = new ArrayList<>();
+
+    public List<FlyingItem> getFlying() {
+        return new ArrayList<>(flying);
+    }
+
+    public void clientAddFlying(ItemStack stack, int mode, int duration, long seed, int delay) {
+        if (world == null || !world.isRemote || stack == null || stack.isEmpty()) return;
+        flying.add(new FlyingItem(stack, mode, world.getTotalWorldTime() + Math.max(0, delay), duration, seed));
+    }
+
+    public void clientCullFlying() {
+        if (world == null || !world.isRemote) return;
+        long now = world.getTotalWorldTime();
+        flying.removeIf(f -> (now - f.start) > (long) f.duration + 2);
+    }
+
     // ===== Geckolib =====
     @Override
     public void registerControllers(AnimationData data) {
@@ -108,16 +138,38 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         return (te instanceof TileEntityGolemCrafter) ? (TileEntityGolemCrafter) te : null;
     }
 
+    @Nullable
+    private TileEntity getWorksiteBelow() {
+        return world == null ? null : world.getTileEntity(pos.down());
+    }
+
+    @Nullable
+    private ICraftEndpoint getEndpointBelow() {
+        TileEntity te = getWorksiteBelow();
+        return (te instanceof ICraftEndpoint) ? (ICraftEndpoint) te : null;
+    }
+
+    @Nullable
+    private IPatternedWorksite getPatternedBelow() {
+        TileEntity te = getWorksiteBelow();
+        return (te instanceof IPatternedWorksite) ? (IPatternedWorksite) te : null;
+    }
+
     /** Доступ к паттернам крафтера под плитой (пустой обработчик, если крафтера нет). */
     public IItemHandler getPatternHandler() {
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter != null) return crafter.getPatternHandler();
+        IPatternedWorksite worksite = getPatternedBelow();
+        if (worksite != null) return worksite.getPatternHandler();
         return net.minecraftforge.items.wrapper.EmptyHandler.INSTANCE;
     }
 
     /* ====== Константы NBT, совпадающие с крафтером/паттерном ====== */
     private static final String TAG_RESULT = "Result";
     private static final String TAG_GRID   = "Grid";
+
+    private static boolean isSupportedPattern(ItemStack stack) {
+        return stack != null && !stack.isEmpty()
+                && (stack.getItem() instanceof ItemBasePattern || stack.getItem() instanceof ItemResourceList);
+    }
 
     /* ====== Редстоун-выход (только декоративный/совместимость, на крафт не влияет) ====== */
     private int outSignal = 0;
@@ -146,16 +198,13 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     @Override
     /** Список всех результатов из паттернов (каждый — с правильным count за 1 крафт). */
     public List<ItemStack> listCraftableResults() {
-        TileEntityGolemCrafter cr = getCrafterBelow();
-        if (cr == null) return Collections.emptyList();
-
-        IItemHandler patt = cr.getPatternHandler();
+        IItemHandler patt = getPatternHandler();
         if (patt == null) return Collections.emptyList();
 
         ArrayList<ItemStack> out = new ArrayList<>();
         for (int i = 0; i < patt.getSlots(); i++) {
             ItemStack pat = patt.getStackInSlot(i);
-            if (pat.isEmpty() || !(pat.getItem() instanceof ItemBasePattern)) continue;
+            if (!isSupportedPattern(pat)) continue;
 
             NonNullList<ItemStack> grid = readGridFromPattern(pat);
             ItemStack preview = calcPreview(pat, grid);
@@ -171,16 +220,12 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     /** Сколько штук даёт ровно один крафт для результата «как этот». */
     public int getPerCraftOutputCountFor(ItemStack like) {
         if (like == null || like.isEmpty()) return 0;
-
-        TileEntityGolemCrafter cr = getCrafterBelow();
-        if (cr == null) return 0;
-
-        IItemHandler patt = cr.getPatternHandler();
+        IItemHandler patt = getPatternHandler();
         if (patt == null) return 0;
 
         for (int i = 0; i < patt.getSlots(); i++) {
             ItemStack pat = patt.getStackInSlot(i);
-            if (pat.isEmpty() || !(pat.getItem() instanceof ItemBasePattern)) continue;
+            if (!isSupportedPattern(pat)) continue;
 
             NonNullList<ItemStack> grid = readGridFromPattern(pat);
             ItemStack preview = calcPreview(pat, grid);
@@ -194,48 +239,22 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     }
     @Override
     public void enqueueCraft(ItemStack resultLike, int crafts) {
-        enqueueCloudCraft(resultLike, crafts, UUID.randomUUID());
-    }
-
-
-    @Override
-    public int enqueueCloudCraft(ItemStack resultLike, int cycles, UUID taskId) {
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter == null || resultLike == null || resultLike.isEmpty() || cycles <= 0 || taskId == null) return 0;
-        int accepted = crafter.enqueueFromPatternRequester(resultLike, cycles);
-        if (accepted > 0) {
-            cloudTasks.add(taskId);
-            debugCloud("accepted cloud craft task id={} result={} cycles={}", taskId, resultLike, accepted);
+        ICraftEndpoint endpoint = getEndpointBelow();
+        if (endpoint != null && resultLike != null && !resultLike.isEmpty() && crafts > 0) {
+            endpoint.enqueueCraft(resultLike, crafts);
         }
-        return accepted;
-    }
-
-    @Override
-    public boolean hasCloudCraftTask(UUID taskId) {
-        if (taskId == null) return false;
-        if (!cloudTasks.contains(taskId)) return false;
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter == null || !crafter.hasRequesterQueue()) {
-            cloudTasks.remove(taskId);
-            debugCloud("task done id={}", taskId);
-            return false;
-        }
-        return true;
     }
 
     @Override
     public List<ItemStack> listTerminalOrderIcons() {
         if (world == null) return Collections.emptyList();
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter == null) return Collections.emptyList();
-
-        IItemHandler patt = crafter.getPatternHandler();
+        IItemHandler patt = getPatternHandler();
         if (patt == null) return Collections.emptyList();
 
         ArrayList<ItemStack> out = new ArrayList<>();
         for (int i = 0; i < patt.getSlots(); i++) {
             ItemStack pat = patt.getStackInSlot(i);
-            if (pat.isEmpty() || !(pat.getItem() instanceof ItemBasePattern)) continue;
+            if (!isSupportedPattern(pat)) continue;
 
             ItemStack preview = calcPreview(pat, readGridFromPattern(pat));
             if (preview.isEmpty()) continue;
@@ -253,8 +272,8 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     @Override
     public int submitAutomationOrder(int slot, int items, @Nullable BlockPos managerPos, @Nullable BlockPos dest, int destSide) {
         if (world == null || world.isRemote || slot < 0 || items <= 0) return 0;
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter == null) return 0;
+        IPatternedWorksite worksite = getPatternedBelow();
+        if (worksite == null) return 0;
 
         ItemStack resultLike = getResultLikeForPatternIndex(slot);
         if (resultLike.isEmpty()) return 0;
@@ -263,33 +282,20 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
         int crafts = (items + perCraft - 1) / perCraft;
         if (crafts <= 0) return 0;
 
-        if (managerPos != null) {
-            ItemKey outKey = ItemKey.of(resultLike);
-            if (outKey != null && outKey != ItemKey.EMPTY) {
-                int acceptedItems = CloudOrderSubmitHelper.submitCraft(world, managerPos, pos, destSide >= 0 ? destSide : EnumFacing.DOWN.getIndex(), outKey, Math.max(1, items));
-                if (acceptedItems > 0) {
-                    debugCloud("redstone/terminal submit via cloud result={} items={} accepted={}", resultLike, items, acceptedItems);
-                    return acceptedItems;
-                }
-            }
-        }
-
-        int acceptedCrafts = crafter.enqueueFromPatternRequester(slot, crafts);
+        int acceptedCrafts = worksite.enqueueFromPatternRequester(slot, crafts);
         if (acceptedCrafts <= 0) return 0;
         return Math.max(1, acceptedCrafts * perCraft);
     }
 
     private ItemStack getResultLikeForPatternIndex(int idx) {
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        if (crafter == null) return ItemStack.EMPTY;
-        IItemHandler patt = crafter.getPatternHandler();
+        IItemHandler patt = getPatternHandler();
         if (patt == null || idx < 0 || idx >= patt.getSlots()) return ItemStack.EMPTY;
         ItemStack pat = patt.getStackInSlot(idx);
-        if (pat.isEmpty() || !(pat.getItem() instanceof ItemBasePattern)) return ItemStack.EMPTY;
+        if (!isSupportedPattern(pat)) return ItemStack.EMPTY;
         ItemStack preview = calcPreview(pat, readGridFromPattern(pat));
         if (preview.isEmpty()) return ItemStack.EMPTY;
         ItemStack one = preview.copy();
-        one.setCount(1);
+        if (one.getCount() <= 0) one.setCount(1);
         return one;
     }
 
@@ -300,7 +306,6 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
      *  - нестакуемые — item+meta (NBT игнорируется);
      *  - стакаемые — relaxed.
      */
-    @Override
     public Map<ItemKey, Integer> getInputsPerCycle(ItemStack resultLike) {
         LinkedHashMap<ItemKey, Integer> out = new LinkedHashMap<>();
         for (ItemStack in : getRecipeInputsFor(resultLike, 1)) {
@@ -309,21 +314,9 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
             if (key == null || key == ItemKey.EMPTY) continue;
             out.merge(key, Math.max(1, in.getCount()), Integer::sum);
         }
-        if (!out.isEmpty()) debugCloud("publish recipe {} inputs={}", resultLike, out);
         return out;
     }
 
-    @Override
-    public CloudEndpointRef getInputEndpoint() {
-        return new CloudEndpointRef(pos.down(), EnumFacing.UP.getIndex());
-    }
-
-    @Override
-    public CloudEndpointRef getOutputEndpoint() {
-        return new CloudEndpointRef(pos.down(), EnumFacing.DOWN.getIndex());
-    }
-
-    @Override
     public int getOutputCount(ItemKey key) {
         if (key == null || key == ItemKey.EMPTY) return 0;
         TileEntityGolemCrafter crafter = getCrafterBelow();
@@ -346,21 +339,33 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     public List<ItemStack> getRecipeInputsFor(ItemStack resultLike, int times) {
         if (resultLike == null || resultLike.isEmpty() || times <= 0) return Collections.emptyList();
 
-        TileEntityGolemCrafter cr = getCrafterBelow();
-        if (cr == null) return Collections.emptyList();
-
-        IItemHandler patt = cr.getPatternHandler();
+        TileEntity worksite = getWorksiteBelow();
+        IItemHandler patt = getPatternHandler();
         if (patt == null) return Collections.emptyList();
 
         for (int i = 0; i < patt.getSlots(); i++) {
             ItemStack pat = patt.getStackInSlot(i);
-            if (pat.isEmpty() || !(pat.getItem() instanceof ItemBasePattern)) continue;
+            if (!isSupportedPattern(pat)) continue;
 
             NonNullList<ItemStack> grid = readGridFromPattern(pat);
             ItemStack preview = calcPreview(pat, grid);
             if (preview.isEmpty()) continue;
 
             if (!matchForRecipeRelaxed(preview, resultLike)) continue;
+
+            if (pat.getItem() instanceof ItemResourceList) {
+                List<PatternResourceList.Entry> resources = PatternResourceList.build(pat);
+                if (resources == null || resources.isEmpty()) return Collections.emptyList();
+                ArrayList<ItemStack> out = new ArrayList<>(resources.size());
+                for (PatternResourceList.Entry e : resources) {
+                    if (e == null || e.getKey() == null || e.getKey() == ItemKey.EMPTY) continue;
+                    int total = Math.max(0, e.getCount()) * Math.max(1, times);
+                    if (total <= 0) continue;
+                    ItemStack st = e.getKey().toStack(total);
+                    if (!st.isEmpty()) out.add(st);
+                }
+                return out;
+            }
 
             // === агрегируем входы как в крафтере (sameForGrid/key1ForGrid)
             Map<ItemStack, Integer> need = new LinkedHashMap<>();
@@ -377,7 +382,7 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
             }
 
             // === ДОБАВКА: если под нами аркан-крафтер — докладываем прималы из паттерна
-            if (cr instanceof therealpant.thaumicattempts.golemcraft.tile.TileEntityArcaneCrafter) {
+            if (worksite instanceof therealpant.thaumicattempts.golemcraft.tile.TileEntityArcaneCrafter) {
                 int[] counts = therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern.getCrystalCounts(pat);
                 thaumcraft.api.aspects.Aspect[] primals = therealpant.thaumicattempts.golemcraft.item.ItemArcanePattern.PRIMALS;
                 if (counts != null && primals != null) {
@@ -442,6 +447,11 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     private ItemStack readStoredPreview(ItemStack pattern) {
         if (pattern == null || pattern.isEmpty()) return ItemStack.EMPTY;
 
+        if (pattern.getItem() instanceof ItemResourceList) {
+            ItemStack res = ItemResourceList.getPreviewOrFirstEntry(pattern);
+            return res == null ? ItemStack.EMPTY : res.copy();
+        }
+
         // Аркан-паттерн имеет собственный вычислитель превью
         if (pattern.getItem() instanceof ItemArcanePattern) {
             ItemStack arc = ItemArcanePattern.calcArcaneResultPreview(pattern, world);
@@ -464,15 +474,20 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     /** Ровно как у крафтера: сначала NBT-превью, иначе ванильный CraftingManager. */
     private ItemStack calcPreview(ItemStack pattern, NonNullList<ItemStack> grid) {
         ItemStack cached = readStoredPreview(pattern);
-        if (!cached.isEmpty()) return cached;
 
-        if (grid == null) return ItemStack.EMPTY;
+        if (grid == null) return cached.isEmpty() ? ItemStack.EMPTY : cached;
         InventoryCrafting inv = new InventoryCrafting(new Container() {
             @Override public boolean canInteractWith(EntityPlayer playerIn) { return false; }
         }, 3, 3);
         for (int i = 0; i < 9; i++) inv.setInventorySlotContents(i, grid.get(i).copy());
         ItemStack direct = CraftingManager.findMatchingResult(inv, world);
-        return (direct == null || direct.isEmpty()) ? ItemStack.EMPTY : direct.copy();
+        if (direct == null || direct.isEmpty()) return cached.isEmpty() ? ItemStack.EMPTY : cached;
+        if (!cached.isEmpty()
+                && ResourceIdentity.sameResource(cached, direct)
+                && cached.getCount() >= direct.getCount()) {
+            return cached;
+        }
+        return direct.copy();
     }
 
     /* ====== Матчинг/нормализация — 1в1 с крафтером ====== */
@@ -526,15 +541,12 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
     public int findPatternIndexForResultLike(ItemStack like1) {
         if (like1 == null || like1.isEmpty()) return -1;
 
-        TileEntityGolemCrafter cr = getCrafterBelow();
-        if (cr == null) return -1;
-
-        IItemHandler patt = cr.getPatternHandler();
+        IItemHandler patt = getPatternHandler();
         if (patt == null) return -1;
 
         for (int i = 0; i < patt.getSlots(); i++) {
             ItemStack pat = patt.getStackInSlot(i);
-            if (pat.isEmpty() || !(pat.getItem() instanceof therealpant.thaumicattempts.golemcraft.item.ItemBasePattern)) {
+            if (!isSupportedPattern(pat)) {
                 continue;
             }
 
@@ -552,8 +564,8 @@ public class TilePatternRequester extends TileEntity implements ITickable, IAnim
 
     @Override
     public boolean hasActiveOrQueued() {
-        TileEntityGolemCrafter crafter = getCrafterBelow();
-        return crafter != null && crafter.hasRequesterQueue();
+        ICraftEndpoint endpoint = getEndpointBelow();
+        return endpoint != null && endpoint.hasActiveOrQueued();
     }
 
     @Override

@@ -204,7 +204,7 @@ public class ItemArcanePattern extends ItemBasePattern  implements IPatternResou
             }
         }
     }
-    public static void writeInventoryToStack(ItemStack pattern, NonNullList<ItemStack> grid, ItemStack unusedResult) {
+    public static void writeInventoryToStack(ItemStack pattern, NonNullList<ItemStack> grid, ItemStack result) {
         ensureNBT(pattern);
         NBTTagCompound tag = pattern.getTagCompound();
 
@@ -220,6 +220,14 @@ public class ItemArcanePattern extends ItemBasePattern  implements IPatternResou
             list.appendTag(st);
         }
         tag.setTag(TAG_GRID, list);
+
+        if (result != null && !result.isEmpty()) {
+            NBTTagCompound r = new NBTTagCompound();
+            result.copy().writeToNBT(r);
+            tag.setTag(TAG_RESULT, r);
+        } else {
+            tag.removeTag(TAG_RESULT);
+        }
     }
 
     // === ПРЕВЬЮ ДЛЯ АРКАНОВЫХ РЕЦЕПТОВ ===
