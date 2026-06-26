@@ -1,0 +1,8 @@
+{
+  "variants": {
+    "facing=north": { "model": "thaumicattempts:rift_stone_portal" },
+    "facing=south": { "model": "thaumicattempts:rift_stone_portal", "y": 180 },
+    "facing=west": { "model": "thaumicattempts:rift_stone_portal", "y": 270 },
+    "facing=east": { "model": "thaumicattempts:rift_stone_portal", "y": 90 }
+  }
+}

@@ -33,6 +33,7 @@ import therealpant.thaumicattempts.events.AmberCasterCapabilityHandler;
 import therealpant.thaumicattempts.events.TAGemEventHandler;
 import therealpant.thaumicattempts.data.research.TAResearchAddenda;
 import therealpant.thaumicattempts.init.ModBlocksItems;
+import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
 import therealpant.thaumicattempts.gems.AmberGemDefinition;
 import therealpant.thaumicattempts.gems.AmethystGemDefinition;
@@ -98,6 +99,7 @@ public class ThaumicAttempts {
         TAGemRegistry.register(new StubGemDefinition());
         MinecraftForge.EVENT_BUS.register(new TAGemEventHandler());
         MinecraftForge.EVENT_BUS.register(new AmberCasterCapabilityHandler());
+        TAAspects.registerAspects();
 
         // РЕГИСТРАЦИЯ ВСЕХ ПАКЕТОВ МОДА
         registerPackets();
@@ -147,6 +149,12 @@ public class ThaumicAttempts {
                 ? "research/ta_eldritch_ta"
                 : "research/ta_eldritch";
         ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, eldritchResearch));
+
+        GameRegistry.addSmelting(
+                TABlocks.ELDRITCH_CONSTRUCTION,
+                new ItemStack(TABlocks.POLISHED_DARK_JASPER),
+                0.1F
+        );
 
         proxy.init(e);
     }

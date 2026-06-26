@@ -30,6 +30,7 @@ public class GuiCraftPattern extends GuiContainer {
 
     private boolean blurOn = false;
     private static final int INFUSION_RADIUS = 29;
+    private static final float INFUSION_ITEM_SCALE = 0.8F;
 
     private final IPatternContainer patternContainer;
 
@@ -235,10 +236,18 @@ public class GuiCraftPattern extends GuiContainer {
                 drawY = (int) Math.round(centerY + dy) - 8;
             }
 
-            this.itemRender.renderItemAndEffectIntoGUI(stack, drawX, drawY);
-            this.itemRender.renderItemOverlayIntoGUI(this.fontRenderer, stack, drawX, drawY, null);
+            renderInfusionItemCentered(stack, drawX + 8, drawY + 8);
             rendered++;
         }
+    }
+
+    private void renderInfusionItemCentered(ItemStack stack, int centerX, int centerY) {
+        GlStateManager.pushMatrix();
+        GlStateManager.translate(centerX, centerY, 0F);
+        GlStateManager.scale(INFUSION_ITEM_SCALE, INFUSION_ITEM_SCALE, 1F);
+        this.itemRender.renderItemAndEffectIntoGUI(stack, -8, -8);
+        this.itemRender.renderItemOverlayIntoGUI(this.fontRenderer, stack, -8, -8, null);
+        GlStateManager.popMatrix();
     }
 
     private boolean isPreviewAreaClick(int mouseX, int mouseY) {

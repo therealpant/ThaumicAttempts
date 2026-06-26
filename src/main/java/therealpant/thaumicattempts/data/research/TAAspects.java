@@ -1,17 +1,35 @@
 package therealpant.thaumicattempts.data.research;
 
 import net.minecraft.item.ItemStack;
+import net.minecraft.util.ResourceLocation;
 import thaumcraft.api.ThaumcraftApi;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
+import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 
 public class TAAspects {
+    public static Aspect PARADOXUM;
+
+    private static final String PARADOXUM_TAG = "paradoxum";
+    private static final int PARADOXUM_COLOR = 0x020A3A;
+    private static final ResourceLocation PARADOXUM_ICON = new ResourceLocation(
+            ThaumicAttempts.MODID,
+            "textures/asspects/paradoxs.png"
+    );
 
     private TAAspects() {}
 
+    public static void registerAspects() {
+        Aspect existing = Aspect.getAspect(PARADOXUM_TAG);
+        PARADOXUM = existing != null
+                ? existing
+                : new Aspect(PARADOXUM_TAG, PARADOXUM_COLOR, null, PARADOXUM_ICON, 1);
+    }
+
     public static void register() {
+        registerAspects();
 
         ThaumcraftApi.registerObjectTag(
                 new ItemStack(ModBlocksItems.RIFT_CRISTAL),

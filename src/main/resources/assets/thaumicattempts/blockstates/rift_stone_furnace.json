@@ -1,0 +1,11 @@
+{
+  "variants": {
+    "part=lower_full": { "model": "thaumicattempts:rift_stone_furnace" },
+    "part=center_low": { "model": "thaumicattempts:rift_stone_furnace" },
+    "part=top_corner": { "model": "thaumicattempts:rift_stone_furnace" },
+    "part=top_north": { "model": "thaumicattempts:rift_stone_furnace" },
+    "part=top_west": { "model": "thaumicattempts:rift_stone_furnace" },
+    "part=top_east": { "model": "thaumicattempts:rift_stone_furnace" },
+    "part=top_south": { "model": "thaumicattempts:rift_stone_furnace" }
+  }
+}

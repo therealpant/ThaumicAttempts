@@ -250,7 +250,9 @@
         {
           "text": "research.TA_RIFT_EXTRACTOR.text.2",
           "recipes": [
-            "thaumicattempts:rift_extractor_multiblock"
+            "thaumicattempts:rift_extractor_multiblock",
+            "thaumicattempts:rift_stone_furnace_multiblock",
+            "thaumicattempts:rift_portal_multiblock"
           ]
         }
       ]

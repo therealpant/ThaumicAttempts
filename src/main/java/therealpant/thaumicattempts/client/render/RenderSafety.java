@@ -4,6 +4,7 @@ import net.minecraft.client.renderer.GlStateManager;
 import net.minecraft.client.renderer.OpenGlHelper;
 import net.minecraft.client.renderer.RenderHelper;
 import org.lwjgl.opengl.GL11;
+import org.lwjgl.opengl.GL12;
 import org.lwjgl.opengl.GL13;
 
 /**
@@ -43,7 +44,11 @@ public final class RenderSafety {
                 GL11.glIsEnabled(GL11.GL_ALPHA_TEST),
                 GL11.glIsEnabled(GL11.GL_DEPTH_TEST),
                 GL11.glIsEnabled(GL11.GL_LIGHTING),
+                GL11.glIsEnabled(GL11.GL_LIGHT0),
+                GL11.glIsEnabled(GL11.GL_LIGHT1),
                 GL11.glIsEnabled(GL11.GL_CULL_FACE),
+                GL11.glIsEnabled(GL11.GL_COLOR_MATERIAL),
+                GL11.glIsEnabled(GL12.GL_RESCALE_NORMAL),
                 GL11.glGetBoolean(GL11.GL_DEPTH_WRITEMASK),
                 GL11.glGetInteger(GL11.GL_BLEND_SRC),
                 GL11.glGetInteger(GL11.GL_BLEND_DST),
@@ -63,7 +68,11 @@ public final class RenderSafety {
         setEnabledAlpha(state.alpha);
         setEnabledDepth(state.depth);
         setEnabledLighting(state.lighting);
+        setEnabledLight(GL11.GL_LIGHT0, state.light0);
+        setEnabledLight(GL11.GL_LIGHT1, state.light1);
         setEnabledCull(state.cull);
+        setEnabledColorMaterial(state.colorMaterial);
+        setEnabledRescaleNormal(state.rescaleNormal);
         GlStateManager.depthMask(state.depthMask);
         GlStateManager.setActiveTexture(state.activeTexture);
         GlStateManager.color(1F, 1F, 1F, 1F);
@@ -120,9 +129,24 @@ public final class RenderSafety {
         else GlStateManager.disableLighting();
     }
 
+    private static void setEnabledLight(int light, boolean enabled) {
+        if (enabled) GL11.glEnable(light);
+        else GL11.glDisable(light);
+    }
+
     private static void setEnabledCull(boolean enabled) {
         if (enabled) GlStateManager.enableCull();
         else GlStateManager.disableCull();
+    }
+
+    private static void setEnabledColorMaterial(boolean enabled) {
+        if (enabled) GlStateManager.enableColorMaterial();
+        else GlStateManager.disableColorMaterial();
+    }
+
+    private static void setEnabledRescaleNormal(boolean enabled) {
+        if (enabled) GlStateManager.enableRescaleNormal();
+        else GlStateManager.disableRescaleNormal();
     }
 
     public static final class GlStateSnapshot {
@@ -130,19 +154,29 @@ public final class RenderSafety {
         private final boolean alpha;
         private final boolean depth;
         private final boolean lighting;
+        private final boolean light0;
+        private final boolean light1;
         private final boolean cull;
+        private final boolean colorMaterial;
+        private final boolean rescaleNormal;
         private final boolean depthMask;
         private final int blendSrc;
         private final int blendDst;
         private final int activeTexture;
 
-        private GlStateSnapshot(boolean blend, boolean alpha, boolean depth, boolean lighting, boolean cull,
+        private GlStateSnapshot(boolean blend, boolean alpha, boolean depth, boolean lighting,
+                                boolean light0, boolean light1, boolean cull,
+                                boolean colorMaterial, boolean rescaleNormal,
                                 boolean depthMask, int blendSrc, int blendDst, int activeTexture) {
             this.blend = blend;
             this.alpha = alpha;
             this.depth = depth;
             this.lighting = lighting;
+            this.light0 = light0;
+            this.light1 = light1;
             this.cull = cull;
+            this.colorMaterial = colorMaterial;
+            this.rescaleNormal = rescaleNormal;
             this.depthMask = depthMask;
             this.blendSrc = blendSrc;
             this.blendDst = blendDst;

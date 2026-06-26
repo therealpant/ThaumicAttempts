@@ -26,10 +26,16 @@ import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 
 import therealpant.thaumicattempts.items.ItemStorageBell;
 import therealpant.thaumicattempts.items.ItemTAGem;
+import therealpant.thaumicattempts.items.ItemPortalRune;
 
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
 import therealpant.thaumicattempts.world.tile.TileAuraBooster;
+import therealpant.thaumicattempts.world.tile.TileRiftPortalPlatform;
+import therealpant.thaumicattempts.world.tile.TileRiftStoneAltar;
+import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnace;
+import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnacePort;
+import therealpant.thaumicattempts.world.tile.TileRiftStonePortal;
 import therealpant.thaumicattempts.world.item.ItemAnomalySeeds;
 import therealpant.thaumicattempts.world.item.ItemMindFruitFood;
 import therealpant.thaumicattempts.world.item.ItemMindPotion;
@@ -62,6 +68,7 @@ public final class ModBlocksItems {
     public static Item MIND_POTION;
     public static Item TA_GEM;
     public static Item STORAGE_BELL;
+    public static Item PORTAL_RUNE;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -103,6 +110,12 @@ public final class ModBlocksItems {
         TABlocks.RIFT_CRISTAL_BLOCK = new BlockRistCristalBlock();
         TABlocks.RIFT_EXTRACTOR = new BlockRiftExtractor();
         TABlocks.REVISION_PIEDESTAL = new BlockRevisionPiedestal();
+        TABlocks.RIFT_STONE_PORTAL = new BlockRiftStonePortal();
+        TABlocks.RIFT_PORTAL_PLATFORM = new BlockRiftPortalPlatform();
+        TABlocks.RIFT_STONE_FURNACE = new BlockRiftStoneFurnace();
+        TABlocks.RIFT_STONE_ALTAR = new BlockRiftStoneAltar();
+        TABlocks.POLISHED_DARK_JASPER = new BlockDarkJasperFull("polished_dark_jasper");
+        TABlocks.DARK_JASPER_BRICKS = new BlockDarkJasperFull("dark_jasper_bricks");
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
                 TABlocks.MIRROR_MANAGER_CORE,
@@ -123,7 +136,13 @@ public final class ModBlocksItems {
                 TABlocks.AURA_BOOSTER_CORE,
                 TABlocks.RIFT_CRISTAL_BLOCK,
                 TABlocks.RIFT_EXTRACTOR,
-                TABlocks.REVISION_PIEDESTAL
+                TABlocks.REVISION_PIEDESTAL,
+                TABlocks.RIFT_STONE_PORTAL,
+                TABlocks.RIFT_PORTAL_PLATFORM,
+                TABlocks.RIFT_STONE_FURNACE,
+                TABlocks.RIFT_STONE_ALTAR,
+                TABlocks.POLISHED_DARK_JASPER,
+                TABlocks.DARK_JASPER_BRICKS
         );
 
         // TileEntities сети
@@ -159,6 +178,16 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_extractor"));
         GameRegistry.registerTileEntity(TileRevisionPiedestal.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "revision_piedestal"));
+        GameRegistry.registerTileEntity(TileRiftStonePortal.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_portal"));
+        GameRegistry.registerTileEntity(TileRiftPortalPlatform.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_portal_platform"));
+        GameRegistry.registerTileEntity(TileRiftStoneFurnace.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_furnace"));
+        GameRegistry.registerTileEntity(TileRiftStoneFurnacePort.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_furnace_port"));
+        GameRegistry.registerTileEntity(TileRiftStoneAltar.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_altar"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -215,6 +244,7 @@ public final class ModBlocksItems {
         TA_GEM = new ItemTAGem()
                 .setRegistryName(ThaumicAttempts.MODID, "ta_gem");
         STORAGE_BELL = new ItemStorageBell();
+        PORTAL_RUNE = new ItemPortalRune();
 
         e.getRegistry().registerAll(
                 CRAFT_PATTERN,
@@ -233,7 +263,8 @@ public final class ModBlocksItems {
                 TAINTED_MIND_FRUIT,
                 MIND_POTION,
                 TA_GEM,
-                STORAGE_BELL
+                STORAGE_BELL,
+                PORTAL_RUNE
         );
 
         // ItemBlock'и
@@ -287,6 +318,18 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_EXTRACTOR.getRegistryName());
         TABlocks.REVISION_PIEDESTAL_ITEM = new ItemBlock(TABlocks.REVISION_PIEDESTAL)
                 .setRegistryName(TABlocks.REVISION_PIEDESTAL.getRegistryName());
+        TABlocks.RIFT_STONE_PORTAL_ITEM = new ItemBlock(TABlocks.RIFT_STONE_PORTAL)
+                .setRegistryName(TABlocks.RIFT_STONE_PORTAL.getRegistryName());
+        TABlocks.RIFT_PORTAL_PLATFORM_ITEM = new ItemBlock(TABlocks.RIFT_PORTAL_PLATFORM)
+                .setRegistryName(TABlocks.RIFT_PORTAL_PLATFORM.getRegistryName());
+        TABlocks.RIFT_STONE_FURNACE_ITEM = new ItemBlock(TABlocks.RIFT_STONE_FURNACE)
+                .setRegistryName(TABlocks.RIFT_STONE_FURNACE.getRegistryName());
+        TABlocks.RIFT_STONE_ALTAR_ITEM = new ItemBlock(TABlocks.RIFT_STONE_ALTAR)
+                .setRegistryName(TABlocks.RIFT_STONE_ALTAR.getRegistryName());
+        TABlocks.POLISHED_DARK_JASPER_ITEM = new ItemBlock(TABlocks.POLISHED_DARK_JASPER)
+                .setRegistryName(TABlocks.POLISHED_DARK_JASPER.getRegistryName());
+        TABlocks.DARK_JASPER_BRICKS_ITEM = new ItemBlock(TABlocks.DARK_JASPER_BRICKS)
+                .setRegistryName(TABlocks.DARK_JASPER_BRICKS.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
@@ -307,7 +350,13 @@ public final class ModBlocksItems {
                 TABlocks.AURA_BOOSTER_CORE_ITEM,
                 TABlocks.RIFT_CRISTAL_BLOCK_ITEM,
                 TABlocks.RIFT_EXTRACTOR_ITEM,
-                TABlocks.REVISION_PIEDESTAL_ITEM
+                TABlocks.REVISION_PIEDESTAL_ITEM,
+                TABlocks.RIFT_STONE_PORTAL_ITEM,
+                TABlocks.RIFT_PORTAL_PLATFORM_ITEM,
+                TABlocks.RIFT_STONE_FURNACE_ITEM,
+                TABlocks.RIFT_STONE_ALTAR_ITEM,
+                TABlocks.POLISHED_DARK_JASPER_ITEM,
+                TABlocks.DARK_JASPER_BRICKS_ITEM
         );
     }
 }

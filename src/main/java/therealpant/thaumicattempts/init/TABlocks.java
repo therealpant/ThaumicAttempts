@@ -25,6 +25,12 @@ public class TABlocks {
     public static Block RIFT_CRISTAL_BLOCK;
     public static Block RIFT_EXTRACTOR;
     public static Block REVISION_PIEDESTAL;
+    public static Block RIFT_STONE_PORTAL;
+    public static Block RIFT_PORTAL_PLATFORM;
+    public static Block RIFT_STONE_FURNACE;
+    public static Block RIFT_STONE_ALTAR;
+    public static Block POLISHED_DARK_JASPER;
+    public static Block DARK_JASPER_BRICKS;
 
     public static Item MIRROR_MANAGER_ITEM;
     public static Item MIRROR_MANAGER_CORE_ITEM;
@@ -45,5 +51,11 @@ public class TABlocks {
     public static Item RIFT_CRISTAL_BLOCK_ITEM;
     public static Item RIFT_EXTRACTOR_ITEM;
     public static Item REVISION_PIEDESTAL_ITEM;
+    public static Item RIFT_STONE_PORTAL_ITEM;
+    public static Item RIFT_PORTAL_PLATFORM_ITEM;
+    public static Item RIFT_STONE_FURNACE_ITEM;
+    public static Item RIFT_STONE_ALTAR_ITEM;
+    public static Item POLISHED_DARK_JASPER_ITEM;
+    public static Item DARK_JASPER_BRICKS_ITEM;
 }
 

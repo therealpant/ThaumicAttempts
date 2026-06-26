@@ -28,6 +28,7 @@ public class GuiInfusionRequester extends GuiContainer {
     private static final int CENTER_LEFT = 161;
     private static final int CENTER_TOP  = 64;
     private static final int RING_RADIUS = 32;
+    private static final float INFUSION_ITEM_SCALE = 0.8F;
 
     private final TileInfusionRequester tile;
     private final IItemHandler patterns;
@@ -152,8 +153,7 @@ public class GuiInfusionRequester extends GuiContainer {
 
         ItemStack center = order.get(0);
         if (center != null && !center.isEmpty()) {
-            itemRender.renderItemAndEffectIntoGUI(center, centerX, centerY);
-            itemRender.renderItemOverlayIntoGUI(this.fontRenderer, center, centerX, centerY, null);
+            renderInfusionItemCentered(center, centerX + 8, centerY + 8);
         }
 
         int ringCount = Math.max(0, order.size() - 1);
@@ -170,9 +170,17 @@ public class GuiInfusionRequester extends GuiContainer {
             int x = (int) Math.round(centerCx + Math.cos(angle) * RING_RADIUS) - 8;
             int y = (int) Math.round(centerCy + Math.sin(angle) * RING_RADIUS) - 8;
 
-            itemRender.renderItemAndEffectIntoGUI(st, x, y);
-            itemRender.renderItemOverlayIntoGUI(this.fontRenderer, st, x, y, null);
+            renderInfusionItemCentered(st, x + 8, y + 8);
         }
+    }
+
+    private void renderInfusionItemCentered(ItemStack stack, int centerX, int centerY) {
+        GlStateManager.pushMatrix();
+        GlStateManager.translate(centerX, centerY, 0F);
+        GlStateManager.scale(INFUSION_ITEM_SCALE, INFUSION_ITEM_SCALE, 1F);
+        itemRender.renderItemAndEffectIntoGUI(stack, -8, -8);
+        itemRender.renderItemOverlayIntoGUI(this.fontRenderer, stack, -8, -8, null);
+        GlStateManager.popMatrix();
     }
 
     private ItemStack getCurrentPattern() {

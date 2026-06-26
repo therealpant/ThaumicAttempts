@@ -3,11 +3,13 @@ package therealpant.thaumicattempts.data;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 import thaumcraft.api.ThaumcraftApi;
+import thaumcraft.api.blocks.BlocksTC;
 import thaumcraft.api.crafting.IDustTrigger;
 import thaumcraft.api.crafting.Part;
 import thaumcraft.common.lib.crafting.DustTriggerMultiblock;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.world.block.BlockRiftStoneFurnace;
 
 public final class TAMultiblockTriggers {
     private TAMultiblockTriggers() {}
@@ -21,6 +23,12 @@ public final class TAMultiblockTriggers {
 
     public static final ResourceLocation RIFT_EXTRACTOR_MB_ID =
             new ResourceLocation(ThaumicAttempts.MODID, "rift_extractor_multiblock");
+
+    public static final ResourceLocation RIFT_PORTAL_MB_ID =
+            new ResourceLocation(ThaumicAttempts.MODID, "rift_portal_multiblock");
+
+    public static final ResourceLocation RIFT_STONE_FURNACE_MB_ID =
+            new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_furnace_multiblock");
 
     public static void register() {
             // 1) Триггер мультиблока (Salis Mundus)
@@ -42,10 +50,24 @@ public final class TAMultiblockTriggers {
             );
             IDustTrigger.registerDustTrigger(riftExtractorTrigger);
 
+            DustTriggerMultiblock riftPortalTrigger = new DustTriggerMultiblock(
+                "TA_RIFT_EXTRACTOR",
+                buildRiftPortalTriggerStructure()
+            );
+            IDustTrigger.registerDustTrigger(riftPortalTrigger);
+
+            DustTriggerMultiblock riftStoneFurnaceTrigger = new DustTriggerMultiblock(
+                "TA_RIFT_EXTRACTOR",
+                buildRiftStoneFurnaceTriggerStructure()
+            );
+            IDustTrigger.registerDustTrigger(riftStoneFurnaceTrigger);
+
             // 2) Blueprint для Таумономикона (схема постройки)
             registerBlueprint();
             registerAuraBoosterBlueprint();
             registerRiftExtractorBlueprint();
+            registerRiftPortalBlueprint();
+            registerRiftStoneFurnaceBlueprint();
     }
 
 
@@ -172,5 +194,151 @@ public final class TAMultiblockTriggers {
         );
 
         ThaumcraftApi.addMultiblockRecipeToCatalog(RIFT_EXTRACTOR_MB_ID, bp);
+    }
+
+    private static Part[][][] buildRiftPortalTriggerStructure() {
+        Part darkToAir = new Part(TABlocks.DARK_JASPER_BRICKS, "AIR");
+        Part darkToPortal = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.RIFT_STONE_PORTAL);
+        Part darkToPlatform = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.RIFT_PORTAL_PLATFORM);
+        Part polishedToPlatform = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.RIFT_PORTAL_PLATFORM);
+
+        return new Part[][][] {
+                {
+                        { null, null, null },
+                        { null, darkToAir, null },
+                        { null, null, null }
+                },
+                {
+                        { null, null, null },
+                        { null, darkToPortal, null },
+                        { null, null, null }
+                },
+                {
+                        { darkToPlatform, polishedToPlatform, darkToPlatform },
+                        { polishedToPlatform, polishedToPlatform, polishedToPlatform },
+                        { darkToPlatform, polishedToPlatform, darkToPlatform }
+                }
+        };
+    }
+
+    private static Part[][][] buildRiftPortalBlueprintStructure() {
+        Part dark = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.DARK_JASPER_BRICKS);
+        Part polished = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.POLISHED_DARK_JASPER);
+
+        return new Part[][][] {
+                {
+                        { null, null, null },
+                        { null, dark, null },
+                        { null, null, null }
+                },
+                {
+                        { null, null, null },
+                        { null, dark, null },
+                        { null, null, null }
+                },
+                {
+                        { dark, polished, dark },
+                        { polished, polished, polished },
+                        { dark, polished, dark }
+                }
+        };
+    }
+
+    private static void registerRiftPortalBlueprint() {
+        Part[][][] parts = buildRiftPortalBlueprintStructure();
+
+        ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
+                "TA_RIFT_EXTRACTOR",
+                new ItemStack(TABlocks.RIFT_STONE_PORTAL),
+                parts
+        );
+
+        ThaumcraftApi.addMultiblockRecipeToCatalog(RIFT_PORTAL_MB_ID, bp);
+    }
+
+    private static Part[][][] buildRiftStoneFurnaceTriggerStructure() {
+        return new Part[][][] {
+                {
+                        {
+                                furnacePart(BlocksTC.alembic, BlockRiftStoneFurnace.Part.TOP_CORNER),
+                                furnacePart(TABlocks.DARK_JASPER_BRICKS, BlockRiftStoneFurnace.Part.TOP_NORTH),
+                                furnacePart(BlocksTC.alembic, BlockRiftStoneFurnace.Part.TOP_CORNER)
+                        },
+                        {
+                                furnacePart(TABlocks.DARK_JASPER_BRICKS, BlockRiftStoneFurnace.Part.TOP_WEST),
+                                null,
+                                furnacePart(TABlocks.DARK_JASPER_BRICKS, BlockRiftStoneFurnace.Part.TOP_EAST)
+                        },
+                        {
+                                furnacePart(BlocksTC.alembic, BlockRiftStoneFurnace.Part.TOP_CORNER),
+                                furnacePart(TABlocks.DARK_JASPER_BRICKS, BlockRiftStoneFurnace.Part.TOP_SOUTH),
+                                furnacePart(BlocksTC.alembic, BlockRiftStoneFurnace.Part.TOP_CORNER)
+                        }
+                },
+                {
+                        {
+                                furnacePart(BlocksTC.metalAlchemicalAdvanced, BlockRiftStoneFurnace.Part.LOWER_FULL),
+                                furnacePart(TABlocks.ELDRITCH_CONSTRUCTION, BlockRiftStoneFurnace.Part.LOWER_FULL),
+                                furnacePart(BlocksTC.metalAlchemicalAdvanced, BlockRiftStoneFurnace.Part.LOWER_FULL)
+                        },
+                        {
+                                furnacePart(TABlocks.ELDRITCH_CONSTRUCTION, BlockRiftStoneFurnace.Part.LOWER_FULL),
+                                furnacePart(BlocksTC.smelterVoid, BlockRiftStoneFurnace.Part.CENTER_LOW),
+                                furnacePart(TABlocks.ELDRITCH_CONSTRUCTION, BlockRiftStoneFurnace.Part.LOWER_FULL)
+                        },
+                        {
+                                furnacePart(BlocksTC.metalAlchemicalAdvanced, BlockRiftStoneFurnace.Part.LOWER_FULL),
+                                furnacePart(TABlocks.ELDRITCH_CONSTRUCTION, BlockRiftStoneFurnace.Part.LOWER_FULL),
+                                furnacePart(BlocksTC.metalAlchemicalAdvanced, BlockRiftStoneFurnace.Part.LOWER_FULL)
+                        }
+                }
+        };
+    }
+
+    private static Part[][][] buildRiftStoneFurnaceBlueprintStructure() {
+        Part advanced = new Part(BlocksTC.metalAlchemicalAdvanced, BlocksTC.metalAlchemicalAdvanced);
+        Part voidSmelter = new Part(BlocksTC.smelterVoid, BlocksTC.smelterVoid);
+        Part alembic = new Part(BlocksTC.alembic, BlocksTC.alembic);
+        Part jasper = new Part(TABlocks.ELDRITCH_CONSTRUCTION, TABlocks.ELDRITCH_CONSTRUCTION);
+        Part brick = new Part(TABlocks.DARK_JASPER_BRICKS,TABlocks.DARK_JASPER_BRICKS);
+
+        return new Part[][][] {
+                {
+                        { alembic, brick, alembic },
+                        { brick,   null, brick },
+                        { alembic, brick, alembic }
+                },
+                {
+                        { advanced, jasper, advanced },
+                        { jasper, voidSmelter, jasper },
+                        { advanced, jasper, advanced }
+                }
+        };
+    }
+
+    private static Part furnacePart(Object source, BlockRiftStoneFurnace.Part targetPart) {
+        return new Part(
+                source,
+                new ItemStack(
+                        TABlocks.RIFT_STONE_FURNACE,
+                        1,
+                        TABlocks.RIFT_STONE_FURNACE.getMetaFromState(
+                                TABlocks.RIFT_STONE_FURNACE.getDefaultState()
+                                        .withProperty(BlockRiftStoneFurnace.PART, targetPart)
+                        )
+                )
+        );
+    }
+
+    private static void registerRiftStoneFurnaceBlueprint() {
+        Part[][][] parts = buildRiftStoneFurnaceBlueprintStructure();
+
+        ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
+                "TA_RIFT_EXTRACTOR",
+                new ItemStack(TABlocks.RIFT_STONE_FURNACE),
+                parts
+        );
+
+        ThaumcraftApi.addMultiblockRecipeToCatalog(RIFT_STONE_FURNACE_MB_ID, bp);
     }
 }

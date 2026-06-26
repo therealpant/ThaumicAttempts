@@ -43,6 +43,7 @@ item.thaumicattempts.mind_fruit.name=Fruit of Pure Mind
 item.thaumicattempts.tainted_mind_fruit.name=Taint-Soaked Fruit
 item.thaumicattempts.mature_mind_fruit.name=Ripe Fruit of Pure Mind
 item.thaumicattempts.storage_bell.name=Warehouse Bell
+item.thaumicattempts.portal_rune.name=Spatial Rune
 item.thaumicattempts.revision_piedestal.name=Revision Piedestal
 
 enchantment.infusion.VISBATTERY=Charging Runes
@@ -54,6 +55,14 @@ container.arcane_crafter=Arcane Golem Workbench
 
 mod.thaumicattempts.name=ThaumicAttempts
 itemGroup.thaumicattempts=Thaumic Attempts
+tile.thaumicattempts.rift_stone_portal.name=Dark Jasper Portal
+item.thaumicattempts.rift_stone_portal.name=Dark Jasper Portal
+tile.thaumicattempts.rift_portal_platform.name=Dark Jasper Portal Platform
+item.thaumicattempts.rift_portal_platform.name=Dark Jasper Portal Platform
+tile.thaumicattempts.rift_stone_altar.name=Dark Jasper Altar
+item.thaumicattempts.rift_stone_altar.name=Dark Jasper Altar
+tile.thaumicattempts.rift_stone_furnace.name=Rift Stone Furnace
+item.thaumicattempts.rift_stone_furnace.name=Rift Stone Furnace
 
 research.f_ta_flux_10000.text=Saturate this world's aura with an enormous amount of Flux
 research.f_ta_flux_20000.text=Saturate this world's aura with a colossal amount of Flux
@@ -159,3 +168,8 @@ tooltip.thaumicattempts.gem.diamond=Diamond
 tooltip.thaumicattempts.gem.amber.set=Ambers
 tooltip.thaumicattempts.gem.amethyst.set=Amethysts
 tooltip.thaumicattempts.gem.diamond.set=Diamonds
+tc.aspect.paradoxum=Paradoxum
+tile.thaumicattempts.polished_dark_jasper.name=Fired Dark Jasper
+item.thaumicattempts.polished_dark_jasper.name=Fired Dark Jasper
+tile.thaumicattempts.dark_jasper_bricks.name=Dark Jasper Bricks
+item.thaumicattempts.dark_jasper_bricks.name=Dark Jasper Bricks

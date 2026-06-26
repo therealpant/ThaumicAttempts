@@ -28,6 +28,10 @@ import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 import therealpant.thaumicattempts.world.tile.TileRiftExtractor;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
+import therealpant.thaumicattempts.world.tile.TileRiftPortalPlatform;
+import therealpant.thaumicattempts.world.tile.TileRiftStoneAltar;
+import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnace;
+import therealpant.thaumicattempts.world.tile.TileRiftStonePortal;
 
 
 import java.util.function.Supplier;
@@ -140,6 +144,10 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.STORAGE_BELL, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":storage_bell", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.PORTAL_RUNE, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":portal_rune", "inventory")
+        );
 
         // ItemBlock'и наших блоков (иконки!)
         registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER, ThaumicAttempts.MODID + ":golem_crafter");
@@ -153,6 +161,8 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(TABlocks.ANOMALY_BED, ThaumicAttempts.MODID + ":ta_anomaly_bed");
         registerItemBlockModel(TABlocks.AURA_BOOSTER_CORE, ThaumicAttempts.MODID + ":aura_booster_core");
         registerItemBlockModel(TABlocks.RIFT_CRISTAL_BLOCK, ThaumicAttempts.MODID + ":rist_cristal_block");
+        registerItemBlockModel(TABlocks.POLISHED_DARK_JASPER, ThaumicAttempts.MODID + ":polished_dark_jasper");
+        registerItemBlockModel(TABlocks.DARK_JASPER_BRICKS, ThaumicAttempts.MODID + ":dark_jasper_bricks");
 
         // ухо — используем таумовскую иконку предмета
         ModelLoader.setCustomModelResourceLocation(
@@ -196,6 +206,14 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.RIFT_EXTRACTOR_ITEM, TileRiftExtractor::new);
         registerItemModel(TABlocks.REVISION_PIEDESTAL_ITEM);
         attachTileRenderer(TABlocks.REVISION_PIEDESTAL_ITEM, TileRevisionPiedestal::new);
+        registerItemModel(TABlocks.RIFT_STONE_PORTAL_ITEM);
+        attachTileRenderer(TABlocks.RIFT_STONE_PORTAL_ITEM, TileRiftStonePortal::new);
+        registerItemModel(TABlocks.RIFT_PORTAL_PLATFORM_ITEM);
+        attachTileRenderer(TABlocks.RIFT_PORTAL_PLATFORM_ITEM, TileRiftPortalPlatform::new);
+        registerItemModel(TABlocks.RIFT_STONE_FURNACE_ITEM);
+        attachTileRenderer(TABlocks.RIFT_STONE_FURNACE_ITEM, TileRiftStoneFurnace::new);
+        registerItemModel(TABlocks.RIFT_STONE_ALTAR_ITEM);
+        attachTileRenderer(TABlocks.RIFT_STONE_ALTAR_ITEM, TileRiftStoneAltar::new);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 
         // наши крафтеры: игнорируем таумовский ENABLED (если присутствует)
@@ -285,6 +303,22 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileRevisionPiedestal.class,
                 new RenderRevisionPiedestalGeo()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftStonePortal.class,
+                new RenderRiftStonePortal()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftPortalPlatform.class,
+                new RenderRiftPortalPlatform()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftStoneFurnace.class,
+                new RenderRiftStoneFurnace()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftStoneAltar.class,
+                new RenderRiftStoneAltar()
         );
     }
 
