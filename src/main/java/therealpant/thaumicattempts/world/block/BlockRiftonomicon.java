@@ -31,8 +31,8 @@ public class BlockRiftonomicon extends Block {
     private static final AxisAlignedBB FULL = new AxisAlignedBB(0, 0, 0, 1, 1, 1);
     private static final AxisAlignedBB BASE_EDGE = new AxisAlignedBB(0, 0, 0, 1, 0.35D, 1);
     private static final AxisAlignedBB BASE_INNER = new AxisAlignedBB(0, 0, 0, 1, 0.55D, 1);
-    private static final AxisAlignedBB LOW_COLUMN = new AxisAlignedBB(0.125D, 0, 0.125D, 0.875D, 1, 0.875D);
-    private static final AxisAlignedBB TOP_CRYSTAL = new AxisAlignedBB(0.25D, 0, 0.25D, 0.75D, 0.85D, 0.75D);
+    private static final AxisAlignedBB SECOND_LAYER_COLUMN = new AxisAlignedBB(0.125D, 0, 0.125D, 0.875D, 1.5D, 0.875D);
+    private static final AxisAlignedBB TOP_CRYSTAL = new AxisAlignedBB(0.25D, 0, 0.25D, 0.75D, 1, 0.75D);
 
     public BlockRiftonomicon() {
         super(Material.ROCK);
@@ -79,15 +79,12 @@ public class BlockRiftonomicon extends Block {
         if (center != null) {
             int dy = pos.getY() - center.getY();
             if (dy == 0) {
-                if (part == Part.CORE || part == Part.CORNER) {
-                    return FULL;
-                }
-                return part == Part.INNER ? BASE_INNER : BASE_EDGE;
+                return FULL;
             }
-            if (dy == 1 || dy == 2) {
-                return part == Part.COLUMN || part == Part.CORE ? LOW_COLUMN : BASE_INNER;
+            if (dy == 1) {
+                return SECOND_LAYER_COLUMN;
             }
-            if (dy == 3) {
+            if (dy >= 2 && dy <= 4) {
                 return TOP_CRYSTAL;
             }
         }
@@ -99,7 +96,7 @@ public class BlockRiftonomicon extends Block {
             case INNER:
                 return BASE_INNER;
             case COLUMN:
-                return LOW_COLUMN;
+                return SECOND_LAYER_COLUMN;
             case TOP:
                 return TOP_CRYSTAL;
             case EDGE:
@@ -114,14 +111,14 @@ public class BlockRiftonomicon extends Block {
             return null;
         }
 
-        for (int dy = -3; dy <= 0; dy++) {
+        for (int dy = -4; dy <= 0; dy++) {
             for (int dx = -3; dx <= 3; dx++) {
                 for (int dz = -3; dz <= 3; dz++) {
                     BlockPos candidate = pos.add(dx, dy, dz);
                     IBlockState state = world.getBlockState(candidate);
                     if (state.getBlock() == TABlocks.RIFTONOMICON
                             && state.getValue(PART) == Part.CORE) {
-                        return candidate;
+                        return candidate.add(0, 0, 3);
                     }
                 }
             }

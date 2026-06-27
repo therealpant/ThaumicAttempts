@@ -30,6 +30,7 @@ public class TABlocks {
     public static Block RIFT_STONE_FURNACE;
     public static Block RIFT_STONE_ALTAR;
     public static Block RIFTONOMICON;
+    public static Block RIFTONOMICON_CORE;
     public static Block POLISHED_DARK_JASPER;
     public static Block DARK_JASPER_BRICKS;
 
@@ -57,6 +58,7 @@ public class TABlocks {
     public static Item RIFT_STONE_FURNACE_ITEM;
     public static Item RIFT_STONE_ALTAR_ITEM;
     public static Item RIFTONOMICON_ITEM;
+    public static Item RIFTONOMICON_CORE_ITEM;
     public static Item POLISHED_DARK_JASPER_ITEM;
     public static Item DARK_JASPER_BRICKS_ITEM;
 }

@@ -116,6 +116,7 @@ public final class ModBlocksItems {
         TABlocks.RIFT_STONE_FURNACE = new BlockRiftStoneFurnace();
         TABlocks.RIFT_STONE_ALTAR = new BlockRiftStoneAltar();
         TABlocks.RIFTONOMICON = new BlockRiftonomicon();
+        TABlocks.RIFTONOMICON_CORE = new BlockRiftonomiconCore();
         TABlocks.POLISHED_DARK_JASPER = new BlockDarkJasperFull("polished_dark_jasper");
         TABlocks.DARK_JASPER_BRICKS = new BlockDarkJasperFull("dark_jasper_bricks");
         e.getRegistry().registerAll(
@@ -144,6 +145,7 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_STONE_FURNACE,
                 TABlocks.RIFT_STONE_ALTAR,
                 TABlocks.RIFTONOMICON,
+                TABlocks.RIFTONOMICON_CORE,
                 TABlocks.POLISHED_DARK_JASPER,
                 TABlocks.DARK_JASPER_BRICKS
         );
@@ -333,6 +335,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_STONE_ALTAR.getRegistryName());
         TABlocks.RIFTONOMICON_ITEM = new ItemBlock(TABlocks.RIFTONOMICON)
                 .setRegistryName(TABlocks.RIFTONOMICON.getRegistryName());
+        TABlocks.RIFTONOMICON_CORE_ITEM = new ItemBlock(TABlocks.RIFTONOMICON_CORE)
+                .setRegistryName(TABlocks.RIFTONOMICON_CORE.getRegistryName());
         TABlocks.POLISHED_DARK_JASPER_ITEM = new ItemBlock(TABlocks.POLISHED_DARK_JASPER)
                 .setRegistryName(TABlocks.POLISHED_DARK_JASPER.getRegistryName());
         TABlocks.DARK_JASPER_BRICKS_ITEM = new ItemBlock(TABlocks.DARK_JASPER_BRICKS)
@@ -363,6 +367,7 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_STONE_FURNACE_ITEM,
                 TABlocks.RIFT_STONE_ALTAR_ITEM,
                 TABlocks.RIFTONOMICON_ITEM,
+                TABlocks.RIFTONOMICON_CORE_ITEM,
                 TABlocks.POLISHED_DARK_JASPER_ITEM,
                 TABlocks.DARK_JASPER_BRICKS_ITEM
         );

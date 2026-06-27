@@ -11,7 +11,6 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
 import therealpant.thaumicattempts.world.block.BlockRiftStoneFurnace;
-import therealpant.thaumicattempts.world.block.RiftonomiconStructureHelper;
 
 public final class TAMultiblockTriggers {
     private TAMultiblockTriggers() {}
@@ -363,26 +362,115 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildRiftonomiconStructure(boolean transform) {
-        Part[][][] parts = new Part[4][7][7];
-        for (int layer = 0; layer < 4; layer++) {
-            int dy = 3 - layer;
-            for (int z = 0; z < 7; z++) {
-                int dz = z - 3;
-                for (int x = 0; x < 7; x++) {
-                    int dx = x - 3;
-                    net.minecraft.block.state.IBlockState source =
-                            RiftonomiconStructureHelper.getSourceState(dx, dy, dz);
-                    if (source == null) {
-                        continue;
-                    }
+        Part n = null;
+        Part brick = new Part(TABlocks.DARK_JASPER_BRICKS,TABlocks.DARK_JASPER_BRICKS);
+        Part polished = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.POLISHED_DARK_JASPER);
+        Part core = new Part(TABlocks.RIFTONOMICON_CORE, TABlocks.RIFTONOMICON_CORE);
 
-                    parts[layer][z][x] = transform
-                            ? riftonomiconPart(source.getBlock(), RiftonomiconStructureHelper.getPartFor(dx, dy, dz))
-                            : new Part(source.getBlock(), source.getBlock());
+        return new Part[][][] {
+                // 5 слой (верх)
+                {
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, brick, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n }
+                },
+                // 4 слой
+                {
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, core, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n }
+                },
+                // 3 слой
+                {
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, brick, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n }
+                },
+                // 2 слой
+                {
+                        { n, n, n, n, n, n, n },
+                        { n, brick, n, n, n, brick, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, n, n, n, n, n, n },
+                        { n, brick, n, n, n, brick, n },
+                        { n, n, n, n, n, n, n }
+                },
+                // 1 слой (низ)
+                {
+                        { n, n, brick, polished, brick, n, n },
+                        { n, brick, polished, polished, polished, brick, n },
+                        { polished, brick, n, n, n, brick, polished },
+                        { polished, polished, n, n, n, polished, polished },
+                        { polished, brick, n, n, n, brick, polished },
+                        { n, brick, brick, polished, brick, brick, n },
+                        { n, n, polished, polished, polished, n, n }
                 }
+        };
+    }
+
+    private static Part riftonomiconStructurePart(Object source, BlockRiftonomicon.Part targetPart, boolean transform) {
+        return transform ? riftonomiconPart(source, targetPart) : new Part(source, source);
+    }
+
+    public static net.minecraft.block.state.IBlockState getRiftonomiconSourceState(int dx, int dy, int dz) {
+        int ax = Math.abs(dx);
+        int az = Math.abs(dz);
+
+        if (dy == 0) {
+            if (az == 3) {
+                return ax <= 1 ? TABlocks.POLISHED_DARK_JASPER.getDefaultState() : null;
             }
+            if (az == 2) {
+                return ax <= 2 ? TABlocks.RIFT_STONE_BASE.getDefaultState() : null;
+            }
+            return ax >= 2 && ax <= 3 ? TABlocks.RIFT_STONE_BASE.getDefaultState() : null;
         }
-        return parts;
+
+        if (dy == 1) {
+            return ax == 2 && az == 2 ? TABlocks.DARK_JASPER_BRICKS.getDefaultState() : null;
+        }
+
+        if (dy >= 2 && dy <= 4) {
+            return dx == 0 && dz == 0 ? TABlocks.RIFT_CRISTAL_BLOCK.getDefaultState() : null;
+        }
+
+        return null;
+    }
+
+    public static BlockRiftonomicon.Part getRiftonomiconPartFor(int dx, int dy, int dz) {
+        int ax = Math.abs(dx);
+        int az = Math.abs(dz);
+
+        if (dy == 0) {
+            if (dx == 0 && dz == -3) {
+                return BlockRiftonomicon.Part.CORE;
+            }
+            if (az == 3 && ax <= 1) {
+                return BlockRiftonomicon.Part.EDGE;
+            }
+            if (az == 2 && ax <= 2) {
+                return ax == 2 ? BlockRiftonomicon.Part.CORNER : BlockRiftonomicon.Part.BASE;
+            }
+            return ax == 3 ? BlockRiftonomicon.Part.EDGE : BlockRiftonomicon.Part.BASE;
+        }
+
+        if (dy == 1) {
+            return BlockRiftonomicon.Part.COLUMN;
+        }
+        return BlockRiftonomicon.Part.TOP;
     }
 
     private static Part riftonomiconPart(Object source, BlockRiftonomicon.Part targetPart) {
