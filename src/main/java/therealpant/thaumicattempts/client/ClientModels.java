@@ -29,6 +29,7 @@ import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 import therealpant.thaumicattempts.world.tile.TileRiftExtractor;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 import therealpant.thaumicattempts.world.tile.TileRiftPortalPlatform;
+import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneAltar;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnace;
 import therealpant.thaumicattempts.world.tile.TileRiftStonePortal;
@@ -214,6 +215,8 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.RIFT_STONE_FURNACE_ITEM, TileRiftStoneFurnace::new);
         registerItemModel(TABlocks.RIFT_STONE_ALTAR_ITEM);
         attachTileRenderer(TABlocks.RIFT_STONE_ALTAR_ITEM, TileRiftStoneAltar::new);
+        registerItemModel(TABlocks.RIFTONOMICON_ITEM);
+        attachTileRenderer(TABlocks.RIFTONOMICON_ITEM, TileRiftonomicon::new);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 
         // наши крафтеры: игнорируем таумовский ENABLED (если присутствует)
@@ -319,6 +322,10 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileRiftStoneAltar.class,
                 new RenderRiftStoneAltar()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftonomicon.class,
+                new RenderRiftonomicon()
         );
     }
 

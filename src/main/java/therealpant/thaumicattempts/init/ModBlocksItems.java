@@ -32,6 +32,7 @@ import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
 import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 import therealpant.thaumicattempts.world.tile.TileRiftPortalPlatform;
+import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneAltar;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnace;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnacePort;
@@ -114,6 +115,7 @@ public final class ModBlocksItems {
         TABlocks.RIFT_PORTAL_PLATFORM = new BlockRiftPortalPlatform();
         TABlocks.RIFT_STONE_FURNACE = new BlockRiftStoneFurnace();
         TABlocks.RIFT_STONE_ALTAR = new BlockRiftStoneAltar();
+        TABlocks.RIFTONOMICON = new BlockRiftonomicon();
         TABlocks.POLISHED_DARK_JASPER = new BlockDarkJasperFull("polished_dark_jasper");
         TABlocks.DARK_JASPER_BRICKS = new BlockDarkJasperFull("dark_jasper_bricks");
         e.getRegistry().registerAll(
@@ -141,6 +143,7 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_PORTAL_PLATFORM,
                 TABlocks.RIFT_STONE_FURNACE,
                 TABlocks.RIFT_STONE_ALTAR,
+                TABlocks.RIFTONOMICON,
                 TABlocks.POLISHED_DARK_JASPER,
                 TABlocks.DARK_JASPER_BRICKS
         );
@@ -188,6 +191,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_furnace_port"));
         GameRegistry.registerTileEntity(TileRiftStoneAltar.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_altar"));
+        GameRegistry.registerTileEntity(TileRiftonomicon.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "riftonomicon"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -326,6 +331,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_STONE_FURNACE.getRegistryName());
         TABlocks.RIFT_STONE_ALTAR_ITEM = new ItemBlock(TABlocks.RIFT_STONE_ALTAR)
                 .setRegistryName(TABlocks.RIFT_STONE_ALTAR.getRegistryName());
+        TABlocks.RIFTONOMICON_ITEM = new ItemBlock(TABlocks.RIFTONOMICON)
+                .setRegistryName(TABlocks.RIFTONOMICON.getRegistryName());
         TABlocks.POLISHED_DARK_JASPER_ITEM = new ItemBlock(TABlocks.POLISHED_DARK_JASPER)
                 .setRegistryName(TABlocks.POLISHED_DARK_JASPER.getRegistryName());
         TABlocks.DARK_JASPER_BRICKS_ITEM = new ItemBlock(TABlocks.DARK_JASPER_BRICKS)
@@ -355,6 +362,7 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_PORTAL_PLATFORM_ITEM,
                 TABlocks.RIFT_STONE_FURNACE_ITEM,
                 TABlocks.RIFT_STONE_ALTAR_ITEM,
+                TABlocks.RIFTONOMICON_ITEM,
                 TABlocks.POLISHED_DARK_JASPER_ITEM,
                 TABlocks.DARK_JASPER_BRICKS_ITEM
         );

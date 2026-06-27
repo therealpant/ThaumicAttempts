@@ -9,7 +9,9 @@ import thaumcraft.api.crafting.Part;
 import thaumcraft.common.lib.crafting.DustTriggerMultiblock;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
 import therealpant.thaumicattempts.world.block.BlockRiftStoneFurnace;
+import therealpant.thaumicattempts.world.block.RiftonomiconStructureHelper;
 
 public final class TAMultiblockTriggers {
     private TAMultiblockTriggers() {}
@@ -29,6 +31,9 @@ public final class TAMultiblockTriggers {
 
     public static final ResourceLocation RIFT_STONE_FURNACE_MB_ID =
             new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_furnace_multiblock");
+
+    public static final ResourceLocation RIFTONOMICON_MB_ID =
+            new ResourceLocation(ThaumicAttempts.MODID, "riftonomicon_multiblock");
 
     public static void register() {
             // 1) Триггер мультиблока (Salis Mundus)
@@ -62,12 +67,19 @@ public final class TAMultiblockTriggers {
             );
             IDustTrigger.registerDustTrigger(riftStoneFurnaceTrigger);
 
+            DustTriggerMultiblock riftonomiconTrigger = new DustTriggerMultiblock(
+                "TA_RIFT_EXTRACTOR",
+                buildRiftonomiconTriggerStructure()
+            );
+            IDustTrigger.registerDustTrigger(riftonomiconTrigger);
+
             // 2) Blueprint для Таумономикона (схема постройки)
             registerBlueprint();
             registerAuraBoosterBlueprint();
             registerRiftExtractorBlueprint();
             registerRiftPortalBlueprint();
             registerRiftStoneFurnaceBlueprint();
+            registerRiftonomiconBlueprint();
     }
 
 
@@ -340,5 +352,62 @@ public final class TAMultiblockTriggers {
         );
 
         ThaumcraftApi.addMultiblockRecipeToCatalog(RIFT_STONE_FURNACE_MB_ID, bp);
+    }
+
+    private static Part[][][] buildRiftonomiconTriggerStructure() {
+        return buildRiftonomiconStructure(true);
+    }
+
+    private static Part[][][] buildRiftonomiconBlueprintStructure() {
+        return buildRiftonomiconStructure(false);
+    }
+
+    private static Part[][][] buildRiftonomiconStructure(boolean transform) {
+        Part[][][] parts = new Part[4][7][7];
+        for (int layer = 0; layer < 4; layer++) {
+            int dy = 3 - layer;
+            for (int z = 0; z < 7; z++) {
+                int dz = z - 3;
+                for (int x = 0; x < 7; x++) {
+                    int dx = x - 3;
+                    net.minecraft.block.state.IBlockState source =
+                            RiftonomiconStructureHelper.getSourceState(dx, dy, dz);
+                    if (source == null) {
+                        continue;
+                    }
+
+                    parts[layer][z][x] = transform
+                            ? riftonomiconPart(source.getBlock(), RiftonomiconStructureHelper.getPartFor(dx, dy, dz))
+                            : new Part(source.getBlock(), source.getBlock());
+                }
+            }
+        }
+        return parts;
+    }
+
+    private static Part riftonomiconPart(Object source, BlockRiftonomicon.Part targetPart) {
+        return new Part(
+                source,
+                new ItemStack(
+                        TABlocks.RIFTONOMICON,
+                        1,
+                        TABlocks.RIFTONOMICON.getMetaFromState(
+                                TABlocks.RIFTONOMICON.getDefaultState()
+                                        .withProperty(BlockRiftonomicon.PART, targetPart)
+                        )
+                )
+        );
+    }
+
+    private static void registerRiftonomiconBlueprint() {
+        Part[][][] parts = buildRiftonomiconBlueprintStructure();
+
+        ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
+                "TA_RIFT_EXTRACTOR",
+                new ItemStack(TABlocks.RIFTONOMICON),
+                parts
+        );
+
+        ThaumcraftApi.addMultiblockRecipeToCatalog(RIFTONOMICON_MB_ID, bp);
     }
 }

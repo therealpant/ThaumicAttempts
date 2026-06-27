@@ -252,7 +252,8 @@
           "recipes": [
             "thaumicattempts:rift_extractor_multiblock",
             "thaumicattempts:rift_stone_furnace_multiblock",
-            "thaumicattempts:rift_portal_multiblock"
+            "thaumicattempts:rift_portal_multiblock",
+            "thaumicattempts:riftonomicon_multiblock"
           ]
         }
       ]

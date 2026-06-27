@@ -1,0 +1,11 @@
+{
+  "variants": {
+    "part=core": { "model": "thaumicattempts:riftonomicon" },
+    "part=base": { "model": "thaumicattempts:riftonomicon" },
+    "part=inner": { "model": "thaumicattempts:riftonomicon" },
+    "part=edge": { "model": "thaumicattempts:riftonomicon" },
+    "part=corner": { "model": "thaumicattempts:riftonomicon" },
+    "part=column": { "model": "thaumicattempts:riftonomicon" },
+    "part=top": { "model": "thaumicattempts:riftonomicon" }
+  }
+}
