@@ -411,12 +411,12 @@ public final class TAMultiblockTriggers {
                 // 1 слой (низ)
                 {
                         { n, n, brick, polished, brick, n, n },
-                        { n, brick, polished, polished, polished, brick, n },
-                        { polished, brick, n, n, n, brick, polished },
-                        { polished, polished, n, n, n, polished, polished },
-                        { polished, brick, n, n, n, brick, polished },
                         { n, brick, brick, polished, brick, brick, n },
-                        { n, n, polished, polished, polished, n, n }
+                        { brick, brick, n, n, n, brick, brick },
+                        { polished, polished, n, n, n, polished, polished },
+                        { brick, brick, n, n, n, brick, brick },
+                        { n, brick, brick, polished, brick, brick, n },
+                        { n, n, brick, polished, brick, n, n }
                 }
         };
     }
