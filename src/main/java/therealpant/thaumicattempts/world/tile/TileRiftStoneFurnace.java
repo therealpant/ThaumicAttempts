@@ -23,15 +23,20 @@ import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.aspects.IAspectContainer;
 import thaumcraft.common.lib.crafting.ThaumcraftCraftingManager;
 import therealpant.thaumicattempts.data.research.TAAspects;
+import therealpant.thaumicattempts.integration.thaumicaugmentation.ImpetusCompat;
 
 import javax.annotation.Nullable;
 import java.util.List;
 
 public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnimatable, IAspectContainer {
+    public static final double LINK_RADIUS_SQ = 16.0D * 16.0D;
     public static final int INPUT_SLOTS = 3;
     public static final int ESSENTIA_CAP = 1000;
     public static final int PORT_CAP = 250;
     private static final float VOID_EFFICIENCY = 0.95F;
+    private static final long BASE_IMPETUS_PER_SECOND = 80L;
+    private static final long IMPETUS_PER_EFFICIENCY_PER_SECOND = 20L;
+    private static final int PAID_PROCESSING_TICKS = 20;
 
     private final AnimationFactory factory = new AnimationFactory(this);
     private final ItemStackHandler input = new ItemStackHandler(INPUT_SLOTS) {
@@ -46,6 +51,9 @@ public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnim
     private int cookTime;
     private int smeltTime = 100;
     private int ticks;
+    private boolean active;
+    private BlockPos linkedRiftonomiconPos;
+    private int impetusPaidTicks;
 
     @Override
     public void update() {
@@ -54,23 +62,100 @@ public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnim
         }
 
         ticks++;
+        if (ticks == 1 || ticks % 20 == 0) {
+            refreshRiftonomiconLink();
+        }
+        if (!active) {
+            cookTime = 0;
+            impetusPaidTicks = 0;
+            return;
+        }
         if (ticks % 5 == 0) {
             collectItems();
         }
 
-        if (canSmelt()) {
+        if (canSmelt() && ensureProcessingImpetusPaid()) {
             cookTime++;
+            if (ImpetusCompat.isLoaded() && impetusPaidTicks > 0) impetusPaidTicks--;
             if (cookTime >= smeltTime) {
                 cookTime = 0;
-                smeltItem();
+                smeltBatch();
+                TileRiftonomicon riftonomicon = getLinkedRiftonomicon();
+                if (riftonomicon != null) riftonomicon.onFurnaceSmeltingCycleCompleted(pos);
             }
         } else {
             cookTime = 0;
+            if (!canSmelt()) impetusPaidTicks = 0;
         }
     }
 
+    private boolean ensureProcessingImpetusPaid() {
+        TileRiftonomicon riftonomicon = getLinkedRiftonomicon();
+        if (riftonomicon == null || !riftonomicon.isFurnaceConnectionActive(pos)) {
+            setActive(false);
+            impetusPaidTicks = 0;
+            return false;
+        }
+        if (!ImpetusCompat.isLoaded()) return riftonomicon.hasAlchemyPearls();
+        if (impetusPaidTicks > 0) return true;
+        long cost = BASE_IMPETUS_PER_SECOND
+                + IMPETUS_PER_EFFICIENCY_PER_SECOND * riftonomicon.getAlchemyEfficiency();
+        if (riftonomicon.consumeImpetusForFurnace(pos, cost, true) < cost) return false;
+        if (riftonomicon.consumeImpetusForFurnace(pos, cost, false) < cost) return false;
+        impetusPaidTicks = PAID_PROCESSING_TICKS;
+        markDirty();
+        return true;
+    }
+
+    private void refreshRiftonomiconLink() {
+        TileRiftonomicon current = getLinkedRiftonomicon();
+        if (current != null && current.isFurnaceConnectionActive(pos)) {
+            setActive(true);
+            return;
+        }
+
+        linkedRiftonomiconPos = null;
+        TileRiftonomicon nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (TileEntity tile : world.loadedTileEntityList) {
+            if (!(tile instanceof TileRiftonomicon)) continue;
+            TileRiftonomicon candidate = (TileRiftonomicon) tile;
+            double distance = candidate.getPos().distanceSq(pos);
+            if (distance > LINK_RADIUS_SQ || distance >= nearestDistance) continue;
+            if (!candidate.hasFreeFurnaceConnection(pos)) continue;
+            nearest = candidate;
+            nearestDistance = distance;
+        }
+        linkedRiftonomiconPos = nearest == null ? null : nearest.getPos();
+        setActive(nearest != null && nearest.isFurnaceConnectionActive(pos));
+        markDirtyAndSync();
+    }
+
+    @Nullable
+    private TileRiftonomicon getLinkedRiftonomicon() {
+        if (world == null || linkedRiftonomiconPos == null
+                || pos.distanceSq(linkedRiftonomiconPos) > LINK_RADIUS_SQ) return null;
+        TileEntity tile = world.getTileEntity(linkedRiftonomiconPos);
+        return tile instanceof TileRiftonomicon ? (TileRiftonomicon) tile : null;
+    }
+
+    public boolean isActive() {
+        return active;
+    }
+
+    @Nullable
+    public BlockPos getLinkedRiftonomiconPos() {
+        return linkedRiftonomiconPos;
+    }
+
+    private void setActive(boolean active) {
+        if (this.active == active) return;
+        this.active = active;
+        markDirtyAndSync();
+    }
+
     private void collectItems() {
-        if (isInputFull()) {
+        if (!active || isInputFull()) {
             return;
         }
 
@@ -127,7 +212,7 @@ public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnim
     }
 
     private boolean canSmelt() {
-        if (essentiaAmount >= ESSENTIA_CAP) {
+        if (!active || essentiaAmount >= ESSENTIA_CAP) {
             return false;
         }
 
@@ -182,7 +267,16 @@ public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnim
         return ThaumcraftCraftingManager.getObjectTags(stack);
     }
 
-    private void smeltItem() {
+    private void smeltBatch() {
+        TileRiftonomicon riftonomicon = getLinkedRiftonomicon();
+        int efficiency = riftonomicon == null ? 0 : riftonomicon.getAlchemyEfficiency();
+        int batchSize = 1 + efficiency;
+        for (int i = 0; i < batchSize && canSmelt(); i++) {
+            smeltSingleItem();
+        }
+    }
+
+    private void smeltSingleItem() {
         int slot = getNextInputSlot();
         if (slot < 0) {
             return;
@@ -255,6 +349,7 @@ public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnim
 
     @Nullable
     public Aspect getAspectForPort(int portIndex) {
+        if (!active) return null;
         Aspect[] present = getPresentAspects();
         if (present.length == 0) {
             return null;
@@ -272,6 +367,7 @@ public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnim
     }
 
     public int getAmountForPort(int portIndex) {
+        if (!active) return 0;
         Aspect aspect = getAspectForPort(portIndex);
         if (aspect == null) {
             return 0;
@@ -303,6 +399,7 @@ public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnim
     }
 
     public int takeFromPort(int portIndex, Aspect aspect, int amount) {
+        if (!active) return 0;
         Aspect portAspect = getAspectForPort(portIndex);
         if (aspect == null || portAspect == null || aspect != portAspect || amount <= 0) {
             return 0;
@@ -398,6 +495,9 @@ public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnim
         compound.setInteger("EssentiaAmount", essentiaAmount);
         compound.setInteger("CookTime", cookTime);
         compound.setInteger("SmeltTime", smeltTime);
+        compound.setBoolean("Active", active);
+        compound.setInteger("ImpetusPaidTicks", impetusPaidTicks);
+        if (linkedRiftonomiconPos != null) compound.setLong("LinkedRiftonomicon", linkedRiftonomiconPos.toLong());
         return compound;
     }
 
@@ -410,6 +510,11 @@ public class TileRiftStoneFurnace extends TileEntity implements ITickable, IAnim
         recalcEssentiaAmount();
         cookTime = compound.getInteger("CookTime");
         smeltTime = compound.hasKey("SmeltTime") ? compound.getInteger("SmeltTime") : 100;
+        active = compound.getBoolean("Active");
+        impetusPaidTicks = Math.max(0, Math.min(PAID_PROCESSING_TICKS,
+                compound.getInteger("ImpetusPaidTicks")));
+        linkedRiftonomiconPos = compound.hasKey("LinkedRiftonomicon")
+                ? BlockPos.fromLong(compound.getLong("LinkedRiftonomicon")) : null;
     }
 
     @Override

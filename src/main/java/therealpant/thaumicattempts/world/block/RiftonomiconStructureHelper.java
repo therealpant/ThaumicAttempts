@@ -3,56 +3,43 @@ package therealpant.thaumicattempts.world.block;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
+import thaumcraft.api.crafting.Part;
 import therealpant.thaumicattempts.data.TAMultiblockTriggers;
 import therealpant.thaumicattempts.init.TABlocks;
 
 public final class RiftonomiconStructureHelper {
-    private static boolean restoring;
+    public static final int CORE_Y_OFFSET = 3;
 
     private RiftonomiconStructureHelper() {
     }
 
     static boolean isRestoring() {
-        return restoring;
+        return MultiblockBreakHelper.isRestoring();
     }
 
     static void restoreFromPart(World world, BlockPos pos) {
-        if (world == null || world.isRemote || restoring) {
-            return;
-        }
-
-        BlockPos center = findCenter(world, pos);
-        restoring = true;
-        try {
-            for (int dy = 0; dy <= 4; dy++) {
-                for (int dx = -3; dx <= 3; dx++) {
-                    for (int dz = -3; dz <= 3; dz++) {
-                        BlockPos restorePos = center.add(dx, dy, dz);
-                        if (restorePos.equals(pos)) {
-                            continue;
-                        }
-
-                        IBlockState source = getSourceState(dx, dy, dz);
-                        if (source != null) {
-                            world.setBlockState(restorePos, source, 3);
-                        }
-                    }
-                }
-            }
-        } finally {
-            restoring = false;
-        }
+        MultiblockBreakHelper.restoreFromBlueprint(world, pos, TAMultiblockTriggers.RIFTONOMICON_MB_ID,
+                RiftonomiconStructureHelper::findCenter);
     }
 
     private static BlockPos findCenter(World world, BlockPos pos) {
-        for (int dy = -4; dy <= 0; dy++) {
-            for (int dx = -3; dx <= 3; dx++) {
-                for (int dz = -3; dz <= 3; dz++) {
-                    BlockPos candidate = pos.add(dx, dy, dz);
-                    IBlockState state = world.getBlockState(candidate);
-                    if (state.getBlock() == TABlocks.RIFTONOMICON
-                            && state.getValue(BlockRiftonomicon.PART) == BlockRiftonomicon.Part.CORE) {
-                        return candidate.add(0, 0, 3);
+        Part[][][] blueprint = MultiblockBreakHelper.getBlueprintParts(TAMultiblockTriggers.RIFTONOMICON_MB_ID);
+        if (blueprint != null) {
+            int ySize = blueprint.length;
+            int zSize = MultiblockBreakHelper.maxZSize(blueprint);
+            int xSize = MultiblockBreakHelper.maxXSize(blueprint);
+            int xOrigin = xSize / 2;
+            int zOrigin = zSize / 2;
+
+            for (int dy = -ySize + 1; dy <= ySize - 1; dy++) {
+                for (int dx = -xOrigin; dx <= xOrigin; dx++) {
+                    for (int dz = -zOrigin; dz <= zOrigin; dz++) {
+                        BlockPos candidate = pos.add(dx, dy, dz);
+                        IBlockState state = world.getBlockState(candidate);
+                        if (state.getBlock() == TABlocks.RIFTONOMICON
+                                && state.getValue(BlockRiftonomicon.PART) == BlockRiftonomicon.Part.CORE) {
+                            return candidate.add(0, -CORE_Y_OFFSET, 0);
+                        }
                     }
                 }
             }
@@ -61,7 +48,7 @@ public final class RiftonomiconStructureHelper {
     }
 
     public static IBlockState getSourceState(int dx, int dy, int dz) {
-        return TAMultiblockTriggers.getRiftonomiconSourceState(dx, dy, dz);
+        return MultiblockBreakHelper.getSourceState(TAMultiblockTriggers.RIFTONOMICON_MB_ID, dx, dy, dz);
     }
 
     public static BlockRiftonomicon.Part getPartFor(int dx, int dy, int dz) {

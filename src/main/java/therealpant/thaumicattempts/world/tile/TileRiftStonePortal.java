@@ -40,6 +40,9 @@ public class TileRiftStonePortal extends TileEntity implements ITickable, IAnima
     private static final int TELEPORT_COOLDOWN_TICKS = 40;
 
     private static final String TAG_TELEPORT_TIME = "TA_RiftStonePortalTeleportTime";
+    private static final String TAG_OPENED_BY_RIFTONOMICON = "OpenedByRiftonomicon";
+    private static final String TAG_HEAD_PORTAL_DIMENSION = "HeadPortalDimension";
+    private static final String TAG_HEAD_PORTAL_POS = "HeadPortalPos";
 
     public static final String ANIM_FULL = "portal.full";
 
@@ -47,6 +50,7 @@ public class TileRiftStonePortal extends TileEntity implements ITickable, IAnima
 
     private PortalVisualState visualState = PortalVisualState.CLOSED;
     private boolean fullAnimationApplied;
+    private boolean syncFullAnimationTick;
     private boolean open;
     private boolean closeQueued;
     private int phaseTicks;
@@ -54,11 +58,15 @@ public class TileRiftStonePortal extends TileEntity implements ITickable, IAnima
     private int targetDimension;
     private BlockPos targetPos;
     private int modelRotationSteps;
+    private boolean openedByRiftonomicon;
+    private int headPortalDimension;
+    private BlockPos headPortalPos;
 
     public void openPortal(int dimension, BlockPos destination) {
         if (destination == null) {
             return;
         }
+        openedByRiftonomicon = false;
         targetDimension = dimension;
         targetPos = destination;
         open = true;
@@ -67,6 +75,33 @@ public class TileRiftStonePortal extends TileEntity implements ITickable, IAnima
         phaseTicks = 0;
         closeDurationTicks = CLOSE_TICKS;
         fullAnimationApplied = false;
+        markDirtyAndSync();
+    }
+
+    public void openPortalFromRiftonomicon(int dimension, BlockPos destination) {
+        if (world == null || destination == null) return;
+        headPortalDimension = world.provider.getDimension();
+        headPortalPos = pos.toImmutable();
+        openPortal(dimension, destination);
+        openedByRiftonomicon = true;
+        markDirtyAndSync();
+    }
+
+    public boolean hasHeadPortal() {
+        return headPortalPos != null;
+    }
+
+    public boolean openToHeadPortal() {
+        if (headPortalPos == null || visualState != PortalVisualState.CLOSED) return false;
+        openedByRiftonomicon = false;
+        openPortal(headPortalDimension, headPortalPos);
+        return true;
+    }
+
+    private void rememberHeadPortal(int dimension, BlockPos portalPos) {
+        if (portalPos == null) return;
+        headPortalDimension = dimension;
+        headPortalPos = portalPos.toImmutable();
         markDirtyAndSync();
     }
 
@@ -181,6 +216,7 @@ public class TileRiftStonePortal extends TileEntity implements ITickable, IAnima
                 beginClosing();
                 return false;
             }
+            bindReceivingPortalToHead(world);
             setTeleportCooldown(mp);
             mp.setPositionAndUpdate(destination.getX() + 0.5D, destination.getY(), destination.getZ() + 0.5D);
             return true;
@@ -201,9 +237,18 @@ public class TileRiftStonePortal extends TileEntity implements ITickable, IAnima
             return false;
         }
 
+        bindReceivingPortalToHead(targetWorld);
         setTeleportCooldown(mp);
         mp.changeDimension(targetDimension, new FixedTeleporter(destination));
         return true;
+    }
+
+    private void bindReceivingPortalToHead(World targetWorld) {
+        if (!openedByRiftonomicon || headPortalPos == null || targetWorld == null || targetPos == null) return;
+        TileEntity targetTile = targetWorld.getTileEntity(targetPos);
+        if (targetTile instanceof TileRiftStonePortal) {
+            ((TileRiftStonePortal) targetTile).rememberHeadPortal(headPortalDimension, headPortalPos);
+        }
     }
 
     @Nullable
@@ -297,13 +342,39 @@ public class TileRiftStonePortal extends TileEntity implements ITickable, IAnima
             fullAnimationApplied = true;
             controller.markNeedsReload();
             controller.setAnimation(new AnimationBuilder().addAnimation(ANIM_FULL, false));
+            syncFullAnimationTick = true;
         } else {
+            if (syncFullAnimationTick) {
+                syncControllerToVisualState(controller, event.getAnimationTick());
+                syncFullAnimationTick = false;
+            }
             double fullAnimationTick = getFullAnimationTick(controller, event.getAnimationTick());
             if (!closeQueued && visualState == PortalVisualState.HOLD && fullAnimationTick >= HOLD_ANIMATION_END_TICKS) {
                 rewindFullAnimationByHoldCycle(controller);
             }
         }
         return PlayState.CONTINUE;
+    }
+
+    private void syncControllerToVisualState(AnimationController<?> controller, double eventTick) {
+        double animationSpeed = controller.getAnimationSpeed();
+        if (animationSpeed == 0.0D) animationSpeed = 1.0D;
+        controller.tickOffset = eventTick - getDesiredFullAnimationTick() / animationSpeed;
+    }
+
+    private int getDesiredFullAnimationTick() {
+        switch (visualState) {
+            case OPENING:
+                return Math.min(phaseTicks, HOLD_ANIMATION_START_TICKS);
+            case HOLD:
+                return HOLD_ANIMATION_START_TICKS
+                        + Math.floorMod(phaseTicks, HOLD_ANIMATION_REWIND_TICKS);
+            case CLOSING:
+                return FULL_ANIMATION_TICKS - Math.max(closeDurationTicks - phaseTicks, 0);
+            case CLOSED:
+            default:
+                return 0;
+        }
     }
 
     private int getRemainingFullAnimationTicks() {
@@ -361,10 +432,16 @@ public class TileRiftStonePortal extends TileEntity implements ITickable, IAnima
         if (visualState == PortalVisualState.CLOSED
                 || previousVisualState != visualState && visualState == PortalVisualState.OPENING) {
             fullAnimationApplied = false;
+            syncFullAnimationTick = false;
         }
         targetDimension = compound.getInteger("TargetDimension");
         targetPos = compound.hasKey("TargetPos") ? BlockPos.fromLong(compound.getLong("TargetPos")) : null;
         modelRotationSteps = compound.getInteger("ModelRotationSteps") & 7;
+        openedByRiftonomicon = compound.getBoolean(TAG_OPENED_BY_RIFTONOMICON);
+        headPortalDimension = compound.getInteger(TAG_HEAD_PORTAL_DIMENSION);
+        headPortalPos = compound.hasKey(TAG_HEAD_PORTAL_POS)
+                ? BlockPos.fromLong(compound.getLong(TAG_HEAD_PORTAL_POS))
+                : null;
     }
 
     @Override
@@ -377,6 +454,11 @@ public class TileRiftStonePortal extends TileEntity implements ITickable, IAnima
         compound.setInteger("VisualState", visualState.ordinal());
         compound.setInteger("TargetDimension", targetDimension);
         compound.setInteger("ModelRotationSteps", modelRotationSteps);
+        compound.setBoolean(TAG_OPENED_BY_RIFTONOMICON, openedByRiftonomicon);
+        if (headPortalPos != null) {
+            compound.setInteger(TAG_HEAD_PORTAL_DIMENSION, headPortalDimension);
+            compound.setLong(TAG_HEAD_PORTAL_POS, headPortalPos.toLong());
+        }
         if (targetPos != null) {
             compound.setLong("TargetPos", targetPos.toLong());
         }

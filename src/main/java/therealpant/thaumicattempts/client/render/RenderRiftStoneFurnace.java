@@ -14,6 +14,7 @@ import net.minecraftforge.fluids.FluidRegistry;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import software.bernie.geckolib3.renderers.geo.GeoBlockRenderer;
+import software.bernie.geckolib3.geo.render.built.GeoModel;
 import thaumcraft.client.fx.ParticleEngine;
 import thaumcraft.client.fx.particles.FXSlimyBubble;
 import therealpant.thaumicattempts.client.model.RiftStoneFurnaceModel;
@@ -25,6 +26,10 @@ public class RenderRiftStoneFurnace extends GeoBlockRenderer<TileRiftStoneFurnac
             new ResourceLocation("thaumcraft", "blocks/animatedglow");
     private static final double LIQUID_MIN = -2.0D / 16.0D;
     private static final double LIQUID_MAX = 18.0D / 16.0D;
+    private static final ResourceLocation EMISSIVE_OFF =
+            new ResourceLocation("thaumicattempts", "textures/blocks/rift_stone_furnase_e_off.png");
+    private static final ResourceLocation EMISSIVE_ON =
+            new ResourceLocation("thaumicattempts", "textures/blocks/rift_stone_furnase_e.png");
 
     public RenderRiftStoneFurnace() {
         super(new RiftStoneFurnaceModel());
@@ -34,7 +39,33 @@ public class RenderRiftStoneFurnace extends GeoBlockRenderer<TileRiftStoneFurnac
     public void render(TileRiftStoneFurnace te, double x, double y, double z,
                        float partialTicks, int destroyStage, float alpha) {
         super.render(te, x, y, z, partialTicks, destroyStage, alpha);
+        renderEmissive(te, x, y, z, partialTicks);
         renderLiquidDeath(te, x, y, z);
+    }
+
+    private void renderEmissive(TileRiftStoneFurnace te, double x, double y, double z, float partialTicks) {
+        if (te == null || te.getWorld() == null) return;
+        GeoModel model = getGeoModelProvider().getModel(getGeoModelProvider().getModelLocation(te));
+        float[] previousLight = RenderSafety.captureLightmap();
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(x + 0.5D, y + 0.01D, z + 0.5D);
+            RenderSafety.setFullBrightLightmap();
+            GlStateManager.disableLighting();
+            GlStateManager.enableBlend();
+            GlStateManager.tryBlendFuncSeparate(
+                    GlStateManager.SourceFactor.SRC_ALPHA,
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO
+            );
+            bindTexture(te.isActive() ? EMISSIVE_ON : EMISSIVE_OFF);
+            this.render(model, te, partialTicks, 1.0F, 1.0F, 1.0F, 1.0F);
+        } finally {
+            GlStateManager.popMatrix();
+            RenderSafety.restoreLightmap(previousLight);
+            RenderSafety.resetGlState();
+        }
     }
 
     private void renderLiquidDeath(TileRiftStoneFurnace te, double x, double y, double z) {

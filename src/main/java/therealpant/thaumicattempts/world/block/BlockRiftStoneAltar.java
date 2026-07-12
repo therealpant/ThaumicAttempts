@@ -5,6 +5,7 @@ import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
+import net.minecraft.inventory.InventoryHelper;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumBlockRenderType;
@@ -52,16 +53,22 @@ public class BlockRiftStoneAltar extends Block {
             return false;
         }
 
+        TileEntity raw = world.getTileEntity(pos);
+        if (!(raw instanceof TileRiftStoneAltar)) return false;
+        TileRiftStoneAltar tile = (TileRiftStoneAltar) raw;
         ItemStack held = player.getHeldItem(hand);
-        if (!held.isEmpty()) {
-            return false;
-        }
-
-        if (!world.isRemote) {
-            TileEntity tile = world.getTileEntity(pos);
-            if (tile instanceof TileRiftStoneAltar) {
-                ((TileRiftStoneAltar) tile).toggleWorking();
-            }
+        boolean extract = player.isSneaking() && !tile.getPrism().isEmpty();
+        boolean insert = !player.isSneaking() && tile.getPrism().isEmpty()
+                && !held.isEmpty() && held.getItem() == therealpant.thaumicattempts.init.ModBlocksItems.PRISM;
+        if (!extract && !insert) return false;
+        if (world.isRemote) return true;
+        if (insert && tile.insertPrism(held)) {
+            if (!player.capabilities.isCreativeMode) held.shrink(1);
+        } else if (extract) {
+            ItemStack prism = tile.removePrism();
+            if (player.getHeldItemMainhand().isEmpty()) player.setHeldItem(EnumHand.MAIN_HAND, prism);
+            else if (!player.inventory.addItemStackToInventory(prism)) player.dropItem(prism, false);
+            player.inventoryContainer.detectAndSendChanges();
         }
         return true;
     }
@@ -127,5 +134,16 @@ public class BlockRiftStoneAltar extends Block {
     @Override
     public float getAmbientOcclusionLightValue(IBlockState state) {
         return 1.0F;
+    }
+
+    @Override
+    public void breakBlock(World world, BlockPos pos, IBlockState state) {
+        TileEntity raw = world.getTileEntity(pos);
+        if (!world.isRemote && raw instanceof TileRiftStoneAltar) {
+            ItemStack prism = ((TileRiftStoneAltar) raw).removePrism();
+            if (!prism.isEmpty()) InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), prism);
+        }
+        if (!RiftPortalStructureHelper.isRestoring()) RiftPortalStructureHelper.restoreFromAltar(world, pos);
+        super.breakBlock(world, pos, state);
     }
 }

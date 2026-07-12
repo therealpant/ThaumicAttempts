@@ -14,8 +14,8 @@ import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
+import therealpant.thaumicattempts.data.TAMultiblockTriggers;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 
 import javax.annotation.Nullable;
@@ -61,6 +61,11 @@ public class BlockAuraBooster extends Block {
 
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
+        if (MultiblockBreakHelper.isRestoring()) {
+            super.breakBlock(world, pos, state);
+            return;
+        }
+
         TileEntity te = world.getTileEntity(pos);
         if (te instanceof TileAuraBooster) {
             ItemStack stack = ((TileAuraBooster) te).getPearlStack();
@@ -68,6 +73,7 @@ public class BlockAuraBooster extends Block {
                 InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), stack);
             }
         }
+        MultiblockBreakHelper.restoreFromBlueprint(world, pos, TAMultiblockTriggers.AURA_BOOSTER_MB_ID, pos);
         super.breakBlock(world, pos, state);
     }
 
@@ -137,8 +143,9 @@ public class BlockAuraBooster extends Block {
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
-        drops.add(new ItemStack(TABlocks.RIFT_STONE_BASE));
-        drops.add(new ItemStack(TABlocks.AURA_BOOSTER_CORE));
-        drops.add(new ItemStack(TABlocks.RIFT_CRISTAL_BLOCK));
+        IBlockState source = MultiblockBreakHelper.getSourceState(TAMultiblockTriggers.AURA_BOOSTER_MB_ID, 0, 0, 0);
+        if (source != null) {
+            source.getBlock().getDrops(drops, world, pos, source, fortune);
+        }
     }
 }

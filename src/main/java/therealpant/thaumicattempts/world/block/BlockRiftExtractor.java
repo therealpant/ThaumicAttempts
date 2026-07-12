@@ -8,7 +8,6 @@ import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.entity.player.EntityPlayerMP;
-import net.minecraft.init.Blocks;
 import net.minecraft.inventory.InventoryHelper;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
@@ -21,7 +20,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.data.TAMultiblockTriggers;
 import therealpant.thaumicattempts.world.tile.TileRiftExtractor;
 
 import javax.annotation.Nullable;
@@ -178,7 +177,27 @@ public class BlockRiftExtractor extends Block {
     // ---------- break ----------
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
+        if (MultiblockBreakHelper.isRestoring()) {
+            super.breakBlock(world, pos, state);
+            return;
+        }
+
         Part part = state.getValue(PART);
+        BlockPos base = getBasePosFromPart(pos, part);
+        if (part != Part.LOW) {
+            IBlockState baseState = world.getBlockState(base);
+            if (baseState.getBlock() == this && baseState.getValue(PART) == Part.LOW) {
+                TileEntity te = world.getTileEntity(base);
+                if (te instanceof TileRiftExtractor) {
+                    TileRiftExtractor extractor = (TileRiftExtractor) te;
+                    dropStack(world, base, extractor.getCrownStack());
+                    dropStack(world, base, extractor.getCoreStack());
+                }
+                MultiblockBreakHelper.restoreFromBlueprint(world, pos, TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID, base);
+            }
+            super.breakBlock(world, pos, state);
+            return;
+        }
 
         // Дроп только с базы
         if (part == Part.LOW) {
@@ -190,6 +209,7 @@ public class BlockRiftExtractor extends Block {
             }
 
             // удалить прокси-блоки выше
+            MultiblockBreakHelper.restoreFromBlueprint(world, pos, TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID, pos);
             if (world.getBlockState(pos.up()).getBlock() == this) {
                 world.setBlockToAir(pos.up());
             }
@@ -198,10 +218,10 @@ public class BlockRiftExtractor extends Block {
             }
         } else {
             // если ломают MID/TOP — перенаправим на базу
-            BlockPos base = getBasePosFromPart(pos, part);
-            IBlockState bs = world.getBlockState(base);
+            BlockPos oldBase = getBasePosFromPart(pos, part);
+            IBlockState bs = world.getBlockState(oldBase);
             if (bs.getBlock() == this && bs.getValue(PART) == Part.LOW) {
-                world.destroyBlock(base, true);
+                world.destroyBlock(oldBase, true);
             }
         }
 
@@ -221,12 +241,16 @@ public class BlockRiftExtractor extends Block {
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
-        if (state.getValue(PART) != Part.LOW) {
-            return;
+        Part part = state.getValue(PART);
+        IBlockState source = MultiblockBreakHelper.getSourceState(
+                TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID,
+                0,
+                part == Part.LOW ? 0 : part == Part.MID ? 1 : 2,
+                0
+        );
+        if (source != null) {
+            source.getBlock().getDrops(drops, world, pos, source, fortune);
         }
-        drops.add(new ItemStack(TABlocks.RIFT_STONE_BASE));
-        drops.add(new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION));
-        drops.add(new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION));
     }
 
     // ---------- interaction ----------

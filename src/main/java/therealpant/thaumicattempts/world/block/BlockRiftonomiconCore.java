@@ -4,9 +4,12 @@ import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.IBlockAccess;
 import therealpant.thaumicattempts.ThaumicAttempts;
+
+import javax.annotation.Nullable;
 
 public class BlockRiftonomiconCore extends Block {
 
@@ -18,6 +21,12 @@ public class BlockRiftonomiconCore extends Block {
         setTranslationKey(ThaumicAttempts.MODID + ".riftonomicon_core");
         setRegistryName(ThaumicAttempts.MODID, "riftonomicon_core");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
+    }
+
+    @Nullable
+    @Override
+    public AxisAlignedBB getCollisionBoundingBox(IBlockState state, IBlockAccess world, BlockPos pos) {
+        return NULL_AABB;
     }
 
     @Override

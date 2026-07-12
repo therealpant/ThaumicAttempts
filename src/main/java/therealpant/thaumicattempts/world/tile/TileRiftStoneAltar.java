@@ -4,6 +4,9 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.network.NetworkManager;
 import net.minecraft.network.play.server.SPacketUpdateTileEntity;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.item.ItemStack;
+import net.minecraft.util.ITickable;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.AxisAlignedBB;
 import software.bernie.geckolib3.core.IAnimatable;
 import software.bernie.geckolib3.core.PlayState;
@@ -15,7 +18,8 @@ import software.bernie.geckolib3.core.manager.AnimationFactory;
 
 import javax.annotation.Nullable;
 
-public class TileRiftStoneAltar extends TileEntity implements IAnimatable {
+public class TileRiftStoneAltar extends TileEntity implements IAnimatable, ITickable {
+    public static final double LINK_RADIUS_SQ = 16.0D * 16.0D;
     private static final String ANIM_ALTAR = "animation";
     private static final int LOOP_END_TICKS = 170;
     private static final int LOOP_REWIND_TICKS = 120;
@@ -27,6 +31,9 @@ public class TileRiftStoneAltar extends TileEntity implements IAnimatable {
     private boolean animationApplied;
     private boolean animationRunning;
     private double previousAnimationTick = -1.0D;
+    private ItemStack prism = ItemStack.EMPTY;
+    private BlockPos linkedRiftonomiconPos;
+    private int linkTicks;
 
     public void toggleWorking() {
         setWorking(!working);
@@ -45,6 +52,77 @@ public class TileRiftStoneAltar extends TileEntity implements IAnimatable {
             animationApplied = false;
             animationRunning = true;
         }
+        markDirtyAndSync();
+    }
+
+    @Override
+    public void update() {
+        if (world == null || world.isRemote) return;
+        if (++linkTicks == 1 || linkTicks % 20 == 0) refreshRiftonomiconLink();
+    }
+
+    private void refreshRiftonomiconLink() {
+        TileRiftonomicon current = getLinkedRiftonomicon();
+        if (current != null && current.isTransmutationAltarConnectionActive(pos)) {
+            setWorking(current.isTransmutationAltarAnimationRequested());
+            return;
+        }
+        linkedRiftonomiconPos = null;
+        TileRiftonomicon nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (TileEntity tile : world.loadedTileEntityList) {
+            if (!(tile instanceof TileRiftonomicon)) continue;
+            TileRiftonomicon candidate = (TileRiftonomicon) tile;
+            double distance = candidate.getPos().distanceSq(pos);
+            if (distance > LINK_RADIUS_SQ || distance >= nearestDistance
+                    || !candidate.hasFreeTransmutationAltarConnection(pos)) continue;
+            nearest = candidate;
+            nearestDistance = distance;
+        }
+        linkedRiftonomiconPos = nearest == null ? null : nearest.getPos();
+        setWorking(nearest != null && nearest.isTransmutationAltarConnectionActive(pos)
+                && nearest.isTransmutationAltarAnimationRequested());
+        markDirtyAndSync();
+    }
+
+    @Nullable
+    public BlockPos getLinkedRiftonomiconPos() { return linkedRiftonomiconPos; }
+
+    @Nullable
+    private TileRiftonomicon getLinkedRiftonomicon() {
+        if (world == null || linkedRiftonomiconPos == null
+                || pos.distanceSq(linkedRiftonomiconPos) > LINK_RADIUS_SQ) return null;
+        TileEntity tile = world.getTileEntity(linkedRiftonomiconPos);
+        return tile instanceof TileRiftonomicon ? (TileRiftonomicon) tile : null;
+    }
+
+    public ItemStack getPrism() { return prism; }
+
+    public void receiveRiftonomiconAnimationSignal(TileRiftonomicon source) {
+        if (source == null || linkedRiftonomiconPos == null || !linkedRiftonomiconPos.equals(source.getPos())) return;
+        setWorking(source.isTransmutationAltarConnectionActive(pos)
+                && source.isTransmutationAltarAnimationRequested());
+    }
+
+    public boolean insertPrism(ItemStack held) {
+        if (held.isEmpty() || !prism.isEmpty()
+                || held.getItem() != therealpant.thaumicattempts.init.ModBlocksItems.PRISM) return false;
+        prism = held.copy();
+        prism.setCount(1);
+        markDirtyAndSync();
+        return true;
+    }
+
+    public ItemStack removePrism() {
+        ItemStack result = prism;
+        prism = ItemStack.EMPTY;
+        if (!result.isEmpty()) markDirtyAndSync();
+        return result;
+    }
+
+    public void consumePrism() {
+        if (prism.isEmpty()) return;
+        prism = ItemStack.EMPTY;
         markDirtyAndSync();
     }
 
@@ -114,6 +192,9 @@ public class TileRiftStoneAltar extends TileEntity implements IAnimatable {
         super.readFromNBT(compound);
         boolean previousWorking = working;
         working = compound.getBoolean("Working");
+        prism = compound.hasKey("Prism") ? new ItemStack(compound.getCompoundTag("Prism")) : ItemStack.EMPTY;
+        linkedRiftonomiconPos = compound.hasKey("LinkedRiftonomicon")
+                ? BlockPos.fromLong(compound.getLong("LinkedRiftonomicon")) : null;
         if (working && !previousWorking) {
             animationApplied = false;
             animationRunning = true;
@@ -124,6 +205,8 @@ public class TileRiftStoneAltar extends TileEntity implements IAnimatable {
     public NBTTagCompound writeToNBT(NBTTagCompound compound) {
         super.writeToNBT(compound);
         compound.setBoolean("Working", working);
+        if (!prism.isEmpty()) compound.setTag("Prism", prism.writeToNBT(new NBTTagCompound()));
+        if (linkedRiftonomiconPos != null) compound.setLong("LinkedRiftonomicon", linkedRiftonomiconPos.toLong());
         return compound;
     }
 

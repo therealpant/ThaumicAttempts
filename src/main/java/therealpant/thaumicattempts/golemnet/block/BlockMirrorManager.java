@@ -14,10 +14,10 @@ import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
-import thaumcraft.api.blocks.BlocksTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.data.TAMultiblockTriggers;
 import therealpant.thaumicattempts.golemnet.tile.TileMirrorManager;
-import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.world.block.MultiblockBreakHelper;
 
 import javax.annotation.Nullable;
 
@@ -129,6 +129,11 @@ public class BlockMirrorManager extends Block {
 
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
+        if (MultiblockBreakHelper.isRestoring()) {
+            super.breakBlock(world, pos, state);
+            return;
+        }
+
         TileEntity te = world.getTileEntity(pos);
         if (te instanceof TileMirrorManager) {
             ((TileMirrorManager) te).dropContents();
@@ -136,6 +141,7 @@ public class BlockMirrorManager extends Block {
         }
         // Сбрасываем ВСЕ стабы/ядра в 5×5×3 под менеджером
         therealpant.thaumicattempts.golemnet.tile.TileMirrorManager.deactivateUpgradesAround(world, pos);
+        MultiblockBreakHelper.restoreFromBlueprint(world, pos, TAMultiblockTriggers.MIRROR_MANAGER_MB_ID, pos);
         super.breakBlock(world, pos, state);
     }
 
@@ -143,8 +149,10 @@ public class BlockMirrorManager extends Block {
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
-        drops.add(new ItemStack(TABlocks.RIFT_STONE_BASE));
-        drops.add(new ItemStack(TABlocks.MIRROR_MANAGER_CORE));
+        IBlockState source = MultiblockBreakHelper.getSourceState(TAMultiblockTriggers.MIRROR_MANAGER_MB_ID, 0, 0, 0);
+        if (source != null) {
+            source.getBlock().getDrops(drops, world, pos, source, fortune);
+        }
     }
 }
 

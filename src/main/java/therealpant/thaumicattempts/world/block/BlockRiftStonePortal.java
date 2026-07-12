@@ -16,6 +16,7 @@ import net.minecraft.util.EnumActionResult;
 import net.minecraft.util.EnumBlockRenderType;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
+import net.minecraft.util.NonNullList;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.IBlockAccess;
@@ -91,6 +92,13 @@ public class BlockRiftStonePortal extends Block {
                 }
             }
             return true;
+        }
+
+        if (held.isEmpty()) {
+            TileEntity tile = world.getTileEntity(pos);
+            if (!(tile instanceof TileRiftStonePortal)) return false;
+            if (world.isRemote) return ((TileRiftStonePortal) tile).hasHeadPortal();
+            return ((TileRiftStonePortal) tile).openToHeadPortal();
         }
 
         if (!held.isEmpty() && held.getItem() == ModBlocksItems.PORTAL_RUNE) {
@@ -191,5 +199,9 @@ public class BlockRiftStonePortal extends Block {
             RiftPortalStructureHelper.restoreFromPortal(world, pos);
         }
         super.breakBlock(world, pos, state);
+    }
+
+    @Override
+    public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
     }
 }

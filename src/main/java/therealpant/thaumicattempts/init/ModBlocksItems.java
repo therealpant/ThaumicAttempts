@@ -27,6 +27,8 @@ import therealpant.thaumicattempts.world.tile.TileRiftGeod;
 import therealpant.thaumicattempts.items.ItemStorageBell;
 import therealpant.thaumicattempts.items.ItemTAGem;
 import therealpant.thaumicattempts.items.ItemPortalRune;
+import therealpant.thaumicattempts.items.ItemPrism;
+import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
 
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
@@ -68,6 +70,8 @@ public final class ModBlocksItems {
     public static Item TAINTED_MIND_FRUIT;
     public static Item MIND_POTION;
     public static Item TA_GEM;
+    public static Item PRISM;
+    public static Item RIFTONOMICON_PROTOCOL;
     public static Item STORAGE_BELL;
     public static Item PORTAL_RUNE;
 
@@ -195,6 +199,12 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_altar"));
         GameRegistry.registerTileEntity(TileRiftonomicon.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "riftonomicon"));
+        GameRegistry.registerTileEntity(therealpant.thaumicattempts.world.tile.TileRiftonomiconImpetusPort.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "riftonomicon_impetus_port"));
+        GameRegistry.registerTileEntity(therealpant.thaumicattempts.world.tile.TileRiftonomiconTransmutationEssentiaInput.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "riftonomicon_transmutation_essentia_input"));
+        GameRegistry.registerTileEntity(therealpant.thaumicattempts.world.tile.TileRiftonomiconTransmutationImpetusInput.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "riftonomicon_transmutation_impetus_input"));
         // TE для ARCANE_CRAFTER регистрируем в ThaumicAttempts#preInit (см. ниже).
     }
 
@@ -250,6 +260,8 @@ public final class ModBlocksItems {
         MIND_POTION = new ItemMindPotion();
         TA_GEM = new ItemTAGem()
                 .setRegistryName(ThaumicAttempts.MODID, "ta_gem");
+        PRISM = new ItemPrism();
+        RIFTONOMICON_PROTOCOL = new ItemRiftonomiconProtocol();
         STORAGE_BELL = new ItemStorageBell();
         PORTAL_RUNE = new ItemPortalRune();
 
@@ -270,6 +282,8 @@ public final class ModBlocksItems {
                 TAINTED_MIND_FRUIT,
                 MIND_POTION,
                 TA_GEM,
+                PRISM,
+                RIFTONOMICON_PROTOCOL,
                 STORAGE_BELL,
                 PORTAL_RUNE
         );

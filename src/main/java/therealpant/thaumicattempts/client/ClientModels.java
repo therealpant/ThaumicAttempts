@@ -17,6 +17,8 @@ import net.minecraftforge.fml.relauncher.Side;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.client.render.*;
 import therealpant.thaumicattempts.init.ModBlocksItems;
+import therealpant.thaumicattempts.items.ItemPrism;
+import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
 import therealpant.thaumicattempts.golemnet.block.BlockMathCore;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer;
 import therealpant.thaumicattempts.golemnet.tile.*;
@@ -149,6 +151,18 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.PORTAL_RUNE, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":portal_rune", "inventory")
         );
+        registerPrismModel(ItemPrism.META_AIR, "prism_air");
+        registerPrismModel(ItemPrism.META_AQUA, "prism_aqua");
+        registerPrismModel(ItemPrism.META_IGNIS, "prism_ignis");
+        registerPrismModel(ItemPrism.META_TERRA, "prism");
+        registerProtocolModel(ItemRiftonomiconProtocol.META_NAVIGATION_PROTOCOL);
+        registerProtocolModel(ItemRiftonomiconProtocol.META_SPATIAL_SUBSYSTEM);
+        registerProtocolModel(ItemRiftonomiconProtocol.META_ALCHEMICAL_PROTOCOL);
+        registerProtocolModel(ItemRiftonomiconProtocol.META_CATALYZING_SUBSYSTEM);
+        registerProtocolModel(ItemRiftonomiconProtocol.META_TRANSMUTATION_PROTOCOL);
+        registerProtocolModel(ItemRiftonomiconProtocol.META_PRISMATIC_SUBSYSTEM);
+        registerProtocolModel(ItemRiftonomiconProtocol.META_EXTRACTION_PROTOCOL);
+        registerProtocolModel(ItemRiftonomiconProtocol.META_SCALING_SUBSYSTEM);
 
         // ItemBlock'и наших блоков (иконки!)
         registerItemBlockModel(ModBlocksItems.GOLEM_CRAFTER, ThaumicAttempts.MODID + ":golem_crafter");
@@ -327,6 +341,20 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileRiftonomicon.class,
                 new RenderRiftonomicon()
+        );
+    }
+
+    private static void registerPrismModel(int meta, String model) {
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.PRISM, meta,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":" + model, "inventory")
+        );
+    }
+
+    private static void registerProtocolModel(int meta) {
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.RIFTONOMICON_PROTOCOL, meta,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":protocol_" + meta, "inventory")
         );
     }
 

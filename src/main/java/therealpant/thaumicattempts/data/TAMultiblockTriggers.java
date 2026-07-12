@@ -28,6 +28,9 @@ public final class TAMultiblockTriggers {
     public static final ResourceLocation RIFT_PORTAL_MB_ID =
             new ResourceLocation(ThaumicAttempts.MODID, "rift_portal_multiblock");
 
+    public static final ResourceLocation TRANSMUTATION_ALTAR_MB_ID =
+            new ResourceLocation(ThaumicAttempts.MODID, "transmutation_altar_multiblock");
+
     public static final ResourceLocation RIFT_STONE_FURNACE_MB_ID =
             new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_furnace_multiblock");
 
@@ -60,6 +63,12 @@ public final class TAMultiblockTriggers {
             );
             IDustTrigger.registerDustTrigger(riftPortalTrigger);
 
+            DustTriggerMultiblock transmutationAltarTrigger = new DustTriggerMultiblock(
+                "TA_RIFT_EXTRACTOR",
+                buildTransmutationAltarTriggerStructure()
+            );
+            IDustTrigger.registerDustTrigger(transmutationAltarTrigger);
+
             DustTriggerMultiblock riftStoneFurnaceTrigger = new DustTriggerMultiblock(
                 "TA_RIFT_EXTRACTOR",
                 buildRiftStoneFurnaceTriggerStructure()
@@ -77,6 +86,7 @@ public final class TAMultiblockTriggers {
             registerAuraBoosterBlueprint();
             registerRiftExtractorBlueprint();
             registerRiftPortalBlueprint();
+            registerTransmutationAltarBlueprint();
             registerRiftStoneFurnaceBlueprint();
             registerRiftonomiconBlueprint();
     }
@@ -267,6 +277,50 @@ public final class TAMultiblockTriggers {
         ThaumcraftApi.addMultiblockRecipeToCatalog(RIFT_PORTAL_MB_ID, bp);
     }
 
+    private static Part[][][] buildTransmutationAltarTriggerStructure() {
+        Part darkToAltar = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.RIFT_STONE_ALTAR);
+        Part darkToPlatform = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.RIFT_PORTAL_PLATFORM);
+        Part polishedToPlatform = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.RIFT_PORTAL_PLATFORM);
+        return new Part[][][] {
+                {
+                        { null, null, null },
+                        { null, darkToAltar, null },
+                        { null, null, null }
+                },
+                {
+                        { darkToPlatform, polishedToPlatform, darkToPlatform },
+                        { polishedToPlatform, polishedToPlatform, polishedToPlatform },
+                        { darkToPlatform, polishedToPlatform, darkToPlatform }
+                }
+        };
+    }
+
+    private static Part[][][] buildTransmutationAltarBlueprintStructure() {
+        Part dark = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.DARK_JASPER_BRICKS);
+        Part polished = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.POLISHED_DARK_JASPER);
+        return new Part[][][] {
+                {
+                        { null, null, null },
+                        { null, dark, null },
+                        { null, null, null }
+                },
+                {
+                        { dark, polished, dark },
+                        { polished, polished, polished },
+                        { dark, polished, dark }
+                }
+        };
+    }
+
+    private static void registerTransmutationAltarBlueprint() {
+        ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
+                "TA_RIFT_EXTRACTOR",
+                new ItemStack(TABlocks.RIFT_STONE_ALTAR),
+                buildTransmutationAltarBlueprintStructure()
+        );
+        ThaumcraftApi.addMultiblockRecipeToCatalog(TRANSMUTATION_ALTAR_MB_ID, bp);
+    }
+
     private static Part[][][] buildRiftStoneFurnaceTriggerStructure() {
         return new Part[][][] {
                 {
@@ -362,12 +416,12 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildRiftonomiconStructure(boolean transform) {
-        Part n = null;
-        Part brick = new Part(TABlocks.DARK_JASPER_BRICKS,TABlocks.DARK_JASPER_BRICKS);
-        Part polished = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.POLISHED_DARK_JASPER);
-        Part core = new Part(TABlocks.RIFTONOMICON_CORE, TABlocks.RIFTONOMICON_CORE);
+        Object n = null;
+        Object brick = TABlocks.DARK_JASPER_BRICKS;
+        Object polished = TABlocks.POLISHED_DARK_JASPER;
+        Object core = TABlocks.RIFTONOMICON_CORE;
 
-        return new Part[][][] {
+        Object[][][] sources = new Object[][][] {
                 // 5 слой (верх)
                 {
                         { n, n, n, n, n, n, n },
@@ -419,32 +473,84 @@ public final class TAMultiblockTriggers {
                         { n, n, brick, polished, brick, n, n }
                 }
         };
+
+        // The visual center is empty in the blueprint, but after transformation it must
+        // become an invisible walkable floor. "AIR" keeps the original structure recipe
+        // unchanged and lets the break helper restore these positions back to air.
+        for (int z = 2; z <= 4; z++) {
+            for (int x = 2; x <= 4; x++) {
+                if (sources[4][z][x] == null) {
+                    sources[4][z][x] = "AIR";
+                }
+            }
+        }
+
+        // Four invisible fourth-layer blocks host the physical impetus nodes.
+        sources[1][1][3] = "AIR";
+        sources[1][5][3] = "AIR";
+        sources[1][3][1] = "AIR";
+        sources[1][3][5] = "AIR";
+
+        return buildRiftonomiconParts(sources, transform);
     }
 
-    private static Part riftonomiconStructurePart(Object source, BlockRiftonomicon.Part targetPart, boolean transform) {
-        return transform ? riftonomiconPart(source, targetPart) : new Part(source, source);
+    private static Part[][][] buildRiftonomiconParts(Object[][][] sources, boolean transform) {
+        Part[][][] parts = new Part[sources.length][][];
+        for (int y = 0; y < sources.length; y++) {
+            parts[y] = new Part[sources[y].length][];
+            int dy = sources.length - 1 - y;
+            for (int z = 0; z < sources[y].length; z++) {
+                parts[y][z] = new Part[sources[y][z].length];
+                int dz = z - 3;
+                for (int x = 0; x < sources[y][z].length; x++) {
+                    Object source = sources[y][z][x];
+                    if (source == null) {
+                        continue;
+                    }
+
+                    int dx = x - 3;
+                    parts[y][z][x] = riftonomiconStructurePart(source, dx, dy, dz, transform);
+                }
+            }
+        }
+        return parts;
+    }
+
+    private static Part riftonomiconStructurePart(Object source, int dx, int dy, int dz, boolean transform) {
+        return transform ? riftonomiconPart(source, getRiftonomiconPartFor(dx, dy, dz)) : new Part(source, source);
     }
 
     public static net.minecraft.block.state.IBlockState getRiftonomiconSourceState(int dx, int dy, int dz) {
+        Object source = getRiftonomiconSource(dx, dy, dz);
+        return source instanceof net.minecraft.block.Block
+                ? ((net.minecraft.block.Block) source).getDefaultState()
+                : null;
+    }
+
+    private static Object getRiftonomiconSource(int dx, int dy, int dz) {
         int ax = Math.abs(dx);
         int az = Math.abs(dz);
 
         if (dy == 0) {
-            if (az == 3) {
-                return ax <= 1 ? TABlocks.POLISHED_DARK_JASPER.getDefaultState() : null;
+            if (dx == 0 && dz == 0) return BlockRiftonomicon.Part.TRANSMUTATION_IMPETUS_INPUT;
+            if ((az == 3 && ax <= 1) || (az == 2 && ax <= 2) || (ax >= 2 && ax <= 3)) {
+                return (dx == 0 || dz == 0) ? TABlocks.POLISHED_DARK_JASPER : TABlocks.DARK_JASPER_BRICKS;
             }
-            if (az == 2) {
-                return ax <= 2 ? TABlocks.RIFT_STONE_BASE.getDefaultState() : null;
-            }
-            return ax >= 2 && ax <= 3 ? TABlocks.RIFT_STONE_BASE.getDefaultState() : null;
+            return null;
         }
 
         if (dy == 1) {
-            return ax == 2 && az == 2 ? TABlocks.DARK_JASPER_BRICKS.getDefaultState() : null;
+            return ax == 2 && az == 2 ? TABlocks.DARK_JASPER_BRICKS : null;
         }
 
-        if (dy >= 2 && dy <= 4) {
-            return dx == 0 && dz == 0 ? TABlocks.RIFT_CRISTAL_BLOCK.getDefaultState() : null;
+        if (dy == 2 || dy == 4) {
+            return dx == 0 && dz == 0 ? TABlocks.DARK_JASPER_BRICKS : null;
+        }
+
+        if (dy == 3) {
+            if (dx == 0 && dz == 0) return TABlocks.RIFTONOMICON_CORE;
+            if ((Math.abs(dx) == 2 && dz == 0) || (Math.abs(dz) == 2 && dx == 0)) return "AIR";
+            return null;
         }
 
         return null;
@@ -455,21 +561,31 @@ public final class TAMultiblockTriggers {
         int az = Math.abs(dz);
 
         if (dy == 0) {
-            if (dx == 0 && dz == -3) {
-                return BlockRiftonomicon.Part.CORE;
+            if (ax == 2 && az == 2) {
+                return BlockRiftonomicon.Part.CORNER;
             }
-            if (az == 3 && ax <= 1) {
+            if (ax == 3 || az == 3) {
                 return BlockRiftonomicon.Part.EDGE;
             }
-            if (az == 2 && ax <= 2) {
-                return ax == 2 ? BlockRiftonomicon.Part.CORNER : BlockRiftonomicon.Part.BASE;
-            }
-            return ax == 3 ? BlockRiftonomicon.Part.EDGE : BlockRiftonomicon.Part.BASE;
+            return BlockRiftonomicon.Part.BASE;
         }
 
         if (dy == 1) {
             return BlockRiftonomicon.Part.COLUMN;
         }
+
+        if (dy == 3 && dx == 0 && dz == 0) {
+            return BlockRiftonomicon.Part.CORE;
+        }
+
+        if (dy == 2 && dx == 0 && dz == 0) {
+            return BlockRiftonomicon.Part.TRANSMUTATION_ESSENTIA_INPUT;
+        }
+
+        if (dy == 3 && ((ax == 2 && dz == 0) || (az == 2 && dx == 0))) {
+            return BlockRiftonomicon.Part.IMPETUS_PORT;
+        }
+
         return BlockRiftonomicon.Part.TOP;
     }
 

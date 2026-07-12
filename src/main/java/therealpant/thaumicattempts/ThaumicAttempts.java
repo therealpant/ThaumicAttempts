@@ -48,6 +48,8 @@ import therealpant.thaumicattempts.golemnet.net.msg.C2S_OrderSubmit;
 import therealpant.thaumicattempts.golemnet.net.msg.C2S_RequestCatalogPage;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.init.ModEntities;
+import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconWispClick;
+import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconAlchemyClick;
 import therealpant.thaumicattempts.net.msg.S2C_AmberCountUpdate;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
@@ -187,6 +189,8 @@ public class ThaumicAttempts {
         NET.registerMessage(C2S_OrderAdjust.Handler.class, C2S_OrderAdjust.class, id++, Side.SERVER);
         NET.registerMessage(C2S_OrderSubmit.Handler.class, C2S_OrderSubmit.class, id++, Side.SERVER);
         NET.registerMessage(C2S_RequestCatalogPage.Handler.class, C2S_RequestCatalogPage.class, id++, Side.SERVER);
+        NET.registerMessage(C2S_RiftonomiconWispClick.Handler.class, C2S_RiftonomiconWispClick.class, id++, Side.SERVER);
+        NET.registerMessage(C2S_RiftonomiconAlchemyClick.Handler.class, C2S_RiftonomiconAlchemyClick.class, id++, Side.SERVER);
 
         // S2C
         NET.registerMessage(therealpant.thaumicattempts.golemnet.net.msg.S2C_DraftSnapshot.Handler.class,
