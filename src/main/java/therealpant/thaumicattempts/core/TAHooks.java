@@ -225,17 +225,7 @@ public final class TAHooks {
 
             EntityPlayer player = (EntityPlayer) caster;
 
-            // count amber gems on armor (sum across 4 pieces)
-            int amberCount = countAmber(player);
-
-            // Set of 2 ambers => +1 to selected focus settings
-            if (amberCount >= AmberEffects.SET2_REQUIRED) {
-                int result = original + 1;
-                System.out.println("[TA] Amber SET2 lens buff: key=" + k + " original=" + original
-                        + " result=" + result);
-                return result;
-            }
-
+            if (countAmber(player) >= AmberEffects.SET2_REQUIRED) return original + 1;
             return original;
         } catch (Throwable t) {
             // NEVER break focus casting.

@@ -54,7 +54,8 @@ item.thaumicattempts.riftonomicon_protocol.alchemical_protocol.name=Alchemical P
 item.thaumicattempts.riftonomicon_protocol.catalyzing_subsystem.name=Catalyzing Subsystem
 item.thaumicattempts.riftonomicon_protocol.transmutation_protocol.name=Transmutation Protocol
 item.thaumicattempts.riftonomicon_protocol.prismatic_subsystem.name=Prismatic Subsystem
-item.thaumicattempts.riftonomicon_protocol.extraction_protocol.name=Extraction Protocol
+item.thaumicattempts.riftonomicon_protocol.creation_protocol.name=Creation Protocol
+item.thaumicattempts.calibrated_extract.name=Calibrated Extract
 item.thaumicattempts.riftonomicon_protocol.scaling_subsystem.name=Scaling Subsystem
 item.thaumicattempts.revision_piedestal.name=Revision Piedestal
 
@@ -189,3 +190,5 @@ tile.thaumicattempts.riftonomicon.name=Riftonomicon
 item.thaumicattempts.riftonomicon.name=Riftonomicon
 tile.thaumicattempts.riftonomicon_core.name=Riftonomicon Core
 item.thaumicattempts.riftonomicon_core.name=Riftonomicon Core
+tooltip.thaumicattempts.transmutation=Transmutation: %s %s
+tooltip.thaumicattempts.transmutation.created=Created

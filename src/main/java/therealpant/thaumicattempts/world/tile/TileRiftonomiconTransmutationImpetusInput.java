@@ -2,16 +2,22 @@ package therealpant.thaumicattempts.world.tile;
 
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.ITickable;
 import net.minecraftforge.common.capabilities.Capability;
 import therealpant.thaumicattempts.integration.thaumicaugmentation.ImpetusCompat;
+import therealpant.thaumicattempts.data.research.TAAspects;
+import thaumcraft.api.aspects.Aspect;
+import thaumcraft.api.aspects.IEssentiaTransport;
+import thaumcraft.common.lib.events.EssentiaHandler;
 
 import javax.annotation.Nullable;
 
-public class TileRiftonomiconTransmutationImpetusInput extends TileEntity {
+public class TileRiftonomiconTransmutationImpetusInput extends TileEntity implements ITickable, IEssentiaTransport {
     private Object node;
+    private int drawDelay;
 
     private TileRiftonomicon getCore() {
-        TileEntity tile = world == null ? null : world.getTileEntity(pos.up(3));
+        TileEntity tile = world == null ? null : world.getTileEntity(pos.down());
         return tile instanceof TileRiftonomicon ? (TileRiftonomicon) tile : null;
     }
 
@@ -42,6 +48,21 @@ public class TileRiftonomiconTransmutationImpetusInput extends TileEntity {
         return ImpetusCompat.consumeFromNode(node, world, amount, simulate);
     }
 
+    @Override
+    public void update() {
+        if (world == null || world.isRemote || ImpetusCompat.isLoaded() || ++drawDelay % 5 != 0) return;
+        TileRiftonomicon core = getCore();
+        Aspect aspect = requiredAspect();
+        if (core != null && aspect != null && core.canAcceptCreationExtractorParadoxum()
+                && EssentiaHandler.drainEssentia(this, aspect, null, 12, 0)) {
+            core.acceptCreationExtractorParadoxum(1);
+        }
+    }
+
+    private Aspect requiredAspect() {
+        return TAAspects.PARADOXUM != null ? TAAspects.PARADOXUM : Aspect.getAspect("paradoxum");
+    }
+
     @Override public boolean hasCapability(Capability<?> capability, @Nullable EnumFacing facing) {
         Capability<?> cap = ImpetusCompat.getImpetusNodeCapability();
         return cap != null && capability == cap && getCore() != null || super.hasCapability(capability, facing);
@@ -56,4 +77,22 @@ public class TileRiftonomiconTransmutationImpetusInput extends TileEntity {
         }
         return super.getCapability(capability, facing);
     }
+
+    @Override public boolean isConnectable(EnumFacing face) { return true; }
+    @Override public boolean canInputFrom(EnumFacing face) { return !ImpetusCompat.isLoaded(); }
+    @Override public boolean canOutputTo(EnumFacing face) { return false; }
+    @Override public void setSuction(Aspect aspect, int amount) {}
+    @Override public Aspect getSuctionType(EnumFacing face) {
+        TileRiftonomicon core = getCore();
+        return core != null && core.canAcceptCreationExtractorParadoxum() ? requiredAspect() : null;
+    }
+    @Override public int getSuctionAmount(EnumFacing face) { return getSuctionType(face) == null ? 0 : 128; }
+    @Override public int addEssentia(Aspect aspect, int amount, EnumFacing face) {
+        TileRiftonomicon core = getCore();
+        return core == null || aspect != requiredAspect() ? 0 : core.acceptCreationExtractorParadoxum(amount);
+    }
+    @Override public int takeEssentia(Aspect aspect, int amount, EnumFacing face) { return 0; }
+    @Override public Aspect getEssentiaType(EnumFacing face) { return null; }
+    @Override public int getEssentiaAmount(EnumFacing face) { return 0; }
+    @Override public int getMinimumSuction() { return 0; }
 }

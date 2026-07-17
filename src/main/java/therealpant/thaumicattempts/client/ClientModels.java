@@ -151,6 +151,10 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.PORTAL_RUNE, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":portal_rune", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.CALIBRATED_EXTRACT, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":calibrated_extract", "inventory")
+        );
         registerPrismModel(ItemPrism.META_AIR, "prism_air");
         registerPrismModel(ItemPrism.META_AQUA, "prism_aqua");
         registerPrismModel(ItemPrism.META_IGNIS, "prism_ignis");

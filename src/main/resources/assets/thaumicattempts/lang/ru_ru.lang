@@ -55,7 +55,8 @@ item.thaumicattempts.riftonomicon_protocol.alchemical_protocol.name=Алхими
 item.thaumicattempts.riftonomicon_protocol.catalyzing_subsystem.name=Катализирующая Подсистема
 item.thaumicattempts.riftonomicon_protocol.transmutation_protocol.name=Трансмутационный Протокол
 item.thaumicattempts.riftonomicon_protocol.prismatic_subsystem.name=Призматическая Подсистема
-item.thaumicattempts.riftonomicon_protocol.extraction_protocol.name=Протокол Извлечения
+item.thaumicattempts.riftonomicon_protocol.creation_protocol.name=Протокол Созидания
+item.thaumicattempts.calibrated_extract.name=Откалиброванный Экстракт
 item.thaumicattempts.riftonomicon_protocol.scaling_subsystem.name=Масштабирующая Подсистема
 item.thaumicattempts.revision_piedestal.name=Пьедестал Ревизии
 
@@ -191,3 +192,5 @@ tile.thaumicattempts.riftonomicon.name=Рифтономикон
 item.thaumicattempts.riftonomicon.name=Рифтономикон
 tile.thaumicattempts.riftonomicon_core.name=Ядро Рифтономикона
 item.thaumicattempts.riftonomicon_core.name=Ядро Рифтономикона
+tooltip.thaumicattempts.transmutation=Трансмутация: %s %s
+tooltip.thaumicattempts.transmutation.created=Сотворенный

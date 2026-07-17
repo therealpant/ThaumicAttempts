@@ -24,7 +24,7 @@ public class TileRiftonomiconTransmutationEssentiaInput extends TileEntity imple
         }
     }
     private TileRiftonomicon getCore() {
-        TileEntity tile = world == null ? null : world.getTileEntity(pos.up());
+        TileEntity tile = world == null ? null : world.getTileEntity(pos.up(3));
         return tile instanceof TileRiftonomicon ? (TileRiftonomicon) tile : null;
     }
 

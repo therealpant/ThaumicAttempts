@@ -27,6 +27,7 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
+import therealpant.thaumicattempts.items.ItemPrism;
 import thaumcraft.api.casters.ICaster;
 import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
 import therealpant.thaumicattempts.world.tile.TileRiftonomiconImpetusPort;
@@ -222,6 +223,15 @@ public class BlockRiftonomicon extends Block {
 
         ItemStack held = player.getHeldItem(hand);
         int slot = getProtocolSlot(center, pos);
+        if (held.getItem() instanceof ItemPrism && tile.hasTransmutationProtocol()) {
+            if (world.isRemote) return tile.getTransmutationPrismCount() < tile.getTransmutationAltarLimit();
+            if (tile.insertTransmutationPrism(held)) {
+                if (!player.capabilities.isCreativeMode) held.shrink(1);
+                player.inventoryContainer.detectAndSendChanges();
+                playProtocolSlotSound(world, pos, 0.8F, 1.25F);
+            }
+            return true;
+        }
         if (slot < 0 && held.getItem() instanceof ICaster && tile.hasTransmutationProtocol()) {
             if (!world.isRemote) tile.tryStartTransmutation();
             return true;
@@ -231,6 +241,14 @@ public class BlockRiftonomicon extends Block {
             if (!world.isRemote) {
                 ItemStack extracted = tile.removeTransmutationItem();
                 player.setHeldItem(hand, extracted);
+                player.inventoryContainer.detectAndSendChanges();
+            }
+            return true;
+        }
+        if (slot < 0 && player.isSneaking() && held.isEmpty() && tile.hasTransmutationProtocol()) {
+            if (!world.isRemote) {
+                ItemStack extracted = tile.removeLastTransmutationPrism();
+                if (!extracted.isEmpty()) player.setHeldItem(hand, extracted);
                 player.inventoryContainer.detectAndSendChanges();
             }
             return true;
@@ -277,6 +295,13 @@ public class BlockRiftonomicon extends Block {
                 if (!transmutationItem.isEmpty() && !player.inventory.addItemStackToInventory(transmutationItem)) {
                     player.dropItem(transmutationItem, false);
                 }
+                giveStacksToPlayerOrDrop(player, tile.removeAllTransmutationPrisms());
+            } else if (extracted.getItem() == ModBlocksItems.RIFTONOMICON_PROTOCOL
+                    && extracted.getMetadata() == ItemRiftonomiconProtocol.META_CREATION_PROTOCOL) {
+                giveStacksToPlayerOrDrop(player, tile.removeAllCreationItems());
+            } else if (extracted.getItem() == ModBlocksItems.RIFTONOMICON_PROTOCOL
+                    && extracted.getMetadata() == ItemRiftonomiconProtocol.META_SCALING_SUBSYSTEM) {
+                giveStacksToPlayerOrDrop(player, tile.removeCreationSamplesBeyondLimit());
             }
             player.inventoryContainer.detectAndSendChanges();
             playProtocolSlotSound(world, pos, 0.7F, 0.85F);
@@ -356,6 +381,17 @@ public class BlockRiftonomicon extends Block {
             InventoryHelper.spawnItemStack(world,
                     brokenPos.getX() + 0.5D, brokenPos.getY() + 0.5D, brokenPos.getZ() + 0.5D,
                     transmutationItem);
+        }
+
+        for (ItemStack prism : tile.removeAllTransmutationPrisms()) {
+            if (!prism.isEmpty()) InventoryHelper.spawnItemStack(world,
+                    brokenPos.getX() + 0.5D, brokenPos.getY() + 0.5D, brokenPos.getZ() + 0.5D, prism);
+        }
+
+        for (ItemStack creationItem : tile.removeAllCreationItems()) {
+            if (!creationItem.isEmpty()) InventoryHelper.spawnItemStack(world,
+                    brokenPos.getX() + 0.5D, brokenPos.getY() + 0.5D, brokenPos.getZ() + 0.5D,
+                    creationItem);
         }
 
         NonNullList<ItemStack> protocols = tile.removeAllProtocols();

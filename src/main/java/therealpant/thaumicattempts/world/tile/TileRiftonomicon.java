@@ -7,6 +7,8 @@ import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemTool;
 import net.minecraft.item.ItemSword;
 import net.minecraft.item.ItemBow;
+import net.minecraft.item.Item;
+import net.minecraft.item.crafting.IRecipe;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.network.NetworkManager;
@@ -18,6 +20,7 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.block.state.IBlockState;
 import net.minecraftforge.common.util.Constants;
+import net.minecraftforge.fml.common.registry.ForgeRegistries;
 import software.bernie.geckolib3.core.IAnimatable;
 import software.bernie.geckolib3.core.PlayState;
 import software.bernie.geckolib3.core.builder.AnimationBuilder;
@@ -31,13 +34,21 @@ import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
 import therealpant.thaumicattempts.integration.thaumicaugmentation.ImpetusCompat;
 import therealpant.thaumicattempts.items.ItemPortalRune;
 import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
+import therealpant.thaumicattempts.items.ItemPrism;
+import therealpant.thaumicattempts.items.ItemCalibratedExtract;
+import therealpant.thaumicattempts.util.WeaponTransmutation;
+import therealpant.thaumicattempts.util.ArmorTransmutation;
+import therealpant.thaumicattempts.util.FocusTransmutation;
 import therealpant.thaumicattempts.world.block.RiftonomiconStructureHelper;
 
 import javax.annotation.Nullable;
 import java.util.List;
 import java.util.ArrayList;
 import thaumcraft.api.items.ItemsTC;
+import thaumcraft.api.aspects.Aspect;
+import thaumcraft.api.aspects.AspectList;
 import thaumcraft.common.items.casters.ItemFocus;
+import thaumcraft.common.lib.crafting.ThaumcraftCraftingManager;
 
 public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatable {
     private static final String MAIN_ANIMATION = "animation";
@@ -56,11 +67,17 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private static final int CORE_TRANSMUTATION_HOLD_START_TICKS = 480;
     private static final int CORE_TRANSMUTATION_HOLD_END_TICKS = 540;
     private static final int CORE_TRANSMUTATION_CLOSE_END_TICKS = 600;
+    private static final int CORE_CREATION_START_TICKS = 600;
+    private static final int CORE_CREATION_HOLD_START_TICKS = 660;
+    private static final int CORE_CREATION_HOLD_END_TICKS = 720;
+    private static final int CORE_CREATION_CLOSE_END_TICKS = 780;
     public static final int PROTOCOL_SLOT_COUNT = 4;
     public static final int BASE_NAVIGATION_RUNE_SLOT_COUNT = 4;
     public static final int MAX_NAVIGATION_RUNE_SLOT_COUNT = 24;
     public static final int NAVIGATION_RUNE_SLOT_COUNT = MAX_NAVIGATION_RUNE_SLOT_COUNT;
     public static final int ALCHEMY_PEARL_SLOT_COUNT = 4;
+    public static final int TRANSMUTATION_PRISM_SLOT_COUNT = 4;
+    public static final int CREATION_SAMPLE_SLOT_COUNT = 4;
     private static final String TAG_PROTOCOLS = "Protocols";
     private static final String TAG_NAVIGATION_RUNES = "NavigationRunes";
     private static final String TAG_SLOT = "Slot";
@@ -76,15 +93,45 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private static final String TAG_TRANSMUTATION_ESSENTIA = "TransmutationEssentia";
     private static final String TAG_TRANSMUTATION_IMPETUS_FAILURES = "TransmutationImpetusFailures";
     private static final String TAG_TRANSMUTATION_IMPETUS_PULSE = "TransmutationImpetusPulse";
-    private static final int TRANSMUTATION_ESSENTIA_REQUIRED = 150;
+    private static final String TAG_TRANSMUTATION_PRISMS = "TransmutationPrisms";
+    private static final String TAG_TRANSMUTATION_RETURN_TICKS = "TransmutationReturnTicks";
+    private static final String TAG_TRANSMUTATION_ANIMATION_TICKS = "TransmutationAnimationTicks";
+    private static final String TAG_CREATION_SAMPLES = "CreationSamples";
+    private static final String TAG_CREATION_CORE = "CreationCore";
+    private static final String TAG_CREATION_TARGET = "CreationTarget";
+    private static final String TAG_CREATION_ACTIVE_MASK = "CreationActiveMask";
+    private static final String TAG_CREATION_SIGNATURES = "CreationSignatures";
+    private static final String TAG_CREATION_REQUIRED = "CreationRequired";
+    private static final String TAG_CREATION_PARADOXUM = "CreationParadoxum";
+    private static final String TAG_CREATION_FAILURES = "CreationFailures";
+    private static final String TAG_CREATION_INSTABILITY = "CreationInstability";
+    private static final String TAG_CREATION_CHECKPOINT = "CreationCheckpoint";
+    private static final String TAG_CREATION_COMPLETION_TICKS = "CreationCompletionTicks";
+    private static final String TAG_CREATION_EXTRACTOR_FUEL = "CreationExtractorFuel";
+    private static final int TRANSMUTATION_ESSENTIA_BASE = 150;
     private static final long TRANSMUTATION_IMPETUS_PER_SECOND = 50L;
     private static final long IMPETUS_PER_PEARL_WEAR_EVENT = 800L;
     private static final float PEARL_DAMAGE_CHANCE = 0.05F;
     private static final float FALLBACK_PEARL_DAMAGE_CHANCE = 0.08F;
     private static final int FALLBACK_CYCLES_PER_WEAR_EVENT = 4;
+    private static final int CREATION_SIGNATURES_PER_PULSE = 10;
+    private static final int CREATION_CHECKPOINT_SIGNATURES = 200;
+    private static final int CREATION_IMPETUS_PER_PULSE = 50;
+    private static final int CREATION_PARADOXUM_CAPACITY = 64;
+    public static final int CREATION_COMPLETION_TOTAL_TICKS = 60;
+    public static final int CREATION_COMPLETION_SWAP_TICK = CREATION_COMPLETION_TOTAL_TICKS / 2;
+    private static final long CREATION_EXTRACTOR_FUEL_CAPACITY = 200000L;
+    private static final long IMPETUS_PER_PARADOXUM = 100L;
+    private static final double CREATION_EXTRACTOR_LINK_RANGE_SQ = 16.0D * 16.0D;
     private static final net.minecraft.util.EnumFacing[] IMPETUS_PORT_FACINGS = {
             net.minecraft.util.EnumFacing.NORTH,
             net.minecraft.util.EnumFacing.EAST,
+            net.minecraft.util.EnumFacing.SOUTH,
+            net.minecraft.util.EnumFacing.WEST
+    };
+    private static final net.minecraft.util.EnumFacing[] CREATION_IMPETUS_PORT_FACINGS = {
+            net.minecraft.util.EnumFacing.EAST,
+            net.minecraft.util.EnumFacing.NORTH,
             net.minecraft.util.EnumFacing.SOUTH,
             net.minecraft.util.EnumFacing.WEST
     };
@@ -104,6 +151,11 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private final NonNullList<ItemStack> protocolSlots = NonNullList.withSize(PROTOCOL_SLOT_COUNT, ItemStack.EMPTY);
     private final NonNullList<ItemStack> navigationRunes = NonNullList.withSize(NAVIGATION_RUNE_SLOT_COUNT, ItemStack.EMPTY);
     private final NonNullList<ItemStack> alchemyPearls = NonNullList.withSize(ALCHEMY_PEARL_SLOT_COUNT, ItemStack.EMPTY);
+    private final NonNullList<ItemStack> transmutationPrisms = NonNullList.withSize(TRANSMUTATION_PRISM_SLOT_COUNT, ItemStack.EMPTY);
+    private final NonNullList<ItemStack> creationSamples = NonNullList.withSize(CREATION_SAMPLE_SLOT_COUNT, ItemStack.EMPTY);
+    private final boolean[] creationActive = new boolean[CREATION_SAMPLE_SLOT_COUNT];
+    private final int[] creationInstability = new int[CREATION_SAMPLE_SLOT_COUNT];
+    private final int[] creationCheckpointProgress = new int[CREATION_SAMPLE_SLOT_COUNT];
     private long impetusPearlWear;
     private int fallbackFurnaceCycles;
     private ItemStack transmutationItem = ItemStack.EMPTY;
@@ -112,6 +164,18 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private int transmutationImpetusFailures;
     private int transmutationImpetusPulse;
     private int transmutationPaymentTicks;
+    private int transmutationReturnTicks;
+    private int transmutationAnimationTicks;
+    private transient float displayedTransmutationProgress;
+    private ItemStack creationCoreItem = ItemStack.EMPTY;
+    private ItemStack creationTarget = ItemStack.EMPTY;
+    private int creationSignatures;
+    private int creationRequired;
+    private final int[] creationParadoxum = new int[CREATION_SAMPLE_SLOT_COUNT];
+    private int creationFailures;
+    private int creationPulseTicks;
+    private int creationCompletionTicks;
+    private long creationExtractorFuel;
 
     @Override
     public void registerControllers(AnimationData data) {
@@ -147,43 +211,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
             syncControllerToStageTick(controller, event.getAnimationTick());
             syncCoreAnimationTick = false;
         }
-        tickCoreAnimationController(controller, event.getAnimationTick());
         return PlayState.CONTINUE;
-    }
-
-    private void tickCoreAnimationController(AnimationController<?> controller, double eventTick) {
-        double animationTick = getCoreControllerTick(controller, eventTick);
-
-        if (!coreOpenCycle && animationTick >= CORE_IDLE_END_TICKS) {
-            if (coreProtocolRequested) {
-                coreOpenCycle = true;
-            } else {
-                subtractCoreAnimationTime(controller, CORE_IDLE_END_TICKS);
-                animationTick -= CORE_IDLE_END_TICKS;
-            }
-        }
-
-        if (coreOpenCycle && coreProtocolRequested
-                && animationTick >= getCoreHoldEndTicks()) {
-            subtractCoreAnimationTime(controller, CORE_IDLE_END_TICKS);
-        } else if (coreOpenCycle && !coreProtocolRequested
-                && animationTick >= getCoreCloseEndTicks()) {
-            subtractCoreAnimationTime(controller, getCoreCloseEndTicks());
-            coreOpenCycle = false;
-            coreAnimationProtocolMeta = -1;
-        }
-    }
-
-    private double getCoreControllerTick(AnimationController<?> controller, double eventTick) {
-        double speed = controller.getAnimationSpeed();
-        if (speed == 0.0D) speed = 1.0D;
-        return speed * Math.max(eventTick - controller.tickOffset, 0.0D);
-    }
-
-    private void subtractCoreAnimationTime(AnimationController<?> controller, int ticks) {
-        double speed = controller.getAnimationSpeed();
-        if (speed == 0.0D) speed = 1.0D;
-        controller.tickOffset += ticks / speed;
     }
 
     private String getCoreAnimationName() {
@@ -231,12 +259,28 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
 
     @Override
     public void update() {
-        if (world == null || world.isRemote) return;
+        if (world == null) return;
+        if (world.isRemote) {
+            tickCoreAnimationState();
+            if (creationCompletionTicks > 0
+                    && creationCompletionTicks < CREATION_COMPLETION_TOTAL_TICKS) creationCompletionTicks++;
+            if (transmutationActive) {
+                transmutationAnimationTicks++;
+                displayedTransmutationProgress += (getRawTransmutationProgress() - displayedTransmutationProgress) * 0.12F;
+            } else {
+                displayedTransmutationProgress = 0.0F;
+                if (transmutationReturnTicks > 0) transmutationReturnTicks--;
+            }
+            return;
+        }
         tickCoreAnimationState();
         if (world.getTotalWorldTime() % 20L == 0L) {
             ensureImpetusProxyPorts();
         }
         tickTransmutation();
+        tickCreationCompletion();
+        tickCreationResearch();
+        if (transmutationReturnTicks > 0 && --transmutationReturnTicks % 4 == 0) sync();
         if (world.getTotalWorldTime() % 5L == 0L) {
             absorbNavigationRunesFromBaseVoid();
             absorbTransmutationItemFromBaseVoid();
@@ -246,12 +290,15 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private void ensureImpetusProxyPorts() {
         for (net.minecraft.util.EnumFacing facing : net.minecraft.util.EnumFacing.HORIZONTALS) {
             BlockPos portPos = pos.offset(facing, 2);
-            if (!world.isAirBlock(portPos)) continue;
+            IBlockState existing = world.getBlockState(portPos);
+            if (!world.isAirBlock(portPos) && existing.getBlock() != TABlocks.RIFTONOMICON) continue;
+            if (existing.getBlock() == TABlocks.RIFTONOMICON
+                    && existing.getValue(BlockRiftonomicon.PART) == BlockRiftonomicon.Part.IMPETUS_PORT) continue;
             world.setBlockState(portPos, TABlocks.RIFTONOMICON.getDefaultState()
                     .withProperty(BlockRiftonomicon.PART, BlockRiftonomicon.Part.IMPETUS_PORT), 3);
         }
-        ensureCentralTransmutationPort(pos.down(1), BlockRiftonomicon.Part.TRANSMUTATION_ESSENTIA_INPUT);
-        ensureCentralTransmutationPort(pos.down(3), BlockRiftonomicon.Part.TRANSMUTATION_IMPETUS_INPUT);
+        ensureCentralTransmutationPort(pos.down(3), BlockRiftonomicon.Part.TRANSMUTATION_ESSENTIA_INPUT);
+        ensureCentralTransmutationPort(pos.up(1), BlockRiftonomicon.Part.TRANSMUTATION_IMPETUS_INPUT);
     }
 
     private void ensureCentralTransmutationPort(BlockPos portPos, BlockRiftonomicon.Part part) {
@@ -263,7 +310,8 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
 
     private void tickTransmutation() {
         if (!transmutationActive) return;
-        if (!hasTransmutationProtocol() || transmutationItem.isEmpty() || getActivePrismAltars().isEmpty()) {
+        transmutationAnimationTicks++;
+        if (!hasTransmutationProtocol() || transmutationItem.isEmpty() || getTransmutationPrismCount() <= 0) {
             abortTransmutation();
             return;
         }
@@ -280,11 +328,11 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
             }
             markDirty();
         }
-        if (transmutationEssentia >= TRANSMUTATION_ESSENTIA_REQUIRED) completeTransmutation();
+        if (transmutationEssentia >= getTransmutationEssentiaRequired()) completeTransmutation();
     }
 
     private boolean payTransmutationImpetus() {
-        TileEntity tile = world.getTileEntity(pos.down(3));
+        TileEntity tile = world.getTileEntity(pos.up(1));
         if (!(tile instanceof TileRiftonomiconTransmutationImpetusInput)) return false;
         TileRiftonomiconTransmutationImpetusInput input = (TileRiftonomiconTransmutationImpetusInput) tile;
         if (input.consume(TRANSMUTATION_IMPETUS_PER_SECOND, true) < TRANSMUTATION_IMPETUS_PER_SECOND) return false;
@@ -293,93 +341,653 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
 
     public boolean tryStartTransmutation() {
         if (world == null || world.isRemote || transmutationActive || !hasTransmutationProtocol()
-                || transmutationItem.isEmpty() || getActivePrismAltars().isEmpty()) return false;
+                || transmutationItem.isEmpty() || WeaponTransmutation.isCreated(transmutationItem)
+                || getTransmutationPrismCount() <= 0 || transmutationReturnTicks > 0) return false;
         transmutationActive = true;
         transmutationEssentia = 0;
         transmutationImpetusFailures = 0;
         transmutationPaymentTicks = 20;
-        sendTransmutationAltarAnimationSignal();
+        transmutationAnimationTicks = 0;
         sync();
         return true;
     }
 
     public boolean isTransmutationActive() { return transmutationActive; }
     public int getTransmutationImpetusPulse() { return transmutationImpetusPulse; }
+    public float getTransmutationProgress() {
+        return world != null && world.isRemote ? displayedTransmutationProgress : getRawTransmutationProgress();
+    }
+    private float getRawTransmutationProgress() {
+        return Math.min(1.0F, transmutationEssentia / (float) getTransmutationEssentiaRequired());
+    }
+    public int getTransmutationReturnTicks() { return transmutationReturnTicks; }
+    public int getTransmutationAnimationTicks() { return transmutationAnimationTicks; }
+    public int getTransmutationMotionTicks() {
+        return Math.max(20, (int) Math.ceil(getTransmutationEssentiaRequired() * 0.4D));
+    }
 
     public boolean canAcceptTransmutationParadoxum() {
-        return transmutationActive && transmutationEssentia < TRANSMUTATION_ESSENTIA_REQUIRED;
+        return transmutationActive && transmutationEssentia < getTransmutationEssentiaRequired();
     }
 
     public int acceptTransmutationParadoxum(int amount) {
         if (!canAcceptTransmutationParadoxum() || amount <= 0) return 0;
-        int accepted = Math.min(amount, TRANSMUTATION_ESSENTIA_REQUIRED - transmutationEssentia);
+        int accepted = Math.min(amount, getTransmutationEssentiaRequired() - transmutationEssentia);
         transmutationEssentia += accepted;
         sync();
         return accepted;
     }
 
-    private List<TileRiftStoneAltar> getActivePrismAltars() {
-        List<TileRiftStoneAltar> result = new ArrayList<>();
-        for (BlockPos altarPos : getLinkedTransmutationAltars()) {
-            if (!isTransmutationAltarConnectionActive(altarPos)) continue;
-            TileEntity tile = world.getTileEntity(altarPos);
-            if (tile instanceof TileRiftStoneAltar && !((TileRiftStoneAltar) tile).getPrism().isEmpty()) {
-                result.add((TileRiftStoneAltar) tile);
+    public int getCreationSlotForPort(BlockPos portPos) {
+        if (portPos == null) return -1;
+        for (int slot = 0; slot < CREATION_IMPETUS_PORT_FACINGS.length; slot++) {
+            if (pos.offset(CREATION_IMPETUS_PORT_FACINGS[slot], 2).equals(portPos)) return slot;
+        }
+        return -1;
+    }
+
+    public boolean canAcceptCreationParadoxum(int slot) {
+        return slot >= 0 && slot < CREATION_SAMPLE_SLOT_COUNT && creationActive[slot]
+                && creationParadoxum[slot] < CREATION_PARADOXUM_CAPACITY;
+    }
+
+    public int acceptCreationParadoxum(int slot, int amount) {
+        if (!canAcceptCreationParadoxum(slot) || amount <= 0) return 0;
+        int accepted = Math.min(amount, CREATION_PARADOXUM_CAPACITY - creationParadoxum[slot]);
+        creationParadoxum[slot] += accepted;
+        sync();
+        return accepted;
+    }
+
+    private void tickCreationResearch() {
+        if (!hasCreationProtocol() || !hasActiveCreationResearch()) return;
+        if (++creationPulseTicks < 20) return;
+        creationPulseTicks = 0;
+
+        int successfulStations = 0;
+        boolean changed = false;
+        for (int slot = 0; slot < CREATION_SAMPLE_SLOT_COUNT; slot++) {
+            if (!creationActive[slot]) continue;
+            if (!canContinueCreationResearch(slot)) {
+                creationActive[slot] = false;
+                changed = true;
+                continue;
+            }
+            if (creationParadoxum[slot] <= 0 || !payCreationImpetus(slot, CREATION_IMPETUS_PER_PULSE)) continue;
+            creationParadoxum[slot]--;
+            creationSignatures += CREATION_SIGNATURES_PER_PULSE;
+            creationCheckpointProgress[slot] += CREATION_SIGNATURES_PER_PULSE;
+            creationInstability[slot] += getCreationInstabilityPerPulse();
+            successfulStations++;
+            changed = true;
+            if (creationSignatures >= creationRequired) {
+                completeCreationResearch();
+                sync();
+                return;
+            }
+            if (creationCheckpointProgress[slot] >= CREATION_CHECKPOINT_SIGNATURES) {
+                creationCheckpointProgress[slot] -= CREATION_CHECKPOINT_SIGNATURES;
+                runCreationStabilityCheck(slot);
             }
         }
+
+        if (successfulStations > 1 && creationRequired > 0) {
+            int pairs = successfulStations * (successfulStations - 1) / 2;
+            int bonus = successfulStations * CREATION_SIGNATURES_PER_PULSE * pairs * 5 / 100;
+            creationSignatures = Math.min(creationRequired, creationSignatures + bonus);
+            changed |= bonus > 0;
+            if (creationSignatures >= creationRequired) completeCreationResearch();
+        }
+        if (changed) sync();
+    }
+
+    private boolean payCreationImpetus(int slot, long amount) {
+        if (slot < 0 || slot >= CREATION_IMPETUS_PORT_FACINGS.length) return false;
+        TileEntity tile = world.getTileEntity(pos.offset(CREATION_IMPETUS_PORT_FACINGS[slot], 2));
+        if (!(tile instanceof TileRiftonomiconImpetusPort)) return false;
+        TileRiftonomiconImpetusPort input = (TileRiftonomiconImpetusPort) tile;
+        if (input.consume(amount, true) < amount) return false;
+        return input.consume(amount, false) >= amount;
+    }
+
+    private int getCreationInstabilityPerPulse() {
+        if (creationFailures <= 0) return 50;
+        if (creationFailures == 1) return 45;
+        if (creationFailures == 2) return 41;
+        if (creationFailures == 3) return 38;
+        return 35;
+    }
+
+    private boolean runCreationStabilityCheck(int slot) {
+        if (slot < 0 || slot >= CREATION_SAMPLE_SLOT_COUNT || creationSamples.get(slot).isEmpty()) return false;
+        int chanceHundredths = Math.min(9000, Math.max(0, creationInstability[slot]));
+        boolean broken = chanceHundredths > 0 && world.rand.nextInt(10000) < chanceHundredths;
+        if (broken) {
+            creationSamples.set(slot, ItemStack.EMPTY);
+            creationActive[slot] = false;
+            creationCheckpointProgress[slot] = 0;
+            creationInstability[slot] = 0;
+            creationFailures++;
+        } else {
+            creationInstability[slot] /= 2;
+        }
+        return broken;
+    }
+
+    public boolean startCreationResearch(int slot) {
+        if (world == null || world.isRemote || !hasCreationProtocol() || !isCreationSlotAvailable(slot)
+                || creationActive[slot] || creationSamples.get(slot).isEmpty() || !isCreationBlankInstalled()) return false;
+        ItemStack sample = creationSamples.get(slot);
+        if (!isValidCreationSample(sample) || !allCreationSamplesMatch(sample)) return false;
+        if (creationTarget.isEmpty()) {
+            creationTarget = normalizedCreationSample(sample);
+            creationRequired = calculateCreationSignatureRequirement(sample);
+            creationSignatures = 0;
+            creationFailures = 0;
+        } else if (!creationSamplesMatch(creationTarget, sample)) {
+            return false;
+        }
+        if (creationRequired <= 0) return false;
+        creationActive[slot] = true;
+        sync();
+        return true;
+    }
+
+    public boolean stopCreationResearchAndCheck(int slot) {
+        if (world == null || world.isRemote || slot < 0 || slot >= CREATION_SAMPLE_SLOT_COUNT
+                || !creationActive[slot]) return false;
+        runCreationStabilityCheck(slot);
+        creationActive[slot] = false;
+        creationCheckpointProgress[slot] = 0;
+        sync();
+        return true;
+    }
+
+    private boolean canContinueCreationResearch(int slot) {
+        return isCreationSlotAvailable(slot) && isCreationBlankInstalled()
+                && !creationSamples.get(slot).isEmpty()
+                && !creationTarget.isEmpty()
+                && creationSamplesMatch(creationTarget, creationSamples.get(slot));
+    }
+
+    private void completeCreationResearch() {
+        creationSignatures = creationRequired;
+        for (int slot = 0; slot < CREATION_SAMPLE_SLOT_COUNT; slot++) {
+            creationActive[slot] = false;
+            creationCheckpointProgress[slot] = 0;
+            creationInstability[slot] = 0;
+        }
+        if (creationCompletionTicks <= 0) creationCompletionTicks = 1;
+    }
+
+    private void tickCreationCompletion() {
+        if (creationCompletionTicks <= 0) return;
+        creationCompletionTicks++;
+        if (creationCompletionTicks == CREATION_COMPLETION_SWAP_TICK) {
+            creationCoreItem = ItemCalibratedExtract.withTarget(ModBlocksItems.CALIBRATED_EXTRACT,
+                    creationTarget, creationRequired);
+            sync();
+        } else if (creationCompletionTicks >= CREATION_COMPLETION_TOTAL_TICKS) {
+            creationCompletionTicks = 0;
+            sync();
+        } else if (creationCompletionTicks % 10 == 0) {
+            sync();
+        }
+    }
+
+    public int getCreationCompletionTicks() { return creationCompletionTicks; }
+
+    public boolean isCreationVisualActive() {
+        return hasActiveCreationResearch() || creationCompletionTicks > 0;
+    }
+
+    public boolean insertCreationSample(int slot, EntityPlayer player) {
+        if (player == null || !hasCreationProtocol() || !isCreationSlotAvailable(slot)
+                || !creationSamples.get(slot).isEmpty()) return false;
+        ItemStack held = player.getHeldItemMainhand();
+        if (!isValidCreationSample(held) || !allCreationSamplesMatch(held)) return false;
+        ItemStack stored = held.copy();
+        stored.setCount(1);
+        creationSamples.set(slot, stored);
+        if (!player.capabilities.isCreativeMode) held.shrink(1);
+        sync();
+        return true;
+    }
+
+    public ItemStack removeCreationSample(int slot) {
+        if (!hasCreationProtocol() || slot < 0 || slot >= CREATION_SAMPLE_SLOT_COUNT || creationActive[slot]) {
+            return ItemStack.EMPTY;
+        }
+        ItemStack result = creationSamples.get(slot);
+        if (result.isEmpty()) return ItemStack.EMPTY;
+        creationSamples.set(slot, ItemStack.EMPTY);
+        creationCheckpointProgress[slot] = 0;
+        creationInstability[slot] = 0;
+        sync();
         return result;
     }
 
+    public ItemStack getCreationSample(int slot) {
+        return slot >= 0 && slot < CREATION_SAMPLE_SLOT_COUNT ? creationSamples.get(slot) : ItemStack.EMPTY;
+    }
+
+    public boolean isCreationResearchActive(int slot) {
+        return slot >= 0 && slot < CREATION_SAMPLE_SLOT_COUNT && creationActive[slot];
+    }
+
+    public int getCreationSignatureProgress() { return creationSignatures; }
+    public int getCreationSignatureRequired() { return creationRequired; }
+    public int getCreationInstability(int slot) {
+        return slot >= 0 && slot < CREATION_SAMPLE_SLOT_COUNT ? creationInstability[slot] : 0;
+    }
+
+    public int getCreationStationLimit() {
+        if (!hasCreationProtocol()) return 0;
+        return Math.min(CREATION_SAMPLE_SLOT_COUNT,
+                1 + getSubsystemCount(ItemRiftonomiconProtocol.META_SCALING_SUBSYSTEM));
+    }
+
+    public int getCreationExtractorLimit() {
+        if (!hasCreationProtocol()) return 0;
+        return Math.min(8, 2 * (1 + getSubsystemCount(ItemRiftonomiconProtocol.META_SCALING_SUBSYSTEM)));
+    }
+
+    public boolean isCreationExtractorLinked(BlockPos extractorPos) {
+        if (world == null || extractorPos == null || !hasCreationProtocol()
+                || pos.distanceSq(extractorPos) > CREATION_EXTRACTOR_LINK_RANGE_SQ
+                || findNearestCreationCore(extractorPos) != this) return false;
+        List<BlockPos> candidates = new ArrayList<>();
+        for (TileEntity tile : world.loadedTileEntityList) {
+            if (tile instanceof TileRiftExtractor && findNearestCreationCore(tile.getPos()) == this) {
+                candidates.add(tile.getPos());
+            }
+        }
+        candidates.sort((a, b) -> {
+            int distance = Double.compare(pos.distanceSq(a), pos.distanceSq(b));
+            return distance != 0 ? distance : Long.compare(a.toLong(), b.toLong());
+        });
+        int index = candidates.indexOf(extractorPos);
+        return index >= 0 && index < getCreationExtractorLimit();
+    }
+
+    @Nullable
+    private TileRiftonomicon findNearestCreationCore(BlockPos extractorPos) {
+        TileRiftonomicon nearest = null;
+        double nearestDistance = Double.MAX_VALUE;
+        for (TileEntity tile : world.loadedTileEntityList) {
+            if (!(tile instanceof TileRiftonomicon)) continue;
+            TileRiftonomicon core = (TileRiftonomicon) tile;
+            if (!core.hasCreationProtocol()) continue;
+            double distance = core.getPos().distanceSq(extractorPos);
+            if (distance > CREATION_EXTRACTOR_LINK_RANGE_SQ) continue;
+            if (distance < nearestDistance || distance == nearestDistance
+                    && (nearest == null || core.getPos().toLong() < nearest.getPos().toLong())) {
+                nearest = core;
+                nearestDistance = distance;
+            }
+        }
+        return nearest;
+    }
+
+    public long consumeCreationExtractorFuel(long amount, boolean simulate) {
+        if (amount <= 0L || !hasCreationProtocol()) return 0L;
+        if (ImpetusCompat.isLoaded()) {
+            TileEntity tile = world.getTileEntity(pos.up(1));
+            return tile instanceof TileRiftonomiconTransmutationImpetusInput
+                    ? ((TileRiftonomiconTransmutationImpetusInput) tile).consume(amount, simulate) : 0L;
+        }
+        long consumed = Math.min(amount, creationExtractorFuel);
+        if (!simulate && consumed > 0L) {
+            creationExtractorFuel -= consumed;
+            sync();
+        }
+        return consumed;
+    }
+
+    public boolean canAcceptCreationExtractorParadoxum() {
+        return hasCreationProtocol() && !ImpetusCompat.isLoaded()
+                && creationExtractorFuel < CREATION_EXTRACTOR_FUEL_CAPACITY;
+    }
+
+    public int acceptCreationExtractorParadoxum(int amount) {
+        if (amount <= 0 || !canAcceptCreationExtractorParadoxum()) return 0;
+        int accepted = (int) Math.min(amount,
+                (CREATION_EXTRACTOR_FUEL_CAPACITY - creationExtractorFuel) / IMPETUS_PER_PARADOXUM);
+        creationExtractorFuel += accepted * IMPETUS_PER_PARADOXUM;
+        if (accepted > 0) sync();
+        return accepted;
+    }
+
+    private boolean isCreationSlotAvailable(int slot) {
+        return slot >= 0 && slot < getCreationStationLimit();
+    }
+
+    private boolean hasActiveCreationResearch() {
+        for (boolean active : creationActive) if (active) return true;
+        return false;
+    }
+
+    private int getActiveCreationResearchCount() {
+        int count = 0;
+        for (boolean active : creationActive) if (active) count++;
+        return count;
+    }
+
+    public boolean insertCreationCore(EntityPlayer player) {
+        if (player == null || !hasCreationProtocol() || !creationCoreItem.isEmpty()
+                || hasActiveCreationResearch() || creationCompletionTicks > 0) return false;
+        ItemStack held = player.getHeldItemMainhand();
+        if (held.isEmpty() || held.getItem() != Item.getItemFromBlock(TABlocks.DARK_JASPER_BRICKS)) return false;
+        creationCoreItem = held.copy();
+        creationCoreItem.setCount(1);
+        if (!player.capabilities.isCreativeMode) held.shrink(1);
+        sync();
+        return true;
+    }
+
+    public ItemStack removeCreationCore() {
+        if (creationCoreItem.isEmpty() || hasActiveCreationResearch() || creationCompletionTicks > 0) return ItemStack.EMPTY;
+        ItemStack result = creationCoreItem;
+        creationCoreItem = ItemStack.EMPTY;
+        resetCreationSession();
+        sync();
+        return result;
+    }
+
+    public ItemStack getCreationCoreItem() { return creationCoreItem; }
+
+    public NonNullList<ItemStack> removeAllCreationItems() {
+        NonNullList<ItemStack> removed = NonNullList.withSize(CREATION_SAMPLE_SLOT_COUNT + 1, ItemStack.EMPTY);
+        removed.set(0, creationCoreItem);
+        creationCoreItem = ItemStack.EMPTY;
+        for (int i = 0; i < CREATION_SAMPLE_SLOT_COUNT; i++) {
+            if (creationActive[i]) runCreationStabilityCheck(i);
+            removed.set(i + 1, creationSamples.get(i));
+            creationSamples.set(i, ItemStack.EMPTY);
+        }
+        resetCreationSession();
+        sync();
+        return removed;
+    }
+
+    public NonNullList<ItemStack> removeCreationSamplesBeyondLimit() {
+        NonNullList<ItemStack> removed = NonNullList.withSize(CREATION_SAMPLE_SLOT_COUNT, ItemStack.EMPTY);
+        int limit = getCreationStationLimit();
+        for (int i = limit; i < CREATION_SAMPLE_SLOT_COUNT; i++) {
+            if (creationActive[i]) runCreationStabilityCheck(i);
+            removed.set(i, creationSamples.get(i));
+            creationSamples.set(i, ItemStack.EMPTY);
+            creationActive[i] = false;
+            creationInstability[i] = 0;
+            creationCheckpointProgress[i] = 0;
+        }
+        sync();
+        return removed;
+    }
+
+    private boolean isCreationBlankInstalled() {
+        return !creationCoreItem.isEmpty()
+                && creationCoreItem.getItem() == Item.getItemFromBlock(TABlocks.DARK_JASPER_BRICKS);
+    }
+
+    private void resetCreationSession() {
+        creationTarget = ItemStack.EMPTY;
+        creationSignatures = 0;
+        creationRequired = 0;
+        creationFailures = 0;
+        creationCompletionTicks = 0;
+        for (int i = 0; i < CREATION_SAMPLE_SLOT_COUNT; i++) {
+            creationActive[i] = false;
+            creationInstability[i] = 0;
+            creationCheckpointProgress[i] = 0;
+            creationParadoxum[i] = 0;
+        }
+    }
+
+    private boolean allCreationSamplesMatch(ItemStack candidate) {
+        if (!creationTarget.isEmpty() && !creationSamplesMatch(creationTarget, candidate)) return false;
+        for (ItemStack sample : creationSamples) {
+            if (!sample.isEmpty() && !creationSamplesMatch(sample, candidate)) return false;
+        }
+        return true;
+    }
+
+    private static boolean creationSamplesMatch(ItemStack first, ItemStack second) {
+        if (first == null || second == null || first.isEmpty() || second.isEmpty()
+                || first.getItem() != second.getItem()) return false;
+        if (!first.isItemStackDamageable() && first.getMetadata() != second.getMetadata()) return false;
+        return ItemStack.areItemStackTagsEqual(first, second);
+    }
+
+    private static ItemStack normalizedCreationSample(ItemStack stack) {
+        ItemStack result = stack.copy();
+        result.setCount(1);
+        if (result.isItemStackDamageable()) result.setItemDamage(0);
+        return result;
+    }
+
+    private boolean isValidCreationSample(ItemStack stack) {
+        if (stack == null || stack.isEmpty() || stack.getItem() == ModBlocksItems.CALIBRATED_EXTRACT
+                || hasCraftingRecipe(stack)) return false;
+        AspectList aspects = ThaumcraftCraftingManager.getObjectTags(normalizedCreationSample(stack));
+        return aspects != null && aspects.size() > 0 && aspects.visSize() > 0;
+    }
+
+    private static boolean hasCraftingRecipe(ItemStack stack) {
+        for (IRecipe recipe : ForgeRegistries.RECIPES.getValuesCollection()) {
+            ItemStack output = recipe.getRecipeOutput();
+            if (sameCreationItemType(output, stack)) return true;
+        }
+        return false;
+    }
+
+    private static boolean sameCreationItemType(ItemStack first, ItemStack second) {
+        if (first == null || second == null || first.isEmpty() || second.isEmpty()
+                || first.getItem() != second.getItem()) return false;
+        return first.isItemStackDamageable() || first.getMetadata() == second.getMetadata();
+    }
+
+    private static int calculateCreationSignatureRequirement(ItemStack stack) {
+        AspectList aspects = ThaumcraftCraftingManager.getObjectTags(normalizedCreationSample(stack));
+        if (aspects == null || aspects.size() <= 0) return 0;
+        int mass = aspects.visSize();
+        Aspect[] entries = aspects.getAspects();
+        int distinct = entries.length;
+        double entropy = 0.0D;
+        if (distinct > 1 && mass > 0) {
+            for (Aspect aspect : entries) {
+                double share = aspects.getAmount(aspect) / (double) mass;
+                if (share > 0.0D) entropy -= share * Math.log(share);
+            }
+            entropy /= Math.log(distinct);
+        }
+        double diversity = 1.0D + 0.04D * (distinct - 1) * (distinct - 1) + 0.20D * entropy;
+        double raw = 100.0D + 12.0D * Math.pow(mass, 1.05D) * diversity;
+        return Math.max(400, (int) (Math.ceil(raw / 50.0D) * 50.0D));
+    }
+
     private void completeTransmutation() {
-        for (TileRiftStoneAltar altar : getActivePrismAltars()) altar.consumePrism();
+        transmuteWeapon(transmutationPrisms);
+        for (int i = 0; i < transmutationPrisms.size(); i++) transmutationPrisms.set(i, ItemStack.EMPTY);
+        transmutationReturnTicks = getTransmutationMotionTicks();
         stopTransmutation();
     }
 
-    private void abortTransmutation() { stopTransmutation(); }
+    private int getTransmutationEssentiaRequired() {
+        int cost = TRANSMUTATION_ESSENTIA_BASE;
+        int completed = WeaponTransmutation.getTotal(transmutationItem);
+        for (int i = 0; i < completed; i++) {
+            cost = (int) Math.ceil(cost * 1.3D);
+        }
+        return cost;
+    }
+
+    private void transmuteWeapon(List<ItemStack> prisms) {
+        if (transmutationItem.getItem() instanceof ItemFocus) {
+            transmuteFocus(prisms);
+            return;
+        }
+        if (transmutationItem.getItem() instanceof ItemArmor) {
+            transmuteArmor(prisms);
+            return;
+        }
+        if (!(transmutationItem.getItem() instanceof ItemTool)
+                && !(transmutationItem.getItem() instanceof ItemSword)) return;
+
+        int prismMeta = -1;
+        boolean sameElement = true;
+        int prismCount = 0;
+        for (ItemStack prism : prisms) {
+            if (prism.isEmpty()) continue;
+            prismCount++;
+            if (!(prism.getItem() instanceof ItemPrism)) {
+                sameElement = false;
+                break;
+            }
+            if (prismMeta < 0) prismMeta = prism.getMetadata();
+            else if (prismMeta != prism.getMetadata()) {
+                sameElement = false;
+                break;
+            }
+        }
+
+        int result = world.rand.nextInt(3); // 0 damage, 1 speed, 2 durability
+        if (sameElement && prismMeta != ItemPrism.META_AQUA) {
+            int preferred = prismMeta == ItemPrism.META_IGNIS ? 0
+                    : prismMeta == ItemPrism.META_AIR ? 1 : 2;
+            double preferredChance = Math.min(1.0D, prismCount * 0.25D);
+            if (world.rand.nextDouble() < preferredChance) result = preferred;
+            else {
+                int other = world.rand.nextInt(2);
+                result = other >= preferred ? other + 1 : other;
+            }
+        }
+
+        if (result == 0) WeaponTransmutation.addDamage(transmutationItem);
+        else if (result == 1) WeaponTransmutation.addSpeed(transmutationItem);
+        else WeaponTransmutation.addDurability(transmutationItem);
+        int historyMeta = sameElement && prismMeta >= 0 ? prismMeta
+                : (result == 0 ? ItemPrism.META_IGNIS
+                : result == 1 ? ItemPrism.META_AIR : ItemPrism.META_TERRA);
+        int previousTransmutations = WeaponTransmutation.getTotal(transmutationItem);
+        WeaponTransmutation.recordElement(transmutationItem, historyMeta);
+        if (world.rand.nextDouble() < Math.min(1.0D, 0.05D + 0.02D * previousTransmutations)) {
+            WeaponTransmutation.makeCreated(transmutationItem);
+        }
+        markDirty();
+    }
+
+    private void transmuteArmor(List<ItemStack> prisms) {
+        List<Integer> aspects = new ArrayList<>();
+        for (ItemStack prism : prisms) {
+            if (!prism.isEmpty() && prism.getItem() instanceof ItemPrism) {
+                aspects.add(prism.getMetadata());
+            }
+        }
+        if (aspects.isEmpty()) return;
+
+        // Equal prisms are deterministic; a mixed set selects one of the inserted prisms.
+        int resultMeta = aspects.get(world.rand.nextInt(aspects.size()));
+        if (resultMeta == ItemPrism.META_IGNIS) ArmorTransmutation.addArmor(transmutationItem);
+        else if (resultMeta == ItemPrism.META_AIR) ArmorTransmutation.addFallProtection(transmutationItem);
+        else if (resultMeta == ItemPrism.META_AQUA) ArmorTransmutation.addToughness(transmutationItem);
+        else if (resultMeta == ItemPrism.META_TERRA) WeaponTransmutation.addDurability(transmutationItem);
+        else return;
+
+        int previousTransmutations = WeaponTransmutation.getTotal(transmutationItem);
+        WeaponTransmutation.recordElement(transmutationItem, resultMeta);
+        if (world.rand.nextDouble() < Math.min(1.0D, 0.05D + 0.02D * previousTransmutations)) {
+            WeaponTransmutation.makeCreated(transmutationItem);
+        }
+        markDirty();
+    }
+
+    private void transmuteFocus(List<ItemStack> prisms) {
+        int prismMeta = -1;
+        boolean sameElement = true;
+        for (ItemStack prism : prisms) {
+            if (prism.isEmpty()) continue;
+            if (!(prism.getItem() instanceof ItemPrism)) {
+                sameElement = false;
+                break;
+            }
+            if (prismMeta < 0) prismMeta = prism.getMetadata();
+            else if (prismMeta != prism.getMetadata()) sameElement = false;
+        }
+
+        List<Integer> available = new ArrayList<>();
+        for (int meta = 0; meta < 4; meta++) {
+            if (FocusTransmutation.hasSettingForPrism(transmutationItem, meta)) available.add(meta);
+        }
+        if (available.isEmpty()) return;
+
+        // A uniform prism set must always improve its own focus-setting group.
+        // Mixed/invalid sets retain the old random fallback among applicable groups.
+        if (sameElement && prismMeta >= 0 && !available.contains(prismMeta)) return;
+        int resultMeta = sameElement && prismMeta >= 0
+                ? prismMeta : available.get(world.rand.nextInt(available.size()));
+        if (!FocusTransmutation.addForPrism(transmutationItem, resultMeta)) return;
+
+        int previousTransmutations = WeaponTransmutation.getTotal(transmutationItem);
+        WeaponTransmutation.recordElement(transmutationItem, resultMeta);
+        if (world.rand.nextDouble() < Math.min(1.0D, 0.05D + 0.02D * previousTransmutations)) {
+            WeaponTransmutation.makeCreated(transmutationItem);
+        }
+        markDirty();
+    }
+
+    private void abortTransmutation() {
+        if (transmutationAnimationTicks > 0) transmutationReturnTicks = getTransmutationMotionTicks();
+        stopTransmutation();
+    }
 
     private void stopTransmutation() {
         transmutationActive = false;
         transmutationPaymentTicks = 0;
-        sendTransmutationAltarAnimationSignal();
         sync();
     }
 
     private void tickCoreAnimationState() {
         coreAnimationTicks++;
+        boolean cursorJumped = false;
         if (!coreOpenCycle && coreAnimationTicks >= CORE_IDLE_END_TICKS) {
             if (coreProtocolRequested) {
                 coreOpenCycle = true;
-                int start = getCoreStartTicks();
-                if (start > 0) coreAnimationTicks = start;
+                coreAnimationTicks = getCoreStartTicks();
             } else {
                 coreAnimationTicks = 0;
             }
+            cursorJumped = true;
         }
 
         if (coreOpenCycle && coreProtocolRequested
                 && coreAnimationTicks >= getCoreHoldEndTicks()) {
             coreAnimationTicks = getCoreHoldStartTicks();
+            cursorJumped = true;
         } else if (coreOpenCycle && !coreProtocolRequested
                 && coreAnimationTicks >= getCoreCloseEndTicks()) {
             coreAnimationTicks = 0;
             coreOpenCycle = false;
             coreAnimationProtocolMeta = -1;
+            cursorJumped = true;
         }
 
-        // Persist the exact cursor without sending a block update at loop boundaries;
-        // the client performs the same relative tickOffset adjustment locally.
-        markDirty();
+        if (cursorJumped && world != null && world.isRemote) syncCoreAnimationTick = true;
+        if (world == null || !world.isRemote) markDirty();
     }
 
     private int getCoreStartTicks() {
+        if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_NAVIGATION_PROTOCOL) return CORE_IDLE_END_TICKS;
         if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_ALCHEMICAL_PROTOCOL) return CORE_ALCHEMY_START_TICKS;
         if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_TRANSMUTATION_PROTOCOL) return CORE_TRANSMUTATION_START_TICKS;
-        return 0;
+        if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_CREATION_PROTOCOL) return CORE_CREATION_START_TICKS;
+        return CORE_IDLE_END_TICKS;
     }
 
     private int getCoreHoldStartTicks() {
         if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_ALCHEMICAL_PROTOCOL) return CORE_ALCHEMY_HOLD_START_TICKS;
         if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_TRANSMUTATION_PROTOCOL) return CORE_TRANSMUTATION_HOLD_START_TICKS;
+        if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_CREATION_PROTOCOL) return CORE_CREATION_HOLD_START_TICKS;
         return CORE_NAVIGATION_HOLD_START_TICKS;
     }
 
@@ -388,6 +996,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private int getCoreCloseEndTicks() {
         if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_ALCHEMICAL_PROTOCOL) return CORE_ALCHEMY_CLOSE_END_TICKS;
         if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_TRANSMUTATION_PROTOCOL) return CORE_TRANSMUTATION_CLOSE_END_TICKS;
+        if (coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_CREATION_PROTOCOL) return CORE_CREATION_CLOSE_END_TICKS;
         return CORE_NAVIGATION_CLOSE_END_TICKS;
     }
 
@@ -401,7 +1010,6 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
 
     public boolean setProtocolInSlot(int slot, ItemStack stack) {
         if (!isValidProtocolSlot(slot)) return false;
-        boolean hadProtocol = coreProtocolRequested;
         ItemStack stored = stack == null || stack.isEmpty() ? ItemStack.EMPTY : stack.copy();
         if (!stored.isEmpty()) stored.setCount(1);
         protocolSlots.set(slot, stored);
@@ -409,14 +1017,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         coreProtocolRequested = activeProtocol >= 0;
         if (activeProtocol >= 0) {
             coreAnimationProtocolMeta = activeProtocol;
-            if (!hadProtocol && (activeProtocol == ItemRiftonomiconProtocol.META_ALCHEMICAL_PROTOCOL
-                    || activeProtocol == ItemRiftonomiconProtocol.META_TRANSMUTATION_PROTOCOL)) {
-                coreAnimationTicks = activeProtocol == ItemRiftonomiconProtocol.META_ALCHEMICAL_PROTOCOL
-                        ? CORE_ALCHEMY_START_TICKS : CORE_TRANSMUTATION_START_TICKS;
-                coreOpenCycle = true;
-            }
         }
-        sendTransmutationAltarAnimationSignal();
         sync();
         return true;
     }
@@ -425,11 +1026,13 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         if (!isValidProtocolSlot(slot)) return ItemStack.EMPTY;
         ItemStack stored = protocolSlots.get(slot);
         if (stored.isEmpty()) return ItemStack.EMPTY;
+        if (stored.getItem() == ModBlocksItems.RIFTONOMICON_PROTOCOL
+                && stored.getMetadata() == ItemRiftonomiconProtocol.META_TRANSMUTATION_PROTOCOL
+                && (transmutationActive || transmutationReturnTicks > 0)) return ItemStack.EMPTY;
         protocolSlots.set(slot, ItemStack.EMPTY);
         int activeProtocol = getProtocolMeta();
         coreProtocolRequested = activeProtocol >= 0;
         if (activeProtocol >= 0) coreAnimationProtocolMeta = activeProtocol;
-        sendTransmutationAltarAnimationSignal();
         sync();
         return stored;
     }
@@ -456,17 +1059,12 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         return getProtocolMeta() == ItemRiftonomiconProtocol.META_TRANSMUTATION_PROTOCOL;
     }
 
-    public boolean isTransmutationAltarAnimationRequested() {
-        return transmutationActive;
+    public boolean hasCreationProtocol() {
+        return getProtocolMeta() == ItemRiftonomiconProtocol.META_CREATION_PROTOCOL;
     }
 
-    private void sendTransmutationAltarAnimationSignal() {
-        if (world == null || world.isRemote) return;
-        for (TileEntity tile : world.loadedTileEntityList) {
-            if (tile instanceof TileRiftStoneAltar) {
-                ((TileRiftStoneAltar) tile).receiveRiftonomiconAnimationSignal(this);
-            }
-        }
+    public boolean isTransmutationAltarAnimationRequested() {
+        return false;
     }
 
     public int getTransmutationAltarLimit() {
@@ -475,29 +1073,59 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     }
 
     public boolean hasFreeTransmutationAltarConnection(BlockPos altarPos) {
-        if (world == null || world.isRemote || altarPos == null || !hasTransmutationProtocol()) return false;
-        if (isTransmutationAltarConnectionActive(altarPos)) return true;
-        return getLinkedTransmutationAltars().size() < getTransmutationAltarLimit();
+        return false;
     }
 
     public boolean isTransmutationAltarConnectionActive(BlockPos altarPos) {
-        if (altarPos == null || !hasTransmutationProtocol()) return false;
-        List<BlockPos> linked = getLinkedTransmutationAltars();
-        int limit = Math.min(getTransmutationAltarLimit(), linked.size());
-        return linked.subList(0, limit).contains(altarPos);
+        return false;
     }
 
-    private List<BlockPos> getLinkedTransmutationAltars() {
-        List<BlockPos> linked = new ArrayList<>();
-        if (world == null) return linked;
-        for (TileEntity tile : world.loadedTileEntityList) {
-            if (!(tile instanceof TileRiftStoneAltar)) continue;
-            TileRiftStoneAltar altar = (TileRiftStoneAltar) tile;
-            if (pos.equals(altar.getLinkedRiftonomiconPos())
-                    && altar.getPos().distanceSq(pos) <= TileRiftStoneAltar.LINK_RADIUS_SQ) linked.add(altar.getPos());
+    public ItemStack getTransmutationPrism(int slot) {
+        return slot >= 0 && slot < getTransmutationAltarLimit() ? transmutationPrisms.get(slot) : ItemStack.EMPTY;
+    }
+
+    public int getTransmutationPrismCount() {
+        int count = 0;
+        for (int i = 0; i < getTransmutationAltarLimit(); i++) if (!transmutationPrisms.get(i).isEmpty()) count++;
+        return count;
+    }
+
+    public boolean insertTransmutationPrism(ItemStack stack) {
+        if (!hasTransmutationProtocol() || transmutationActive || stack == null || stack.isEmpty()
+                || !(stack.getItem() instanceof ItemPrism)) return false;
+        for (int i = 0; i < getTransmutationAltarLimit(); i++) {
+            if (transmutationPrisms.get(i).isEmpty()) {
+                ItemStack stored = stack.copy();
+                stored.setCount(1);
+                transmutationPrisms.set(i, stored);
+                sync();
+                return true;
+            }
         }
-        linked.sort((a, b) -> Long.compare(a.toLong(), b.toLong()));
-        return linked;
+        return false;
+    }
+
+    public ItemStack removeLastTransmutationPrism() {
+        if (transmutationActive) return ItemStack.EMPTY;
+        for (int i = transmutationPrisms.size() - 1; i >= 0; i--) {
+            ItemStack stack = transmutationPrisms.get(i);
+            if (!stack.isEmpty()) {
+                transmutationPrisms.set(i, ItemStack.EMPTY);
+                sync();
+                return stack;
+            }
+        }
+        return ItemStack.EMPTY;
+    }
+
+    public NonNullList<ItemStack> removeAllTransmutationPrisms() {
+        NonNullList<ItemStack> removed = NonNullList.withSize(TRANSMUTATION_PRISM_SLOT_COUNT, ItemStack.EMPTY);
+        for (int i = 0; i < transmutationPrisms.size(); i++) {
+            removed.set(i, transmutationPrisms.get(i));
+            transmutationPrisms.set(i, ItemStack.EMPTY);
+        }
+        sync();
+        return removed;
     }
 
     public ItemStack getAlchemyPearl(int slot) {
@@ -776,7 +1404,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     }
 
     private static boolean isValidTransmutationItem(ItemStack stack) {
-        if (stack == null || stack.isEmpty()) return false;
+        if (stack == null || stack.isEmpty() || WeaponTransmutation.isCreated(stack)) return false;
         return stack.getItem() instanceof ItemArmor
                 || stack.getItem() instanceof ItemTool
                 || stack.getItem() instanceof ItemSword
@@ -787,7 +1415,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     public ItemStack getTransmutationItem() { return transmutationItem; }
 
     public ItemStack removeTransmutationItem() {
-        if (transmutationItem.isEmpty()) return ItemStack.EMPTY;
+        if (transmutationItem.isEmpty() || transmutationActive || transmutationReturnTicks > 0) return ItemStack.EMPTY;
         ItemStack result = transmutationItem;
         transmutationItem = ItemStack.EMPTY;
         sync();
@@ -972,15 +1600,38 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         writeStackList(compound, TAG_PROTOCOLS, protocolSlots);
         writeStackList(compound, TAG_NAVIGATION_RUNES, navigationRunes);
         writeStackList(compound, TAG_ALCHEMY_PEARLS, alchemyPearls);
+        writeStackList(compound, TAG_TRANSMUTATION_PRISMS, transmutationPrisms);
+        writeStackList(compound, TAG_CREATION_SAMPLES, creationSamples);
         compound.setLong(TAG_IMPETUS_PEARL_WEAR, impetusPearlWear);
         compound.setInteger(TAG_FALLBACK_FURNACE_CYCLES, fallbackFurnaceCycles);
         compound.setBoolean(TAG_TRANSMUTATION_ACTIVE, transmutationActive);
         compound.setInteger(TAG_TRANSMUTATION_ESSENTIA, transmutationEssentia);
         compound.setInteger(TAG_TRANSMUTATION_IMPETUS_FAILURES, transmutationImpetusFailures);
         compound.setInteger(TAG_TRANSMUTATION_IMPETUS_PULSE, transmutationImpetusPulse);
+        compound.setInteger(TAG_TRANSMUTATION_RETURN_TICKS, transmutationReturnTicks);
+        compound.setInteger(TAG_TRANSMUTATION_ANIMATION_TICKS, transmutationAnimationTicks);
         if (!transmutationItem.isEmpty()) {
             compound.setTag(TAG_TRANSMUTATION_ITEM, transmutationItem.writeToNBT(new NBTTagCompound()));
         }
+        if (!creationCoreItem.isEmpty()) {
+            compound.setTag(TAG_CREATION_CORE, creationCoreItem.writeToNBT(new NBTTagCompound()));
+        }
+        if (!creationTarget.isEmpty()) {
+            compound.setTag(TAG_CREATION_TARGET, creationTarget.writeToNBT(new NBTTagCompound()));
+        }
+        int creationActiveMask = 0;
+        for (int i = 0; i < CREATION_SAMPLE_SLOT_COUNT; i++) {
+            if (creationActive[i]) creationActiveMask |= 1 << i;
+        }
+        compound.setInteger(TAG_CREATION_ACTIVE_MASK, creationActiveMask);
+        compound.setInteger(TAG_CREATION_SIGNATURES, creationSignatures);
+        compound.setInteger(TAG_CREATION_REQUIRED, creationRequired);
+        compound.setIntArray(TAG_CREATION_PARADOXUM, creationParadoxum);
+        compound.setLong(TAG_CREATION_EXTRACTOR_FUEL, creationExtractorFuel);
+        compound.setInteger(TAG_CREATION_FAILURES, creationFailures);
+        compound.setIntArray(TAG_CREATION_INSTABILITY, creationInstability);
+        compound.setIntArray(TAG_CREATION_CHECKPOINT, creationCheckpointProgress);
+        compound.setInteger(TAG_CREATION_COMPLETION_TICKS, creationCompletionTicks);
         compound.setBoolean(TAG_CORE_PORTAL_LATCHED, coreProtocolRequested);
         compound.setInteger(TAG_CORE_ANIMATION_TICKS, coreAnimationTicks);
         compound.setBoolean(TAG_CORE_OPEN_CYCLE, coreOpenCycle);
@@ -1006,18 +1657,54 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     public void readFromNBT(NBTTagCompound compound) {
         super.readFromNBT(compound);
         int previousAnimationProtocol = coreAnimationProtocolMeta;
+        boolean previousProtocolRequested = coreProtocolRequested;
+        boolean previousOpenCycle = coreOpenCycle;
         readStackList(compound, TAG_PROTOCOLS, protocolSlots);
         readStackList(compound, TAG_NAVIGATION_RUNES, navigationRunes);
         readStackList(compound, TAG_ALCHEMY_PEARLS, alchemyPearls);
+        readStackList(compound, TAG_TRANSMUTATION_PRISMS, transmutationPrisms);
+        readStackList(compound, TAG_CREATION_SAMPLES, creationSamples);
         impetusPearlWear = Math.max(0L, compound.getLong(TAG_IMPETUS_PEARL_WEAR));
         fallbackFurnaceCycles = Math.max(0, compound.getInteger(TAG_FALLBACK_FURNACE_CYCLES));
         transmutationActive = compound.getBoolean(TAG_TRANSMUTATION_ACTIVE);
-        transmutationEssentia = Math.max(0, Math.min(TRANSMUTATION_ESSENTIA_REQUIRED,
-                compound.getInteger(TAG_TRANSMUTATION_ESSENTIA)));
+        transmutationEssentia = Math.max(0, compound.getInteger(TAG_TRANSMUTATION_ESSENTIA));
         transmutationImpetusFailures = Math.max(0, compound.getInteger(TAG_TRANSMUTATION_IMPETUS_FAILURES));
         transmutationImpetusPulse = Math.max(0, compound.getInteger(TAG_TRANSMUTATION_IMPETUS_PULSE));
+        int receivedReturnTicks = Math.max(0, compound.getInteger(TAG_TRANSMUTATION_RETURN_TICKS));
+        int receivedAnimationTicks = Math.max(0, compound.getInteger(TAG_TRANSMUTATION_ANIMATION_TICKS));
+        if (world != null && world.isRemote) {
+            if (receivedReturnTicks > 0 && transmutationReturnTicks <= 0) transmutationReturnTicks = receivedReturnTicks;
+            if (transmutationActive) transmutationAnimationTicks = Math.max(transmutationAnimationTicks, receivedAnimationTicks);
+        } else {
+            transmutationReturnTicks = receivedReturnTicks;
+            transmutationAnimationTicks = receivedAnimationTicks;
+        }
         transmutationItem = compound.hasKey(TAG_TRANSMUTATION_ITEM)
                 ? new ItemStack(compound.getCompoundTag(TAG_TRANSMUTATION_ITEM)) : ItemStack.EMPTY;
+        creationCoreItem = compound.hasKey(TAG_CREATION_CORE)
+                ? new ItemStack(compound.getCompoundTag(TAG_CREATION_CORE)) : ItemStack.EMPTY;
+        creationTarget = compound.hasKey(TAG_CREATION_TARGET)
+                ? new ItemStack(compound.getCompoundTag(TAG_CREATION_TARGET)) : ItemStack.EMPTY;
+        int creationActiveMask = compound.getInteger(TAG_CREATION_ACTIVE_MASK);
+        int[] savedInstability = compound.getIntArray(TAG_CREATION_INSTABILITY);
+        int[] savedCheckpoints = compound.getIntArray(TAG_CREATION_CHECKPOINT);
+        for (int i = 0; i < CREATION_SAMPLE_SLOT_COUNT; i++) {
+            creationActive[i] = (creationActiveMask & 1 << i) != 0;
+            creationInstability[i] = i < savedInstability.length ? Math.max(0, savedInstability[i]) : 0;
+            creationCheckpointProgress[i] = i < savedCheckpoints.length ? Math.max(0, savedCheckpoints[i]) : 0;
+        }
+        creationSignatures = Math.max(0, compound.getInteger(TAG_CREATION_SIGNATURES));
+        creationRequired = Math.max(0, compound.getInteger(TAG_CREATION_REQUIRED));
+        int[] savedCreationParadoxum = compound.getIntArray(TAG_CREATION_PARADOXUM);
+        for (int i = 0; i < CREATION_SAMPLE_SLOT_COUNT; i++) {
+            creationParadoxum[i] = i < savedCreationParadoxum.length
+                    ? Math.max(0, Math.min(CREATION_PARADOXUM_CAPACITY, savedCreationParadoxum[i])) : 0;
+        }
+        creationExtractorFuel = Math.max(0L, Math.min(CREATION_EXTRACTOR_FUEL_CAPACITY,
+                compound.getLong(TAG_CREATION_EXTRACTOR_FUEL)));
+        creationFailures = Math.max(0, compound.getInteger(TAG_CREATION_FAILURES));
+        creationCompletionTicks = Math.max(0, Math.min(CREATION_COMPLETION_TOTAL_TICKS,
+                compound.getInteger(TAG_CREATION_COMPLETION_TICKS)));
         coreProtocolRequested = compound.hasKey(TAG_CORE_PORTAL_LATCHED)
                 ? compound.getBoolean(TAG_CORE_PORTAL_LATCHED)
                 : getProtocolMeta() >= 0;
@@ -1029,26 +1716,36 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
                 ? compound.getInteger(TAG_CORE_PROTOCOL_META)
                 : (coreProtocolRequested ? getProtocolMeta() : -1);
         int savedTicks = compound.hasKey(TAG_CORE_ANIMATION_TICKS)
-                ? Math.floorMod(compound.getInteger(TAG_CORE_ANIMATION_TICKS), CORE_ALCHEMY_CLOSE_END_TICKS)
+                ? Math.floorMod(compound.getInteger(TAG_CORE_ANIMATION_TICKS), CORE_CREATION_CLOSE_END_TICKS)
                 : 0;
         if (!hasNewCycleState && coreOpenCycle && savedTicks < CORE_NAVIGATION_HOLD_START_TICKS) {
             savedTicks += CORE_NAVIGATION_HOLD_START_TICKS;
         }
-        if (coreOpenCycle
-                && coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_ALCHEMICAL_PROTOCOL
-                && savedTicks < CORE_ALCHEMY_START_TICKS) {
-            savedTicks = coreProtocolRequested
-                    ? CORE_ALCHEMY_HOLD_START_TICKS + Math.floorMod(savedTicks, 60)
-                    : CORE_ALCHEMY_HOLD_END_TICKS;
-        }
-        coreAnimationTicks = savedTicks;
-        // Do not hard-sync on routine inventory/tile packets: doing so rewinds a
-        // client that has already advanced during network transit. Only alchemy
-        // insertion intentionally jumps to the absolute 12-second mark.
+        coreAnimationTicks = normalizeCoreAnimationTicks(savedTicks);
+        // Routine packets need no hard rewind. State changes do: they switch the
+        // controller to another segment of the same 39-second animation.
         if (previousAnimationProtocol != coreAnimationProtocolMeta
-                && coreAnimationProtocolMeta == ItemRiftonomiconProtocol.META_ALCHEMICAL_PROTOCOL) {
+                || previousProtocolRequested != coreProtocolRequested
+                || previousOpenCycle != coreOpenCycle) {
             syncCoreAnimationTick = true;
         }
+    }
+
+    private int normalizeCoreAnimationTicks(int savedTicks) {
+        if (!coreOpenCycle) return Math.floorMod(savedTicks, CORE_IDLE_END_TICKS);
+
+        int startTicks = getCoreStartTicks();
+        int holdStartTicks = getCoreHoldStartTicks();
+        int holdEndTicks = getCoreHoldEndTicks();
+        int closeEndTicks = getCoreCloseEndTicks();
+        if (coreProtocolRequested) {
+            if (savedTicks < startTicks || savedTicks >= holdEndTicks) {
+                return holdStartTicks + Math.floorMod(savedTicks, CORE_IDLE_END_TICKS);
+            }
+            return savedTicks;
+        }
+        if (savedTicks < startTicks || savedTicks >= closeEndTicks) return holdEndTicks;
+        return savedTicks;
     }
 
     private static void readStackList(NBTTagCompound compound, String key, NonNullList<ItemStack> stacks) {

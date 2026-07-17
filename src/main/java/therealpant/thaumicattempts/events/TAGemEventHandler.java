@@ -56,10 +56,27 @@ import therealpant.thaumicattempts.util.RunicMaxCalculator;
 import therealpant.thaumicattempts.util.RunicShieldAdapter;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
 import therealpant.thaumicattempts.util.TAGemInlayUtil;
+import therealpant.thaumicattempts.util.WeaponTransmutation;
+import therealpant.thaumicattempts.util.ArmorTransmutation;
 import therealpant.thaumicattempts.ThaumicAttempts;
 ;
 
 public class TAGemEventHandler {
+    @SubscribeEvent
+    public void onTransmutedWeaponTick(PlayerTickEvent event) {
+        if (event.phase != TickEvent.Phase.END) return;
+        for (ItemStack stack : event.player.inventory.mainInventory) {
+            WeaponTransmutation.normalizeLegacyModifiers(stack);
+        }
+        for (ItemStack stack : event.player.inventory.offHandInventory) {
+            WeaponTransmutation.normalizeLegacyModifiers(stack);
+        }
+        WeaponTransmutation.applyDurabilityReserve(event.player.getHeldItemMainhand());
+        WeaponTransmutation.applyDurabilityReserve(event.player.getHeldItemOffhand());
+        for (ItemStack stack : event.player.inventory.armorInventory) {
+            WeaponTransmutation.applyDurabilityReserve(stack);
+        }
+    }
     private static final String NBT_AMETHYST_STACKS = "ta_amethyst_stacks";
     private static final String NBT_AMETHYST_EXPIRE = "ta_amethyst_expire";
     private static final String NBT_AMETHYST_LAST_RUNIC_UPDATE = "ta_amethyst_runic_update";
@@ -113,6 +130,11 @@ public class TAGemEventHandler {
         if (event.isCanceled() || event.getAmount() <= 0f) return;
         EntityPlayer player = (EntityPlayer) event.getEntityLiving();
         if (player.world.isRemote) return;
+
+        if (event.getSource() == DamageSource.FALL) {
+            event.setAmount(event.getAmount() * ArmorTransmutation.getFallDamageMultiplier(player));
+            if (event.getAmount() <= 0f) return;
+        }
 
         GemSummary amethystSummary = getGemSummary(player, AmethystGemDefinition.ID);
         if (amethystSummary.count > 0) {

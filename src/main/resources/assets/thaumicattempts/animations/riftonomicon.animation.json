@@ -1,31 +1,4 @@
 {
 	"format_version": "1.8.0",
-	"animations": {
-		"animation": {
-			"loop": true,
-			"animation_length": 15,
-			"bones": {
-				"bone48": {
-					"position": {
-						"vector": [0, "math.sin(query.anim_time*120)", 0]
-					}
-				},
-				"bone27": {
-					"position": {
-						"vector": [0, "math.sin(query.anim_time*120+120)", 0]
-					}
-				},
-				"bone31": {
-					"position": {
-						"vector": [0, "math.sin(query.anim_time*120+360)", 0]
-					}
-				},
-				"bone35": {
-					"position": {
-						"vector": [0, "math.sin(query.anim_time*120+240)", 0]
-					}
-				}
-			}
-		}
-	}
+	"animations": {}
 }

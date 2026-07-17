@@ -21,6 +21,7 @@ import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.items.ItemPortalRune;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconWispClick;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconAlchemyClick;
+import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconCreationClick;
 import therealpant.thaumicattempts.world.block.RiftonomiconStructureHelper;
 import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
 
@@ -34,6 +35,7 @@ public final class RiftonomiconNavigationClient {
     private static final double WISP_LEVEL_STEP = 0.64D;
     private static final double WISP_ODD_LEVEL_YAW = 30.0D;
     public static final int WISP_MINIMUM_BLOCK_LIGHT = 10;
+    public static final double CREATION_SLOT_LOWERING = 8.0D / 16.0D;
     private static final double WISP_PICK_RADIUS_SQ = 0.22D;
     private static final double MAX_LOOK_DISTANCE = 8.0D;
     private static final double[][] WISP_OFFSETS = createWispOffsets();
@@ -62,6 +64,7 @@ public final class RiftonomiconNavigationClient {
 
     private static HoveredWisp hoveredWisp;
     private static HoveredAlchemy hoveredAlchemy;
+    private static HoveredCreation hoveredCreation;
 
     private RiftonomiconNavigationClient() {
     }
@@ -81,11 +84,24 @@ public final class RiftonomiconNavigationClient {
             hoveredWisp = null;
         }
         hoveredAlchemy = findHoveredAlchemy(mc.player, partialTicks);
+        hoveredCreation = findHoveredCreation(mc.player, partialTicks);
     }
 
     @SubscribeEvent
     public static void onMouse(MouseEvent event) {
         if (event.getButton() != 1 || !event.isButtonstate()) return;
+        if (hoveredCreation != null) {
+            EntityPlayer player = Minecraft.getMinecraft().player;
+            ItemStack held = player == null ? ItemStack.EMPTY : player.getHeldItemMainhand();
+            // The virtual Creation slot surrounds the real impetus port. Do not
+            // swallow the linker's click: TA Augmentation must receive it and
+            // bind its channel to the physical TileRiftonomiconImpetusPort.
+            if (isImpetusLinker(held)) return;
+            ThaumicAttempts.NET.sendToServer(new C2S_RiftonomiconCreationClick(
+                    hoveredCreation.tilePos, hoveredCreation.slot));
+            event.setCanceled(true);
+            return;
+        }
         if (hoveredAlchemy != null) {
             EntityPlayer player = Minecraft.getMinecraft().player;
             ItemStack held = player == null ? ItemStack.EMPTY : player.getHeldItemMainhand();
@@ -102,6 +118,12 @@ public final class RiftonomiconNavigationClient {
         if (extract && !player.getHeldItemMainhand().isEmpty()) return;
         ThaumicAttempts.NET.sendToServer(new C2S_RiftonomiconWispClick(hoveredWisp.tilePos, hoveredWisp.slot, extract));
         event.setCanceled(true);
+    }
+
+    private static boolean isImpetusLinker(ItemStack stack) {
+        if (stack == null || stack.isEmpty() || stack.getItem().getRegistryName() == null) return false;
+        return "thaumicaugmentation".equals(stack.getItem().getRegistryName().getNamespace())
+                && "impetus_linker".equals(stack.getItem().getRegistryName().getPath());
     }
 
     private static HoveredAlchemy findHoveredAlchemy(EntityPlayer player, float partialTicks) {
@@ -123,6 +145,42 @@ public final class RiftonomiconNavigationClient {
                     if (eye.add(look.scale(along)).squareDistanceTo(point) <= 0.16D && along < best) {
                         best = along;
                         result = new HoveredAlchemy(tile.getPos(), slot);
+                    }
+                }
+            }
+        }
+        return result;
+    }
+
+    private static HoveredCreation findHoveredCreation(EntityPlayer player, float partialTicks) {
+        Vec3d eye = player.getPositionEyes(partialTicks);
+        Vec3d look = player.getLook(partialTicks).normalize();
+        HoveredCreation result = null;
+        double best = Double.MAX_VALUE;
+        for (TileEntity raw : player.world.loadedTileEntityList) {
+            if (!(raw instanceof TileRiftonomicon)) continue;
+            TileRiftonomicon tile = (TileRiftonomicon) raw;
+            if (!tile.hasCreationProtocol()) continue;
+
+            Vec3d center = new Vec3d(tile.getPos()).add(new Vec3d(0.5D, -0.42D, 0.5D));
+            double centerAlong = center.subtract(eye).dotProduct(look);
+            if (centerAlong >= 0.0D && centerAlong <= MAX_LOOK_DISTANCE
+                    && eye.add(look.scale(centerAlong)).squareDistanceTo(center) <= 0.20D) {
+                best = centerAlong;
+                result = new HoveredCreation(tile.getPos(), -1);
+            }
+
+            int limit = tile.getCreationStationLimit();
+            for (int slot = 0; slot < limit; slot++) {
+                for (double[] off : ALCHEMY_CONSTRUCTION_OFFSETS[slot]) {
+                    Vec3d point = new Vec3d(tile.getPos()).add(
+                            new Vec3d(0.5D + off[0], off[1] - CREATION_SLOT_LOWERING, 0.5D + off[2]));
+                    Vec3d delta = point.subtract(eye);
+                    double along = delta.dotProduct(look);
+                    if (along < 0.0D || along > MAX_LOOK_DISTANCE) continue;
+                    if (eye.add(look.scale(along)).squareDistanceTo(point) <= 0.16D && along < best) {
+                        best = along;
+                        result = new HoveredCreation(tile.getPos(), slot);
                     }
                 }
             }
@@ -322,5 +380,11 @@ public final class RiftonomiconNavigationClient {
         private final BlockPos tilePos;
         private final int slot;
         private HoveredAlchemy(BlockPos tilePos, int slot) { this.tilePos = tilePos; this.slot = slot; }
+    }
+
+    private static final class HoveredCreation {
+        private final BlockPos tilePos;
+        private final int slot;
+        private HoveredCreation(BlockPos tilePos, int slot) { this.tilePos = tilePos; this.slot = slot; }
     }
 }

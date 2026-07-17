@@ -532,6 +532,9 @@ public final class TAMultiblockTriggers {
         int az = Math.abs(dz);
 
         if (dy == 0) {
+            if (dx == 0 && dz == 0) {
+                return BlockRiftonomicon.Part.TRANSMUTATION_ESSENTIA_INPUT;
+            }
             if (dx == 0 && dz == 0) return BlockRiftonomicon.Part.TRANSMUTATION_IMPETUS_INPUT;
             if ((az == 3 && ax <= 1) || (az == 2 && ax <= 2) || (ax >= 2 && ax <= 3)) {
                 return (dx == 0 || dz == 0) ? TABlocks.POLISHED_DARK_JASPER : TABlocks.DARK_JASPER_BRICKS;
@@ -578,8 +581,8 @@ public final class TAMultiblockTriggers {
             return BlockRiftonomicon.Part.CORE;
         }
 
-        if (dy == 2 && dx == 0 && dz == 0) {
-            return BlockRiftonomicon.Part.TRANSMUTATION_ESSENTIA_INPUT;
+        if (dy == 4 && dx == 0 && dz == 0) {
+            return BlockRiftonomicon.Part.TRANSMUTATION_IMPETUS_INPUT;
         }
 
         if (dy == 3 && ((ax == 2 && dz == 0) || (az == 2 && dx == 0))) {

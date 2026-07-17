@@ -53,6 +53,10 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchTaskHandler(basicClass);
                 case "thaumcraft.api.casters.FocusNode":
                     return patchFocusNode(basicClass);
+                case "thaumcraft.api.casters.NodeSetting":
+                    return patchNodeSetting(basicClass);
+                case "thaumcraft.api.casters.FocusPackage":
+                    return patchFocusPackage(basicClass);
                 case "thaumcraft.common.items.casters.ItemCaster":
                     return patchItemCaster(basicClass);
                 case "thaumcraft.api.casters.FocusEngine":
@@ -475,6 +479,72 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
         cn.accept(cw);
         System.out.println("[ThaumicAttempts] Patched thaumcraft.api.casters.FocusNode");
+        return cw.toByteArray();
+    }
+
+    // ---------------- NodeSetting ----------------
+    private byte[] patchNodeSetting(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        int patched = 0;
+        for (MethodNode m : cn.methods) {
+            String methodName = deobfMethod(cn.name, m.name, m.desc);
+            if (!"setValue".equals(methodName) || !"(I)V".equals(m.desc)) continue;
+
+            InsnList hook = new InsnList();
+            hook.add(new VarInsnNode(ALOAD, 0));
+            hook.add(new VarInsnNode(ILOAD, 1));
+            hook.add(new MethodInsnNode(
+                    INVOKESTATIC,
+                    "therealpant/thaumicattempts/util/FocusTransmutation",
+                    "prepareValueRange",
+                    "(Lthaumcraft/api/casters/NodeSetting;I)V",
+                    false
+            ));
+            m.instructions.insert(hook);
+            patched++;
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        System.out.println("[ThaumicAttempts] Patched NodeSetting over-cap support, methods=" + patched);
+        return cw.toByteArray();
+    }
+
+    // ---------------- FocusPackage ----------------
+    private byte[] patchFocusPackage(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        int patched = 0;
+        for (MethodNode m : cn.methods) {
+            String methodName = deobfMethod(cn.name, m.name, m.desc);
+            if (!"deserialize".equals(methodName)
+                    || !"(Lnet/minecraft/nbt/NBTTagCompound;)V".equals(m.desc)) continue;
+
+            for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (!(insn instanceof MethodInsnNode)) continue;
+                MethodInsnNode call = (MethodInsnNode) insn;
+                String callName = deobfMethod(call.owner, call.name, call.desc);
+                if (!"thaumcraft/api/casters/NodeSetting".equals(call.owner)
+                        || !"setValue".equals(callName)
+                        || !"(I)V".equals(call.desc)) continue;
+
+                call.setOpcode(INVOKESTATIC);
+                call.owner = "therealpant/thaumicattempts/util/FocusTransmutation";
+                call.name = "setValueUnclamped";
+                call.desc = "(Lthaumcraft/api/casters/NodeSetting;I)V";
+                call.itf = false;
+                patched++;
+            }
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        System.out.println("[ThaumicAttempts] Patched FocusPackage transmutation loading, calls=" + patched);
         return cw.toByteArray();
     }
 

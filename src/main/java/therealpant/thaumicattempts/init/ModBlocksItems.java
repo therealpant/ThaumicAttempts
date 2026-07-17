@@ -29,6 +29,7 @@ import therealpant.thaumicattempts.items.ItemTAGem;
 import therealpant.thaumicattempts.items.ItemPortalRune;
 import therealpant.thaumicattempts.items.ItemPrism;
 import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
+import therealpant.thaumicattempts.items.ItemCalibratedExtract;
 
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
@@ -74,6 +75,7 @@ public final class ModBlocksItems {
     public static Item RIFTONOMICON_PROTOCOL;
     public static Item STORAGE_BELL;
     public static Item PORTAL_RUNE;
+    public static Item CALIBRATED_EXTRACT;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -264,6 +266,7 @@ public final class ModBlocksItems {
         RIFTONOMICON_PROTOCOL = new ItemRiftonomiconProtocol();
         STORAGE_BELL = new ItemStorageBell();
         PORTAL_RUNE = new ItemPortalRune();
+        CALIBRATED_EXTRACT = new ItemCalibratedExtract();
 
         e.getRegistry().registerAll(
                 CRAFT_PATTERN,
@@ -285,7 +288,8 @@ public final class ModBlocksItems {
                 PRISM,
                 RIFTONOMICON_PROTOCOL,
                 STORAGE_BELL,
-                PORTAL_RUNE
+                PORTAL_RUNE,
+                CALIBRATED_EXTRACT
         );
 
         // ItemBlock'и

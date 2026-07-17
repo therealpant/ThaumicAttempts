@@ -2,16 +2,34 @@ package therealpant.thaumicattempts.world.tile;
 
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
 import net.minecraftforge.common.capabilities.Capability;
 import therealpant.thaumicattempts.integration.thaumicaugmentation.ImpetusCompat;
+import therealpant.thaumicattempts.data.research.TAAspects;
+import thaumcraft.api.aspects.Aspect;
+import thaumcraft.api.aspects.IEssentiaTransport;
+import thaumcraft.common.lib.events.EssentiaHandler;
 
 import javax.annotation.Nullable;
 
 /** One of four physical impetus connection points belonging to a Riftonomicon. */
-public class TileRiftonomiconImpetusPort extends TileEntity {
+public class TileRiftonomiconImpetusPort extends TileEntity implements ITickable, IEssentiaTransport {
     public static final long BUFFER_CAPACITY = 200000L;
     private Object impetusNode;
+    private int essentiaDrawDelay;
+
+    @Override
+    public void update() {
+        if (world == null || world.isRemote || ++essentiaDrawDelay % 5 != 0) return;
+        TileRiftonomicon core = getRiftonomicon();
+        int slot = core == null ? -1 : core.getCreationSlotForPort(pos);
+        Aspect aspect = requiredAspect();
+        if (core == null || aspect == null || !core.canAcceptCreationParadoxum(slot)) return;
+        if (EssentiaHandler.drainEssentia(this, aspect, null, 12, 0)) {
+            core.acceptCreationParadoxum(slot, 1);
+        }
+    }
 
     @Override
     public void onLoad() {
@@ -52,6 +70,10 @@ public class TileRiftonomiconImpetusPort extends TileEntity {
         return null;
     }
 
+    private Aspect requiredAspect() {
+        return TAAspects.PARADOXUM != null ? TAAspects.PARADOXUM : Aspect.getAspect("paradoxum");
+    }
+
     public long consume(long requested, boolean simulate) {
         if (getRiftonomicon() == null || requested <= 0L) return 0L;
         ensureImpetusNode(false);
@@ -88,4 +110,24 @@ public class TileRiftonomiconImpetusPort extends TileEntity {
         }
         return super.getCapability(capability, facing);
     }
+
+    @Override public boolean isConnectable(EnumFacing face) { return true; }
+    @Override public boolean canInputFrom(EnumFacing face) { return true; }
+    @Override public boolean canOutputTo(EnumFacing face) { return false; }
+    @Override public void setSuction(Aspect aspect, int amount) {}
+    @Override public Aspect getSuctionType(EnumFacing face) {
+        TileRiftonomicon core = getRiftonomicon();
+        int slot = core == null ? -1 : core.getCreationSlotForPort(pos);
+        return core != null && core.canAcceptCreationParadoxum(slot) ? requiredAspect() : null;
+    }
+    @Override public int getSuctionAmount(EnumFacing face) { return getSuctionType(face) == null ? 0 : 128; }
+    @Override public int addEssentia(Aspect aspect, int amount, EnumFacing face) {
+        TileRiftonomicon core = getRiftonomicon();
+        int slot = core == null ? -1 : core.getCreationSlotForPort(pos);
+        return core == null || aspect != requiredAspect() ? 0 : core.acceptCreationParadoxum(slot, amount);
+    }
+    @Override public int takeEssentia(Aspect aspect, int amount, EnumFacing face) { return 0; }
+    @Override public Aspect getEssentiaType(EnumFacing face) { return null; }
+    @Override public int getEssentiaAmount(EnumFacing face) { return 0; }
+    @Override public int getMinimumSuction() { return 0; }
 }

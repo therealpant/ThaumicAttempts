@@ -214,7 +214,9 @@ task filterTokens(type: Sync) {
     inputs.property 'apiversion', apiversion
     inputs.property 'certFingerprint', certFingerprint
 
-    from sourceSets.main.java
+    // compileJava.source points at this task's output below; using
+    // sourceSets.main.java here becomes self-referential after a clean build.
+    from 'src/main/java'
     filter(ReplaceTokens, tokens: [APIVERSION: apiversion.toString(), VERSION: version.toString(), FINGERPRINT: certFingerprint.toString()])
     into "$buildDir/src/$sourceSets.main.name/$sourceSets.main.java.name"
 }

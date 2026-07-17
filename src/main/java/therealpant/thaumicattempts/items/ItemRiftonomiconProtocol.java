@@ -14,7 +14,9 @@ public class ItemRiftonomiconProtocol extends Item {
     public static final int META_CATALYZING_SUBSYSTEM = 3;
     public static final int META_TRANSMUTATION_PROTOCOL = 4;
     public static final int META_PRISMATIC_SUBSYSTEM = 5;
-    public static final int META_EXTRACTION_PROTOCOL = 6;
+    public static final int META_CREATION_PROTOCOL = 6;
+    /** Kept as an alias so existing worlds and references retain metadata 6. */
+    public static final int META_EXTRACTION_PROTOCOL = META_CREATION_PROTOCOL;
     public static final int META_SCALING_SUBSYSTEM = 7;
     public static final int VARIANT_COUNT = 8;
 
@@ -25,7 +27,7 @@ public class ItemRiftonomiconProtocol extends Item {
             "catalyzing_subsystem",
             "transmutation_protocol",
             "prismatic_subsystem",
-            "extraction_protocol",
+            "creation_protocol",
             "scaling_subsystem"
     };
 

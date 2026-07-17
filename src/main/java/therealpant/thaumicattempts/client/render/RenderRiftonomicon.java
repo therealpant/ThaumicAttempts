@@ -12,6 +12,7 @@ import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
+import net.minecraft.util.math.MathHelper;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import org.lwjgl.opengl.GL11;
@@ -21,6 +22,7 @@ import software.bernie.geckolib3.renderers.geo.GeoBlockRenderer;
 import thaumcraft.client.lib.UtilsFX;
 import thaumcraft.client.fx.ParticleEngine;
 import thaumcraft.client.fx.other.FXVoidStream;
+import thaumcraft.client.fx.particles.FXBlockRunes;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.client.fx.FXDirectInfusionItem;
 import therealpant.thaumicattempts.client.model.RiftonomiconModel;
@@ -39,6 +41,7 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
     private final RiftonomiconWispRenderer navigationStoneRenderer = new RiftonomiconWispRenderer();
     private final Map<TileRiftonomicon, long[]> alchemyParticleTicks = new WeakHashMap<>();
     private final Map<TileRiftonomicon, Integer> transmutationFxPulses = new WeakHashMap<>();
+    private final Map<TileRiftonomicon, Long> creationRuneTicks = new WeakHashMap<>();
     private boolean renderingCore;
     private boolean renderingNavigationStone;
     private static final ResourceLocation TEX_EMISSIVE =
@@ -48,6 +51,8 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
 
     private static final float EMISSIVE_Y_OFFSET = 0.01F;
     private static final double RIFT_Y_OFFSET = 14.0D / 16.0D;
+    private static final double TRANSMUTATION_PORTAL_Y = -RiftonomiconStructureHelper.CORE_Y_OFFSET + RIFT_Y_OFFSET;
+    private static final double TRANSMUTATION_HIDDEN_Y = -RiftonomiconStructureHelper.CORE_Y_OFFSET + 0.5D - 6.0D / 16.0D;
     private static final double RIFT_HALF_SIZE = 25.0D / 16.0D;
     private static final int RIFT_PARTICLE_COUNT = 120;
     // bone4 pivot is Y=16px; at portal t=15s its animation adds sin(15*120+74) px.
@@ -96,6 +101,9 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
             renderCoreEmissiveLayer(te, x, y, z, partialTicks);
             renderNavigationStones(te, x, baseY, z, partialTicks);
             renderAlchemyPearls(te, x, y, z, partialTicks);
+            renderCreationSamples(te, x, y, z, partialTicks);
+            renderCreationCore(te, x, y, z, partialTicks);
+            renderTransmutationPrisms(te, x, y, z, partialTicks);
             renderTransmutationItem(te, x, y, z, partialTicks);
             renderTransmutationAbsorptionFx(te);
             renderRiftSurface(te, x, baseY, z, partialTicks);
@@ -111,20 +119,15 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
         int pulse = te.getTransmutationImpetusPulse();
         Integer previous = transmutationFxPulses.put(te, pulse);
         if (previous == null || previous == pulse || !te.isTransmutationActive()) return;
-
-        int cell = te.getWorld().rand.nextInt(9);
-        int dx = cell % 3 - 1;
-        int dz = cell / 3 - 1;
+        if (Math.floorMod(pulse, 5) != 0) return;
+        double[] start = worldPoint(te, TRANSMUTATION_STREAM_START);
         BlockPos base = te.getPos().down(RiftonomiconStructureHelper.CORE_Y_OFFSET);
-        double sx = base.getX() + 0.5D + dx;
-        double sy = base.getY() + 0.65D;
-        double sz = base.getZ() + 0.5D + dz;
-        double tx = te.getPos().getX() + 0.5D;
-        double ty = te.getPos().getY() - 0.5D;
-        double tz = te.getPos().getZ() + 0.5D;
-        FXVoidStream stream = new FXVoidStream(te.getWorld(), sx, sy, sz, tx, ty, tz,
-                te.getWorld().rand.nextInt(), 0.18F);
-        ParticleEngine.addEffect(te.getWorld(), stream);
+        double[] target = {
+                base.getX() + 0.5D + (te.getWorld().rand.nextDouble() * 2.0D - 1.0D) * RIFT_HALF_SIZE,
+                base.getY() + RIFT_Y_OFFSET + 0.02D,
+                base.getZ() + 0.5D + (te.getWorld().rand.nextDouble() * 2.0D - 1.0D) * RIFT_HALF_SIZE
+        };
+        addVoidStream(te, start, target);
     }
 
     private void renderTransmutationItem(TileRiftonomicon te, double x, double y, double z, float partialTicks) {
@@ -132,7 +135,19 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
         if (!te.hasTransmutationProtocol() || stack.isEmpty()) return;
         GlStateManager.pushMatrix();
         try {
-            GlStateManager.translate(x + 0.5D, y - 0.42D, z + 0.5D);
+            double startY = -0.42D;
+            double submergedY = TRANSMUTATION_HIDDEN_Y;
+            double itemY = startY;
+            if (te.isTransmutationActive()) {
+                double t = Math.min(1.0D, te.getTransmutationProgress() / 0.08D);
+                itemY = viscousPortalPosition(t, startY, submergedY);
+                if (t >= 1.0D) return;
+            } else if (te.getTransmutationReturnTicks() > 0) {
+                double t = 1.0D - Math.min(1.0D,
+                        (te.getTransmutationReturnTicks() - partialTicks) / te.getTransmutationMotionTicks());
+                itemY = viscousPortalPosition(slowFinalApproach(t), submergedY, startY);
+            }
+            GlStateManager.translate(x + 0.5D, y + itemY, z + 0.5D);
             GlStateManager.rotate((te.getWorld().getTotalWorldTime() + partialTicks) * 2.0F, 0, 1, 0);
             GlStateManager.scale(0.65F, 0.65F, 0.65F);
             RenderHelper.enableStandardItemLighting();
@@ -141,6 +156,95 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
             RenderHelper.disableStandardItemLighting();
             GlStateManager.popMatrix();
         }
+    }
+
+    private static final double[] TRANSMUTATION_STREAM_START = {0.0D, 1.0D, 0.0D};
+    private static final double[][] TRANSMUTATION_PRISM_POSITIONS = {
+            {-17.5D / 16.0D, 20.5D / 16.0D, -0.5D / 16.0D},
+            {0.5D / 16.0D, 20.0D / 16.0D, -17.5D / 16.0D},
+            {0.25D / 16.0D, 19.5D / 16.0D, 18.5D / 16.0D},
+            {17.5D / 16.0D, 18.5D / 16.0D, -0.25D / 16.0D}
+    };
+    private static final float[] PRISM_THRESHOLDS = {0.20F, 0.50F, 0.80F, 0.90F};
+
+    private void renderTransmutationPrisms(TileRiftonomicon te, double x, double y, double z, float partialTicks) {
+        if (!te.hasTransmutationProtocol()) return;
+        RenderItem renderer = Minecraft.getMinecraft().getRenderItem();
+        float progress = te.getTransmutationProgress();
+        for (int slot = 0; slot < TRANSMUTATION_PRISM_POSITIONS.length; slot++) {
+            ItemStack prism = te.getTransmutationPrism(slot);
+            if (prism.isEmpty()) continue;
+            double[] p = TRANSMUTATION_PRISM_POSITIONS[slot];
+            double renderY = p[1] - 14.0D / 16.0D;
+            if (te.isTransmutationActive() && progress >= PRISM_THRESHOLDS[slot]) {
+                double t = Math.min(1.0D, (progress - PRISM_THRESHOLDS[slot]) / 0.08D);
+                if (t >= 1.0D) continue;
+                renderY = viscousPortalPosition(t, renderY, TRANSMUTATION_HIDDEN_Y);
+            }
+            GlStateManager.pushMatrix();
+            try {
+                GlStateManager.translate(x + 0.5D + p[0], y + renderY, z + 0.5D + p[2]);
+                GlStateManager.rotate((te.getWorld().getTotalWorldTime() + partialTicks) * 2.0F, 0, 1, 0);
+                GlStateManager.scale(0.55F, 0.55F, 0.55F);
+                RenderHelper.enableStandardItemLighting();
+                renderer.renderItem(prism, ItemCameraTransforms.TransformType.FIXED);
+            } finally {
+                RenderHelper.disableStandardItemLighting();
+                GlStateManager.popMatrix();
+            }
+        }
+    }
+
+    /** Constant speed away from the rift, with a smooth viscous slowdown while crossing its plane. */
+    private static double viscousPortalPosition(double t, double fromY, double toY) {
+        t = Math.max(0.0D, Math.min(1.0D, t));
+        final int samples = 64;
+        double[] cumulative = new double[samples + 1];
+        double previousY = fromY;
+        double previousResistance = portalResistance(previousY);
+        for (int i = 1; i <= samples; i++) {
+            double y = fromY + (toY - fromY) * i / samples;
+            double resistance = portalResistance(y);
+            cumulative[i] = cumulative[i - 1]
+                    + Math.abs(y - previousY) * (previousResistance + resistance) * 0.5D;
+            previousY = y;
+            previousResistance = resistance;
+        }
+        double target = cumulative[samples] * t;
+        int index = 1;
+        while (index < samples && cumulative[index] < target) index++;
+        double span = cumulative[index] - cumulative[index - 1];
+        double local = span <= 0.0D ? 0.0D : (target - cumulative[index - 1]) / span;
+        double path = (index - 1 + local) / samples;
+        return fromY + (toY - fromY) * path;
+    }
+
+    private static double portalResistance(double y) {
+        double distance = Math.abs(y - TRANSMUTATION_PORTAL_Y) / (5.0D / 16.0D);
+        return 1.0D + 5.0D * Math.exp(-distance * distance * distance * distance);
+    }
+
+    /** Keeps normal travel speed, then continuously brakes to zero over the final quarter. */
+    private static double slowFinalApproach(double t) {
+        t = Math.max(0.0D, Math.min(1.0D, t));
+        final double brakingStart = 0.75D;
+        final double speed = 2.0D / (1.0D + brakingStart);
+        if (t <= brakingStart) return speed * t;
+        double duration = 1.0D - brakingStart;
+        double x = (t - brakingStart) / duration;
+        double positionAtBraking = speed * brakingStart;
+        return positionAtBraking + speed * duration * (x - 0.5D * x * x);
+    }
+
+    private static double[] worldPoint(TileRiftonomicon te, double[] local) {
+        return new double[]{te.getPos().getX() + 0.5D + local[0], te.getPos().getY() + local[1],
+                te.getPos().getZ() + 0.5D + local[2]};
+    }
+
+    private static void addVoidStream(TileRiftonomicon te, double[] from, double[] to) {
+        FXVoidStream stream = new FXVoidStream(te.getWorld(), from[0], from[1], from[2], to[0], to[1], to[2],
+                te.getWorld().rand.nextInt(), 0.18F);
+        ParticleEngine.addEffect(te.getWorld(), stream);
     }
 
     private void renderAlchemyPearls(TileRiftonomicon te, double x, double y, double z, float partialTicks) {
@@ -167,6 +271,89 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
             if (markAlchemyParticleTick(te, slot)) {
                 spawnAlchemyItemParticles(te, off, pearl);
             }
+        }
+    }
+
+    private void renderCreationSamples(TileRiftonomicon te, double x, double y, double z, float partialTicks) {
+        if (!te.hasCreationProtocol()) return;
+        RenderItem renderer = Minecraft.getMinecraft().getRenderItem();
+        double[][] offsets = RiftonomiconNavigationClient.ALCHEMY_PEARL_OFFSETS;
+        int limit = te.getCreationStationLimit();
+        for (int slot = 0; slot < limit; slot++) {
+            ItemStack sample = te.getCreationSample(slot);
+            if (sample.isEmpty()) continue;
+            double[] off = offsets[slot];
+            GlStateManager.pushMatrix();
+            try {
+                double bob = te.isCreationResearchActive(slot)
+                        ? Math.sin((te.getWorld().getTotalWorldTime() + partialTicks) * 0.18D + slot) * 0.06D : 0.0D;
+                GlStateManager.translate(x + 0.5D + off[0],
+                        y + off[1] - 1.0D - RiftonomiconNavigationClient.CREATION_SLOT_LOWERING + bob,
+                        z + 0.5D + off[2]);
+                float speed = te.isCreationResearchActive(slot) ? 6.0F : 2.0F;
+                GlStateManager.rotate((te.getWorld().getTotalWorldTime() + partialTicks) * speed,
+                        0.0F, 1.0F, 0.0F);
+                GlStateManager.scale(0.55F, 0.55F, 0.55F);
+                RenderHelper.enableStandardItemLighting();
+                renderer.renderItem(sample, ItemCameraTransforms.TransformType.FIXED);
+            } finally {
+                GlStateManager.popMatrix();
+                RenderHelper.disableStandardItemLighting();
+            }
+        }
+    }
+
+    private void renderCreationCore(TileRiftonomicon te, double x, double y, double z, float partialTicks) {
+        if (!te.hasCreationProtocol()) return;
+        ItemStack core = te.getCreationCoreItem();
+        if (core.isEmpty()) return;
+        GlStateManager.pushMatrix();
+        try {
+            double motion = getCreationCoreMotion(te, partialTicks);
+            GlStateManager.translate(x + 0.5D, y - 0.42D + motion, z + 0.5D);
+            GlStateManager.rotate((te.getWorld().getTotalWorldTime() + partialTicks) * 2.0F, 0, 1, 0);
+            GlStateManager.scale(0.65F, 0.65F, 0.65F);
+            RenderHelper.enableStandardItemLighting();
+            Minecraft.getMinecraft().getRenderItem().renderItem(core, ItemCameraTransforms.TransformType.FIXED);
+        } finally {
+            RenderHelper.disableStandardItemLighting();
+            GlStateManager.popMatrix();
+        }
+        spawnCreationRunes(te);
+    }
+
+    private double getCreationCoreMotion(TileRiftonomicon te, float partialTicks) {
+        int ticks = te.getCreationCompletionTicks();
+        if (ticks <= 0) return 0.0D;
+        double time = Math.min(TileRiftonomicon.CREATION_COMPLETION_TOTAL_TICKS, ticks + partialTicks);
+        double phase;
+        if (time <= TileRiftonomicon.CREATION_COMPLETION_SWAP_TICK) {
+            phase = time / TileRiftonomicon.CREATION_COMPLETION_SWAP_TICK;
+        } else {
+            phase = 1.0D - (time - TileRiftonomicon.CREATION_COMPLETION_SWAP_TICK)
+                    / (TileRiftonomicon.CREATION_COMPLETION_TOTAL_TICKS
+                    - TileRiftonomicon.CREATION_COMPLETION_SWAP_TICK);
+        }
+        phase = MathHelper.clamp(phase, 0.0D, 1.0D);
+        double smooth = phase * phase * (3.0D - 2.0D * phase);
+        return -1.15D * smooth;
+    }
+
+    private void spawnCreationRunes(TileRiftonomicon te) {
+        if (!te.isCreationVisualActive() || te.getWorld() == null) return;
+        long tick = te.getWorld().getTotalWorldTime();
+        Long previous = creationRuneTicks.get(te);
+        if (previous != null && previous == tick) return;
+        creationRuneTicks.put(te, tick);
+
+        for (int i = 0; i < 2; i++) {
+            double angle = te.getWorld().rand.nextDouble() * Math.PI * 2.0D;
+            double radius = 0.48D + te.getWorld().rand.nextDouble() * 0.24D;
+            double px = te.getPos().getX() + 0.5D + Math.cos(angle) * radius;
+            double py = te.getPos().getY() - 1.15D + te.getWorld().rand.nextDouble() * 0.35D;
+            double pz = te.getPos().getZ() + 0.5D + Math.sin(angle) * radius;
+            Minecraft.getMinecraft().effectRenderer.addEffect(new FXBlockRunes(
+                    te.getWorld(), px, py, pz, 0.18F, 0.72F, 1.0F, 0));
         }
     }
 
