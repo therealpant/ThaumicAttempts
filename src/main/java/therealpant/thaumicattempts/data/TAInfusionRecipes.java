@@ -146,37 +146,6 @@ public final class TAInfusionRecipes {
                 new InfusionRecipe("TA_GOLEMCRAFT", OUT_ARC, /*instab*/7, AS2, CENTER2, COMPS2)
         );
 
-        // ===== MIRROR_MANAGER_CORE  =====
-        {
-            Item outItem = Item.getByNameOrId(ThaumicAttempts.MODID + ":mirror_manager_core");
-            if (outItem != null) {
-                ItemStack OUT = new ItemStack(outItem);
-
-                // центр: мозг в банке (thaumcraft:jar_brain)
-                Object CENTER = ItemsTC.primordialPearl;
-
-                Object[] COMPS = new Object[]{
-                        new ItemStack(ItemsTC.mind, 1, 1),
-                        new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
-                        new ItemStack(ItemsTC.mirroredGlass),
-                        new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
-                        new ItemStack(ItemsTC.mind, 1, 1),
-                        new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
-                        new ItemStack(ItemsTC.mirroredGlass),
-                        new ItemStack(Item.getItemFromBlock(stoneEldritchTile))
-                };
-
-                AspectList AS = new AspectList()
-                        .add(Aspect.ELDRITCH, 250)
-                        .add(Aspect.MOTION, 150)
-                        .add(Aspect.ORDER, 150);
-
-                ThaumcraftApi.addInfusionCraftingRecipe(
-                        new ResourceLocation(ThaumicAttempts.MODID, "mirror_manager_infusion"),
-                        new InfusionRecipe("TA_GOLEM_MIRRORS", OUT, 8, AS, CENTER, COMPS)
-                );
-            }
-        }
         // ------------ Зеркальный Моячек ------------ \\
          {
             ThaumcraftApi.addInfusionCraftingRecipe(
@@ -274,33 +243,6 @@ public final class TAInfusionRecipes {
                             new ItemStack(Item.getItemFromBlock(BlocksTC.stoneArcane)),
                             Items.ENDER_PEARL,
                             new ItemStack(Item.getItemFromBlock(BlocksTC.stoneArcane))
-
-                    )
-            );
-        }
-        // ------------ Ядро Резонирующего Пилона  ------------ \\
-        {
-            ThaumcraftApi.addInfusionCraftingRecipe(
-                    new ResourceLocation(ThaumicAttempts.MODID, "aura_booster_core_infusion"),
-                    new InfusionRecipe(
-                            "TA_AURA_BOOSTER",
-                            new ItemStack(TABlocks.AURA_BOOSTER_CORE),
-                            10,
-                            new AspectList()
-                                    .add(Aspect.MECHANISM, 125)
-                                    .add(Aspect.ENERGY, 250)
-                                    .add(Aspect.ELDRITCH, 125)
-                                    .add(Aspect.CRYSTAL, 75)
-                                    .add(Aspect.AURA, 250),
-                            new ItemStack(Item.getItemFromBlock(TABlocks.RIFT_CRISTAL_BLOCK)),
-                            new ItemStack(Item.getItemFromBlock(TABlocks.ELDRITCH_CONSTRUCTION)),
-                            new ItemStack(ModBlocksItems.RIFT_CRISTAL),
-                            new ItemStack(Item.getItemFromBlock(TABlocks.ELDRITCH_CONSTRUCTION)),
-                            new ItemStack(ModBlocksItems.RIFT_CRISTAL),
-                            new ItemStack(Item.getItemFromBlock(TABlocks.ELDRITCH_CONSTRUCTION)),
-                            new ItemStack(ModBlocksItems.RIFT_CRISTAL),
-                            new ItemStack(Item.getItemFromBlock(TABlocks.ELDRITCH_CONSTRUCTION)),
-                            new ItemStack(ModBlocksItems.RIFT_CRISTAL)
 
                     )
             );

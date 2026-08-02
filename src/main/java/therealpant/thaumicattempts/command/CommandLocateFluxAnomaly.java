@@ -28,7 +28,7 @@ public class CommandLocateFluxAnomaly extends CommandBase {
 
     @Override
     public String getUsage(ICommandSender sender) {
-        return "/ta_anomaly_find [any|surface|shallow|deep]";
+        return "/ta_anomaly_find [any|surface|shallow|deep|archive|laboratory|monolith]";
     }
 
     @Override
@@ -66,6 +66,12 @@ public class CommandLocateFluxAnomaly extends CommandBase {
                 return FluxAnomalyTier.SHALLOW;
             case "deep":
                 return FluxAnomalyTier.DEEP;
+            case "archive":
+                return FluxAnomalyTier.ARCHIVE;
+            case "laboratory":
+                return FluxAnomalyTier.LABORATORY;
+            case "monolith":
+                return FluxAnomalyTier.MONOLITH;
             default:
                 throw new WrongUsageException(getUsage(sender));
         }
@@ -81,7 +87,8 @@ public class CommandLocateFluxAnomaly extends CommandBase {
     @Override
     public List<String> getTabCompletions(MinecraftServer server, ICommandSender sender, String[] args, @Nullable BlockPos targetPos) {
         if (args.length == 1) {
-            return getListOfStringsMatchingLastWord(args, "any", "surface", "shallow", "deep");
+            return getListOfStringsMatchingLastWord(args,
+                    "any", "surface", "shallow", "deep", "archive", "laboratory", "monolith");
         }
         return Collections.emptyList();
     }

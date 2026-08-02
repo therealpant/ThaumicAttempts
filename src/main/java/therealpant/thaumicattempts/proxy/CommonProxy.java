@@ -1,5 +1,7 @@
 package therealpant.thaumicattempts.proxy;
 
+import net.minecraft.util.math.BlockPos;
+import net.minecraft.world.World;
 import net.minecraftforge.fml.common.event.*;
 
 public class CommonProxy {
@@ -8,5 +10,6 @@ public class CommonProxy {
     public void init(FMLInitializationEvent e) {}
     public void postInit(FMLPostInitializationEvent e) {}
 
+    public void spawnMonolithParadoxumStream(World world, BlockPos source, BlockPos target) {}
 
 }

@@ -1,6 +1,8 @@
 {
   "variants": {
-    "half=lower": { "model": "thaumicattempts:rift_bush_bottom" },
-    "half=upper": { "model": "thaumicattempts:rift_bush_top" }
+    "half=lower,harvest_state=ready": { "model": "thaumicattempts:rift_bush_bottom" },
+    "half=upper,harvest_state=ready": { "model": "thaumicattempts:rift_bush_top" },
+    "half=lower,harvest_state=collected": { "model": "thaumicattempts:rift_bush_bottom" },
+    "half=upper,harvest_state=collected": { "model": "thaumicattempts:rift_bush_empty" }
   }
 }

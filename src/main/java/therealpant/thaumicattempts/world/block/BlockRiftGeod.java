@@ -7,6 +7,7 @@ import net.minecraft.block.properties.PropertyInteger;
 import net.minecraft.block.state.BlockStateContainer;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.EntityLivingBase;
+import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
@@ -33,6 +34,7 @@ import javax.annotation.Nullable;
 public class BlockRiftGeod extends Block implements ITaintBlock {
 
     public static final PropertyEnum<EnumFacing> FACING = PropertyEnum.create("facing", EnumFacing.class);
+    public static final long REGROW_TICKS = 6L * 60L * 20L;
     private static final AxisAlignedBB AABB = new AxisAlignedBB(0, 0, 0, 1, 1, 1);
     public static final PropertyInteger SPIN = PropertyInteger.create("spin", 0, 1);
     public BlockRiftGeod() {
@@ -69,7 +71,7 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
     public IBlockState getStateFromMeta(int meta) {
         meta = meta & 15;                  // 0..15 гарантированно
         int f = meta / 2;                  // 0..7
-        int s = meta & 1;                  // 0..1
+        int s = meta & 1;
         if (f >= EnumFacing.VALUES.length) f = EnumFacing.UP.getIndex(); // страховка
         EnumFacing facing = EnumFacing.VALUES[f];
         return getDefaultState().withProperty(FACING, facing).withProperty(SPIN, s);
@@ -78,14 +80,14 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
     @Override
     public int getMetaFromState(IBlockState state) {
         int f = state.getValue(FACING).getIndex(); // 0..5
-        int s = state.getValue(SPIN);              // 0..1
+        int s = state.getValue(SPIN);
         return f * 2 + s;                          // 0..11
     }
 
     @Override
     public IBlockState getStateForPlacement(World world, BlockPos pos, EnumFacing facing,
                                             float hitX, float hitY, float hitZ, int meta, EntityLivingBase placer) {
-        int spin = world.rand.nextInt(2); // 0..1
+        int spin = world.rand.nextInt(2);
         return getDefaultState().withProperty(FACING, facing).withProperty(SPIN, spin);
     }
 
@@ -119,6 +121,32 @@ public class BlockRiftGeod extends Block implements ITaintBlock {
             TADrops.addRiftDropFixed(drops, w, ModBlocksItems.RIFT_CRISTAL);
         }
     }
+
+    @Override
+    public boolean removedByPlayer(IBlockState state, World world, BlockPos pos,
+                                   EntityPlayer player, boolean willHarvest) {
+        TileEntity tileEntity = world.getTileEntity(pos);
+        TileRiftGeod geod = tileEntity instanceof TileRiftGeod ? (TileRiftGeod) tileEntity : null;
+        if (player.isCreative() || geod == null || geod.isCollected()) {
+            return super.removedByPlayer(state, world, pos, player, willHarvest);
+        }
+
+        if (!world.isRemote) {
+            int normalReward = TADrops.rollCount(world.rand);
+            int firstHarvestReward = (normalReward * 3 + 1) / 2;
+            spawnAsEntity(world, pos, new ItemStack(ModBlocksItems.RIFT_CRISTAL, firstHarvestReward));
+
+            geod.startRegrowth(world.getTotalWorldTime() + REGROW_TICKS);
+            world.playEvent(2001, pos, Block.getStateId(state));
+
+            ItemStack held = player.getHeldItemMainhand();
+            if (!held.isEmpty()) {
+                held.damageItem(1, player);
+            }
+        }
+        return false;
+    }
+
     @Override
     public boolean isOpaqueCube(IBlockState state) {
         return false;

@@ -6,7 +6,6 @@ import net.minecraft.item.Item;
 
 public class TABlocks {
     public static Block MIRROR_MANAGER;
-    public static Block MIRROR_MANAGER_CORE;
     public static Block ORDER_TERMINAL;
     public static Block PATTERN_REQUESTER;
     public static Block RESOURCE_REQUESTER;
@@ -16,12 +15,16 @@ public class TABlocks {
     public static Block ANOMALY_STONE;
     public static Block RIFT_BUSH;
     public static Block RIFT_GEOD;
-    public static Block RIFT_STONE_BASE;
+    public static Block ANOMALY_ARCHIVE;
+    public static Block ANCIENT_COLUMN;
+    public static Block ANCIENT_FIRE;
+    public static Block ANOMALY_WELL;
+    public static Block ANOMALOUS_MONOLITH;
+    public static Block STRANGE_PEDESTAL;
     public static Block ELDRITCH_CONSTRUCTION;
     public static Block ANOMALY_BED;
     public static Block ANOMALY_CROP;
     public static Block AURA_BOOSTER;
-    public static Block AURA_BOOSTER_CORE;
     public static Block RIFT_CRISTAL_BLOCK;
     public static Block RIFT_EXTRACTOR;
     public static Block REVISION_PIEDESTAL;
@@ -30,12 +33,9 @@ public class TABlocks {
     public static Block RIFT_STONE_FURNACE;
     public static Block RIFT_STONE_ALTAR;
     public static Block RIFTONOMICON;
-    public static Block RIFTONOMICON_CORE;
     public static Block POLISHED_DARK_JASPER;
-    public static Block DARK_JASPER_BRICKS;
 
     public static Item MIRROR_MANAGER_ITEM;
-    public static Item MIRROR_MANAGER_CORE_ITEM;
     public static Item ORDER_TERMINAL_ITEM;
     public static Item PATTERN_REQUESTER_ITEM;
     public static Item RESOURCE_REQUESTER_ITEM;
@@ -45,11 +45,15 @@ public class TABlocks {
     public static Item ANOMALY_STONE_ITEM;
     public static Item RIFT_BUSH_ITEM;
     public static Item RIFT_GEOD_ITEM;
-    public static Item RIFT_STONE_BASE_ITEM;
+    public static Item ANOMALY_ARCHIVE_ITEM;
+    public static Item ANCIENT_COLUMN_ITEM;
+    public static Item ANCIENT_FIRE_ITEM;
+    public static Item ANOMALY_WELL_ITEM;
+    public static Item ANOMALOUS_MONOLITH_ITEM;
+    public static Item STRANGE_PEDESTAL_ITEM;
     public static Item ELDRITCH_CONSTRUCTION_ITEM;
     public static Item ANOMALY_BED_ITEM;
     public static Item AURA_BOOSTER_ITEM;
-    public static Item AURA_BOOSTER_CORE_ITEM;
     public static Item RIFT_CRISTAL_BLOCK_ITEM;
     public static Item RIFT_EXTRACTOR_ITEM;
     public static Item REVISION_PIEDESTAL_ITEM;
@@ -58,8 +62,6 @@ public class TABlocks {
     public static Item RIFT_STONE_FURNACE_ITEM;
     public static Item RIFT_STONE_ALTAR_ITEM;
     public static Item RIFTONOMICON_ITEM;
-    public static Item RIFTONOMICON_CORE_ITEM;
     public static Item POLISHED_DARK_JASPER_ITEM;
-    public static Item DARK_JASPER_BRICKS_ITEM;
 }
 

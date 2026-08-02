@@ -1,9 +1,10 @@
 package therealpant.thaumicattempts.items;
 
 import net.minecraft.item.Item;
+import thaumcraft.api.golems.ISealDisplayer;
 import therealpant.thaumicattempts.ThaumicAttempts;
 
-public class ItemStorageBell extends Item {
+public class ItemStorageBell extends Item implements ISealDisplayer {
     public ItemStorageBell() {
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
         setTranslationKey(ThaumicAttempts.MODID + ".storage_bell");

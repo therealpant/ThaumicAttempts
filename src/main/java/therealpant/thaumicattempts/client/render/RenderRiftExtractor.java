@@ -25,7 +25,7 @@ import therealpant.thaumicattempts.world.tile.TileRiftExtractor;
 public class RenderRiftExtractor extends GeoBlockRenderer<TileRiftExtractor> {
 
     private static final ResourceLocation TEX_EMISSIVE =
-            new ResourceLocation(ThaumicAttempts.MODID, "textures/blocks/mirror_manager_e.png");
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/blocks/rift_extractor_e.png");
     private static final float EMISSIVE_Y_OFFSET = 0.01f;
 
     private static final double CROWN_Y = 33.5 / 16.0;

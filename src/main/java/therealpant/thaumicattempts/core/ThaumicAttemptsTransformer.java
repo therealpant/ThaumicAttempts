@@ -35,6 +35,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                 return patchItemFocus(basicClass);
             }
             switch (transformedName) {
+                case "software.bernie.geckolib3.renderers.geo.GeoBlockRenderer":
+                    return patchGeoBlockRenderer(basicClass);
                 case "thaumcraft.common.blocks.basic.BlockPillar":
                     if (!TAConfig.ENABLE_PILLAR_MODEL_REPLACEMENT) {
                         System.out.println("[ThaumicAttempts] Pillar model replacement DISABLED in config – BlockPillar left unpatched.");
@@ -51,6 +53,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchGolemHelper(basicClass);
                 case "thaumcraft.common.golems.tasks.TaskHandler":
                     return patchTaskHandler(basicClass);
+                case "thaumcraft.common.golems.seals.SealHandler":
+                    return patchSealHandler(basicClass);
                 case "thaumcraft.api.casters.FocusNode":
                     return patchFocusNode(basicClass);
                 case "thaumcraft.api.casters.NodeSetting":
@@ -71,6 +75,54 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             t.printStackTrace();
             return basicClass;
         }
+    }
+
+    /**
+     * GeckoLib 3.0.x for 1.12.2 passes GL_TEXTURE_2D as the texture-coordinate
+     * target. glMultiTexCoord2f expects GL_TEXTURE0+n instead; AMD drivers are
+     * particularly prone to terminating the client when JEI renders the model.
+     *
+     * Keep the original (int, float, float) stack shape and redirect the call to
+     * a client-only hook which deliberately ignores the invalid first argument.
+     */
+    private byte[] patchGeoBlockRenderer(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        boolean patched = false;
+        for (MethodNode method : cn.methods) {
+            if (method.instructions == null || method.instructions.size() == 0) continue;
+            for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (!(insn instanceof MethodInsnNode)) continue;
+                MethodInsnNode call = (MethodInsnNode) insn;
+                if (!"(IFF)V".equals(call.desc)) continue;
+                if (!("net/minecraft/client/renderer/OpenGlHelper".equals(call.owner)
+                        || call.owner.endsWith("/OpenGlHelper"))) continue;
+                if (!("setLightmapTextureCoords".equals(call.name)
+                        || "func_77475_a".equals(call.name))) continue;
+
+                call.setOpcode(INVOKESTATIC);
+                call.owner = "therealpant/thaumicattempts/client/render/GeckoRenderCompat";
+                call.name = "setLightmapTextureCoords";
+                call.desc = "(IFF)V";
+                call.itf = false;
+                patched = true;
+            }
+        }
+
+        if (!patched) {
+            System.err.println("[ThaumicAttempts] GeckoLib lightmap patch skipped: target call not found");
+            return basicClass;
+        }
+
+        // The replacement has the same descriptor and stack effect, so preserve
+        // GeckoLib's original frames. This also avoids loading client classes
+        // while coremods are still being initialized.
+        ClassWriter cw = new ClassWriter(0);
+        cn.accept(cw);
+        System.out.println("[ThaumicAttempts] Patched GeckoLib GeoBlockRenderer lightmap target");
+        return cw.toByteArray();
     }
 
     private byte[] patchBlockPillar(byte[] basicClass) {
@@ -411,22 +463,26 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
      * Вставляет перед каждым ARETURN:
      *
      *   DUP
+     *   ILOAD dimensionIndex
      *   ALOAD uuidIndex
-     *   TAHooks.filterTasksForGolem(list, golemUUID);
+     *   ALOAD golemIndex
+     *   TAHooks.filterTasksForGolem(list, dimension, golemUUID, golem);
      *
      * Ожидается, что ПЕРЕД ARETURN уже лежит список (оригинальный ALOAD ...).
      */
-    private void injectTaskFilter(MethodNode m, int uuidIndex) {
+    private void injectTaskFilter(MethodNode m, int dimensionIndex, int uuidIndex, int golemIndex) {
         for (AbstractInsnNode insn = m.instructions.getFirst(); insn != null; insn = insn.getNext()) {
             if (insn.getOpcode() == ARETURN) {
                 InsnList hook = new InsnList();
                 hook.add(new InsnNode(DUP)); // дублируем возвращаемый список
+                hook.add(new VarInsnNode(ILOAD, dimensionIndex));
                 hook.add(new VarInsnNode(ALOAD, uuidIndex)); // подгружаем UUID голема
+                hook.add(new VarInsnNode(ALOAD, golemIndex));
                 hook.add(new MethodInsnNode(
                         INVOKESTATIC,
                         HOOKS,
                         "filterTasksForGolem",
-                        "(Ljava/util/List;Ljava/util/UUID;)V",
+                        "(Ljava/util/List;ILjava/util/UUID;Lnet/minecraft/entity/Entity;)V",
                         false
                 ));
                 m.instructions.insertBefore(insn, hook);
@@ -982,12 +1038,12 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             // Оба метода в Thaumcraft: static (int, UUID, Entity) -> ArrayList
             if ("getBlockTasksSorted".equals(m.name)
                     && "(ILjava/util/UUID;Lnet/minecraft/entity/Entity;)Ljava/util/ArrayList;".equals(m.desc)) {
-                injectTaskFilter(m, 1); // uuid в локале 1
+                injectTaskFilter(m, 0, 1, 2);
             }
 
             if ("getEntityTasksSorted".equals(m.name)
                     && "(ILjava/util/UUID;Lnet/minecraft/entity/Entity;)Ljava/util/ArrayList;".equals(m.desc)) {
-                injectTaskFilter(m, 1); // uuid в локале 1
+                injectTaskFilter(m, 0, 1, 2);
             }
         }
 
@@ -995,6 +1051,43 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
         cn.accept(cw);
 
         System.out.println("[ThaumicAttempts] Patched thaumcraft.common.golems.tasks.TaskHandler");
+        return cw.toByteArray();
+    }
+
+    private byte[] patchSealHandler(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        boolean patched = false;
+        for (MethodNode m : cn.methods) {
+            if (!"removeSealEntity".equals(m.name)
+                    || !"(Lnet/minecraft/world/World;Lthaumcraft/api/golems/seals/SealPos;Z)V".equals(m.desc)) {
+                continue;
+            }
+
+            InsnList hook = new InsnList();
+            hook.add(new VarInsnNode(ALOAD, 0));
+            hook.add(new VarInsnNode(ALOAD, 1));
+            hook.add(new MethodInsnNode(
+                    INVOKESTATIC,
+                    HOOKS,
+                    "onSealRemoved",
+                    "(Lnet/minecraft/world/World;Lthaumcraft/api/golems/seals/SealPos;)V",
+                    false));
+            m.instructions.insert(hook);
+            patched = true;
+            break;
+        }
+
+        if (!patched) {
+            System.err.println("[ThaumicAttempts] SealHandler whitelist cleanup patch skipped: target not found");
+            return basicClass;
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        cn.accept(cw);
+        System.out.println("[ThaumicAttempts] Patched thaumcraft.common.golems.seals.SealHandler");
         return cw.toByteArray();
     }
 }

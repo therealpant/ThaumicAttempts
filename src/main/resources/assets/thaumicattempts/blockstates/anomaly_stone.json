@@ -1,5 +1,6 @@
 {
   "variants": {
-    "normal": { "model": "thaumicattempts:anomaly_stone" }
+    "harvest_state=ready": { "model": "thaumicattempts:anomaly_stone" },
+    "harvest_state=collected": { "model": "thaumicattempts:anomaly_stone" }
   }
 }

@@ -2,11 +2,16 @@ package therealpant.thaumicattempts.world.block;
 
 import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
+import net.minecraft.block.properties.PropertyEnum;
+import net.minecraft.block.state.BlockStateContainer;
 import net.minecraft.block.state.IBlockState;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumBlockRenderType;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.IStringSerializable;
 import net.minecraft.util.math.AxisAlignedBB;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.IBlockAccess;
@@ -27,6 +32,9 @@ import javax.annotation.Nullable;
 
 public class BlockAnomalyStone extends Block implements ITaintBlock {
     private static final AxisAlignedBB AABB = new AxisAlignedBB(0, 0, 0, 1, 1, 1);
+    public static final PropertyEnum<HarvestState> HARVEST_STATE =
+            PropertyEnum.create("harvest_state", HarvestState.class);
+    public static final long REGROW_TICKS = 6L * 60L * 20L;
 
     public BlockAnomalyStone() {
         super(Material.ROCK);
@@ -37,6 +45,7 @@ public class BlockAnomalyStone extends Block implements ITaintBlock {
         setRegistryName(ThaumicAttempts.MODID, "anomaly_stone");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
         setTickRandomly(true);
+        setDefaultState(this.blockState.getBaseState().withProperty(HARVEST_STATE, HarvestState.READY));
     }
 
     @Override
@@ -75,6 +84,61 @@ public class BlockAnomalyStone extends Block implements ITaintBlock {
 
         net.minecraft.world.World w = (net.minecraft.world.World) world;
         TADrops.addRiftDropFixed(drops, w, ModBlocksItems.RIFT_STONE);
+    }
+
+    @Override
+    public boolean removedByPlayer(IBlockState state, World world, BlockPos pos,
+                                   EntityPlayer player, boolean willHarvest) {
+        if (player.isCreative() || state.getValue(HARVEST_STATE) == HarvestState.COLLECTED) {
+            return super.removedByPlayer(state, world, pos, player, willHarvest);
+        }
+
+        if (!world.isRemote) {
+            int normalReward = TADrops.rollCount(world.rand);
+            int firstHarvestReward = (normalReward * 3 + 1) / 2;
+            spawnAsEntity(world, pos, new ItemStack(ModBlocksItems.RIFT_STONE, firstHarvestReward));
+
+            TileEntity tileEntity = world.getTileEntity(pos);
+            if (tileEntity instanceof TileAnomalyStone) {
+                ((TileAnomalyStone) tileEntity).startRegrowth(world.getTotalWorldTime() + REGROW_TICKS);
+            }
+            world.setBlockState(pos, state.withProperty(HARVEST_STATE, HarvestState.COLLECTED), 3);
+            world.playEvent(2001, pos, Block.getStateId(state));
+
+            ItemStack held = player.getHeldItemMainhand();
+            if (!held.isEmpty()) {
+                held.damageItem(1, player);
+            }
+        }
+        return false;
+    }
+
+    @Override
+    public IBlockState getStateFromMeta(int meta) {
+        return getDefaultState().withProperty(
+                HARVEST_STATE,
+                (meta & 1) == 1 ? HarvestState.COLLECTED : HarvestState.READY
+        );
+    }
+
+    @Override
+    public int getMetaFromState(IBlockState state) {
+        return state.getValue(HARVEST_STATE) == HarvestState.COLLECTED ? 1 : 0;
+    }
+
+    @Override
+    protected BlockStateContainer createBlockState() {
+        return new BlockStateContainer(this, HARVEST_STATE);
+    }
+
+    public enum HarvestState implements IStringSerializable {
+        READY,
+        COLLECTED;
+
+        @Override
+        public String getName() {
+            return name().toLowerCase();
+        }
     }
 
 

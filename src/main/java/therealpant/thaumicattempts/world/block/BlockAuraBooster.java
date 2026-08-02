@@ -73,7 +73,9 @@ public class BlockAuraBooster extends Block {
                 InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), stack);
             }
         }
-        MultiblockBreakHelper.restoreFromBlueprint(world, pos, TAMultiblockTriggers.AURA_BOOSTER_MB_ID, pos);
+        MultiblockBreakHelper.restoreFromBlueprint(
+                world, pos, state, TAMultiblockTriggers.AURA_BOOSTER_MB_ID
+        );
         super.breakBlock(world, pos, state);
     }
 
@@ -143,9 +145,8 @@ public class BlockAuraBooster extends Block {
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
-        IBlockState source = MultiblockBreakHelper.getSourceState(TAMultiblockTriggers.AURA_BOOSTER_MB_ID, 0, 0, 0);
-        if (source != null) {
-            source.getBlock().getDrops(drops, world, pos, source, fortune);
-        }
+        MultiblockBreakHelper.addSourceDrops(
+                drops, world, pos, state, fortune, TAMultiblockTriggers.AURA_BOOSTER_MB_ID
+        );
     }
 }

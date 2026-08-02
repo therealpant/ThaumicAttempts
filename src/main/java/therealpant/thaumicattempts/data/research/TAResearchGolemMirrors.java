@@ -80,8 +80,7 @@ public final class TAResearchGolemMirrors {
         ResearchStage s1 = new ResearchStage();
         s1.setText("research.TA_GOLEM_MIRRORS.text.1");
         s1.setRecipes(new ResourceLocation[] {
-                new ResourceLocation("thaumicattempts", "order_terminal"),
-                new ResourceLocation("thaumicattempts", "mirror_manager_infusion")
+                new ResourceLocation("thaumicattempts", "order_terminal")
         });
 
         // ВАЖНО: регистрируем ОБЕ стадии, иначе текст никогда не переключится на text.1

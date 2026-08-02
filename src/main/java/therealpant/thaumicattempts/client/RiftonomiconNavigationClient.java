@@ -22,7 +22,7 @@ import therealpant.thaumicattempts.items.ItemPortalRune;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconWispClick;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconAlchemyClick;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconCreationClick;
-import therealpant.thaumicattempts.world.block.RiftonomiconStructureHelper;
+import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
 import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
 
 import java.util.ArrayList;
@@ -209,7 +209,7 @@ public final class RiftonomiconNavigationClient {
 
     private static List<WispView> buildWisps(ActiveNavigation active) {
         List<WispView> wisps = new ArrayList<>();
-        BlockPos base = active.tile.getPos().down(RiftonomiconStructureHelper.CORE_Y_OFFSET);
+        BlockPos base = active.tile.getPos().down(BlockRiftonomicon.CORE_Y_OFFSET);
         Vec3d center = new Vec3d(base.getX() + 0.5D, base.getY(), base.getZ() + 0.5D);
 
         int limit = active.tile.getNavigationRuneSlotLimit();

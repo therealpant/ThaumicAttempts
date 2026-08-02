@@ -11,12 +11,15 @@ import thaumcraft.api.casters.FocusNode;
 import thaumcraft.api.casters.FocusPackage;
 import thaumcraft.api.casters.NodeSetting;
 import thaumcraft.api.golems.ProvisionRequest;
+import thaumcraft.api.golems.seals.ISealEntity;
+import thaumcraft.api.golems.seals.SealPos;
 import thaumcraft.api.golems.tasks.Task;
 import thaumcraft.common.items.casters.CasterManager;
 import thaumcraft.common.items.casters.ItemCaster;
 import thaumcraft.common.items.casters.ItemFocus;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.effects.AmberEffects;
+import therealpant.thaumicattempts.golemnet.data.SealGolemWhitelistData;
 import therealpant.thaumicattempts.util.TAGemArmorUtil;
 
 import java.lang.reflect.Field;
@@ -168,29 +171,18 @@ public final class TAHooks {
      * - если golemUUID != null — его может брать только соответствующий голем,
      *   остальные этот таск даже не видят.
      */
-    public static void filterTasksForGolem(List<Task> list, UUID golemId) {
+    public static void filterTasksForGolem(List<Task> list, int dimension, UUID golemId, Entity golem) {
         if (list == null) return;
 
-        // Для обычных големов (не закреплённых MirrorManager’ом) —
-        // пусть видят всё, кроме явно закреплённых "чужих" задач.
-        if (golemId == null) {
-            Iterator<Task> it = list.iterator();
-            while (it.hasNext()) {
-                Task t = it.next();
-                if (t == null) {
-                    it.remove();
-                    continue;
-                }
-                UUID forced = t.getGolemUUID();
-                // если задача закреплена за конкретным големом — скрываем для "безымянных"
-                if (forced != null) {
-                    it.remove();
-                }
-            }
-            return;
+        UUID effectiveGolemId = golemId;
+        if (effectiveGolemId == null && golem != null) {
+            effectiveGolemId = resolveEntityUuid(golem);
         }
+        World world = resolveEntityWorld(golem);
+        SealGolemWhitelistData whitelist = world == null
+                ? null
+                : SealGolemWhitelistData.get(world);
 
-        // Нормальный случай: конкретный голем проходит по списку.
         Iterator<Task> it = list.iterator();
         while (it.hasNext()) {
             Task t = it.next();
@@ -200,10 +192,40 @@ public final class TAHooks {
             }
 
             UUID forced = t.getGolemUUID();
-            if (forced != null && !forced.equals(golemId)) {
-                // задача закреплена за другим големом — выкидываем
+            if (forced != null && !forced.equals(effectiveGolemId)) {
+                it.remove();
+                continue;
+            }
+
+            if (whitelist != null
+                    && !isAllowedBySealWhitelists(whitelist, dimension, t, effectiveGolemId)) {
                 it.remove();
             }
+        }
+    }
+
+    private static boolean isAllowedBySealWhitelists(SealGolemWhitelistData whitelist,
+                                                      int dimension,
+                                                      Task task,
+                                                      UUID golemId) {
+        if (!whitelist.isAllowed(dimension, task.getSealPos(), golemId)) return false;
+
+        ProvisionRequest request = task.getLinkedProvision();
+        if (request == null) return true;
+
+        ISealEntity sourceSeal = request.getSeal();
+        if (sourceSeal == null) return true;
+        SealPos sourcePos = sourceSeal.getSealPos();
+        return sourcePos == null
+                || sourcePos.equals(task.getSealPos())
+                || whitelist.isAllowed(dimension, sourcePos, golemId);
+    }
+
+    public static void onSealRemoved(World world, SealPos sealPos) {
+        if (world == null || isRemoteWorld(world) || sealPos == null) return;
+        Integer dimension = resolveWorldDimension(world);
+        if (dimension != null) {
+            SealGolemWhitelistData.get(world).remove(dimension, sealPos);
         }
     }
 
@@ -748,16 +770,16 @@ public final class TAHooks {
 
 
     private static World resolvePlayerWorld(EntityPlayer player) {
-        if (player == null) return null;
-        try {
-            return player.world;
-        } catch (Throwable ignored) {
-        }
-        Object fieldValue = readField(Entity.class, player, "world");
+        return resolveEntityWorld(player);
+    }
+
+    private static World resolveEntityWorld(Entity entity) {
+        if (entity == null) return null;
+        Object fieldValue = readField(Entity.class, entity, "world");
         if (fieldValue instanceof World) {
             return (World) fieldValue;
         }
-        fieldValue = readField(Entity.class, player, "field_70170_p");
+        fieldValue = readField(Entity.class, entity, "field_70170_p");
         if (fieldValue instanceof World) {
             return (World) fieldValue;
         }
@@ -765,7 +787,7 @@ public final class TAHooks {
         for (String methodName : methods) {
             try {
                 Method method = Entity.class.getMethod(methodName);
-                Object result = method.invoke(player);
+                Object result = method.invoke(entity);
                 if (result instanceof World) {
                     return (World) result;
                 }
@@ -773,6 +795,45 @@ public final class TAHooks {
             }
         }
         return null;
+    }
+
+    private static UUID resolveEntityUuid(Entity entity) {
+        if (entity == null) return null;
+        String[] methods = new String[]{"getUniqueID", "func_110124_au"};
+        for (String methodName : methods) {
+            try {
+                Method method = Entity.class.getMethod(methodName);
+                Object result = method.invoke(entity);
+                if (result instanceof UUID) return (UUID) result;
+            } catch (Throwable ignored) {
+            }
+        }
+        return null;
+    }
+
+    private static boolean isRemoteWorld(World world) {
+        if (world == null) return false;
+        Object value = readField(World.class, world, "isRemote");
+        if (!(value instanceof Boolean)) {
+            value = readField(World.class, world, "field_72995_K");
+        }
+        return value instanceof Boolean && (Boolean) value;
+    }
+
+    private static Integer resolveWorldDimension(World world) {
+        if (world == null) return null;
+        Object provider = readField(World.class, world, "provider");
+        if (provider == null) {
+            provider = readField(World.class, world, "field_73011_w");
+        }
+        if (provider == null) return null;
+        try {
+            Method method = provider.getClass().getMethod("getDimension");
+            Object value = method.invoke(provider);
+            return value instanceof Integer ? (Integer) value : null;
+        } catch (Throwable ignored) {
+            return null;
+        }
     }
 
     public static float sumAmberDamageBonus(EntityPlayer player) {

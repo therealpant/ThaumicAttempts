@@ -19,6 +19,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.data.TAMultiblockTriggers;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnace;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnacePort;
@@ -205,14 +206,19 @@ public class BlockRiftStoneFurnace extends Block {
 
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
-        if (!RiftStoneFurnaceStructureHelper.isRestoring()) {
-            RiftStoneFurnaceStructureHelper.restoreFromPart(world, pos, state.getValue(PART));
+        if (!MultiblockBreakHelper.isRestoring()) {
+            MultiblockBreakHelper.restoreFromBlueprint(
+                    world, pos, state, TAMultiblockTriggers.RIFT_STONE_FURNACE_MB_ID
+            );
         }
         super.breakBlock(world, pos, state);
     }
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
+        MultiblockBreakHelper.addSourceDrops(
+                drops, world, pos, state, fortune, TAMultiblockTriggers.RIFT_STONE_FURNACE_MB_ID
+        );
     }
 
     @Override

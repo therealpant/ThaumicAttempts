@@ -1,6 +1,7 @@
 package therealpant.thaumicattempts.api;
 
 import java.util.Objects;
+import java.util.UUID;
 
 /**
  * Конфигурация нового {@link therealpant.thaumicattempts.world.EntityFluxAnomalyBurst}.
@@ -13,7 +14,9 @@ public class FluxAnomalySettings {
     private FluxAnomalySpawnMethod spawnMethod = FluxAnomalySpawnMethod.API;
     private FluxAnomalyResource resource = FluxAnomalyResource.empty();
     private FluxAnomalyTier tier = FluxAnomalyTier.SURFACE;
-    private long sourceChunkKey = 0L;
+    private FluxAnomalyEnvironment environment = FluxAnomalyEnvironment.STANDARD;
+    private long sourceChunkKey = Long.MIN_VALUE;
+    private UUID sourcePlayerId;
 
     public int getRadiusBlocks() {
         return radiusBlocks;
@@ -69,12 +72,30 @@ public class FluxAnomalySettings {
         return this;
     }
 
+    public FluxAnomalyEnvironment getEnvironment() {
+        return environment;
+    }
+
+    public FluxAnomalySettings environment(FluxAnomalyEnvironment environment) {
+        this.environment = Objects.requireNonNull(environment, "Environment");
+        return this;
+    }
+
     public long getSourceChunkKey() {
         return sourceChunkKey;
     }
 
     public FluxAnomalySettings sourceChunk(long chunkKey) {
         this.sourceChunkKey = chunkKey;
+        return this;
+    }
+
+    public UUID getSourcePlayerId() {
+        return sourcePlayerId;
+    }
+
+    public FluxAnomalySettings sourcePlayer(UUID sourcePlayerId) {
+        this.sourcePlayerId = sourcePlayerId;
         return this;
     }
 }

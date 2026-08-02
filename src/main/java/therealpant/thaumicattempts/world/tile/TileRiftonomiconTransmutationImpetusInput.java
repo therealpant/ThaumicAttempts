@@ -50,13 +50,33 @@ public class TileRiftonomiconTransmutationImpetusInput extends TileEntity implem
 
     @Override
     public void update() {
-        if (world == null || world.isRemote || ImpetusCompat.isLoaded() || ++drawDelay % 5 != 0) return;
+        if (world == null || world.isRemote || ++drawDelay % 5 != 0) return;
         TileRiftonomicon core = getCore();
         Aspect aspect = requiredAspect();
-        if (core != null && aspect != null && core.canAcceptCreationExtractorParadoxum()
+        if (core != null && aspect != null && canAcceptParadoxum(core)
                 && EssentiaHandler.drainEssentia(this, aspect, null, 12, 0)) {
-            core.acceptCreationExtractorParadoxum(1);
+            acceptParadoxum(core, 1);
         }
+    }
+
+    private boolean canAcceptParadoxum(TileRiftonomicon core) {
+        return core != null && (core.canAcceptCartridgeRecoveryParadoxum()
+                || core.canAcceptCreationExtractorProductionParadoxum()
+                || !ImpetusCompat.isLoaded() && core.canAcceptCreationExtractorParadoxum());
+    }
+
+    private int acceptParadoxum(TileRiftonomicon core, int amount) {
+        if (core == null || amount <= 0) return 0;
+        boolean fallbackFuelTurn = !ImpetusCompat.isLoaded() && drawDelay % 20 == 0
+                && core.canAcceptCreationExtractorParadoxum();
+        if (fallbackFuelTurn) return core.acceptCreationExtractorParadoxum(amount);
+        if (core.canAcceptCartridgeRecoveryParadoxum()) {
+            return core.acceptCartridgeRecoveryParadoxum(amount);
+        }
+        if (core.canAcceptCreationExtractorProductionParadoxum()) {
+            return core.acceptCreationExtractorProductionParadoxum(amount);
+        }
+        return !ImpetusCompat.isLoaded() ? core.acceptCreationExtractorParadoxum(amount) : 0;
     }
 
     private Aspect requiredAspect() {
@@ -79,17 +99,17 @@ public class TileRiftonomiconTransmutationImpetusInput extends TileEntity implem
     }
 
     @Override public boolean isConnectable(EnumFacing face) { return true; }
-    @Override public boolean canInputFrom(EnumFacing face) { return !ImpetusCompat.isLoaded(); }
+    @Override public boolean canInputFrom(EnumFacing face) { return true; }
     @Override public boolean canOutputTo(EnumFacing face) { return false; }
     @Override public void setSuction(Aspect aspect, int amount) {}
     @Override public Aspect getSuctionType(EnumFacing face) {
         TileRiftonomicon core = getCore();
-        return core != null && core.canAcceptCreationExtractorParadoxum() ? requiredAspect() : null;
+        return canAcceptParadoxum(core) ? requiredAspect() : null;
     }
     @Override public int getSuctionAmount(EnumFacing face) { return getSuctionType(face) == null ? 0 : 128; }
     @Override public int addEssentia(Aspect aspect, int amount, EnumFacing face) {
         TileRiftonomicon core = getCore();
-        return core == null || aspect != requiredAspect() ? 0 : core.acceptCreationExtractorParadoxum(amount);
+        return core == null || aspect != requiredAspect() ? 0 : acceptParadoxum(core, amount);
     }
     @Override public int takeEssentia(Aspect aspect, int amount, EnumFacing face) { return 0; }
     @Override public Aspect getEssentiaType(EnumFacing face) { return null; }

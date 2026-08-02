@@ -24,6 +24,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.data.TAMultiblockTriggers;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
@@ -38,10 +39,10 @@ import javax.annotation.Nullable;
 import java.util.List;
 
 public class BlockRiftonomicon extends Block {
+    public static final int CORE_Y_OFFSET = 3;
     public static final PropertyEnum<Part> PART = PropertyEnum.create("part", Part.class);
 
     private static final AxisAlignedBB FULL = new AxisAlignedBB(0, 0, 0, 1, 1, 1);
-    private static final AxisAlignedBB BASE_EDGE = new AxisAlignedBB(0, 0, 0, 1, 0.35D, 1);
     private static final AxisAlignedBB BASE_INNER = new AxisAlignedBB(0, 0, 0, 1, 0.55D, 1);
     private static final AxisAlignedBB SECOND_LAYER_COLUMN = new AxisAlignedBB(0.125D, 0, 0.125D, 0.875D, 1.5D, 0.875D);
     private static final AxisAlignedBB TOP_CRYSTAL = new AxisAlignedBB(0.25D, 0, 0.25D, 0.75D, 1, 0.75D);
@@ -83,87 +84,98 @@ public class BlockRiftonomicon extends Block {
 
     @Override
     public AxisAlignedBB getBoundingBox(IBlockState state, IBlockAccess worldIn, BlockPos pos) {
-        return getLocalAABB(state.getValue(PART), worldIn, pos);
+        return getLocalAABB(state.getValue(PART));
     }
 
     @Nullable
     @Override
     public AxisAlignedBB getCollisionBoundingBox(IBlockState state, IBlockAccess worldIn, BlockPos pos) {
-        return getCollisionAABB(state.getValue(PART), worldIn, pos);
+        return getCollisionAABB(state.getValue(PART));
     }
 
     @Override
     public void addCollisionBoxToList(IBlockState state, World worldIn, BlockPos pos, AxisAlignedBB entityBox,
                                       List<AxisAlignedBB> collidingBoxes, @Nullable net.minecraft.entity.Entity entityIn,
                                       boolean isActualState) {
-        AxisAlignedBB collision = getCollisionAABB(state.getValue(PART), worldIn, pos);
+        AxisAlignedBB collision = getCollisionAABB(state.getValue(PART));
         if (collision != NULL_AABB) {
             addCollisionBoxToList(pos, entityBox, collidingBoxes, collision);
         }
 
     }
 
-    private static AxisAlignedBB getCollisionAABB(Part part, IBlockAccess world, BlockPos pos) {
-        BlockPos center = findCenter(world, pos);
-        if (center != null) {
-            int dy = pos.getY() - center.getY();
-            if (dy >= 2 && dy <= 4) return NULL_AABB;
+    private static AxisAlignedBB getCollisionAABB(Part part) {
+        if (part == Part.CORE || part == Part.TOP || part == Part.IMPETUS_PORT
+                || part == Part.TRANSMUTATION_IMPETUS_INPUT) {
+            return NULL_AABB;
         }
-        if (part == Part.CORE || part == Part.TOP) return NULL_AABB;
-        return getLocalAABB(part, world, pos);
+        return getLocalAABB(part);
     }
 
-    private static AxisAlignedBB getLocalAABB(Part part, IBlockAccess world, BlockPos pos) {
-        if (part == Part.IMPETUS_PORT) return IMPETUS_PORT;
-        BlockPos center = findCenter(world, pos);
-        if (center != null) {
-            int dy = pos.getY() - center.getY();
-            if (dy == 0) {
-                return FULL;
-            }
-            if (dy == 1) {
-                return SECOND_LAYER_COLUMN;
-            }
-            if (dy >= 2 && dy <= 4) {
-                return TOP_CRYSTAL;
-            }
-        }
-
+    private static AxisAlignedBB getLocalAABB(Part part) {
         switch (part) {
             case CORE:
+            case TOP:
+            case TRANSMUTATION_IMPETUS_INPUT:
+                return TOP_CRYSTAL;
+            case IMPETUS_PORT:
+                return IMPETUS_PORT;
+            case BASE:
+            case EDGE:
             case CORNER:
+            case TRANSMUTATION_ESSENTIA_INPUT:
                 return FULL;
             case INNER:
                 return BASE_INNER;
             case COLUMN:
                 return SECOND_LAYER_COLUMN;
-            case TOP:
-                return TOP_CRYSTAL;
-            case EDGE:
             default:
-                return BASE_EDGE;
+                return FULL;
         }
     }
 
     @Nullable
     private static BlockPos findCenter(IBlockAccess world, BlockPos pos) {
-        if (world == null || pos == null) {
-            return null;
+        if (world == null || pos == null) return null;
+        IBlockState state = world.getBlockState(pos);
+        if (state.getBlock() != TABlocks.RIFTONOMICON) return null;
+
+        Part part = state.getValue(PART);
+        int baseY;
+        switch (part) {
+            case COLUMN:
+                baseY = pos.getY() - 1;
+                break;
+            case TOP:
+                baseY = pos.getY() - 2;
+                break;
+            case CORE:
+            case IMPETUS_PORT:
+                baseY = pos.getY() - 3;
+                break;
+            case TRANSMUTATION_IMPETUS_INPUT:
+                baseY = pos.getY() - 4;
+                break;
+            default:
+                baseY = pos.getY();
+                break;
         }
 
-        for (int dy = -4; dy <= 4; dy++) {
-            for (int dx = -3; dx <= 3; dx++) {
-                for (int dz = -3; dz <= 3; dz++) {
-                    BlockPos candidate = pos.add(dx, dy, dz);
-                    IBlockState state = world.getBlockState(candidate);
-                    if (state.getBlock() == TABlocks.RIFTONOMICON
-                            && state.getValue(PART) == Part.CORE) {
-                        return candidate.add(0, -RiftonomiconStructureHelper.CORE_Y_OFFSET, 0);
-                    }
+        BlockPos best = null;
+        int bestDistance = Integer.MAX_VALUE;
+        int coreY = baseY + CORE_Y_OFFSET;
+        for (int dx = -3; dx <= 3; dx++) {
+            for (int dz = -3; dz <= 3; dz++) {
+                BlockPos corePos = new BlockPos(pos.getX() + dx, coreY, pos.getZ() + dz);
+                if (!(world.getTileEntity(corePos) instanceof TileRiftonomicon)) continue;
+                int distance = dx * dx + dz * dz;
+                if (distance < bestDistance) {
+                    bestDistance = distance;
+                    best = corePos.down(CORE_Y_OFFSET);
                 }
             }
         }
-        return null;
+        return best;
     }
 
     @Override
@@ -316,15 +328,23 @@ public class BlockRiftonomicon extends Block {
 
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
-        if (!RiftonomiconStructureHelper.isRestoring()) {
-            dropStoredProtocols(world, pos);
-            RiftonomiconStructureHelper.restoreFromPart(world, pos);
+        if (!MultiblockBreakHelper.isRestoring()) {
+            MultiblockBreakHelper.Match match = MultiblockBreakHelper.findMatch(
+                    world, pos, state, TAMultiblockTriggers.RIFTONOMICON_MB_ID
+            );
+            if (match != null) {
+                dropStoredProtocols(world, pos, match.getCenter());
+                MultiblockBreakHelper.restoreMatch(world, pos, match);
+            }
         }
         super.breakBlock(world, pos, state);
     }
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
+        MultiblockBreakHelper.addSourceDrops(
+                drops, world, pos, state, fortune, TAMultiblockTriggers.RIFTONOMICON_MB_ID
+        );
     }
 
     private static boolean isRiftonomiconProtocol(ItemStack stack) {
@@ -354,7 +374,7 @@ public class BlockRiftonomicon extends Block {
     @Nullable
     private static TileRiftonomicon getRiftonomiconTile(IBlockAccess world, @Nullable BlockPos center) {
         if (world == null || center == null) return null;
-        TileEntity tile = world.getTileEntity(center.up(RiftonomiconStructureHelper.CORE_Y_OFFSET));
+        TileEntity tile = world.getTileEntity(center.up(CORE_Y_OFFSET));
         return tile instanceof TileRiftonomicon ? (TileRiftonomicon) tile : null;
     }
 
@@ -371,9 +391,9 @@ public class BlockRiftonomicon extends Block {
         return 3;
     }
 
-    private static void dropStoredProtocols(World world, BlockPos brokenPos) {
+    private static void dropStoredProtocols(World world, BlockPos brokenPos, BlockPos center) {
         if (world == null || world.isRemote) return;
-        TileRiftonomicon tile = getRiftonomiconTile(world, findCenter(world, brokenPos));
+        TileRiftonomicon tile = getRiftonomiconTile(world, center);
         if (tile == null) return;
 
         ItemStack transmutationItem = tile.removeTransmutationItem();

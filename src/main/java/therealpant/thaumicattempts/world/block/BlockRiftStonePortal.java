@@ -24,6 +24,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.data.TAMultiblockTriggers;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.items.ItemPortalRune;
 import therealpant.thaumicattempts.world.tile.TileRiftStonePortal;
@@ -195,13 +196,18 @@ public class BlockRiftStonePortal extends Block {
 
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
-        if (!RiftPortalStructureHelper.isRestoring()) {
-            RiftPortalStructureHelper.restoreFromPortal(world, pos);
+        if (!MultiblockBreakHelper.isRestoring()) {
+            MultiblockBreakHelper.restoreFromBlueprint(
+                    world, pos, state, TAMultiblockTriggers.RIFT_PORTAL_MB_ID
+            );
         }
         super.breakBlock(world, pos, state);
     }
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
+        MultiblockBreakHelper.addSourceDrops(
+                drops, world, pos, state, fortune, TAMultiblockTriggers.RIFT_PORTAL_MB_ID
+        );
     }
 }

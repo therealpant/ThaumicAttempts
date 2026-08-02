@@ -5,6 +5,7 @@ import net.minecraft.entity.Entity;
 import net.minecraft.util.ResourceLocation;
 import net.minecraftforge.fml.common.registry.EntityRegistry;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.world.EntityAnomalyWellResult;
 import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
 
 public final class ModEntities {
@@ -20,6 +21,13 @@ public final class ModEntities {
                 64,   // tracking range
                 1,    // update frequency
                 false // send velocity
+        );
+        registerEntity(
+                "anomaly_well_result",
+                EntityAnomalyWellResult.class,
+                64,
+                10,
+                true
         );
     }
 

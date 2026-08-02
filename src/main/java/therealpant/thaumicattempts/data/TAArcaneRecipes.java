@@ -193,27 +193,6 @@ public final class TAArcaneRecipes {
             e.getRegistry().register(eld_con);
         }
 
-        // --------- Rift stone base  (Arcane Workbench, 500 vis)
-        {
-            ShapedArcaneRecipe rif_base = new ShapedArcaneRecipe(
-                    new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_base_arcane"),
-                    "TA_ELDRITCH_CONSTRUCTION",
-                    500,
-                    new AspectList().add(Aspect.AIR, 1).add(Aspect.ORDER, 1).add(Aspect.ENTROPY, 3),
-                    new ItemStack(Item.getItemFromBlock(TABlocks.RIFT_STONE_BASE)),
-                    "PMP",
-                    "EOE",
-                    "CEC",
-                    'P', new ItemStack(ItemsTC.plate, 1, 3),
-                    'M', new ItemStack(ItemsTC.mirroredGlass),
-                    'E', new ItemStack(Item.getItemFromBlock(stoneEldritchTile)),
-                    'O', new ItemStack(ItemsTC.primordialPearl, 1, OreDictionary.WILDCARD_VALUE),
-                    'C', new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION)
-            );
-            rif_base.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_base"));
-            e.getRegistry().register(rif_base);
-        }
-
         // --------- Великодревесная коробка (Arcane Workbench, 200 vis)
         {
             ShapedArcaneRecipe greatwood_box = new ShapedArcaneRecipe(

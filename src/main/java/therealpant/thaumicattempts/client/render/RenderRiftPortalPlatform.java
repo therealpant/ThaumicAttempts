@@ -18,7 +18,8 @@ public class RenderRiftPortalPlatform extends GeoBlockRenderer<TileRiftPortalPla
                        int destroyStage, float alpha) {
         if (tile != null && tile.getWorld() != null
                 && tile.getWorld().getBlockState(tile.getPos().up()).getBlock() != TABlocks.RIFT_STONE_PORTAL
-                && tile.getWorld().getBlockState(tile.getPos().up()).getBlock() != TABlocks.RIFT_STONE_ALTAR) {
+                && tile.getWorld().getBlockState(tile.getPos().up()).getBlock() != TABlocks.RIFT_STONE_ALTAR
+                && tile.getWorld().getBlockState(tile.getPos().up()).getBlock() != TABlocks.RIFT_EXTRACTOR) {
             return;
         }
 

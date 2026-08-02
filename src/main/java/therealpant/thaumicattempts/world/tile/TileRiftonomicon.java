@@ -28,6 +28,8 @@ import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
+import therealpant.thaumicattempts.data.TAMultiblockTriggers;
+import therealpant.thaumicattempts.golemnet.block.BlockEldritchConstarction;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
@@ -39,7 +41,7 @@ import therealpant.thaumicattempts.items.ItemCalibratedExtract;
 import therealpant.thaumicattempts.util.WeaponTransmutation;
 import therealpant.thaumicattempts.util.ArmorTransmutation;
 import therealpant.thaumicattempts.util.FocusTransmutation;
-import therealpant.thaumicattempts.world.block.RiftonomiconStructureHelper;
+import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
 
 import javax.annotation.Nullable;
 import java.util.List;
@@ -52,7 +54,7 @@ import thaumcraft.common.lib.crafting.ThaumcraftCraftingManager;
 
 public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatable {
     private static final String MAIN_ANIMATION = "animation";
-    private static final String CORE_ANIMATION = "portal";
+    private static final String CORE_ANIMATION = "animation";
     private static final String NAVIGATION_STONE_ANIMATION = "animation";
     private static final int MAIN_ANIMATION_TICKS = 300;
     private static final int CORE_IDLE_END_TICKS = 60;
@@ -108,20 +110,28 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private static final String TAG_CREATION_CHECKPOINT = "CreationCheckpoint";
     private static final String TAG_CREATION_COMPLETION_TICKS = "CreationCompletionTicks";
     private static final String TAG_CREATION_EXTRACTOR_FUEL = "CreationExtractorFuel";
+    private static final String TAG_CREATION_EXTRACTOR_PARADOXUM = "CreationExtractorParadoxum";
+    private static final String TAG_CARTRIDGE_RECOVERY_POS = "CartridgeRecoveryPos";
+    private static final String TAG_CARTRIDGE_RECOVERY_PROGRESS = "CartridgeRecoveryProgress";
+    private static final String TAG_CARTRIDGE_RECOVERY_PARADOXUM = "CartridgeRecoveryParadoxum";
+    private static final String TAG_CARTRIDGE_RECOVERY_TICKS = "CartridgeRecoveryTicks";
     private static final int TRANSMUTATION_ESSENTIA_BASE = 150;
     private static final long TRANSMUTATION_IMPETUS_PER_SECOND = 50L;
     private static final long IMPETUS_PER_PEARL_WEAR_EVENT = 800L;
     private static final float PEARL_DAMAGE_CHANCE = 0.05F;
     private static final float FALLBACK_PEARL_DAMAGE_CHANCE = 0.08F;
     private static final int FALLBACK_CYCLES_PER_WEAR_EVENT = 4;
-    private static final int CREATION_SIGNATURES_PER_PULSE = 10;
-    private static final int CREATION_CHECKPOINT_SIGNATURES = 200;
+    private static final int CREATION_SIGNATURES_PER_PULSE = 5;
+    private static final int CREATION_CHECKPOINT_SIGNATURES = 80;
     private static final int CREATION_IMPETUS_PER_PULSE = 50;
     private static final int CREATION_PARADOXUM_CAPACITY = 64;
     public static final int CREATION_COMPLETION_TOTAL_TICKS = 60;
     public static final int CREATION_COMPLETION_SWAP_TICK = CREATION_COMPLETION_TOTAL_TICKS / 2;
     private static final long CREATION_EXTRACTOR_FUEL_CAPACITY = 200000L;
+    private static final int CREATION_EXTRACTOR_PARADOXUM_CAPACITY = 4096;
     private static final long IMPETUS_PER_PARADOXUM = 100L;
+    private static final int CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE = 75;
+    private static final long CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND = 50L;
     private static final double CREATION_EXTRACTOR_LINK_RANGE_SQ = 16.0D * 16.0D;
     private static final net.minecraft.util.EnumFacing[] IMPETUS_PORT_FACINGS = {
             net.minecraft.util.EnumFacing.NORTH,
@@ -148,6 +158,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private transient boolean coreAnimationApplied;
     private transient String appliedCoreAnimation;
     private transient boolean syncCoreAnimationTick;
+    private transient int formationStage;
     private final NonNullList<ItemStack> protocolSlots = NonNullList.withSize(PROTOCOL_SLOT_COUNT, ItemStack.EMPTY);
     private final NonNullList<ItemStack> navigationRunes = NonNullList.withSize(NAVIGATION_RUNE_SLOT_COUNT, ItemStack.EMPTY);
     private final NonNullList<ItemStack> alchemyPearls = NonNullList.withSize(ALCHEMY_PEARL_SLOT_COUNT, ItemStack.EMPTY);
@@ -176,6 +187,11 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private int creationPulseTicks;
     private int creationCompletionTicks;
     private long creationExtractorFuel;
+    private int creationExtractorParadoxum;
+    @Nullable private BlockPos cartridgeRecoveryOrigin;
+    private int cartridgeRecoveryProgress;
+    private int cartridgeRecoveryParadoxum;
+    private int cartridgeRecoveryTicks;
 
     @Override
     public void registerControllers(AnimationData data) {
@@ -260,6 +276,8 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     @Override
     public void update() {
         if (world == null) return;
+        updateFormationStage();
+        if (formationStage < 3) return;
         if (world.isRemote) {
             tickCoreAnimationState();
             if (creationCompletionTicks > 0
@@ -280,11 +298,60 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         tickTransmutation();
         tickCreationCompletion();
         tickCreationResearch();
+        tickCartridgeRecovery();
         if (transmutationReturnTicks > 0 && --transmutationReturnTicks % 4 == 0) sync();
         if (world.getTotalWorldTime() % 5L == 0L) {
             absorbNavigationRunesFromBaseVoid();
             absorbTransmutationItemFromBaseVoid();
         }
+    }
+
+    /**
+     * 0: hidden controller only; 1: base complete; 2: columns complete;
+     * 3: upper structure and core complete.
+     */
+    public int getFormationStage() {
+        if (world == null) return 3;
+        if (formationStage < 3) updateFormationStage();
+        return formationStage;
+    }
+
+    private void updateFormationStage() {
+        BlockPos base = pos.down(BlockRiftonomicon.CORE_Y_OFFSET);
+        int nextStage;
+        if (!isFormationRangeComplete(base, 0, 0)) {
+            nextStage = 0;
+        } else if (!isFormationRangeComplete(base, 1, 1)) {
+            nextStage = 1;
+        } else if (!isFormationRangeComplete(base, 2, 4)) {
+            nextStage = 2;
+        } else {
+            nextStage = 3;
+        }
+        if (nextStage == 3 && formationStage != 3) {
+            coreAnimationTicks = 0;
+            coreAnimationApplied = false;
+            appliedCoreAnimation = null;
+            syncCoreAnimationTick = true;
+        }
+        formationStage = nextStage;
+    }
+
+    private boolean isFormationRangeComplete(BlockPos base, int minY, int maxY) {
+        for (int dy = minY; dy <= maxY; dy++) {
+            for (int dz = -3; dz <= 3; dz++) {
+                for (int dx = -3; dx <= 3; dx++) {
+                    if (!TAMultiblockTriggers.hasRiftonomiconPartAt(dx, dy, dz)) continue;
+                    IBlockState state = world.getBlockState(base.add(dx, dy, dz));
+                    if (state.getBlock() != TABlocks.RIFTONOMICON
+                            || state.getValue(BlockRiftonomicon.PART)
+                            != TAMultiblockTriggers.getRiftonomiconPartFor(dx, dy, dz)) {
+                        return false;
+                    }
+                }
+            }
+        }
+        return true;
     }
 
     private void ensureImpetusProxyPorts() {
@@ -439,6 +506,102 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
             if (creationSignatures >= creationRequired) completeCreationResearch();
         }
         if (changed) sync();
+    }
+
+    private void tickCartridgeRecovery() {
+        if (!hasCreationProtocol()) return;
+        if (cartridgeRecoveryOrigin == null) {
+            if (creationCoreItem.isEmpty() && !hasActiveCreationResearch() && creationCompletionTicks <= 0
+                    && world.getTotalWorldTime() % 20L == 0L) {
+                acquireExhaustedCartridge();
+            }
+            return;
+        }
+        if (creationCoreItem.isEmpty() || creationCoreItem.getItem() != ModBlocksItems.CALIBRATED_EXTRACT) {
+            clearCartridgeRecovery();
+            sync();
+            return;
+        }
+        if (ItemCalibratedExtract.getFatigue(creationCoreItem) <= 0) {
+            returnRecoveredCartridge();
+            return;
+        }
+        if (++cartridgeRecoveryTicks < 20) return;
+        cartridgeRecoveryTicks = 0;
+        if (cartridgeRecoveryParadoxum <= 0
+                || consumeCreationExtractorFuel(CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND, true)
+                < CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND) return;
+        if (consumeCreationExtractorFuel(CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND, false)
+                < CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND) return;
+        cartridgeRecoveryParadoxum--;
+        cartridgeRecoveryProgress++;
+        if (cartridgeRecoveryProgress >= CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE) {
+            cartridgeRecoveryProgress = 0;
+            ItemCalibratedExtract.restoreOneFatigue(creationCoreItem);
+        }
+        sync();
+        if (ItemCalibratedExtract.getFatigue(creationCoreItem) <= 0) returnRecoveredCartridge();
+    }
+
+    private void acquireExhaustedCartridge() {
+        List<TileRiftExtractor> extractors = new ArrayList<>();
+        for (TileEntity tile : world.loadedTileEntityList) {
+            if (tile instanceof TileRiftExtractor && isCreationExtractorLinked(tile.getPos())) {
+                extractors.add((TileRiftExtractor) tile);
+            }
+        }
+        extractors.sort((a, b) -> {
+            int distance = Double.compare(pos.distanceSq(a.getPos()), pos.distanceSq(b.getPos()));
+            return distance != 0 ? distance : Long.compare(a.getPos().toLong(), b.getPos().toLong());
+        });
+        for (TileRiftExtractor extractor : extractors) {
+            ItemStack cartridge = extractor.takeExhaustedCartridgeForRecovery(this);
+            if (cartridge.isEmpty()) continue;
+            resetCreationSession();
+            creationCoreItem = cartridge;
+            cartridgeRecoveryOrigin = extractor.getPos().toImmutable();
+            cartridgeRecoveryProgress = 0;
+            cartridgeRecoveryParadoxum = 0;
+            cartridgeRecoveryTicks = 0;
+            sync();
+            return;
+        }
+    }
+
+    private void returnRecoveredCartridge() {
+        if (cartridgeRecoveryOrigin == null || ItemCalibratedExtract.getFatigue(creationCoreItem) > 0) return;
+        TileEntity tile = world.getTileEntity(cartridgeRecoveryOrigin);
+        if (!(tile instanceof TileRiftExtractor)
+                || !((TileRiftExtractor) tile).returnRecoveredCartridge(creationCoreItem, this)) return;
+        creationCoreItem = ItemStack.EMPTY;
+        clearCartridgeRecovery();
+        sync();
+    }
+
+    private void clearCartridgeRecovery() {
+        cartridgeRecoveryOrigin = null;
+        cartridgeRecoveryProgress = 0;
+        cartridgeRecoveryParadoxum = 0;
+        cartridgeRecoveryTicks = 0;
+    }
+
+    private boolean isRecoveringCartridge() {
+        return cartridgeRecoveryOrigin != null && !creationCoreItem.isEmpty()
+                && creationCoreItem.getItem() == ModBlocksItems.CALIBRATED_EXTRACT;
+    }
+
+    public boolean canAcceptCartridgeRecoveryParadoxum() {
+        return isRecoveringCartridge()
+                && cartridgeRecoveryParadoxum < CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE;
+    }
+
+    public int acceptCartridgeRecoveryParadoxum(int amount) {
+        if (amount <= 0 || !canAcceptCartridgeRecoveryParadoxum()) return 0;
+        int accepted = Math.min(amount,
+                CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE - cartridgeRecoveryParadoxum);
+        cartridgeRecoveryParadoxum += accepted;
+        sync();
+        return accepted;
     }
 
     private boolean payCreationImpetus(int slot, long amount) {
@@ -644,6 +807,30 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         return consumed;
     }
 
+    public int consumeCreationExtractorParadoxum(int amount, boolean simulate) {
+        if (amount <= 0 || !hasCreationProtocol()) return 0;
+        int consumed = Math.min(amount, creationExtractorParadoxum);
+        if (!simulate && consumed > 0) {
+            creationExtractorParadoxum -= consumed;
+            sync();
+        }
+        return consumed;
+    }
+
+    public boolean canAcceptCreationExtractorProductionParadoxum() {
+        return hasCreationProtocol()
+                && creationExtractorParadoxum < CREATION_EXTRACTOR_PARADOXUM_CAPACITY;
+    }
+
+    public int acceptCreationExtractorProductionParadoxum(int amount) {
+        if (amount <= 0 || !canAcceptCreationExtractorProductionParadoxum()) return 0;
+        int accepted = Math.min(amount,
+                CREATION_EXTRACTOR_PARADOXUM_CAPACITY - creationExtractorParadoxum);
+        creationExtractorParadoxum += accepted;
+        if (accepted > 0) sync();
+        return accepted;
+    }
+
     public boolean canAcceptCreationExtractorParadoxum() {
         return hasCreationProtocol() && !ImpetusCompat.isLoaded()
                 && creationExtractorFuel < CREATION_EXTRACTOR_FUEL_CAPACITY;
@@ -677,7 +864,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         if (player == null || !hasCreationProtocol() || !creationCoreItem.isEmpty()
                 || hasActiveCreationResearch() || creationCompletionTicks > 0) return false;
         ItemStack held = player.getHeldItemMainhand();
-        if (held.isEmpty() || held.getItem() != Item.getItemFromBlock(TABlocks.DARK_JASPER_BRICKS)) return false;
+        if (!isBaseEldritchConstruction(held)) return false;
         creationCoreItem = held.copy();
         creationCoreItem.setCount(1);
         if (!player.capabilities.isCreativeMode) held.shrink(1);
@@ -689,6 +876,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         if (creationCoreItem.isEmpty() || hasActiveCreationResearch() || creationCompletionTicks > 0) return ItemStack.EMPTY;
         ItemStack result = creationCoreItem;
         creationCoreItem = ItemStack.EMPTY;
+        clearCartridgeRecovery();
         resetCreationSession();
         sync();
         return result;
@@ -700,6 +888,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         NonNullList<ItemStack> removed = NonNullList.withSize(CREATION_SAMPLE_SLOT_COUNT + 1, ItemStack.EMPTY);
         removed.set(0, creationCoreItem);
         creationCoreItem = ItemStack.EMPTY;
+        clearCartridgeRecovery();
         for (int i = 0; i < CREATION_SAMPLE_SLOT_COUNT; i++) {
             if (creationActive[i]) runCreationStabilityCheck(i);
             removed.set(i + 1, creationSamples.get(i));
@@ -726,8 +915,13 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     }
 
     private boolean isCreationBlankInstalled() {
-        return !creationCoreItem.isEmpty()
-                && creationCoreItem.getItem() == Item.getItemFromBlock(TABlocks.DARK_JASPER_BRICKS);
+        return isBaseEldritchConstruction(creationCoreItem);
+    }
+
+    private static boolean isBaseEldritchConstruction(ItemStack stack) {
+        return !stack.isEmpty()
+                && stack.getItem() == Item.getItemFromBlock(TABlocks.ELDRITCH_CONSTRUCTION)
+                && stack.getMetadata() == BlockEldritchConstarction.Variant.BASE.getMeta();
     }
 
     private void resetCreationSession() {
@@ -1360,7 +1554,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private void absorbNavigationRunesFromBaseVoid() {
         if (!hasNavigationProtocol() || getFirstEmptyNavigationRuneSlot() < 0) return;
 
-        BlockPos base = pos.down(RiftonomiconStructureHelper.CORE_Y_OFFSET);
+        BlockPos base = pos.down(BlockRiftonomicon.CORE_Y_OFFSET);
         AxisAlignedBB area = new AxisAlignedBB(
                 base.getX() - 1.0D, base.getY() + 0.05D, base.getZ() - 1.0D,
                 base.getX() + 2.0D, base.getY() + 2.0D, base.getZ() + 2.0D
@@ -1387,7 +1581,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
 
     private void absorbTransmutationItemFromBaseVoid() {
         if (!hasTransmutationProtocol() || !transmutationItem.isEmpty()) return;
-        BlockPos base = pos.down(RiftonomiconStructureHelper.CORE_Y_OFFSET);
+        BlockPos base = pos.down(BlockRiftonomicon.CORE_Y_OFFSET);
         AxisAlignedBB area = new AxisAlignedBB(
                 base.getX() - 1.0D, base.getY() + 0.05D, base.getZ() - 1.0D,
                 base.getX() + 2.0D, base.getY() + 2.0D, base.getZ() + 2.0D);
@@ -1628,6 +1822,13 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         compound.setInteger(TAG_CREATION_REQUIRED, creationRequired);
         compound.setIntArray(TAG_CREATION_PARADOXUM, creationParadoxum);
         compound.setLong(TAG_CREATION_EXTRACTOR_FUEL, creationExtractorFuel);
+        compound.setInteger(TAG_CREATION_EXTRACTOR_PARADOXUM, creationExtractorParadoxum);
+        if (cartridgeRecoveryOrigin != null) {
+            compound.setLong(TAG_CARTRIDGE_RECOVERY_POS, cartridgeRecoveryOrigin.toLong());
+        }
+        compound.setInteger(TAG_CARTRIDGE_RECOVERY_PROGRESS, cartridgeRecoveryProgress);
+        compound.setInteger(TAG_CARTRIDGE_RECOVERY_PARADOXUM, cartridgeRecoveryParadoxum);
+        compound.setInteger(TAG_CARTRIDGE_RECOVERY_TICKS, cartridgeRecoveryTicks);
         compound.setInteger(TAG_CREATION_FAILURES, creationFailures);
         compound.setIntArray(TAG_CREATION_INSTABILITY, creationInstability);
         compound.setIntArray(TAG_CREATION_CHECKPOINT, creationCheckpointProgress);
@@ -1702,6 +1903,16 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         }
         creationExtractorFuel = Math.max(0L, Math.min(CREATION_EXTRACTOR_FUEL_CAPACITY,
                 compound.getLong(TAG_CREATION_EXTRACTOR_FUEL)));
+        creationExtractorParadoxum = Math.max(0, Math.min(CREATION_EXTRACTOR_PARADOXUM_CAPACITY,
+                compound.getInteger(TAG_CREATION_EXTRACTOR_PARADOXUM)));
+        cartridgeRecoveryOrigin = compound.hasKey(TAG_CARTRIDGE_RECOVERY_POS)
+                ? BlockPos.fromLong(compound.getLong(TAG_CARTRIDGE_RECOVERY_POS)) : null;
+        cartridgeRecoveryProgress = Math.max(0, Math.min(CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE - 1,
+                compound.getInteger(TAG_CARTRIDGE_RECOVERY_PROGRESS)));
+        cartridgeRecoveryParadoxum = Math.max(0, Math.min(CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE,
+                compound.getInteger(TAG_CARTRIDGE_RECOVERY_PARADOXUM)));
+        cartridgeRecoveryTicks = Math.max(0, Math.min(19,
+                compound.getInteger(TAG_CARTRIDGE_RECOVERY_TICKS)));
         creationFailures = Math.max(0, compound.getInteger(TAG_CREATION_FAILURES));
         creationCompletionTicks = Math.max(0, Math.min(CREATION_COMPLETION_TOTAL_TICKS,
                 compound.getInteger(TAG_CREATION_COMPLETION_TICKS)));

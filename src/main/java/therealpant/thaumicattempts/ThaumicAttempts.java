@@ -25,6 +25,7 @@ import static therealpant.thaumicattempts.config.TAConfig.ENABLE_ELDRITCH_STONE_
 import therealpant.thaumicattempts.command.*;
 import therealpant.thaumicattempts.capability.AmberCasterCapability;
 import therealpant.thaumicattempts.data.TAAlchemyRecipes;
+import therealpant.thaumicattempts.data.TAAnomalyWellRecipes;
 import therealpant.thaumicattempts.data.TAEldritchExtractorRecipes;
 import therealpant.thaumicattempts.data.TAInfusionEnchantments;
 import therealpant.thaumicattempts.data.TAInfusionRecipes;
@@ -51,7 +52,9 @@ import therealpant.thaumicattempts.init.ModEntities;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconWispClick;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconAlchemyClick;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconCreationClick;
+import therealpant.thaumicattempts.net.msg.C2S_AnomalyArchiveInteract;
 import therealpant.thaumicattempts.net.msg.S2C_AmberCountUpdate;
+import therealpant.thaumicattempts.net.msg.S2C_MonolithParadoxumStream;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -167,6 +170,7 @@ public class ThaumicAttempts {
 
         TAInfusionRecipes.register();
         TAEldritchExtractorRecipes.register();
+        TAAnomalyWellRecipes.register();
         TAAlchemyRecipes.register();
         TAMultiblockTriggers.register();
         TAInfusionEnchantments.register();
@@ -193,7 +197,7 @@ public class ThaumicAttempts {
         NET.registerMessage(C2S_RiftonomiconWispClick.Handler.class, C2S_RiftonomiconWispClick.class, id++, Side.SERVER);
         NET.registerMessage(C2S_RiftonomiconAlchemyClick.Handler.class, C2S_RiftonomiconAlchemyClick.class, id++, Side.SERVER);
         NET.registerMessage(C2S_RiftonomiconCreationClick.Handler.class, C2S_RiftonomiconCreationClick.class, id++, Side.SERVER);
-
+        NET.registerMessage(C2S_AnomalyArchiveInteract.Handler.class, C2S_AnomalyArchiveInteract.class, id++, Side.SERVER);
         // S2C
         NET.registerMessage(therealpant.thaumicattempts.golemnet.net.msg.S2C_DraftSnapshot.Handler.class,
                 therealpant.thaumicattempts.golemnet.net.msg.S2C_DraftSnapshot.class, id++, Side.CLIENT);
@@ -212,6 +216,8 @@ public class ThaumicAttempts {
 
         NET.registerMessage(S2C_AmberCountUpdate.Handler.class,
                 S2C_AmberCountUpdate.class, id++, Side.CLIENT);
+        NET.registerMessage(S2C_MonolithParadoxumStream.Handler.class,
+                S2C_MonolithParadoxumStream.class, id++, Side.CLIENT);
     }
 
     @Mod.EventHandler

@@ -141,7 +141,9 @@ public class BlockMirrorManager extends Block {
         }
         // Сбрасываем ВСЕ стабы/ядра в 5×5×3 под менеджером
         therealpant.thaumicattempts.golemnet.tile.TileMirrorManager.deactivateUpgradesAround(world, pos);
-        MultiblockBreakHelper.restoreFromBlueprint(world, pos, TAMultiblockTriggers.MIRROR_MANAGER_MB_ID, pos);
+        MultiblockBreakHelper.restoreFromBlueprint(
+                world, pos, state, TAMultiblockTriggers.MIRROR_MANAGER_MB_ID
+        );
         super.breakBlock(world, pos, state);
     }
 
@@ -149,10 +151,9 @@ public class BlockMirrorManager extends Block {
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
-        IBlockState source = MultiblockBreakHelper.getSourceState(TAMultiblockTriggers.MIRROR_MANAGER_MB_ID, 0, 0, 0);
-        if (source != null) {
-            source.getBlock().getDrops(drops, world, pos, source, fortune);
-        }
+        MultiblockBreakHelper.addSourceDrops(
+                drops, world, pos, state, fortune, TAMultiblockTriggers.MIRROR_MANAGER_MB_ID
+        );
     }
 }
 

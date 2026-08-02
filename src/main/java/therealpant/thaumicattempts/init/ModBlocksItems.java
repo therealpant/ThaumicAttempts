@@ -23,6 +23,12 @@ import therealpant.thaumicattempts.world.block.*;
 import therealpant.thaumicattempts.golemnet.tile.*;
 import therealpant.thaumicattempts.world.tile.TileRiftBush;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
+import therealpant.thaumicattempts.world.tile.TileAnomalyArchive;
+import therealpant.thaumicattempts.world.tile.TileAncientColumn;
+import therealpant.thaumicattempts.world.tile.TileAncientFire;
+import therealpant.thaumicattempts.world.tile.TileAnomalyWell;
+import therealpant.thaumicattempts.world.tile.TileAnomalousMonolith;
+import therealpant.thaumicattempts.world.tile.TileStrangePedestal;
 
 import therealpant.thaumicattempts.items.ItemStorageBell;
 import therealpant.thaumicattempts.items.ItemTAGem;
@@ -30,9 +36,12 @@ import therealpant.thaumicattempts.items.ItemPortalRune;
 import therealpant.thaumicattempts.items.ItemPrism;
 import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
 import therealpant.thaumicattempts.items.ItemCalibratedExtract;
+import therealpant.thaumicattempts.items.ItemAnomalyCompass;
+import therealpant.thaumicattempts.items.ItemBlockEldritchConstruction;
 
 import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAnomalyCrop;
+import therealpant.thaumicattempts.world.tile.TileEldritchConstruction;
 import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 import therealpant.thaumicattempts.world.tile.TileRiftPortalPlatform;
 import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
@@ -43,6 +52,7 @@ import therealpant.thaumicattempts.world.tile.TileRiftStonePortal;
 import therealpant.thaumicattempts.world.item.ItemAnomalySeeds;
 import therealpant.thaumicattempts.world.item.ItemMindFruitFood;
 import therealpant.thaumicattempts.world.item.ItemMindPotion;
+import therealpant.thaumicattempts.world.item.ItemRiftAmethyst;
 import therealpant.thaumicattempts.world.item.ItemTaintedMindFruitFood;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
@@ -76,6 +86,12 @@ public final class ModBlocksItems {
     public static Item STORAGE_BELL;
     public static Item PORTAL_RUNE;
     public static Item CALIBRATED_EXTRACT;
+    public static Item ANOMALY_COMPASS;
+    public static Item ARCHIVE_FRAGMENTS;
+    public static Item TRANSMUTATION_CORE;
+    public static Item CREATION_CORE;
+    public static Item NAVIGATION_CORE;
+    public static Item ALCHEMICAL_CORE;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -98,7 +114,6 @@ public final class ModBlocksItems {
 
         // Сетап блоков сети (если у них НЕТ setRegistryName в конструкторе — задай тут)
         TABlocks.MIRROR_MANAGER    = new BlockMirrorManager();    // .setRegistryName(MODID, "mirror_manager");
-        TABlocks.MIRROR_MANAGER_CORE = new BlockMirrorManagerCore();
         TABlocks.ORDER_TERMINAL    = new BlockOrderTerminal();    // .setRegistryName(MODID, "order_terminal");
         TABlocks.PATTERN_REQUESTER = new BlockPatternRequester(); // .setRegistryName(MODID, "pattern_requester");
         TABlocks.RESOURCE_REQUESTER = new BlockResourceRequester();
@@ -108,12 +123,16 @@ public final class ModBlocksItems {
         TABlocks.ANOMALY_STONE = new BlockAnomalyStone();
         TABlocks.RIFT_BUSH = new BlockRiftBush();
         TABlocks.RIFT_GEOD = new BlockRiftGeod();
-        TABlocks.RIFT_STONE_BASE = new BlockRiftStoneBase();
+        TABlocks.ANOMALY_ARCHIVE = new BlockAnomalyArchive();
+        TABlocks.ANCIENT_COLUMN = new BlockAncientColumn();
+        TABlocks.ANCIENT_FIRE = new BlockAncientFire();
+        TABlocks.ANOMALY_WELL = new BlockAnomalyWell();
+        TABlocks.ANOMALOUS_MONOLITH = new BlockAnomalousMonolith();
+        TABlocks.STRANGE_PEDESTAL = new BlockStrangePedestal();
         TABlocks.ELDRITCH_CONSTRUCTION = new BlockEldritchConstarction();
         TABlocks.ANOMALY_BED = new BlockAnomalyBed();
         TABlocks.ANOMALY_CROP = new BlockAnomalyCrop();
         TABlocks.AURA_BOOSTER = new BlockAuraBooster();
-        TABlocks.AURA_BOOSTER_CORE = new BlockAuraBoosterCore();
         TABlocks.RIFT_CRISTAL_BLOCK = new BlockRistCristalBlock();
         TABlocks.RIFT_EXTRACTOR = new BlockRiftExtractor();
         TABlocks.REVISION_PIEDESTAL = new BlockRevisionPiedestal();
@@ -122,12 +141,21 @@ public final class ModBlocksItems {
         TABlocks.RIFT_STONE_FURNACE = new BlockRiftStoneFurnace();
         TABlocks.RIFT_STONE_ALTAR = new BlockRiftStoneAltar();
         TABlocks.RIFTONOMICON = new BlockRiftonomicon();
-        TABlocks.RIFTONOMICON_CORE = new BlockRiftonomiconCore();
         TABlocks.POLISHED_DARK_JASPER = new BlockDarkJasperFull("polished_dark_jasper");
-        TABlocks.DARK_JASPER_BRICKS = new BlockDarkJasperFull("dark_jasper_bricks");
+
+        // Formed multiblock states are obtained only by assembling their structures.
+        // Keep their construction components available, but hide the completed blocks.
+        TABlocks.MIRROR_MANAGER.setCreativeTab(null);
+        TABlocks.AURA_BOOSTER.setCreativeTab(null);
+        TABlocks.RIFT_EXTRACTOR.setCreativeTab(null);
+        TABlocks.RIFT_STONE_PORTAL.setCreativeTab(null);
+        TABlocks.RIFT_PORTAL_PLATFORM.setCreativeTab(null);
+        TABlocks.RIFT_STONE_FURNACE.setCreativeTab(null);
+        TABlocks.RIFT_STONE_ALTAR.setCreativeTab(null);
+        TABlocks.RIFTONOMICON.setCreativeTab(null);
+
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
-                TABlocks.MIRROR_MANAGER_CORE,
                 TABlocks.ORDER_TERMINAL,
                 TABlocks.PATTERN_REQUESTER,
                 TABlocks.RESOURCE_REQUESTER,
@@ -137,12 +165,16 @@ public final class ModBlocksItems {
                 TABlocks.ANOMALY_STONE,
                 TABlocks.RIFT_BUSH,
                 TABlocks.RIFT_GEOD,
-                TABlocks.RIFT_STONE_BASE,
+                TABlocks.ANOMALY_ARCHIVE,
+                TABlocks.ANCIENT_COLUMN,
+                TABlocks.ANCIENT_FIRE,
+                TABlocks.ANOMALY_WELL,
+                TABlocks.ANOMALOUS_MONOLITH,
+                TABlocks.STRANGE_PEDESTAL,
                 TABlocks.ELDRITCH_CONSTRUCTION,
                 TABlocks.ANOMALY_BED,
                 TABlocks.ANOMALY_CROP,
                 TABlocks.AURA_BOOSTER,
-                TABlocks.AURA_BOOSTER_CORE,
                 TABlocks.RIFT_CRISTAL_BLOCK,
                 TABlocks.RIFT_EXTRACTOR,
                 TABlocks.REVISION_PIEDESTAL,
@@ -151,18 +183,12 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_STONE_FURNACE,
                 TABlocks.RIFT_STONE_ALTAR,
                 TABlocks.RIFTONOMICON,
-                TABlocks.RIFTONOMICON_CORE,
-                TABlocks.POLISHED_DARK_JASPER,
-                TABlocks.DARK_JASPER_BRICKS
+                TABlocks.POLISHED_DARK_JASPER
         );
 
         // TileEntities сети
         GameRegistry.registerTileEntity(TileMirrorManager.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "mirror_manager"));
-        GameRegistry.registerTileEntity(TileMirrorManagerCore.class,
-                new ResourceLocation(ThaumicAttempts.MODID, "mirror_manager_core"));
-        GameRegistry.registerTileEntity(TileRiftStoneBase.class,
-                new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_base"));
         GameRegistry.registerTileEntity(TileOrderTerminal.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "order_terminal"));
         GameRegistry.registerTileEntity(TilePatternRequester.class,
@@ -181,6 +207,20 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_bush"));
         GameRegistry.registerTileEntity(TileRiftGeod.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_geod"));
+        GameRegistry.registerTileEntity(TileAnomalyArchive.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "anomaly_archive"));
+        GameRegistry.registerTileEntity(TileAncientColumn.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "ancient_column"));
+        GameRegistry.registerTileEntity(TileAncientFire.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "ancient_fire"));
+        GameRegistry.registerTileEntity(TileAnomalyWell.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "anomaly_well"));
+        GameRegistry.registerTileEntity(TileAnomalousMonolith.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "anomalous_monolith"));
+        GameRegistry.registerTileEntity(TileStrangePedestal.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "strange_pedestal"));
+        GameRegistry.registerTileEntity(TileEldritchConstruction.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "eldritch_construction"));
         GameRegistry.registerTileEntity(TileAnomalyCrop.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "ta_anomaly_crop"));
         GameRegistry.registerTileEntity(TileAuraBooster.class,
@@ -238,7 +278,7 @@ public final class ModBlocksItems {
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".rift_ember")
                 .setRegistryName(ThaumicAttempts.MODID, "rift_ember");
-        RIFT_AMETIST = new Item()
+        RIFT_AMETIST = new ItemRiftAmethyst()
                 .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
                 .setTranslationKey(ThaumicAttempts.MODID + ".rift_ametist")
                 .setRegistryName(ThaumicAttempts.MODID, "rift_ametist");
@@ -267,6 +307,15 @@ public final class ModBlocksItems {
         STORAGE_BELL = new ItemStorageBell();
         PORTAL_RUNE = new ItemPortalRune();
         CALIBRATED_EXTRACT = new ItemCalibratedExtract();
+        ANOMALY_COMPASS = new ItemAnomalyCompass();
+        ARCHIVE_FRAGMENTS = new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".archive_fragments")
+                .setRegistryName(ThaumicAttempts.MODID, "archive_fragments");
+        TRANSMUTATION_CORE = createCoreItem("transmutation_core");
+        CREATION_CORE = createCoreItem("creation_core");
+        NAVIGATION_CORE = createCoreItem("navigation_core");
+        ALCHEMICAL_CORE = createCoreItem("alchemical_core");
 
         e.getRegistry().registerAll(
                 CRAFT_PATTERN,
@@ -289,7 +338,13 @@ public final class ModBlocksItems {
                 RIFTONOMICON_PROTOCOL,
                 STORAGE_BELL,
                 PORTAL_RUNE,
-                CALIBRATED_EXTRACT
+                CALIBRATED_EXTRACT,
+                ANOMALY_COMPASS,
+                ARCHIVE_FRAGMENTS,
+                TRANSMUTATION_CORE,
+                CREATION_CORE,
+                NAVIGATION_CORE,
+                ALCHEMICAL_CORE
         );
 
         // ItemBlock'и
@@ -307,8 +362,6 @@ public final class ModBlocksItems {
         // ItemBlock'и сети
         TABlocks.MIRROR_MANAGER_ITEM = new ItemBlock(TABlocks.MIRROR_MANAGER)
                 .setRegistryName(TABlocks.MIRROR_MANAGER.getRegistryName());
-        TABlocks.MIRROR_MANAGER_CORE_ITEM = new ItemBlock(TABlocks.MIRROR_MANAGER_CORE)
-                .setRegistryName(TABlocks.MIRROR_MANAGER_CORE.getRegistryName());
         TABlocks.ORDER_TERMINAL_ITEM = new ItemBlock(TABlocks.ORDER_TERMINAL)
                 .setRegistryName(TABlocks.ORDER_TERMINAL.getRegistryName());
         TABlocks.PATTERN_REQUESTER_ITEM = new ItemBlock(TABlocks.PATTERN_REQUESTER)
@@ -327,16 +380,24 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_BUSH.getRegistryName());
         TABlocks.RIFT_GEOD_ITEM = new ItemBlock(TABlocks.RIFT_GEOD)
                 .setRegistryName(TABlocks.RIFT_GEOD.getRegistryName());
-        TABlocks.RIFT_STONE_BASE_ITEM = new ItemBlock(TABlocks.RIFT_STONE_BASE)
-                .setRegistryName(TABlocks.RIFT_STONE_BASE.getRegistryName());
-        TABlocks.ELDRITCH_CONSTRUCTION_ITEM = new ItemBlock(TABlocks.ELDRITCH_CONSTRUCTION)
+        TABlocks.ANOMALY_ARCHIVE_ITEM = new ItemBlock(TABlocks.ANOMALY_ARCHIVE)
+                .setRegistryName(TABlocks.ANOMALY_ARCHIVE.getRegistryName());
+        TABlocks.ANCIENT_COLUMN_ITEM = new ItemBlock(TABlocks.ANCIENT_COLUMN)
+                .setRegistryName(TABlocks.ANCIENT_COLUMN.getRegistryName());
+        TABlocks.ANCIENT_FIRE_ITEM = new ItemBlock(TABlocks.ANCIENT_FIRE)
+                .setRegistryName(TABlocks.ANCIENT_FIRE.getRegistryName());
+        TABlocks.ANOMALY_WELL_ITEM = new ItemBlock(TABlocks.ANOMALY_WELL)
+                .setRegistryName(TABlocks.ANOMALY_WELL.getRegistryName());
+        TABlocks.ANOMALOUS_MONOLITH_ITEM = new ItemBlock(TABlocks.ANOMALOUS_MONOLITH)
+                .setRegistryName(TABlocks.ANOMALOUS_MONOLITH.getRegistryName());
+        TABlocks.STRANGE_PEDESTAL_ITEM = new ItemBlock(TABlocks.STRANGE_PEDESTAL)
+                .setRegistryName(TABlocks.STRANGE_PEDESTAL.getRegistryName());
+        TABlocks.ELDRITCH_CONSTRUCTION_ITEM = new ItemBlockEldritchConstruction(TABlocks.ELDRITCH_CONSTRUCTION)
                 .setRegistryName(TABlocks.ELDRITCH_CONSTRUCTION.getRegistryName());
         TABlocks.ANOMALY_BED_ITEM = new ItemBlock(TABlocks.ANOMALY_BED)
                 .setRegistryName(TABlocks.ANOMALY_BED.getRegistryName());
         TABlocks.AURA_BOOSTER_ITEM = new ItemBlock(TABlocks.AURA_BOOSTER)
                 .setRegistryName(TABlocks.AURA_BOOSTER.getRegistryName());
-        TABlocks.AURA_BOOSTER_CORE_ITEM = new ItemBlock(TABlocks.AURA_BOOSTER_CORE)
-                .setRegistryName(TABlocks.AURA_BOOSTER_CORE.getRegistryName());
         TABlocks.RIFT_CRISTAL_BLOCK_ITEM = new ItemBlock(TABlocks.RIFT_CRISTAL_BLOCK)
                 .setRegistryName(TABlocks.RIFT_CRISTAL_BLOCK.getRegistryName());
         TABlocks.RIFT_EXTRACTOR_ITEM = new ItemBlock(TABlocks.RIFT_EXTRACTOR)
@@ -353,16 +414,11 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_STONE_ALTAR.getRegistryName());
         TABlocks.RIFTONOMICON_ITEM = new ItemBlock(TABlocks.RIFTONOMICON)
                 .setRegistryName(TABlocks.RIFTONOMICON.getRegistryName());
-        TABlocks.RIFTONOMICON_CORE_ITEM = new ItemBlock(TABlocks.RIFTONOMICON_CORE)
-                .setRegistryName(TABlocks.RIFTONOMICON_CORE.getRegistryName());
         TABlocks.POLISHED_DARK_JASPER_ITEM = new ItemBlock(TABlocks.POLISHED_DARK_JASPER)
                 .setRegistryName(TABlocks.POLISHED_DARK_JASPER.getRegistryName());
-        TABlocks.DARK_JASPER_BRICKS_ITEM = new ItemBlock(TABlocks.DARK_JASPER_BRICKS)
-                .setRegistryName(TABlocks.DARK_JASPER_BRICKS.getRegistryName());
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER_ITEM,
-                TABlocks.MIRROR_MANAGER_CORE_ITEM,
                 TABlocks.ORDER_TERMINAL_ITEM,
                 TABlocks.PATTERN_REQUESTER_ITEM,
                 TABlocks.RESOURCE_REQUESTER_ITEM,
@@ -372,11 +428,15 @@ public final class ModBlocksItems {
                 TABlocks.ANOMALY_STONE_ITEM,
                 TABlocks.RIFT_BUSH_ITEM,
                 TABlocks.RIFT_GEOD_ITEM,
-                TABlocks.RIFT_STONE_BASE_ITEM,
+                TABlocks.ANOMALY_ARCHIVE_ITEM,
+                TABlocks.ANCIENT_COLUMN_ITEM,
+                TABlocks.ANCIENT_FIRE_ITEM,
+                TABlocks.ANOMALY_WELL_ITEM,
+                TABlocks.ANOMALOUS_MONOLITH_ITEM,
+                TABlocks.STRANGE_PEDESTAL_ITEM,
                 TABlocks.ELDRITCH_CONSTRUCTION_ITEM,
                 TABlocks.ANOMALY_BED_ITEM,
                 TABlocks.AURA_BOOSTER_ITEM,
-                TABlocks.AURA_BOOSTER_CORE_ITEM,
                 TABlocks.RIFT_CRISTAL_BLOCK_ITEM,
                 TABlocks.RIFT_EXTRACTOR_ITEM,
                 TABlocks.REVISION_PIEDESTAL_ITEM,
@@ -385,9 +445,14 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_STONE_FURNACE_ITEM,
                 TABlocks.RIFT_STONE_ALTAR_ITEM,
                 TABlocks.RIFTONOMICON_ITEM,
-                TABlocks.RIFTONOMICON_CORE_ITEM,
-                TABlocks.POLISHED_DARK_JASPER_ITEM,
-                TABlocks.DARK_JASPER_BRICKS_ITEM
+                TABlocks.POLISHED_DARK_JASPER_ITEM
         );
+    }
+
+    private static Item createCoreItem(String name) {
+        return new Item()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + "." + name)
+                .setRegistryName(ThaumicAttempts.MODID, name);
     }
 }

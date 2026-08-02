@@ -9,6 +9,8 @@ import thaumcraft.api.crafting.Part;
 import thaumcraft.common.lib.crafting.DustTriggerMultiblock;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.golemnet.block.BlockEldritchConstarction;
+import therealpant.thaumicattempts.world.block.BlockRiftExtractor;
 import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
 import therealpant.thaumicattempts.world.block.BlockRiftStoneFurnace;
 
@@ -93,58 +95,74 @@ public final class TAMultiblockTriggers {
 
 
     private static Part[][][] buildTriggerStructure() {
-        // верх -> AIR
-        Part coreToAir  = new Part(TABlocks.MIRROR_MANAGER_CORE, "AIR");
-        // низ (куда кликаем пылью) -> MIRROR_MANAGER
-        Part baseToMgr  = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.MIRROR_MANAGER);
+        ItemStack amber = eldritchConstruction(BlockEldritchConstarction.Variant.AMBER);
+        Part topToAir = new Part(amber, "AIR");
+        Part bottomToManager = new Part(amber.copy(), TABlocks.MIRROR_MANAGER);
 
         return new Part[][][] {
-                // Y = 0 (ВЕРХ)
-                { { coreToAir } },
-                // Y = 1 (НИЗ, СЮДА КЛИКАЕМ ПЫЛЬЮ)
-                { { baseToMgr } }
+                { { topToAir } },
+                { { bottomToManager } }
         };
     }
 
     private static Part[][][] buildAuraBoosterTriggerStructure() {
         Part topToAir = new Part(TABlocks.RIFT_CRISTAL_BLOCK, "AIR");
-        Part middleToAir = new Part(TABlocks.AURA_BOOSTER_CORE, "AIR");
-        Part baseToBooster = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.AURA_BOOSTER);
-
+        Part middleToAir = new Part(TABlocks.RIFT_CRISTAL_BLOCK, "AIR");
+        Part baseToBooster = new Part(
+                eldritchConstruction(BlockEldritchConstarction.Variant.DIAMOND),
+                TABlocks.AURA_BOOSTER
+        );
+        Part baseToAir = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.DIAMOND), "AIR");
         return new Part[][][] {
-                // Y = 0 (ВЕРХ)
                 { { topToAir } },
-                // Y = 1 (СЕРЕДИНА)
+                { { baseToAir } },
                 { { middleToAir } },
-                // Y = 2 (НИЗ, СЮДА КЛИКАЕМ ПЫЛЬЮ)
                 { { baseToBooster } }
         };
     }
 
     private static Part[][][] buildRiftExtractorTriggerStructure() {
-        Part topToAir = new Part(TABlocks.ELDRITCH_CONSTRUCTION, "AIR");
-        Part middleToAir = new Part(TABlocks.ELDRITCH_CONSTRUCTION, "AIR");
-        Part baseToBooster = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.RIFT_EXTRACTOR);
+        Part topToAir = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.AMETHYST), "AIR");
+        Part middleToAir = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.AMETHYST), "AIR");
+        Part baseToBooster = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.AMETHYST), TABlocks.RIFT_EXTRACTOR);
+        Part darkToPlatform = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_PORTAL_PLATFORM);
+        Part polishedToPlatform = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.RIFT_PORTAL_PLATFORM);
 
         return new Part[][][] {
-                // Y = 0 (ВЕРХ)
-                { { topToAir } },
-                // Y = 1 (СЕРЕДИНА)
-                { { middleToAir } },
-                // Y = 2 (НИЗ, СЮДА КЛИКАЕМ ПЫЛЬЮ)
-                { { baseToBooster } }
+                // Y = 3 (ВЕРХ КОЛОННЫ)
+                {
+                        { null, null, null },
+                        { null, topToAir, null },
+                        { null, null, null }
+                },
+                // Y = 2 (СЕРЕДИНА КОЛОННЫ)
+                {
+                        { null, null, null },
+                        { null, middleToAir, null },
+                        { null, null, null }
+                },
+                // Y = 1 (ОСНОВАНИЕ КОЛОННЫ, СЮДА КЛИКАЕМ ПЫЛЬЮ)
+                {
+                        { null, null, null },
+                        { null, baseToBooster, null },
+                        { null, null, null }
+                },
+                // Y = 0 (ПЛАТФОРМА)
+                {
+                        { darkToPlatform, polishedToPlatform, darkToPlatform },
+                        { polishedToPlatform, polishedToPlatform, polishedToPlatform },
+                        { darkToPlatform, polishedToPlatform, darkToPlatform }
+                }
         };
     }
 
     private static Part[][][] buildBlueprintStructure() {
-        // Blueprint показывает исходную постройку (ничего не заменяем)
-        Part top    = new Part(TABlocks.MIRROR_MANAGER_CORE, TABlocks.MIRROR_MANAGER_CORE);
-        Part bottom = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.RIFT_STONE_BASE);
+        ItemStack amber = eldritchConstruction(BlockEldritchConstarction.Variant.AMBER);
+        Part top = new Part(amber, "AIR");
+        Part bottom = new Part(amber.copy(), TABlocks.MIRROR_MANAGER);
 
         return new Part[][][] {
-                // Y = 0 (ВЕРХ)
                 { { top } },
-                // Y = 1 (НИЗ)
                 { { bottom } }
         };
     }
@@ -164,16 +182,15 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildAuraBoosterBlueprintStructure() {
-        Part top = new Part(TABlocks.RIFT_CRISTAL_BLOCK, TABlocks.RIFT_CRISTAL_BLOCK);
-        Part middle = new Part(TABlocks.AURA_BOOSTER_CORE, TABlocks.AURA_BOOSTER_CORE);
-        Part bottom = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.RIFT_STONE_BASE);
-
+        Part top = new Part(TABlocks.RIFT_CRISTAL_BLOCK, "AIR");
+        Part middle = new Part(TABlocks.RIFT_CRISTAL_BLOCK, "AIR");
+        ItemStack diamondConstruction = eldritchConstruction(BlockEldritchConstarction.Variant.DIAMOND);
+        Part bottom = new Part(diamondConstruction, TABlocks.AURA_BOOSTER);
+        Part middle2 = new Part(diamondConstruction, "AIR");
         return new Part[][][] {
-                // Y = 0 (ВЕРХ)
                 { { top } },
-                // Y = 1 (СЕРЕДИНА)
+                { { middle2 } },
                 { { middle } },
-                // Y = 2 (НИЗ)
                 { { bottom } }
         };
     }
@@ -191,18 +208,44 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildRiftExtractorBlueprintStructure() {
-        Part top = new Part(TABlocks.ELDRITCH_CONSTRUCTION, TABlocks.ELDRITCH_CONSTRUCTION);
-        Part middle = new Part(TABlocks.ELDRITCH_CONSTRUCTION, TABlocks.ELDRITCH_CONSTRUCTION);
-        Part bottom = new Part(TABlocks.RIFT_STONE_BASE, TABlocks.RIFT_STONE_BASE);
-
+        ItemStack baseConstruction = eldritchConstruction(BlockEldritchConstarction.Variant.AMETHYST);
+        Part top = new Part(baseConstruction, extractorPart(BlockRiftExtractor.Part.TOP));
+        Part middle = new Part(baseConstruction.copy(), extractorPart(BlockRiftExtractor.Part.MID));
+        Part base = new Part(baseConstruction, extractorPart(BlockRiftExtractor.Part.LOW));
+        Part dark = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_PORTAL_PLATFORM);
+        Part polished = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.RIFT_PORTAL_PLATFORM);
         return new Part[][][] {
-                // Y = 0 (ВЕРХ)
-                { { top } },
-                // Y = 1 (СЕРЕДИНА)
-                { { middle } },
-                // Y = 2 (НИЗ)
-                { { bottom } }
+                {
+                        { null, null, null },
+                        { null, top, null },
+                        { null, null, null }
+                },
+                {
+                        { null, null, null },
+                        { null, middle, null },
+                        { null, null, null }
+                },
+                {
+                        { null, null, null },
+                        { null, base, null },
+                        { null, null, null }
+                },
+                {
+                        { dark, polished, dark },
+                        { polished, polished, polished },
+                        { dark, polished, dark }
+                }
         };
+    }
+
+    private static ItemStack extractorPart(BlockRiftExtractor.Part part) {
+        return new ItemStack(
+                TABlocks.RIFT_EXTRACTOR,
+                1,
+                TABlocks.RIFT_EXTRACTOR.getMetaFromState(
+                        TABlocks.RIFT_EXTRACTOR.getDefaultState().withProperty(BlockRiftExtractor.PART, part)
+                )
+        );
     }
 
     private static void registerRiftExtractorBlueprint() {
@@ -218,9 +261,9 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildRiftPortalTriggerStructure() {
-        Part darkToAir = new Part(TABlocks.DARK_JASPER_BRICKS, "AIR");
-        Part darkToPortal = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.RIFT_STONE_PORTAL);
-        Part darkToPlatform = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.RIFT_PORTAL_PLATFORM);
+        Part darkToAir = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), "AIR");
+        Part darkToPortal = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_STONE_PORTAL);
+        Part darkToPlatform = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_PORTAL_PLATFORM);
         Part polishedToPlatform = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.RIFT_PORTAL_PLATFORM);
 
         return new Part[][][] {
@@ -243,18 +286,20 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildRiftPortalBlueprintStructure() {
-        Part dark = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.DARK_JASPER_BRICKS);
-        Part polished = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.POLISHED_DARK_JASPER);
+        Part darkToAir = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), "AIR");
+        Part darkToPortal = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_STONE_PORTAL);
+        Part dark = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_PORTAL_PLATFORM);
+        Part polished = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.RIFT_PORTAL_PLATFORM);
 
         return new Part[][][] {
                 {
                         { null, null, null },
-                        { null, dark, null },
+                        { null, darkToAir, null },
                         { null, null, null }
                 },
                 {
                         { null, null, null },
-                        { null, dark, null },
+                        { null, darkToPortal, null },
                         { null, null, null }
                 },
                 {
@@ -278,8 +323,8 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildTransmutationAltarTriggerStructure() {
-        Part darkToAltar = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.RIFT_STONE_ALTAR);
-        Part darkToPlatform = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.RIFT_PORTAL_PLATFORM);
+        Part darkToAltar = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_STONE_ALTAR);
+        Part darkToPlatform = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_PORTAL_PLATFORM);
         Part polishedToPlatform = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.RIFT_PORTAL_PLATFORM);
         return new Part[][][] {
                 {
@@ -296,12 +341,13 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildTransmutationAltarBlueprintStructure() {
-        Part dark = new Part(TABlocks.DARK_JASPER_BRICKS, TABlocks.DARK_JASPER_BRICKS);
-        Part polished = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.POLISHED_DARK_JASPER);
+        Part darkToAltar = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_STONE_ALTAR);
+        Part dark = new Part(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), TABlocks.RIFT_PORTAL_PLATFORM);
+        Part polished = new Part(TABlocks.POLISHED_DARK_JASPER, TABlocks.RIFT_PORTAL_PLATFORM);
         return new Part[][][] {
                 {
                         { null, null, null },
-                        { null, dark, null },
+                        { null, darkToAltar, null },
                         { null, null, null }
                 },
                 {
@@ -326,17 +372,17 @@ public final class TAMultiblockTriggers {
                 {
                         {
                                 furnacePart(BlocksTC.alembic, BlockRiftStoneFurnace.Part.TOP_CORNER),
-                                furnacePart(TABlocks.DARK_JASPER_BRICKS, BlockRiftStoneFurnace.Part.TOP_NORTH),
+                                furnacePart(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), BlockRiftStoneFurnace.Part.TOP_NORTH),
                                 furnacePart(BlocksTC.alembic, BlockRiftStoneFurnace.Part.TOP_CORNER)
                         },
                         {
-                                furnacePart(TABlocks.DARK_JASPER_BRICKS, BlockRiftStoneFurnace.Part.TOP_WEST),
+                                furnacePart(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), BlockRiftStoneFurnace.Part.TOP_WEST),
                                 null,
-                                furnacePart(TABlocks.DARK_JASPER_BRICKS, BlockRiftStoneFurnace.Part.TOP_EAST)
+                                furnacePart(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), BlockRiftStoneFurnace.Part.TOP_EAST)
                         },
                         {
                                 furnacePart(BlocksTC.alembic, BlockRiftStoneFurnace.Part.TOP_CORNER),
-                                furnacePart(TABlocks.DARK_JASPER_BRICKS, BlockRiftStoneFurnace.Part.TOP_SOUTH),
+                                furnacePart(eldritchConstruction(BlockEldritchConstarction.Variant.BASE), BlockRiftStoneFurnace.Part.TOP_SOUTH),
                                 furnacePart(BlocksTC.alembic, BlockRiftStoneFurnace.Part.TOP_CORNER)
                         }
                 },
@@ -361,27 +407,13 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildRiftStoneFurnaceBlueprintStructure() {
-        Part advanced = new Part(BlocksTC.metalAlchemicalAdvanced, BlocksTC.metalAlchemicalAdvanced);
-        Part voidSmelter = new Part(BlocksTC.smelterVoid, BlocksTC.smelterVoid);
-        Part alembic = new Part(BlocksTC.alembic, BlocksTC.alembic);
-        Part jasper = new Part(TABlocks.ELDRITCH_CONSTRUCTION, TABlocks.ELDRITCH_CONSTRUCTION);
-        Part brick = new Part(TABlocks.DARK_JASPER_BRICKS,TABlocks.DARK_JASPER_BRICKS);
-
-        return new Part[][][] {
-                {
-                        { alembic, brick, alembic },
-                        { brick,   null, brick },
-                        { alembic, brick, alembic }
-                },
-                {
-                        { advanced, jasper, advanced },
-                        { jasper, voidSmelter, jasper },
-                        { advanced, jasper, advanced }
-                }
-        };
+        return buildRiftStoneFurnaceTriggerStructure();
     }
 
     private static Part furnacePart(Object source, BlockRiftStoneFurnace.Part targetPart) {
+        if (source == TABlocks.ELDRITCH_CONSTRUCTION) {
+            source = eldritchConstruction(BlockEldritchConstarction.Variant.BASE);
+        }
         return new Part(
                 source,
                 new ItemStack(
@@ -393,6 +425,11 @@ public final class TAMultiblockTriggers {
                         )
                 )
         );
+    }
+
+    /** Metadata-aware source used so every inserted gem is a distinct multiblock part. */
+    public static ItemStack eldritchConstruction(BlockEldritchConstarction.Variant variant) {
+        return new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION, 1, variant.getMeta());
     }
 
     private static void registerRiftStoneFurnaceBlueprint() {
@@ -412,14 +449,14 @@ public final class TAMultiblockTriggers {
     }
 
     private static Part[][][] buildRiftonomiconBlueprintStructure() {
-        return buildRiftonomiconStructure(false);
+        return buildRiftonomiconStructure(true);
     }
 
     private static Part[][][] buildRiftonomiconStructure(boolean transform) {
         Object n = null;
-        Object brick = TABlocks.DARK_JASPER_BRICKS;
+        Object brick = eldritchConstruction(BlockEldritchConstarction.Variant.BASE);
         Object polished = TABlocks.POLISHED_DARK_JASPER;
-        Object core = TABlocks.RIFTONOMICON_CORE;
+        Object core = TABlocks.RIFT_CRISTAL_BLOCK;
 
         Object[][][] sources = new Object[][][] {
                 // 5 слой (верх)
@@ -498,9 +535,19 @@ public final class TAMultiblockTriggers {
         Part[][][] parts = new Part[sources.length][][];
         for (int y = 0; y < sources.length; y++) {
             parts[y] = new Part[sources[y].length][];
-            int dy = sources.length - 1 - y;
             for (int z = 0; z < sources[y].length; z++) {
                 parts[y][z] = new Part[sources[y][z].length];
+            }
+        }
+
+        // Three atomic visual steps: base, columns, then all upper layers. The
+        // controller core joins the first group so partial model stages can render.
+        final int basePriority = 20;
+        final int columnsPriority = 40;
+        final int upperPriority = 60;
+        for (int y = sources.length - 1; y >= 0; y--) {
+            int dy = sources.length - 1 - y;
+            for (int z = 0; z < sources[y].length; z++) {
                 int dz = z - 3;
                 for (int x = 0; x < sources[y][z].length; x++) {
                     Object source = sources[y][z][x];
@@ -509,22 +556,35 @@ public final class TAMultiblockTriggers {
                     }
 
                     int dx = x - 3;
-                    parts[y][z][x] = riftonomiconStructurePart(source, dx, dy, dz, transform);
+                    boolean controllerCore = dx == 0 && dy == BlockRiftonomicon.CORE_Y_OFFSET && dz == 0;
+                    int priority = controllerCore || dy == 0
+                            ? basePriority
+                            : dy == 1 ? columnsPriority : upperPriority;
+                    parts[y][z][x] = riftonomiconStructurePart(source, dx, dy, dz, transform, priority);
                 }
             }
         }
         return parts;
     }
 
-    private static Part riftonomiconStructurePart(Object source, int dx, int dy, int dz, boolean transform) {
-        return transform ? riftonomiconPart(source, getRiftonomiconPartFor(dx, dy, dz)) : new Part(source, source);
+    private static Part riftonomiconStructurePart(Object source, int dx, int dy, int dz,
+                                                  boolean transform, int priority) {
+        return transform
+                ? riftonomiconPart(source, getRiftonomiconPartFor(dx, dy, dz), priority)
+                : new Part(source, source, false, priority);
     }
 
     public static net.minecraft.block.state.IBlockState getRiftonomiconSourceState(int dx, int dy, int dz) {
         Object source = getRiftonomiconSource(dx, dy, dz);
-        return source instanceof net.minecraft.block.Block
-                ? ((net.minecraft.block.Block) source).getDefaultState()
-                : null;
+        if (source instanceof net.minecraft.block.Block) {
+            return ((net.minecraft.block.Block) source).getDefaultState();
+        }
+        if (source instanceof ItemStack) {
+            ItemStack stack = (ItemStack) source;
+            net.minecraft.block.Block block = net.minecraft.block.Block.getBlockFromItem(stack.getItem());
+            return block == net.minecraft.init.Blocks.AIR ? null : block.getStateFromMeta(stack.getMetadata());
+        }
+        return null;
     }
 
     private static Object getRiftonomiconSource(int dx, int dy, int dz) {
@@ -537,21 +597,27 @@ public final class TAMultiblockTriggers {
             }
             if (dx == 0 && dz == 0) return BlockRiftonomicon.Part.TRANSMUTATION_IMPETUS_INPUT;
             if ((az == 3 && ax <= 1) || (az == 2 && ax <= 2) || (ax >= 2 && ax <= 3)) {
-                return (dx == 0 || dz == 0) ? TABlocks.POLISHED_DARK_JASPER : TABlocks.DARK_JASPER_BRICKS;
+                return (dx == 0 || dz == 0)
+                        ? TABlocks.POLISHED_DARK_JASPER
+                        : eldritchConstruction(BlockEldritchConstarction.Variant.BASE);
             }
             return null;
         }
 
         if (dy == 1) {
-            return ax == 2 && az == 2 ? TABlocks.DARK_JASPER_BRICKS : null;
+            return ax == 2 && az == 2
+                    ? eldritchConstruction(BlockEldritchConstarction.Variant.BASE)
+                    : null;
         }
 
         if (dy == 2 || dy == 4) {
-            return dx == 0 && dz == 0 ? TABlocks.DARK_JASPER_BRICKS : null;
+            return dx == 0 && dz == 0
+                    ? eldritchConstruction(BlockEldritchConstarction.Variant.BASE)
+                    : null;
         }
 
         if (dy == 3) {
-            if (dx == 0 && dz == 0) return TABlocks.RIFTONOMICON_CORE;
+            if (dx == 0 && dz == 0) return TABlocks.RIFT_CRISTAL_BLOCK;
             if ((Math.abs(dx) == 2 && dz == 0) || (Math.abs(dz) == 2 && dx == 0)) return "AIR";
             return null;
         }
@@ -564,6 +630,9 @@ public final class TAMultiblockTriggers {
         int az = Math.abs(dz);
 
         if (dy == 0) {
+            if (dx == 0 && dz == 0) {
+                return BlockRiftonomicon.Part.TRANSMUTATION_ESSENTIA_INPUT;
+            }
             if (ax == 2 && az == 2) {
                 return BlockRiftonomicon.Part.CORNER;
             }
@@ -592,7 +661,7 @@ public final class TAMultiblockTriggers {
         return BlockRiftonomicon.Part.TOP;
     }
 
-    private static Part riftonomiconPart(Object source, BlockRiftonomicon.Part targetPart) {
+    private static Part riftonomiconPart(Object source, BlockRiftonomicon.Part targetPart, int priority) {
         return new Part(
                 source,
                 new ItemStack(
@@ -602,8 +671,27 @@ public final class TAMultiblockTriggers {
                                 TABlocks.RIFTONOMICON.getDefaultState()
                                         .withProperty(BlockRiftonomicon.PART, targetPart)
                         )
-                )
+                ),
+                false,
+                priority
         );
+    }
+
+    public static boolean hasRiftonomiconPartAt(int dx, int dy, int dz) {
+        int ax = Math.abs(dx);
+        int az = Math.abs(dz);
+        if (ax > 3 || az > 3 || dy < 0 || dy > 4) return false;
+        if (dy == 0) {
+            if (ax <= 1 && az <= 1) return true;
+            return (az == 3 && ax <= 1)
+                    || (az == 2 && ax <= 2)
+                    || (az <= 1 && ax >= 2);
+        }
+        if (dy == 1) return ax == 2 && az == 2;
+        if (dy == 2 || dy == 4) return dx == 0 && dz == 0;
+        return dy == 3 && ((dx == 0 && dz == 0)
+                || (ax == 2 && dz == 0)
+                || (az == 2 && dx == 0));
     }
 
     private static void registerRiftonomiconBlueprint() {

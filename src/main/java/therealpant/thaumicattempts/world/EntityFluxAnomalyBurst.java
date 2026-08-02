@@ -2,11 +2,17 @@
 package therealpant.thaumicattempts.world;
 
 import net.minecraft.block.Block;
+import net.minecraft.block.BlockDirectional;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.Entity;
 import net.minecraft.init.Blocks;
+import net.minecraft.inventory.IInventory;
+import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.nbt.NBTTagList;
+import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.DamageSource;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.ResourceLocation;
 import net.minecraft.util.math.BlockPos;
@@ -17,27 +23,39 @@ import net.minecraftforge.fml.common.registry.ForgeRegistries;
 import org.apache.logging.log4j.LogManager;
 import org.apache.logging.log4j.Logger;
 import thaumcraft.api.blocks.BlocksTC;
+import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.blocks.world.taint.TaintHelper;
 import thaumcraft.common.entities.monster.tainted.EntityTaintSeed;
+import therealpant.thaumicattempts.api.FluxAnomalyEnvironment;
 import therealpant.thaumicattempts.api.FluxAnomalyResource;
 import therealpant.thaumicattempts.api.FluxAnomalySettings;
 import therealpant.thaumicattempts.api.FluxAnomalySpawnMethod;
 import therealpant.thaumicattempts.api.FluxAnomalyTier;
 import therealpant.thaumicattempts.config.TAConfig;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.golemnet.block.BlockEldritchConstarction;
 import therealpant.thaumicattempts.util.WorldSpawnUtil;
 import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
 import therealpant.thaumicattempts.world.block.BlockRiftBush;
 import therealpant.thaumicattempts.world.block.BlockRiftGeod;
 import therealpant.thaumicattempts.world.block.FluxResourceHelper;
 import therealpant.thaumicattempts.world.data.TAInfectedChunksData;
+import therealpant.thaumicattempts.world.tile.TileRiftGeod;
+import therealpant.thaumicattempts.world.tile.TileAnomalyArchive;
+import therealpant.thaumicattempts.world.tile.TileAnomalyWell;
+import therealpant.thaumicattempts.world.tile.TileAnomalousMonolith;
 
+import javax.annotation.Nullable;
+import java.util.ArrayList;
+import java.util.Collections;
 import java.util.HashMap;
 import java.util.Arrays;
 import java.util.HashSet;
 import java.util.Map;
 import java.util.Random;
 import java.util.Set;
+import java.util.List;
 import java.util.UUID;
 
 public class EntityFluxAnomalyBurst extends Entity {
@@ -54,6 +72,9 @@ public class EntityFluxAnomalyBurst extends Entity {
     private static final int STONE_PLACEMENT_ATTEMPTS = 120;
     private static final int GEOD_PLACEMENT_ATTEMPTS = 120;
     private static final int SEED_MISSING_GRACE_TICKS = 40;
+    private static final int RESOURCE_GROWTH_INTERVAL_TICKS = 5 * 60 * 20;
+    private static final int FULL_RESOURCE_DAMAGE_INTERVAL_TICKS = 40 * 20;
+    private static final int RESOURCE_LIMIT = 8;
     private static final float ANOMALOUS_STONE_CONVERSION_CHANCE = 0.2f;
     private static final int MAX_CHAMBER_ATTEMPTS = 3;
     private static final float MIN_VOID_AIR_RATIO = 0.18f;
@@ -66,6 +87,16 @@ public class EntityFluxAnomalyBurst extends Entity {
     private static final int SHALLOW_MAX_DEPTH_BELOW_SURFACE = 40;
     private static final int SHALLOW_MIN_Y_FLOOR = 18;
     private static final int SHALLOW_MAX_Y_CEIL = 90;
+    private static final int ARCHIVE_FLOOR_RADIUS = 5;
+    private static final int ARCHIVE_CHECK_INTERVAL = 10;
+    private static final int MONOLITH_RING_OUTER_RADIUS = 6;
+    private static final int MONOLITH_RING_OUTER_SHAPE_SQ = 42;
+    private static final int MONOLITH_RING_INNER_SHAPE_SQ = 12;
+    private static final int MONOLITH_PEDESTAL_RADIUS = 5;
+    private static final float MONOLITH_COMPLETE_COLUMN_CHANCE = 0.30F;
+    private static final float MONOLITH_EXTRA_LOWER_COLUMN_CHANCE = 0.45F;
+    private static final int MONOLITH_GUARANTEED_LOWER_COLUMNS = 5;
+    private static final int MONOLITH_COLUMN_TOP_Y = 5;
     private static final Set<Block> CONVERTIBLE_STONE = new HashSet<>(Arrays.asList(
             Blocks.STONE,
             Blocks.COBBLESTONE,
@@ -82,6 +113,8 @@ public class EntityFluxAnomalyBurst extends Entity {
     private int totalSpreads = 25500;   // сколько spreadFibres всего
     private int budgetPerTick = 300;   // сколько spreadFibres за тик
     private FluxAnomalySpawnMethod spawnMethod = FluxAnomalySpawnMethod.API;
+    private FluxAnomalyEnvironment environment = FluxAnomalyEnvironment.STANDARD;
+    private UUID sourcePlayerId = null;
     private ResourceLocation resourceBlockId = null;
     private Block resourceBlock = null;
     private int maxResources = 0;
@@ -95,10 +128,16 @@ public class EntityFluxAnomalyBurst extends Entity {
     private int pendingBush = 0;
     private int pendingStone = 0;
     private int pendingGeod = 0;
+    private long lastGrowthCheckTick = 0L;
+    private long lastFullResourceDamageTick = 0L;
+    private boolean specialStructurePrepared = false;
+    private final List<BlockPos> specialResourceAnchors = new ArrayList<>();
+    private final List<BlockPos> primaryEndResourceAnchors = new ArrayList<>();
+    private final List<BlockPos> archivePositions = new ArrayList<>();
 
     private boolean awakened = false;
     private int remainingSpreads = 0;
-    private long sourceChunkKey = 0L;
+    private long sourceChunkKey = Long.MIN_VALUE;
     private FluxAnomalyTier tier = FluxAnomalyTier.SURFACE;
     private boolean finished = false;
     private boolean infectionFinished = false;
@@ -141,6 +180,8 @@ public class EntityFluxAnomalyBurst extends Entity {
         if (settings != null) {
             spawnMethod = settings.getSpawnMethod();
             tier = settings.getTier();
+            environment = settings.getEnvironment();
+            sourcePlayerId = settings.getSourcePlayerId();
             sourceChunkKey = settings.getSourceChunkKey();
             FluxAnomalyResource resource = settings.getResource();
             if (resource != null) {
@@ -153,6 +194,10 @@ public class EntityFluxAnomalyBurst extends Entity {
         this.sourceChunkKey = chunkKey;
     }
 
+    public BlockPos getAnomalyPosition() {
+        return (seedPos != null ? seedPos : center).toImmutable();
+    }
+
 
     private void applyResource(FluxAnomalyResource resource) {
         if (resource.isPresent()) {
@@ -161,7 +206,7 @@ public class EntityFluxAnomalyBurst extends Entity {
                 resourceBlockId = key;
                 resourceBlock = resource.getBlock();
                 maxResources = resource.getBlockCount();
-                resourceCap = FluxResourceHelper.getOvergrowthCap(resourceBlock);
+                resourceCap = RESOURCE_LIMIT;
                 resourceRadius = Math.max(4, radiusBlocks / 2);
                 initialResourcesPlaced = false;
                 resourcesBootstrapped = false;
@@ -206,8 +251,21 @@ public class EntityFluxAnomalyBurst extends Entity {
 
         }
 
+        if (tier == FluxAnomalyTier.ARCHIVE
+                || tier == FluxAnomalyTier.LABORATORY) {
+            tickArchiveAnomaly();
+            return;
+        }
+        if (tier == FluxAnomalyTier.MONOLITH) {
+            tickMonolithAnomaly();
+            return;
+        }
+
         switch (phase) {
             case SEED: {
+                if (!prepareSpecialEnvironment()) {
+                    return;
+                }
                 ensureSeedPosition();
                 if (seedPos == null) {
                     LOG.warn("[FluxAnomaly] Seed spawn failed: no valid position near {}", center);
@@ -271,7 +329,7 @@ public class EntityFluxAnomalyBurst extends Entity {
                     finishAnomaly(FinishReason.SEED_KILLED_BY_OVERGROWTH, false);
                     return;
                 }
-                tickPendingRequests();
+                tickResourceLifecycle();
                 break;
             }
             case FINISH: {
@@ -314,7 +372,27 @@ public class EntityFluxAnomalyBurst extends Entity {
 
         BlockPos anchor = getAnchor();
         int targetCount = getInitialResourceTargetCount(block);
+        if (environment == FluxAnomalyEnvironment.END_ISLANDS
+                && block instanceof BlockRiftGeod
+                && !primaryEndResourceAnchors.isEmpty()) {
+            targetCount = primaryEndResourceAnchors.size();
+        }
         int placed = countExistingResources(block, anchor);
+        if (environment == FluxAnomalyEnvironment.END_ISLANDS && block instanceof BlockRiftGeod) {
+            int successes = placeEndIslandResources((BlockRiftGeod) block, targetCount - placed);
+            placed += successes;
+            TAInfectedChunksData.get(world).setLastResourcePlacement(
+                    placed >= targetCount ? "PLACEMENT_OK" : "PLACEMENT_INSUFFICIENT",
+                    Math.max(0, targetCount),
+                    successes
+            );
+            if (placed >= targetCount) {
+                initialResourcesPlaced = true;
+                resourcesBootstrapped = true;
+                return true;
+            }
+            return false;
+        }
         int attempts = getInitialResourceAttempts(block);
         final Random rnd = world.rand;
         int successes = 0;
@@ -357,16 +435,567 @@ public class EntityFluxAnomalyBurst extends Entity {
     }
 
     private int getInitialResourceTargetCount(Block block) {
-        if (block instanceof BlockRiftBush) {
-            return 3;
+        return MathHelper.clamp(maxResources, 3, 5);
+    }
+
+    private void tickArchiveAnomaly() {
+        if (!specialStructurePrepared) {
+            if (!prepareArchiveStructure()) return;
+            phase = AnomalyPhase.ACTIVE;
         }
-        if (block instanceof BlockRiftGeod) {
-            return 3;
+        if (ticksExisted % ARCHIVE_CHECK_INTERVAL != 0) return;
+
+        boolean allLoaded = true;
+        boolean hasLinkedCore = false;
+        for (BlockPos corePos : archivePositions) {
+            if (!world.isBlockLoaded(corePos)) {
+                allLoaded = false;
+                continue;
+            }
+            TileEntity tile = world.getTileEntity(corePos);
+            if (tier == FluxAnomalyTier.LABORATORY
+                    && tile instanceof TileAnomalyWell
+                    && ((TileAnomalyWell) tile).isLinkedTo(anomalyId)) {
+                hasLinkedCore = true;
+                break;
+            }
+            if (tier == FluxAnomalyTier.ARCHIVE
+                    && tile instanceof TileAnomalyArchive
+                    && ((TileAnomalyArchive) tile).isLinkedTo(anomalyId)) {
+                hasLinkedCore = true;
+                break;
+            }
         }
-        if (block instanceof BlockAnomalyStone) {
-            return 3;
+        if (!allLoaded || hasLinkedCore) return;
+
+        sealLinkedArchives();
+        finishAnomaly(tier == FluxAnomalyTier.LABORATORY
+                ? FinishReason.LABORATORY_WELL_MISSING
+                : FinishReason.ARCHIVE_MISSING, false);
+    }
+
+    private void tickMonolithAnomaly() {
+        if (!specialStructurePrepared) {
+            if (!prepareMonolithStructure()) return;
+            phase = AnomalyPhase.ACTIVE;
         }
-        return maxResources;
+        if (ticksExisted % ARCHIVE_CHECK_INTERVAL != 0) return;
+
+        boolean allLoaded = true;
+        boolean hasMonolith = false;
+        for (BlockPos corePos : archivePositions) {
+            if (!world.isBlockLoaded(corePos)) {
+                allLoaded = false;
+                continue;
+            }
+            if (world.getBlockState(corePos).getBlock() == TABlocks.ANOMALOUS_MONOLITH) {
+                hasMonolith = true;
+                break;
+            }
+        }
+        if (!allLoaded || hasMonolith) return;
+        finishAnomaly(FinishReason.MONOLITH_MISSING, false);
+    }
+
+    private boolean prepareMonolithStructure() {
+        int floorY = MathHelper.clamp(center.getY() - 1, 2, world.getHeight() - 6);
+        BlockPos floorCenter = new BlockPos(center.getX(), floorY, center.getZ());
+        BlockPos min = floorCenter.add(-MONOLITH_RING_OUTER_RADIUS, -1,
+                -MONOLITH_RING_OUTER_RADIUS);
+        BlockPos max = floorCenter.add(MONOLITH_RING_OUTER_RADIUS,
+                MONOLITH_COLUMN_TOP_Y,
+                MONOLITH_RING_OUTER_RADIUS);
+        if (!world.isAreaLoaded(min, max, false)) return false;
+
+        for (int dx = -MONOLITH_RING_OUTER_RADIUS;
+             dx <= MONOLITH_RING_OUTER_RADIUS; dx++) {
+            for (int dz = -MONOLITH_RING_OUTER_RADIUS;
+                 dz <= MONOLITH_RING_OUTER_RADIUS; dz++) {
+                int distanceSq = dx * dx + dz * dz;
+                if (distanceSq > MONOLITH_RING_OUTER_SHAPE_SQ) continue;
+
+                BlockPos floor = floorCenter.add(dx, 0, dz);
+                if (distanceSq > MONOLITH_RING_INNER_SHAPE_SQ) {
+                    IBlockState state = world.getBlockState(floor);
+                    if (!isProtectedBlock(world, floor, state)) {
+                        world.setBlockState(floor,
+                                randomArchiveFloorState(world.rand), 2);
+                    }
+                } else {
+                    clearMonolithVoidColumn(floor);
+                }
+            }
+        }
+
+        BlockPos corePos = floorCenter.up();
+        IBlockState existing = world.getBlockState(corePos);
+        if (isProtectedBlock(world, corePos, existing)) return false;
+        world.setBlockState(corePos, TABlocks.ANOMALOUS_MONOLITH.getDefaultState(), 3);
+        if (world.getBlockState(corePos).getBlock() != TABlocks.ANOMALOUS_MONOLITH) {
+            return false;
+        }
+        TileEntity monolithTile = world.getTileEntity(corePos);
+        if (!(monolithTile instanceof TileAnomalousMonolith)) return false;
+        ((TileAnomalousMonolith) monolithTile).setEfficiency(1 + world.rand.nextInt(3));
+
+        List<BlockPos> pedestalPositions = new ArrayList<>(Arrays.asList(
+                floorCenter.add(MONOLITH_PEDESTAL_RADIUS, 1, 0),
+                floorCenter.add(-MONOLITH_PEDESTAL_RADIUS, 1, 0),
+                floorCenter.add(0, 1, MONOLITH_PEDESTAL_RADIUS),
+                floorCenter.add(0, 1, -MONOLITH_PEDESTAL_RADIUS)
+        ));
+        Collections.shuffle(pedestalPositions, world.rand);
+        int strangePedestalCount = 2 + (world.rand.nextBoolean() ? 1 : 0);
+        placeMonolithPedestals(pedestalPositions, strangePedestalCount, world.rand);
+        placeMonolithUpperColumns(floorCenter, world.rand);
+        placeMonolithLowerColumns(floorCenter, world.rand);
+
+        archivePositions.clear();
+        archivePositions.add(corePos.toImmutable());
+        seedPos = corePos.toImmutable();
+        center = seedPos;
+        setPosition(center.getX() + 0.5D, center.getY() + 0.5D, center.getZ() + 0.5D);
+        specialStructurePrepared = true;
+        chamberPrepared = true;
+        initialResourcesPlaced = true;
+        resourcesBootstrapped = true;
+        TAInfectedChunksData.get(world).setLastActivatedInfo(tier, seedPos);
+        return true;
+    }
+
+    private void clearMonolithVoidColumn(BlockPos floor) {
+        for (int dy = 0; dy <= MONOLITH_COLUMN_TOP_Y; dy++) {
+            BlockPos target = floor.up(dy);
+            IBlockState state = world.getBlockState(target);
+            if (world.isAirBlock(target) || isProtectedBlock(world, target, state)) continue;
+            world.setBlockState(target, Blocks.AIR.getDefaultState(), 2);
+        }
+    }
+
+    private void placeMonolithUpperColumns(BlockPos floorCenter, Random rnd) {
+        List<BlockPos> candidates = new ArrayList<>(Arrays.asList(
+                floorCenter.add(-3, 0, -3),
+                floorCenter.add(-3, 0, 3),
+                floorCenter.add(3, 0, -3),
+                floorCenter.add(3, 0, 3)
+        ));
+        Collections.shuffle(candidates, rnd);
+
+        for (BlockPos floor : candidates) {
+            boolean complete = rnd.nextFloat() < MONOLITH_COMPLETE_COLUMN_CHANCE;
+            if (complete) {
+                placeAncientColumn(floor.up(), EnumFacing.UP);
+                placeAncientColumn(floor.up(MONOLITH_COLUMN_TOP_Y), EnumFacing.DOWN);
+            } else if (rnd.nextBoolean()) {
+                placeAncientColumn(floor.up(), EnumFacing.UP);
+            } else {
+                placeAncientColumn(floor.up(MONOLITH_COLUMN_TOP_Y), EnumFacing.DOWN);
+            }
+        }
+    }
+
+    private void placeMonolithLowerColumns(BlockPos floorCenter, Random rnd) {
+        int[][] offsets = {
+                {0, -5}, {3, -4}, {4, -3}, {5, 0},
+                {4, 3}, {3, 4}, {0, 5}, {-3, 4},
+                {-4, 3}, {-5, 0}, {-4, -3}, {-3, -4}
+        };
+        List<BlockPos> candidates = new ArrayList<>(offsets.length);
+        for (int[] offset : offsets) {
+            candidates.add(floorCenter.add(offset[0], -1, offset[1]).toImmutable());
+        }
+        Collections.shuffle(candidates, rnd);
+
+        for (int index = 0; index < candidates.size(); index++) {
+            boolean guaranteed = index < MONOLITH_GUARANTEED_LOWER_COLUMNS;
+            if (!guaranteed
+                    && rnd.nextFloat() >= MONOLITH_EXTRA_LOWER_COLUMN_CHANCE) {
+                continue;
+            }
+            placeAncientColumn(candidates.get(index), EnumFacing.DOWN);
+        }
+    }
+
+    private void placeMonolithPedestals(List<BlockPos> positions,
+                                        int strangeCount,
+                                        Random rnd) {
+        for (int index = 0; index < positions.size(); index++) {
+            BlockPos pedestalPos = positions.get(index);
+            if (!world.isAirBlock(pedestalPos)) continue;
+            if (!world.isSideSolid(pedestalPos.down(), EnumFacing.UP, true)) continue;
+
+            if (index < strangeCount) {
+                world.setBlockState(pedestalPos,
+                        TABlocks.STRANGE_PEDESTAL.getDefaultState(), 3);
+                continue;
+            }
+
+            world.setBlockState(pedestalPos,
+                    BlocksTC.pedestalEldritch.getDefaultState(), 3);
+            TileEntity tile = world.getTileEntity(pedestalPos);
+            if (tile instanceof IInventory) {
+                ((IInventory) tile).setInventorySlotContents(
+                        0, createArchivePedestalReward(rnd));
+                tile.markDirty();
+                IBlockState state = world.getBlockState(pedestalPos);
+                world.notifyBlockUpdate(pedestalPos, state, state, 3);
+            }
+        }
+    }
+
+    private boolean prepareArchiveStructure() {
+        int x = center.getX();
+        int z = center.getZ();
+        int floorY;
+        if (environment == FluxAnomalyEnvironment.NETHER_FLOOR) {
+            int bedrockY = findHighestBedrockY(x, z, 0, 16);
+            if (bedrockY < 0) return false;
+            floorY = bedrockY + 1;
+        } else {
+            floorY = MathHelper.clamp(center.getY() - 1, 2, world.getHeight() - 10);
+        }
+
+        BlockPos floorCenter = new BlockPos(x, floorY, z);
+        Random rnd = world.rand;
+        ChamberSettings chamber = ChamberSettings.forArchive(rnd);
+        int domeRadius = chamber.radius;
+        int domeRadiusSq = domeRadius * domeRadius;
+        int domeHeight = MathHelper.ceil(domeRadius * chamber.domeK);
+        BlockPos min = floorCenter.add(-domeRadius, 0, -domeRadius);
+        BlockPos max = floorCenter.add(domeRadius,
+                chamber.wallHeight + domeHeight, domeRadius);
+        if (!world.isAreaLoaded(min, max, false)) return false;
+
+        for (int dx = -domeRadius; dx <= domeRadius; dx++) {
+            for (int dz = -domeRadius; dz <= domeRadius; dz++) {
+                int distanceSq = dx * dx + dz * dz;
+                if (distanceSq > domeRadiusSq) continue;
+
+                int maxAirY = chamber.wallHeight + domeHeight;
+                for (int dy = 1; dy <= maxAirY; dy++) {
+                    BlockPos target = floorCenter.add(dx, dy, dz);
+                    if (!shouldCarve(target, floorCenter,
+                            floorY + chamber.wallHeight,
+                            domeRadiusSq, chamber.domeK)) {
+                        continue;
+                    }
+                    IBlockState state = world.getBlockState(target);
+                    if (isProtectedBlock(world, target, state)) continue;
+                    if (!world.isAirBlock(target)) {
+                        world.setBlockState(target, Blocks.AIR.getDefaultState(), 2);
+                    }
+                }
+
+                if (shouldReplaceArchiveFloor(distanceSq, rnd)) {
+                    BlockPos floor = floorCenter.add(dx, 0, dz);
+                    IBlockState current = world.getBlockState(floor);
+                    if (!isProtectedBlock(world, floor, current)) {
+                        world.setBlockState(floor, randomArchiveFloorState(rnd), 2);
+                    }
+                }
+            }
+        }
+
+        boolean laboratory = tier == FluxAnomalyTier.LABORATORY;
+        archivePositions.clear();
+        BlockPos corePos = floorCenter.up();
+        IBlockState existing = world.getBlockState(corePos);
+        if (isProtectedBlock(world, corePos, existing)) return false;
+        world.setBlockState(corePos, laboratory
+                ? TABlocks.ANOMALY_WELL.getDefaultState()
+                : TABlocks.ANOMALY_ARCHIVE.getDefaultState(), 3);
+        TileEntity coreTile = world.getTileEntity(corePos);
+        if (laboratory) {
+            if (!(coreTile instanceof TileAnomalyWell)) return false;
+            ((TileAnomalyWell) coreTile).initializeLaboratory(
+                    anomalyId, 6 + rnd.nextInt(5));
+            List<BlockPos> pedestalPositions =
+                    placeLaboratoryColumns(floorCenter, chamber, rnd);
+            placeLaboratoryPedestals(pedestalPositions, rnd);
+        } else {
+            if (!(coreTile instanceof TileAnomalyArchive)) return false;
+            ((TileAnomalyArchive) coreTile).linkToAnomaly(anomalyId);
+            List<BlockPos> pedestalPositions =
+                    placeArchiveColumnsAndLights(floorCenter, chamber, rnd);
+            placeArchivePedestals(pedestalPositions, rnd);
+        }
+        archivePositions.add(corePos.toImmutable());
+
+        seedPos = corePos.toImmutable();
+        center = seedPos;
+        setPosition(center.getX() + 0.5D, center.getY() + 0.5D, center.getZ() + 0.5D);
+        specialStructurePrepared = true;
+        chamberPrepared = true;
+        initialResourcesPlaced = true;
+        resourcesBootstrapped = true;
+        TAInfectedChunksData.get(world).setLastActivatedInfo(tier, seedPos);
+        return true;
+    }
+
+    private List<BlockPos> placeArchiveColumnsAndLights(BlockPos floorCenter,
+                                                        ChamberSettings chamber,
+                                                        Random rnd) {
+        List<BlockPos> pedestalPositions = new ArrayList<>();
+        int[][] corners = {{-2, -2}, {-2, 2}, {2, -2}, {2, 2}};
+        int ceilingScanHeight = chamber.wallHeight
+                + MathHelper.ceil(chamber.radius * chamber.domeK) + 3;
+
+        for (int[] corner : corners) {
+            BlockPos floor = floorCenter.add(corner[0], 0, corner[1]);
+            ensureArchiveFloorSupport(floor);
+
+            boolean both = rnd.nextFloat() < 0.10F;
+            boolean placeFloor = both || rnd.nextBoolean();
+            boolean placeCeiling = both || !placeFloor;
+            boolean floorColumnPlaced = false;
+            boolean ceilingColumnPlaced = false;
+
+            if (placeFloor) {
+                floorColumnPlaced =
+                        placeAncientColumn(floor.up(), EnumFacing.UP);
+            }
+            if (placeCeiling) {
+                BlockPos ceilingColumn = findArchiveCeilingMount(
+                        floor, ceilingScanHeight);
+                if (ceilingColumn != null) {
+                    ceilingColumnPlaced =
+                            placeAncientColumn(ceilingColumn, EnumFacing.DOWN);
+                } else if (!floorColumnPlaced) {
+                    floorColumnPlaced =
+                            placeAncientColumn(floor.up(), EnumFacing.UP);
+                }
+            }
+            if (ceilingColumnPlaced && !floorColumnPlaced) {
+                pedestalPositions.add(floor.up().toImmutable());
+            }
+        }
+
+        List<BlockPos> crossPositions = Arrays.asList(
+                floorCenter.add(4, 1, 0),
+                floorCenter.add(-4, 1, 0),
+                floorCenter.add(0, 1, 4),
+                floorCenter.add(0, 1, -4)
+        );
+        List<BlockPos> lightPositions = new ArrayList<>(crossPositions);
+        Collections.shuffle(lightPositions, rnd);
+        int lightCount = 1 + rnd.nextInt(2);
+        int placedLights = 0;
+        for (BlockPos lightPos : lightPositions) {
+            if (placedLights >= lightCount) break;
+            BlockPos support = lightPos.down();
+            ensureArchiveFloorSupport(support);
+            if (!world.isAirBlock(lightPos)) continue;
+            IBlockState state = TABlocks.ANCIENT_FIRE.getDefaultState()
+                    .withProperty(BlockDirectional.FACING, EnumFacing.UP);
+            if (world.setBlockState(lightPos, state, 3)) {
+                placedLights++;
+            }
+        }
+        for (BlockPos crossPos : crossPositions) {
+            if (world.getBlockState(crossPos).getBlock() != TABlocks.ANCIENT_FIRE) {
+                pedestalPositions.add(crossPos.toImmutable());
+            }
+        }
+        return pedestalPositions;
+    }
+
+    private List<BlockPos> placeLaboratoryColumns(BlockPos floorCenter,
+                                                   ChamberSettings chamber,
+                                                   Random rnd) {
+        List<BlockPos> pedestalPositions = new ArrayList<>();
+        int[][] corners = {
+                {-3, -3}, {-3, 3}, {3, -3}, {3, 3}
+        };
+        int[][] sideCenters = {
+                {-3, 0}, {3, 0}, {0, -3}, {0, 3}
+        };
+        int ceilingScanHeight = chamber.wallHeight
+                + MathHelper.ceil(chamber.radius * chamber.domeK) + 3;
+
+        for (int[] offset : corners) {
+            BlockPos floor = floorCenter.add(offset[0], 0, offset[1]);
+            ensureArchiveFloorSupport(floor);
+            pedestalPositions.add(floor.up().toImmutable());
+        }
+
+        for (int[] offset : sideCenters) {
+            BlockPos floor = floorCenter.add(offset[0], 0, offset[1]);
+            ensureArchiveFloorSupport(floor);
+
+            // A complete laboratory column has both floor and ceiling halves.
+            if (rnd.nextFloat() < 0.10F) {
+                placeAncientColumn(floor.up(), EnumFacing.UP);
+                BlockPos ceiling = findArchiveCeilingMount(
+                        floor, ceilingScanHeight);
+                if (ceiling != null) {
+                    placeAncientColumn(ceiling, EnumFacing.DOWN);
+                }
+                continue;
+            }
+
+            if (rnd.nextBoolean()) {
+                if (!placeAncientColumn(floor.up(), EnumFacing.UP)) {
+                    BlockPos ceiling = findArchiveCeilingMount(
+                            floor, ceilingScanHeight);
+                    if (ceiling != null) {
+                        placeAncientColumn(ceiling, EnumFacing.DOWN);
+                    }
+                }
+            } else {
+                BlockPos ceiling = findArchiveCeilingMount(
+                        floor, ceilingScanHeight);
+                if (ceiling == null
+                        || !placeAncientColumn(ceiling, EnumFacing.DOWN)) {
+                    placeAncientColumn(floor.up(), EnumFacing.UP);
+                }
+            }
+        }
+        return pedestalPositions;
+    }
+
+    private void ensureArchiveFloorSupport(BlockPos floor) {
+        if (world.isSideSolid(floor, EnumFacing.UP, true)) return;
+        IBlockState current = world.getBlockState(floor);
+        if (!isProtectedBlock(world, floor, current)) {
+            world.setBlockState(
+                    floor, BlocksTC.stoneEldritchTile.getDefaultState(), 3);
+        }
+    }
+
+    private boolean placeAncientColumn(BlockPos pos, EnumFacing facing) {
+        if (!world.isAirBlock(pos)) return false;
+        IBlockState state = TABlocks.ANCIENT_COLUMN.getDefaultState()
+                .withProperty(BlockDirectional.FACING, facing);
+        return world.setBlockState(pos, state, 3);
+    }
+
+    @Nullable
+    private BlockPos findArchiveCeilingMount(BlockPos floor, int scanHeight) {
+        for (int dy = 2; dy <= scanHeight; dy++) {
+            BlockPos support = floor.up(dy);
+            BlockPos target = support.down();
+            if (world.isAirBlock(target)
+                    && world.isSideSolid(support, EnumFacing.DOWN, true)) {
+                return target;
+            }
+        }
+        return null;
+    }
+
+    private void placeArchivePedestals(List<BlockPos> positions, Random rnd) {
+        for (BlockPos pedestalPos : positions) {
+            if (!world.isAirBlock(pedestalPos)) continue;
+
+            BlockPos support = pedestalPos.down();
+            ensureArchiveFloorSupport(support);
+            if (!world.isSideSolid(support, EnumFacing.UP, true)) continue;
+            world.setBlockState(pedestalPos,
+                    BlocksTC.pedestalEldritch.getDefaultState(), 3);
+            TileEntity tile = world.getTileEntity(pedestalPos);
+            if (tile instanceof IInventory) {
+                ((IInventory) tile).setInventorySlotContents(
+                        0, createArchivePedestalReward(rnd));
+                tile.markDirty();
+                IBlockState state = world.getBlockState(pedestalPos);
+                world.notifyBlockUpdate(pedestalPos, state, state, 3);
+            }
+        }
+    }
+
+    private void placeLaboratoryPedestals(List<BlockPos> positions, Random rnd) {
+        for (BlockPos pedestalPos : positions) {
+            if (!world.isAirBlock(pedestalPos)) continue;
+
+            BlockPos support = pedestalPos.down();
+            ensureArchiveFloorSupport(support);
+            if (!world.isSideSolid(support, EnumFacing.UP, true)) continue;
+            world.setBlockState(pedestalPos,
+                    BlocksTC.pedestalEldritch.getDefaultState(), 3);
+            TileEntity tile = world.getTileEntity(pedestalPos);
+            if (tile instanceof IInventory && rnd.nextFloat() < 0.60F) {
+                ((IInventory) tile).setInventorySlotContents(
+                        0, createLaboratoryPedestalReward(rnd));
+                tile.markDirty();
+                IBlockState state = world.getBlockState(pedestalPos);
+                world.notifyBlockUpdate(pedestalPos, state, state, 3);
+            }
+        }
+    }
+
+    private static ItemStack createArchivePedestalReward(Random rnd) {
+        if (rnd.nextFloat() < 0.70F) {
+            int metadata = rnd.nextBoolean() ? 3 : 4;
+            return new ItemStack(ItemsTC.curio, 1, metadata);
+        }
+        switch (rnd.nextInt(3)) {
+            case 0:
+                return new ItemStack(ModBlocksItems.RIFT_EMBER);
+            case 1:
+                return new ItemStack(ModBlocksItems.RIFT_AMETIST);
+            default:
+                return new ItemStack(ModBlocksItems.RIFT_BRILIANT);
+        }
+    }
+
+    private static ItemStack createLaboratoryPedestalReward(Random rnd) {
+        if (rnd.nextFloat() < 0.70F) {
+            int[] metadata = {5, 2, 3};
+            return new ItemStack(ItemsTC.curio, 1,
+                    metadata[rnd.nextInt(metadata.length)]);
+        }
+        switch (rnd.nextInt(3)) {
+            case 0:
+                return new ItemStack(ModBlocksItems.RIFT_EMBER);
+            case 1:
+                return new ItemStack(ModBlocksItems.RIFT_AMETIST);
+            default:
+                return new ItemStack(ModBlocksItems.RIFT_BRILIANT);
+        }
+    }
+
+    private static boolean shouldReplaceArchiveFloor(int distanceSq, Random rnd) {
+        if (distanceSq <= 9) return true;
+        if (distanceSq <= 16) return rnd.nextFloat() < 0.90F;
+        if (distanceSq <= ARCHIVE_FLOOR_RADIUS * ARCHIVE_FLOOR_RADIUS) {
+            return rnd.nextFloat() < 0.70F;
+        }
+        return false;
+    }
+
+    private static IBlockState randomArchiveFloorState(Random rnd) {
+        int roll = rnd.nextInt(100);
+        if (roll < 60) return BlocksTC.stoneEldritchTile.getDefaultState();
+        if (roll < 70) return Blocks.OBSIDIAN.getDefaultState();
+        if (roll < 85 && TABlocks.POLISHED_DARK_JASPER != null) {
+            return TABlocks.POLISHED_DARK_JASPER.getDefaultState();
+        }
+        if (TABlocks.ELDRITCH_CONSTRUCTION != null) {
+            return TABlocks.ELDRITCH_CONSTRUCTION.getDefaultState()
+                    .withProperty(BlockEldritchConstarction.VARIANT,
+                            BlockEldritchConstarction.Variant.BASE);
+        }
+        return BlocksTC.stoneEldritchTile.getDefaultState();
+    }
+
+    private void sealLinkedArchives() {
+        for (BlockPos corePos : archivePositions) {
+            if (!world.isBlockLoaded(corePos)) continue;
+            TileEntity tile = world.getTileEntity(corePos);
+            if (tile instanceof TileAnomalyArchive) {
+                ((TileAnomalyArchive) tile).disableRegeneration(anomalyId);
+            } else if (tile instanceof TileAnomalyWell) {
+                ((TileAnomalyWell) tile).disableRegeneration(anomalyId);
+            }
+        }
+    }
+
+    public boolean finishFromArchiveBoneRestore(UUID id) {
+        if (world.isRemote || finished || tier != FluxAnomalyTier.ARCHIVE
+                || id == null || !id.equals(anomalyId)) {
+            return false;
+        }
+        finishAnomaly(FinishReason.ARCHIVE_BONE_RESTORED, false);
+        return true;
     }
 
     private int getInitialResourceAttempts(Block block) {
@@ -377,11 +1006,12 @@ public class EntityFluxAnomalyBurst extends Entity {
     }
 
     private int countExistingResources(Block block, BlockPos anchor) {
+        int scanRadius = getResourceScanRadius();
         if (block instanceof BlockRiftBush) {
             int count = 0;
             for (BlockPos pos : BlockPos.getAllInBoxMutable(
-                    anchor.add(-resourceRadius, -resourceRadius, -resourceRadius),
-                    anchor.add(resourceRadius, resourceRadius, resourceRadius))) {
+                    anchor.add(-scanRadius, -scanRadius, -scanRadius),
+                    anchor.add(scanRadius, scanRadius, scanRadius))) {
                 IBlockState state = world.getBlockState(pos);
                 if (state.getBlock() instanceof BlockRiftBush
                         && state.getValue(BlockRiftBush.HALF) == BlockRiftBush.BlockHalf.LOWER) {
@@ -390,7 +1020,81 @@ public class EntityFluxAnomalyBurst extends Entity {
             }
             return count;
         }
-        return FluxResourceHelper.countBlocks(world, anchor, block, resourceRadius);
+        return FluxResourceHelper.countBlocks(world, anchor, block, scanRadius);
+    }
+
+    private int getResourceScanRadius() {
+        return environment == FluxAnomalyEnvironment.END_ISLANDS
+                ? 28
+                : Math.max(resourceRadius, radiusBlocks);
+    }
+
+    private void tickResourceLifecycle() {
+        if (resourceBlock == null || !resourcesBootstrapped || seedPos == null) return;
+        long now = world.getTotalWorldTime();
+        boolean growthDue = now - lastGrowthCheckTick >= RESOURCE_GROWTH_INTERVAL_TICKS;
+        boolean damageDue = now - lastFullResourceDamageTick >= FULL_RESOURCE_DAMAGE_INTERVAL_TICKS;
+        if (!growthDue && !damageDue) return;
+
+        int count = countExistingResources(resourceBlock, getAnchor());
+        boolean allReady = count > 0 && areAllResourcesReady(resourceBlock);
+        if (growthDue) lastGrowthCheckTick = now;
+        if (damageDue) lastFullResourceDamageTick = now;
+
+        if (count < RESOURCE_LIMIT
+                && allReady
+                && growthDue) {
+            PlacementAttempt attempt;
+            if (environment == FluxAnomalyEnvironment.END_ISLANDS
+                    && resourceBlock instanceof BlockRiftGeod) {
+                attempt = placeOneEndIslandResource((BlockRiftGeod) resourceBlock);
+            } else {
+                attempt = tryPlaceInitialResource(resourceBlock, world.rand);
+            }
+            LOG.info("[FluxAnomaly] timed resource growth type={} count={} result={} reason={}",
+                    resourceBlock.getRegistryName(),
+                    count,
+                    attempt.success ? "SUCCESS" : "FAIL",
+                    attempt.reason);
+        }
+
+        if (count >= RESOURCE_LIMIT
+                && allReady
+                && damageDue) {
+            Entity seed = findSeedEntity();
+            if (seed != null && !seed.isDead) {
+                seed.attackEntityFrom(DamageSource.MAGIC, 0.5F);
+            }
+        }
+    }
+
+    private boolean areAllResourcesReady(Block block) {
+        int count = 0;
+        int scanRadius = getResourceScanRadius();
+        for (BlockPos pos : BlockPos.getAllInBoxMutable(
+                getAnchor().add(-scanRadius, -scanRadius, -scanRadius),
+                getAnchor().add(scanRadius, scanRadius, scanRadius))) {
+            IBlockState state = world.getBlockState(pos);
+            if (block instanceof BlockRiftBush) {
+                if (!(state.getBlock() instanceof BlockRiftBush)
+                        || state.getValue(BlockRiftBush.HALF) != BlockRiftBush.BlockHalf.LOWER) continue;
+                count++;
+                if (state.getValue(BlockRiftBush.HARVEST_STATE) != BlockRiftBush.HarvestState.READY) {
+                    return false;
+                }
+            } else if (block instanceof BlockAnomalyStone) {
+                if (!(state.getBlock() instanceof BlockAnomalyStone)) continue;
+                count++;
+                if (state.getValue(BlockAnomalyStone.HARVEST_STATE)
+                        != BlockAnomalyStone.HarvestState.READY) return false;
+            } else if (block instanceof BlockRiftGeod) {
+                if (!(state.getBlock() instanceof BlockRiftGeod)) continue;
+                count++;
+                if (world.getTileEntity(pos) instanceof TileRiftGeod
+                        && ((TileRiftGeod) world.getTileEntity(pos)).isCollected()) return false;
+            }
+        }
+        return count > 0;
     }
 
     private void tickPendingRequests() {
@@ -1123,6 +1827,11 @@ public class EntityFluxAnomalyBurst extends Entity {
         if (phase == nextPhase) return;
         LOG.info("[FluxAnomaly] Phase change id={} {} -> {} seedPos={}", anomalyId, phase, nextPhase, seedPos);
         phase = nextPhase;
+        if (nextPhase == AnomalyPhase.ACTIVE) {
+            long now = world.getTotalWorldTime();
+            if (lastGrowthCheckTick <= 0L) lastGrowthCheckTick = now;
+            if (lastFullResourceDamageTick <= 0L) lastFullResourceDamageTick = now;
+        }
     }
 
     private void finishAnomaly(FinishReason reason, boolean killSeed) {
@@ -1133,10 +1842,14 @@ public class EntityFluxAnomalyBurst extends Entity {
         finished = true;
         phase = AnomalyPhase.FINISH;
         finishReason = reason;
+        if (tier == FluxAnomalyTier.ARCHIVE
+                || tier == FluxAnomalyTier.LABORATORY) {
+            sealLinkedArchives();
+        }
         if (killSeed) {
             killSeedIfPresent();
         }
-        if (!world.isRemote && seedPos != null) {
+        if (!world.isRemote && seedPos != null && seedEntityId != null) {
             TaintHelper.removeTaintSeed(world, seedPos);
             if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
                 LOG.debug("[FluxAnomaly] Deregistered taint seed at {}", seedPos);
@@ -1150,7 +1863,8 @@ public class EntityFluxAnomalyBurst extends Entity {
                 remainingSpreads,
                 reason,
                 killSeed);
-        InfectedChunkAnomalyManager.onAnomalyEnded(world, seedEntityId, anomalyId, sourceChunkKey);
+        InfectedChunkAnomalyManager.onAnomalyEnded(
+                world, seedEntityId, anomalyId, sourceChunkKey, sourcePlayerId, tier, environment);
         setDead();
     }
 
@@ -1170,7 +1884,213 @@ public class EntityFluxAnomalyBurst extends Entity {
         return new BlockPos(anchor.getX() + dx, dy, anchor.getZ() + dz);
     }
 
+    private boolean prepareSpecialEnvironment() {
+        if (environment == FluxAnomalyEnvironment.NETHER_FLOOR
+                || environment == FluxAnomalyEnvironment.NETHER_CEILING) {
+            return prepareNetherBoundaryChamber();
+        }
+        if (environment != FluxAnomalyEnvironment.END_ISLANDS) return true;
+        if (specialStructurePrepared) return true;
+        if (!world.isAreaLoaded(center, 20)) return false;
+
+        specialResourceAnchors.clear();
+        primaryEndResourceAnchors.clear();
+        Random rnd = world.rand;
+        int islandCount = 5 + rnd.nextInt(2);
+        BlockPos mainCenter = center.toImmutable();
+        Set<BlockPos> mainIsland = buildChaoticTaintIsland(mainCenter, 6 + rnd.nextInt(5), rnd);
+        BlockPos mainTop = findIslandTop(mainIsland);
+        if (mainTop == null) return false;
+        addEndIslandResourceAnchors(mainIsland);
+
+        seedPos = mainTop.up().toImmutable();
+        center = seedPos;
+
+        for (int i = 1; i < islandCount; i++) {
+            double angle = (Math.PI * 2.0D * i / (islandCount - 1))
+                    + (rnd.nextDouble() - 0.5D) * 0.55D;
+            int distance = 6 + rnd.nextInt(5);
+            BlockPos islandCenter = mainCenter.add(
+                    MathHelper.floor(Math.cos(angle) * distance),
+                    rnd.nextInt(13) - 6,
+                    MathHelper.floor(Math.sin(angle) * distance)
+            );
+            Set<BlockPos> island = buildChaoticTaintIsland(islandCenter, 5 + rnd.nextInt(6), rnd);
+            addEndIslandResourceAnchors(island);
+        }
+
+        specialStructurePrepared = primaryEndResourceAnchors.size() == islandCount;
+        chamberPrepared = specialStructurePrepared;
+        return specialStructurePrepared;
+    }
+
+    private void addEndIslandResourceAnchors(Set<BlockPos> island) {
+        if (island.isEmpty()) return;
+        BlockPos primary = null;
+        for (BlockPos block : island) {
+            BlockPos below = block.down();
+            if (island.contains(below)) continue;
+            specialResourceAnchors.add(below.toImmutable());
+            if (primary == null || below.getY() < primary.getY()) {
+                primary = below;
+            }
+        }
+        if (primary != null) {
+            primaryEndResourceAnchors.add(primary.toImmutable());
+        }
+    }
+
+    private boolean prepareNetherBoundaryChamber() {
+        if (specialStructurePrepared) return true;
+        if (!world.isAreaLoaded(center, 12)) return false;
+
+        int x = center.getX();
+        int z = center.getZ();
+        boolean ceiling = environment == FluxAnomalyEnvironment.NETHER_CEILING;
+        int boundaryY = ceiling
+                ? findLowestBedrockY(x, z, 96, 127)
+                : findHighestBedrockY(x, z, 0, 16);
+        if (boundaryY < 0) return false;
+
+        ChamberSettings settings = ChamberSettings.forTier(FluxAnomalyTier.SHALLOW, world.rand);
+        int radius = settings.radius;
+        int domeHeight = MathHelper.ceil(radius * settings.domeK);
+        int chamberHeight = settings.wallHeight + domeHeight;
+        int floorY = ceiling ? boundaryY - chamberHeight - 1 : boundaryY + 1;
+        int minAirY = floorY + 1;
+        int maxAirY = floorY + chamberHeight;
+        int radiusSq = radius * radius;
+
+        for (int dx = -radius; dx <= radius; dx++) {
+            for (int dz = -radius; dz <= radius; dz++) {
+                int horizontalSq = dx * dx + dz * dz;
+                if (horizontalSq > radiusSq) continue;
+                BlockPos floor = new BlockPos(x + dx, floorY, z + dz);
+                if (world.getBlockState(floor).getBlock() != Blocks.BEDROCK
+                        && world.getTileEntity(floor) == null) {
+                    world.setBlockState(floor, BlocksTC.taintRock.getDefaultState(), 2);
+                }
+                for (int y = minAirY; y <= maxAirY; y++) {
+                    BlockPos pos = new BlockPos(x + dx, y, z + dz);
+                    if (!shouldCarve(pos, new BlockPos(x, floorY, z),
+                            floorY + settings.wallHeight, radiusSq, settings.domeK)) continue;
+                    if (world.getBlockState(pos).getBlock() == Blocks.BEDROCK
+                            || world.getTileEntity(pos) != null) continue;
+                    world.setBlockState(pos, Blocks.AIR.getDefaultState(), 2);
+                }
+            }
+        }
+
+        BlockPos seedFloor = new BlockPos(x, floorY, z);
+        if (world.getBlockState(seedFloor).getBlock() != Blocks.BEDROCK) {
+            world.setBlockState(seedFloor, BlocksTC.taintRock.getDefaultState(), 2);
+        }
+        seedPos = seedFloor.up().toImmutable();
+        center = seedPos;
+        specialStructurePrepared = true;
+        chamberPrepared = true;
+        return true;
+    }
+
+    public boolean finishFromLaboratoryWellRecharge(UUID id) {
+        if (world.isRemote || finished || tier != FluxAnomalyTier.LABORATORY
+                || id == null || !id.equals(anomalyId)) {
+            return false;
+        }
+        finishAnomaly(FinishReason.LABORATORY_WELL_RECHARGED, false);
+        return true;
+    }
+
+    private int findLowestBedrockY(int x, int z, int minY, int maxY) {
+        for (int y = minY; y <= maxY; y++) {
+            if (world.getBlockState(new BlockPos(x, y, z)).getBlock() == Blocks.BEDROCK) return y;
+        }
+        return -1;
+    }
+
+    private int findHighestBedrockY(int x, int z, int minY, int maxY) {
+        for (int y = maxY; y >= minY; y--) {
+            if (world.getBlockState(new BlockPos(x, y, z)).getBlock() == Blocks.BEDROCK) return y;
+        }
+        return -1;
+    }
+
+    private Set<BlockPos> buildChaoticTaintIsland(BlockPos islandCenter, int requestedVolume, Random rnd) {
+        int volume = MathHelper.clamp(requestedVolume, 1, 10);
+        Set<BlockPos> blocks = new HashSet<>();
+        if (islandCenter.getY() < 3 || islandCenter.getY() >= world.getHeight() - 3) return blocks;
+        blocks.add(islandCenter.toImmutable());
+
+        int attempts = 0;
+        while (blocks.size() < volume && attempts++ < 100) {
+            List<BlockPos> existing = new ArrayList<>(blocks);
+            BlockPos base = existing.get(rnd.nextInt(existing.size()));
+            EnumFacing face = EnumFacing.values()[rnd.nextInt(EnumFacing.values().length)];
+            BlockPos candidate = base.offset(face);
+            if (Math.abs(candidate.getX() - islandCenter.getX()) > 2
+                    || Math.abs(candidate.getY() - islandCenter.getY()) > 2
+                    || Math.abs(candidate.getZ() - islandCenter.getZ()) > 2) continue;
+            if (candidate.getY() < 2 || candidate.getY() >= world.getHeight() - 2) continue;
+            if (world.getTileEntity(candidate) != null
+                    || world.getBlockState(candidate).getBlock() == Blocks.BEDROCK) continue;
+            blocks.add(candidate.toImmutable());
+        }
+
+        for (BlockPos pos : blocks) {
+            world.setBlockState(pos, BlocksTC.taintRock.getDefaultState(), 2);
+        }
+        return blocks;
+    }
+
+    @Nullable
+    private BlockPos findIslandTop(Set<BlockPos> island) {
+        BlockPos best = null;
+        for (BlockPos pos : island) {
+            if (island.contains(pos.up())) continue;
+            if (best == null || pos.getY() > best.getY()) best = pos;
+        }
+        return best;
+    }
+
+    private int placeEndIslandResources(BlockRiftGeod geod, int requested) {
+        int placed = 0;
+        for (BlockPos anchor : primaryEndResourceAnchors) {
+            if (world.getBlockState(anchor).getBlock() instanceof BlockRiftGeod) continue;
+            if (placed >= requested) break;
+            if (placeEndGeodAt(geod, anchor).success) placed++;
+        }
+        return placed;
+    }
+
+    private PlacementAttempt placeOneEndIslandResource(BlockRiftGeod geod) {
+        if (specialResourceAnchors.isEmpty()) return PlacementAttempt.fail("NO_END_ISLANDS");
+        Random rnd = world.rand;
+        for (int attempt = 0; attempt < 40; attempt++) {
+            BlockPos placePos = specialResourceAnchors.get(rnd.nextInt(specialResourceAnchors.size()));
+            PlacementAttempt result = placeEndGeodAt(geod, placePos);
+            if (result.success) return result;
+        }
+        return PlacementAttempt.fail("END_ISLANDS_FULL");
+    }
+
+    private PlacementAttempt placeEndGeodAt(BlockRiftGeod geod, BlockPos placePos) {
+        if (!world.isAirBlock(placePos)) return PlacementAttempt.fail("BLOCKED_END_ANCHOR");
+        if (!world.getBlockState(placePos.up()).getMaterial().isSolid()) {
+            return PlacementAttempt.fail("NO_END_ISLAND_SUPPORT");
+        }
+        world.setBlockState(placePos,
+                geod.getDefaultState().withProperty(BlockRiftGeod.FACING, EnumFacing.DOWN), 3);
+        FluxResourceHelper.linkBlockToAnomaly(world, placePos, anomalyId, seedPos);
+        return PlacementAttempt.success();
+    }
+
     private boolean ensureUndergroundChamber() {
+        if (environment == FluxAnomalyEnvironment.END_ISLANDS
+                || environment == FluxAnomalyEnvironment.NETHER_FLOOR
+                || environment == FluxAnomalyEnvironment.NETHER_CEILING) {
+            chamberPrepared = true;
+            return true;
+        }
         if (tier == FluxAnomalyTier.SURFACE) {
             chamberPrepared = true;
             return true;
@@ -1306,7 +2226,9 @@ public class EntityFluxAnomalyBurst extends Entity {
             }
             return false;
         }
-        if (tier != FluxAnomalyTier.SURFACE && world.canBlockSeeSky(pos)) {
+        if (tier != FluxAnomalyTier.SURFACE
+                && environment != FluxAnomalyEnvironment.END_ISLANDS
+                && world.canBlockSeeSky(pos)) {
             if (TAConfig.ENABLE_FLUX_ANOMALY_DEBUG_LOGS) {
                 LOG.debug("[FluxAnomaly] Seed position {} rejected: sky exposed for tier {}", pos, tier);
             }
@@ -1325,6 +2247,15 @@ public class EntityFluxAnomalyBurst extends Entity {
 
 
     private BlockPos enforceTierVertical(BlockPos pos) {
+        if (environment == FluxAnomalyEnvironment.NETHER_FLOOR) {
+            return clampVertical(pos, 6, 24);
+        }
+        if (environment == FluxAnomalyEnvironment.NETHER_CEILING) {
+            return clampVertical(pos, 104, 122);
+        }
+        if (environment == FluxAnomalyEnvironment.END_ISLANDS) {
+            return pos;
+        }
         switch (tier) {
             case SHALLOW: {
                 int sy = surfaceYAt(pos);
@@ -1560,6 +2491,16 @@ public class EntityFluxAnomalyBurst extends Entity {
             );
         }
 
+        private static ChamberSettings forArchive(Random rnd) {
+            return new ChamberSettings(
+                    5 + rnd.nextInt(2), // 5..6
+                    1,
+                    1.05f,
+                    1,
+                    SHALLOW_MAX_EDITS
+            );
+        }
+
     }
 
     private enum CarveStatus {
@@ -1600,6 +2541,19 @@ public class EntityFluxAnomalyBurst extends Entity {
         return seedPos;
     }
 
+    public FluxAnomalyTier getTier() {
+        return tier;
+    }
+
+    public FluxAnomalyEnvironment getEnvironment() {
+        return environment;
+    }
+
+    @Nullable
+    public UUID getSourcePlayerId() {
+        return sourcePlayerId;
+    }
+
     public boolean isResourceBlock(Block block) {
         return block != null && block == resourceBlock;
     }
@@ -1609,19 +2563,8 @@ public class EntityFluxAnomalyBurst extends Entity {
     }
 
     public void requestExtraResource(Block block) {
-        if (world.isRemote) return;
-        if (phase != AnomalyPhase.ACTIVE) return;
-        if (!resourcesBootstrapped) return;
-        if (seedPos == null || !isSeedAlive()) return;
-        if (!isResourceBlock(block)) return;
-
-        if (block instanceof BlockRiftBush) {
-            pendingBush = Math.min(pendingBush + 1, 10);
-        } else if (block instanceof BlockAnomalyStone) {
-            pendingStone = Math.min(pendingStone + 1, 10);
-        } else if (block instanceof BlockRiftGeod) {
-            pendingGeod = Math.min(pendingGeod + 1, 10);
-        }
+        // Growth is controlled centrally every five minutes. Harvesting a
+        // block no longer queues an immediate replacement.
     }
 
     public int getResourceOvergrowthCap() {
@@ -1630,8 +2573,9 @@ public class EntityFluxAnomalyBurst extends Entity {
 
     public boolean canSpawnResource(Block block) {
         if (!isResourceBlock(block) || maxResources <= 0) return false;
-        activeResourceCount = FluxResourceHelper.countBlocks(world, getAnchor(), resourceBlock, resourceRadius);
-        return activeResourceCount < maxResources;
+        activeResourceCount = FluxResourceHelper.countBlocks(
+                world, getAnchor(), resourceBlock, getResourceScanRadius());
+        return activeResourceCount < RESOURCE_LIMIT;
     }
 
     public void requestOvergrowthKill() {
@@ -1659,6 +2603,15 @@ public class EntityFluxAnomalyBurst extends Entity {
         } else {
             spawnMethod = FluxAnomalySpawnMethod.API;
         }
+        environment = FluxAnomalyEnvironment.STANDARD;
+        if (tag.hasKey("environment", 8)) {
+            try {
+                environment = FluxAnomalyEnvironment.valueOf(tag.getString("environment"));
+            } catch (IllegalArgumentException ignored) {
+                environment = FluxAnomalyEnvironment.STANDARD;
+            }
+        }
+        sourcePlayerId = tag.hasUniqueId("sourcePlayer") ? tag.getUniqueId("sourcePlayer") : null;
 
         resourceBlockId = null;
         if (tag.hasKey("resBlock", 8)) {
@@ -1670,22 +2623,49 @@ public class EntityFluxAnomalyBurst extends Entity {
             }
         }
         maxResources = Math.max(0, tag.getInteger("resCount"));
-        resourceCap = tag.getInteger("resCap");
+        resourceCap = RESOURCE_LIMIT;
         initialResourcesPlaced = tag.getBoolean("resPlaced");
         resourcesBootstrapped = tag.getBoolean("resBootstrapped");
         lastResourceAttemptTick = tag.getLong("resAttempt");
         lastPendingProcessTick = tag.getLong("pendingTick");
         resourceBlock = resourceBlockId == null ? null : ForgeRegistries.BLOCKS.getValue(resourceBlockId);
         resourceRadius = Math.max(4, radiusBlocks / 2);
-        if (resourceCap <= 0 && resourceBlock != null) {
-            resourceCap = FluxResourceHelper.getOvergrowthCap(resourceBlock);
-        }
         if (!resourcesBootstrapped) {
             resourcesBootstrapped = initialResourcesPlaced;
         }
         pendingBush = tag.getInteger("pendingBush");
         pendingStone = tag.getInteger("pendingStone");
         pendingGeod = tag.getInteger("pendingGeod");
+        lastGrowthCheckTick = tag.getLong("growthCheck");
+        lastFullResourceDamageTick = tag.getLong("fullDamage");
+        specialStructurePrepared = tag.getBoolean("specialPrepared");
+        specialResourceAnchors.clear();
+        NBTTagList specialAnchors = tag.getTagList("specialAnchors", 10);
+        for (int i = 0; i < specialAnchors.tagCount(); i++) {
+            NBTTagCompound anchor = specialAnchors.getCompoundTagAt(i);
+            specialResourceAnchors.add(new BlockPos(
+                    anchor.getInteger("x"),
+                    anchor.getInteger("y"),
+                    anchor.getInteger("z")));
+        }
+        primaryEndResourceAnchors.clear();
+        NBTTagList primaryAnchors = tag.getTagList("primaryEndAnchors", 10);
+        for (int i = 0; i < primaryAnchors.tagCount(); i++) {
+            NBTTagCompound anchor = primaryAnchors.getCompoundTagAt(i);
+            primaryEndResourceAnchors.add(new BlockPos(
+                    anchor.getInteger("x"),
+                    anchor.getInteger("y"),
+                    anchor.getInteger("z")));
+        }
+        archivePositions.clear();
+        NBTTagList savedArchives = tag.getTagList("archivePositions", 10);
+        for (int i = 0; i < savedArchives.tagCount(); i++) {
+            NBTTagCompound archive = savedArchives.getCompoundTagAt(i);
+            archivePositions.add(new BlockPos(
+                    archive.getInteger("x"),
+                    archive.getInteger("y"),
+                    archive.getInteger("z")));
+        }
 
         if (tag.hasUniqueId("seedId")) seedEntityId = tag.getUniqueId("seedId");
         else seedEntityId = null;
@@ -1755,6 +2735,8 @@ public class EntityFluxAnomalyBurst extends Entity {
         tag.setInteger("remain", remainingSpreads);
 
         tag.setString("spawnMethod", spawnMethod.name());
+        tag.setString("environment", environment.name());
+        if (sourcePlayerId != null) tag.setUniqueId("sourcePlayer", sourcePlayerId);
         if (resourceBlockId != null) {
             tag.setString("resBlock", resourceBlockId.toString());
         }
@@ -1767,6 +2749,36 @@ public class EntityFluxAnomalyBurst extends Entity {
         tag.setInteger("pendingBush", pendingBush);
         tag.setInteger("pendingStone", pendingStone);
         tag.setInteger("pendingGeod", pendingGeod);
+        tag.setLong("growthCheck", lastGrowthCheckTick);
+        tag.setLong("fullDamage", lastFullResourceDamageTick);
+        tag.setBoolean("specialPrepared", specialStructurePrepared);
+        NBTTagList specialAnchors = new NBTTagList();
+        for (BlockPos pos : specialResourceAnchors) {
+            NBTTagCompound anchorTag = new NBTTagCompound();
+            anchorTag.setInteger("x", pos.getX());
+            anchorTag.setInteger("y", pos.getY());
+            anchorTag.setInteger("z", pos.getZ());
+            specialAnchors.appendTag(anchorTag);
+        }
+        tag.setTag("specialAnchors", specialAnchors);
+        NBTTagList primaryAnchors = new NBTTagList();
+        for (BlockPos pos : primaryEndResourceAnchors) {
+            NBTTagCompound anchorTag = new NBTTagCompound();
+            anchorTag.setInteger("x", pos.getX());
+            anchorTag.setInteger("y", pos.getY());
+            anchorTag.setInteger("z", pos.getZ());
+            primaryAnchors.appendTag(anchorTag);
+        }
+        tag.setTag("primaryEndAnchors", primaryAnchors);
+        NBTTagList savedArchives = new NBTTagList();
+        for (BlockPos pos : archivePositions) {
+            NBTTagCompound archive = new NBTTagCompound();
+            archive.setInteger("x", pos.getX());
+            archive.setInteger("y", pos.getY());
+            archive.setInteger("z", pos.getZ());
+            savedArchives.appendTag(archive);
+        }
+        tag.setTag("archivePositions", savedArchives);
 
 
         if (seedEntityId != null) tag.setUniqueId("seedId", seedEntityId);
@@ -1809,7 +2821,13 @@ public class EntityFluxAnomalyBurst extends Entity {
         SEED_KILLED_BY_OVERGROWTH,
         SEED_DEAD,
         SPAWN_POS_INVALID,
-        MANUAL
+        MANUAL,
+        ARCHIVES_DEPLETED,
+        ARCHIVE_MISSING,
+        ARCHIVE_BONE_RESTORED,
+        LABORATORY_WELL_MISSING,
+        LABORATORY_WELL_RECHARGED,
+        MONOLITH_MISSING
     }
 
     private enum AnomalyPhase {

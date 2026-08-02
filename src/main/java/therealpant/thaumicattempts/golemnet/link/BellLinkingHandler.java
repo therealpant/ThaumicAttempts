@@ -9,9 +9,11 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumActionResult;
+import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.text.TextComponentString;
+import net.minecraft.util.text.TextComponentTranslation;
 import net.minecraft.world.World;
 import net.minecraftforge.items.CapabilityItemHandler;
 import net.minecraftforge.event.entity.player.PlayerInteractEvent;
@@ -29,9 +31,17 @@ import therealpant.thaumicattempts.golemnet.tile.TileGolemDispatcher;
 import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileCraftPlanner;
 import therealpant.thaumicattempts.golemnet.tile.TileRevisionPiedestal;
+import therealpant.thaumicattempts.golemnet.data.SealGolemWhitelistData;
+import thaumcraft.api.golems.seals.ISealEntity;
+import thaumcraft.api.golems.seals.SealPos;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
+import thaumcraft.common.golems.seals.SealHandler;
 
 import javax.annotation.Nullable;
+import java.util.Collections;
+import java.util.HashSet;
+import java.util.Set;
+import java.util.UUID;
 
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
@@ -39,6 +49,7 @@ public class BellLinkingHandler {
 
     private static final String TAG_ROOT  = "thaumicattempts";
     private static final String TAG_LINK  = "bell_link_mgr";
+    private static final String TAG_SEAL_LINK = "bell_link_seal";
     private static final String TAG_DIM   = "dim";
     private static final String TAG_GLINT = "bell_glint";
 
@@ -53,6 +64,10 @@ public class BellLinkingHandler {
     private static void msgChat(EntityPlayer p, String text) {
         // строго в чат (без хотбара)
         p.sendMessage(new TextComponentString(text));
+    }
+
+    private static void msgTranslated(EntityPlayer player, String key, Object... args) {
+        player.sendMessage(new TextComponentTranslation(key, args));
     }
 
     /* -------------------- Эффект зачарования на колокольчике -------------------- */
@@ -109,6 +124,7 @@ public class BellLinkingHandler {
     private static void putLink(ItemStack bell, BlockPos pos, int dim) {
         if (bell == null || bell.isEmpty()) return;
         NBTTagCompound root = bell.getOrCreateSubCompound(TAG_ROOT);
+        root.removeTag(TAG_SEAL_LINK);
         NBTTagCompound link = new NBTTagCompound();
         link.setLong("pos", pos.toLong());
         link.setInteger(TAG_DIM, dim);
@@ -138,10 +154,108 @@ public class BellLinkingHandler {
         return link.hasKey(TAG_DIM) ? link.getInteger(TAG_DIM) : fallback;
     }
 
+    private static void putSealLink(ItemStack bell, World world, int dim, SealPos sealPos) {
+        if (bell == null || bell.isEmpty() || sealPos == null) return;
+        NBTTagCompound root = bell.getOrCreateSubCompound(TAG_ROOT);
+        root.removeTag(TAG_LINK);
+
+        NBTTagCompound link = new NBTTagCompound();
+        link.setInteger(TAG_DIM, dim);
+        link.setLong("pos", sealPos.pos.toLong());
+        link.setByte("face", (byte) sealPos.face.ordinal());
+        root.setTag(TAG_SEAL_LINK, link);
+        syncSealWhitelistSnapshot(bell, world, dim, sealPos);
+    }
+
+    @Nullable
+    private static SealPos getLinkedSeal(ItemStack bell) {
+        if (bell == null || bell.isEmpty() || !bell.hasTagCompound()) return null;
+        NBTTagCompound root = bell.getSubCompound(TAG_ROOT);
+        if (root == null || !root.hasKey(TAG_SEAL_LINK, 10)) return null;
+
+        NBTTagCompound link = root.getCompoundTag(TAG_SEAL_LINK);
+        int faceIndex = link.getByte("face");
+        if (!link.hasKey("pos", 4) || faceIndex < 0 || faceIndex >= EnumFacing.VALUES.length) {
+            return null;
+        }
+        return new SealPos(BlockPos.fromLong(link.getLong("pos")), EnumFacing.VALUES[faceIndex]);
+    }
+
+    private static int getLinkedSealDim(ItemStack bell, int fallback) {
+        if (bell == null || bell.isEmpty() || !bell.hasTagCompound()) return fallback;
+        NBTTagCompound root = bell.getSubCompound(TAG_ROOT);
+        if (root == null || !root.hasKey(TAG_SEAL_LINK, 10)) return fallback;
+        NBTTagCompound link = root.getCompoundTag(TAG_SEAL_LINK);
+        return link.hasKey(TAG_DIM, 3) ? link.getInteger(TAG_DIM) : fallback;
+    }
+
+    private static boolean hasSealLink(ItemStack bell) {
+        return getLinkedSeal(bell) != null;
+    }
+
+    private static void syncSealWhitelistSnapshot(ItemStack bell, World world,
+                                                  int dimension, SealPos sealPos) {
+        if (bell == null || bell.isEmpty() || world == null || sealPos == null) return;
+        NBTTagCompound root = bell.getOrCreateSubCompound(TAG_ROOT);
+        if (!root.hasKey(TAG_SEAL_LINK, 10)) return;
+
+        NBTTagCompound link = root.getCompoundTag(TAG_SEAL_LINK);
+        link.setByte("rune", (byte) getRuneIndex(dimension, sealPos));
+
+        NBTTagList golems = new NBTTagList();
+        for (UUID id : SealGolemWhitelistData.get(world).getWhitelist(dimension, sealPos)) {
+            NBTTagCompound entry = new NBTTagCompound();
+            entry.setUniqueId("id", id);
+            golems.appendTag(entry);
+        }
+        link.setTag("golems", golems);
+        root.setTag(TAG_SEAL_LINK, link);
+    }
+
+    private static int getRuneIndex(int dimension, SealPos sealPos) {
+        int hash = 31 * dimension + sealPos.hashCode();
+        return Math.floorMod(hash, 8);
+    }
+
+    public static boolean isStorageBellForRender(@Nullable ItemStack stack) {
+        return isStorageBell(stack);
+    }
+
+    @Nullable
+    public static SealPos getLinkedSealForRender(ItemStack bell) {
+        return getLinkedSeal(bell);
+    }
+
+    public static int getLinkedSealDimensionForRender(ItemStack bell, int fallback) {
+        return getLinkedSealDim(bell, fallback);
+    }
+
+    public static int getLinkedRuneForRender(ItemStack bell) {
+        NBTTagCompound root = bell == null ? null : bell.getSubCompound(TAG_ROOT);
+        if (root == null || !root.hasKey(TAG_SEAL_LINK, 10)) return 0;
+        return Math.floorMod(root.getCompoundTag(TAG_SEAL_LINK).getByte("rune"), 8);
+    }
+
+    public static Set<UUID> getLinkedGolemsForRender(ItemStack bell) {
+        NBTTagCompound root = bell == null ? null : bell.getSubCompound(TAG_ROOT);
+        if (root == null || !root.hasKey(TAG_SEAL_LINK, 10)) return Collections.emptySet();
+
+        Set<UUID> ids = new HashSet<>();
+        NBTTagList list = root.getCompoundTag(TAG_SEAL_LINK).getTagList("golems", 10);
+        for (int i = 0; i < list.tagCount(); i++) {
+            NBTTagCompound entry = list.getCompoundTagAt(i);
+            if (entry.hasUniqueId("id")) ids.add(entry.getUniqueId("id"));
+        }
+        return ids;
+    }
+
     private static void clearLink(ItemStack bell) {
         if (bell == null || bell.isEmpty()) return;
         NBTTagCompound root = bell.getSubCompound(TAG_ROOT);
-        if (root != null) root.removeTag(TAG_LINK);
+        if (root != null) {
+            root.removeTag(TAG_LINK);
+            root.removeTag(TAG_SEAL_LINK);
+        }
 
         // убрать визуальный блеск
         NBTTagCompound tag = bell.getTagCompound();
@@ -164,7 +278,7 @@ public class BellLinkingHandler {
         if (!air) return;
 
         if (!e.getWorld().isRemote) {
-            if (getLinkedPos(held) != null || hasBellGlint(held)) {
+            if (getLinkedPos(held) != null || hasSealLink(held) || hasBellGlint(held)) {
                 clearLink(held);
                 setBellGlint(held, false); // снять визуальный эффект
             }
@@ -176,7 +290,7 @@ public class BellLinkingHandler {
     public static void onRightClickEmpty(PlayerInteractEvent.RightClickEmpty e) {
         ItemStack held = e.getItemStack();
         if (!isStorageBell(held)) return;
-        if (getLinkedPos(held) != null || hasBellGlint(held)) {
+        if (getLinkedPos(held) != null || hasSealLink(held) || hasBellGlint(held)) {
             if (!e.getWorld().isRemote) {
                 clearLink(held);
                 setBellGlint(held, false);
@@ -196,6 +310,27 @@ public class BellLinkingHandler {
         ItemStack held = e.getItemStack();
         boolean bellInHand = isStorageBell(held);
         boolean sneaking = player.isSneaking();
+
+        ISealEntity clickedSeal = findSealAt(
+                world, e.getPos(), e.getFace(), world.provider.getDimension());
+        if (bellInHand && sneaking && clickedSeal != null) {
+            if (!world.isRemote) {
+                if (!canEditSeal(player, clickedSeal)) {
+                    msgTranslated(player, "thaumicattempts.seal_whitelist.denied");
+                } else {
+                    putSealLink(held, world, player.dimension, clickedSeal.getSealPos());
+                    setBellGlint(held, true);
+                    int count = SealGolemWhitelistData.get(world).size(
+                            player.dimension, clickedSeal.getSealPos());
+                    msgTranslated(
+                            player,
+                            "thaumicattempts.seal_whitelist.selected",
+                            count);
+                }
+            }
+            denyAndCancel(e);
+            return;
+        }
 
         TileEntity te = world.getTileEntity(e.getPos());
         if (te == null) return;
@@ -625,6 +760,37 @@ public class BellLinkingHandler {
         }
     }
 
+    @Nullable
+    private static ISealEntity findSealAt(World world, BlockPos pos,
+                                          @Nullable EnumFacing clickedFace, int dimension) {
+        if (world == null || pos == null) return null;
+
+        if (clickedFace != null) {
+            ISealEntity exact = SealHandler.getSealEntity(
+                    dimension, new SealPos(pos, clickedFace));
+            if (exact != null) return exact;
+        }
+
+        ISealEntity onlySeal = null;
+        for (EnumFacing face : EnumFacing.VALUES) {
+            ISealEntity candidate = SealHandler.getSealEntity(
+                    dimension, new SealPos(pos, face));
+            if (candidate == null) continue;
+            if (onlySeal != null) return null;
+            onlySeal = candidate;
+        }
+        return onlySeal;
+    }
+
+    private static boolean canEditSeal(EntityPlayer player, ISealEntity seal) {
+        if (player == null || seal == null) return false;
+        if (player.capabilities.isCreativeMode) return true;
+        String owner = seal.getOwner();
+        return owner == null
+                || owner.isEmpty()
+                || owner.equals(player.getUniqueID().toString());
+    }
+
     /* -------------------- Хелпер отмены клика по блоку -------------------- */
 
     private static void denyAndCancel(PlayerInteractEvent.RightClickBlock e) {
@@ -644,10 +810,46 @@ public class BellLinkingHandler {
         EntityPlayer player = e.getEntityPlayer();
         World world = e.getWorld();
 
+        if (!(e.getTarget() instanceof EntityThaumcraftGolem)) return;
+        EntityThaumcraftGolem golem = (EntityThaumcraftGolem) e.getTarget();
+
+        SealPos linkedSeal = getLinkedSeal(held);
+        if (linkedSeal != null) {
+            if (!world.isRemote) {
+                int linkDim = getLinkedSealDim(held, player.dimension);
+                ISealEntity seal = linkDim == player.dimension
+                        ? SealHandler.getSealEntity(linkDim, linkedSeal)
+                        : null;
+                if (seal == null) {
+                    clearLink(held);
+                    setBellGlint(held, false);
+                    msgTranslated(player, "thaumicattempts.seal_whitelist.missing");
+                    e.setCancellationResult(EnumActionResult.FAIL);
+                } else if (!canEditSeal(player, seal)) {
+                    msgTranslated(player, "thaumicattempts.seal_whitelist.denied");
+                    e.setCancellationResult(EnumActionResult.FAIL);
+                } else {
+                    SealGolemWhitelistData data = SealGolemWhitelistData.get(world);
+                    boolean added = data.toggle(
+                            linkDim, linkedSeal, golem.getUniqueID());
+                    syncSealWhitelistSnapshot(held, world, linkDim, linkedSeal);
+                    int count = data.size(linkDim, linkedSeal);
+                    msgTranslated(
+                            player,
+                            added
+                                    ? "thaumicattempts.seal_whitelist.added"
+                                    : "thaumicattempts.seal_whitelist.removed",
+                            golem.getDisplayName(),
+                            count);
+                    e.setCancellationResult(EnumActionResult.SUCCESS);
+                }
+            }
+            e.setCanceled(true);
+            return;
+        }
+
         BlockPos linked = getLinkedPos(held);
         if (linked == null) return;
-
-        if (!(e.getTarget() instanceof EntityThaumcraftGolem)) return;
 
         if (!world.isRemote) {
             int linkDim = getLinkedDim(held, player.dimension);
@@ -661,7 +863,6 @@ public class BellLinkingHandler {
             TileEntity te = world.getTileEntity(linked);
             if (!(te instanceof TileGolemDispatcher) && !(te instanceof TileInfusionRequester)) return;
 
-            EntityThaumcraftGolem golem = (EntityThaumcraftGolem) e.getTarget();
             boolean ok = false;
             if (te instanceof TileGolemDispatcher) {
                 ok = ((TileGolemDispatcher) te).tryBindGolem(golem);

@@ -1,1 +1,8 @@
-{ "variants": { "normal": { "model": "thaumicattempts:eldritch_constarction" } } }
+{
+  "variants": {
+    "variant=base": { "model": "thaumicattempts:brick" },
+    "variant=amber": { "model": "thaumicattempts:eldritch_constarction_amber" },
+    "variant=amethyst": { "model": "thaumicattempts:eldritch_constarction_amethyst" },
+    "variant=diamond": { "model": "thaumicattempts:eldritch_constarction_diamond" }
+  }
+}

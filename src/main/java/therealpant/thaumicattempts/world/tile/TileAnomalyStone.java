@@ -1,7 +1,9 @@
 package therealpant.thaumicattempts.world.tile;
 
 import net.minecraft.nbt.NBTTagCompound;
+import net.minecraft.block.state.IBlockState;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.util.ITickable;
 import net.minecraft.util.math.BlockPos;
 import software.bernie.geckolib3.core.IAnimatable;
 import software.bernie.geckolib3.core.PlayState;
@@ -10,16 +12,18 @@ import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
+import therealpant.thaumicattempts.world.block.BlockAnomalyStone;
 
 import javax.annotation.Nullable;
 import java.util.UUID;
 
-public class TileAnomalyStone extends TileEntity implements IAnimatable, AnomalyLinkedTile {
+public class TileAnomalyStone extends TileEntity implements IAnimatable, AnomalyLinkedTile, ITickable {
 
     private final AnimationFactory factory = new AnimationFactory(this);
     private UUID anomalyId;
     private BlockPos seedPos;
     private int reproduceCooldown;
+    private long harvestReadyAt;
 
     @Override
     public void registerControllers(AnimationData data) {
@@ -71,6 +75,42 @@ public class TileAnomalyStone extends TileEntity implements IAnimatable, Anomaly
         markDirty();
     }
 
+    public void startRegrowth(long harvestReadyAt) {
+        this.harvestReadyAt = harvestReadyAt;
+        markDirty();
+    }
+
+    @Override
+    public void update() {
+        if (world == null || world.isRemote) return;
+
+        IBlockState state = world.getBlockState(pos);
+        if (!(state.getBlock() instanceof BlockAnomalyStone)) return;
+
+        if (state.getValue(BlockAnomalyStone.HARVEST_STATE) == BlockAnomalyStone.HarvestState.READY) {
+            if (harvestReadyAt != 0L) {
+                harvestReadyAt = 0L;
+                markDirty();
+            }
+            return;
+        }
+
+        if (harvestReadyAt <= 0L) {
+            harvestReadyAt = world.getTotalWorldTime() + BlockAnomalyStone.REGROW_TICKS;
+            markDirty();
+            return;
+        }
+
+        if (world.getTotalWorldTime() >= harvestReadyAt) {
+            harvestReadyAt = 0L;
+            world.setBlockState(pos, state.withProperty(
+                    BlockAnomalyStone.HARVEST_STATE,
+                    BlockAnomalyStone.HarvestState.READY
+            ), 3);
+            markDirty();
+        }
+    }
+
     @Override
     public void readFromNBT(NBTTagCompound compound) {
         super.readFromNBT(compound);
@@ -85,6 +125,7 @@ public class TileAnomalyStone extends TileEntity implements IAnimatable, Anomaly
             seedPos = null;
         }
         reproduceCooldown = compound.getInteger("ReproduceCooldown");
+        harvestReadyAt = compound.getLong("HarvestReadyAt");
     }
 
     @Override
@@ -99,6 +140,7 @@ public class TileAnomalyStone extends TileEntity implements IAnimatable, Anomaly
             compound.setInteger("SeedZ", seedPos.getZ());
         }
         compound.setInteger("ReproduceCooldown", reproduceCooldown);
+        compound.setLong("HarvestReadyAt", harvestReadyAt);
         return compound;
     }
 }

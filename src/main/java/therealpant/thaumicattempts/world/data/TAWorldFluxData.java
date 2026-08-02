@@ -22,6 +22,7 @@ public class TAWorldFluxData extends WorldSavedData {
     public static final double SURFACE_ANOMALY_FLUX = 10000.0D;
     public static final double SHALLOW_ANOMALY_FLUX = 20000.0D;
     public static final double DEEP_ANOMALY_FLUX = 30000.0D;
+    public static final double ARCHIVE_ANOMALY_FLUX = 50000.0D;
 
     public double fluxGeneratedTotal;
     public int stage;

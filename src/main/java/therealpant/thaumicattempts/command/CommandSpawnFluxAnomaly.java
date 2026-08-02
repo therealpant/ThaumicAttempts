@@ -12,6 +12,10 @@ import therealpant.thaumicattempts.api.FluxAnomalyApi;
 import therealpant.thaumicattempts.api.FluxAnomalySettings;
 import therealpant.thaumicattempts.api.FluxAnomalySpawnMethod;
 import therealpant.thaumicattempts.api.FluxAnomalyTier;
+import therealpant.thaumicattempts.api.FluxAnomalyEnvironment;
+import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
+import therealpant.thaumicattempts.world.InfectedChunkAnomalyManager;
+import therealpant.thaumicattempts.world.data.TAInfectedChunksData;
 
 import javax.annotation.Nullable;
 import java.util.Collections;
@@ -36,7 +40,7 @@ public class CommandSpawnFluxAnomaly extends CommandBase {
 
     @Override
     public String getUsage(ICommandSender sender) {
-        return "/ta_anomaly [radius] [totalSpreads] [budgetPerTick]";
+        return "/ta_anomaly [surface|shallow|deep|archive|laboratory|monolith] [radius totalSpreads budgetPerTick]";
     }
 
     @Override
@@ -52,31 +56,87 @@ public class CommandSpawnFluxAnomaly extends CommandBase {
         int radius = 40;
         int total = 6500;
         int budget = 220;
+        FluxAnomalyTier tier = FluxAnomalyTier.SURFACE;
 
-        if (args.length != 0 && args.length != 3) {
+        if (args.length != 0 && args.length != 1 && args.length != 3 && args.length != 4) {
             throw new WrongUsageException(getUsage(sender));
         }
 
-        if (args.length == 3) {
-            radius = parseInt(args[0], 8, 96);
-            total  = parseInt(args[1], 500, 40000);
-            budget = parseInt(args[2], 20, 2000);
+        int numberOffset = 0;
+        if (args.length == 1 || args.length == 4) {
+            tier = parseTier(args[0], sender);
+            numberOffset = 1;
+        }
+
+        if (args.length - numberOffset == 3) {
+            radius = parseInt(args[numberOffset], 8, 96);
+            total  = parseInt(args[numberOffset + 1], 500, 40000);
+            budget = parseInt(args[numberOffset + 2], 20, 2000);
         }
 
         BlockPos center = player.getPosition();
+        FluxAnomalyEnvironment environment = FluxAnomalyEnvironment.STANDARD;
+        if (tier == FluxAnomalyTier.ARCHIVE) {
+            int dimension = player.world.provider.getDimension();
+            if (dimension == 0) {
+                center = new BlockPos(center.getX(), 12, center.getZ());
+            } else if (dimension == -1) {
+                tier = FluxAnomalyTier.LABORATORY;
+                center = new BlockPos(center.getX(), 6, center.getZ());
+                environment = FluxAnomalyEnvironment.NETHER_FLOOR;
+            } else {
+                throw new CommandException(
+                        "Archive anomalies can only spawn in the Overworld or Nether.");
+            }
+            total = 0;
+            budget = 1;
+        } else if (tier == FluxAnomalyTier.LABORATORY) {
+            if (player.world.provider.getDimension() != -1) {
+                throw new CommandException(
+                        "Laboratory anomalies can only spawn in the Nether.");
+            }
+            center = new BlockPos(center.getX(), 6, center.getZ());
+            environment = FluxAnomalyEnvironment.NETHER_FLOOR;
+            total = 0;
+            budget = 1;
+        } else if (tier == FluxAnomalyTier.MONOLITH) {
+            if (player.world.provider.getDimension() != 1) {
+                throw new CommandException(
+                        "Monolith anomalies can only spawn in the End.");
+            }
+            center = new BlockPos(center.getX(), center.getY(), center.getZ());
+            environment = FluxAnomalyEnvironment.END_ISLANDS;
+            total = 0;
+            budget = 1;
+        }
+        long chunkKey = TAInfectedChunksData.pack(center.getX() >> 4, center.getZ() >> 4);
+        if (InfectedChunkAnomalyManager.hasActiveAnomalyNear(player.world, center)) {
+            throw new CommandException(
+                    "Another active anomaly is less than "
+                            + InfectedChunkAnomalyManager.ANOMALY_SAFE_RADIUS
+                            + " blocks away.");
+        }
 
         // Спавним с кастомными параметрами
         FluxAnomalySettings settings = new FluxAnomalySettings()
                 .radiusBlocks(radius)
                 .totalSpreads(total)
                 .budgetPerTick(budget)
-                .tier(FluxAnomalyTier.SURFACE)
+                .tier(tier)
+                .environment(environment)
+                .sourceChunk(chunkKey)
                 .spawnMethod(FluxAnomalySpawnMethod.COMMAND);
-        FluxAnomalyApi.spawn(player.world, center, settings);
+        EntityFluxAnomalyBurst anomaly = FluxAnomalyApi.spawn(player.world, center, settings);
+        TAInfectedChunksData active = TAInfectedChunksData.get(player.world);
+        active.markChunkActive(chunkKey);
+        active.setActiveChunkTier(chunkKey, tier);
+        active.trackAnomaly(anomaly.getAnomalyId(), chunkKey);
+        active.setAnomalyPosition(chunkKey, center);
 
         sender.sendMessage(new net.minecraft.util.text.TextComponentString(
                 "Spawned flux anomaly at " + center +
-                        " (radius=" + radius +
+                        " (tier=" + tier.name().toLowerCase() +
+                        ", radius=" + radius +
                         ", totalSpreads=" + total +
                         ", budgetPerTick=" + budget + ")"
         ));
@@ -91,6 +151,29 @@ public class CommandSpawnFluxAnomaly extends CommandBase {
     @Override
     public List<String> getTabCompletions(MinecraftServer server, ICommandSender sender, String[] args, @Nullable BlockPos targetPos) {
         // никаких подсказок, чтобы было проще
+        if (args.length == 1) {
+            return getListOfStringsMatchingLastWord(
+                    args, "surface", "shallow", "deep", "archive", "laboratory", "monolith");
+        }
         return Collections.emptyList();
+    }
+
+    private FluxAnomalyTier parseTier(String value, ICommandSender sender) throws CommandException {
+        switch (value.toLowerCase()) {
+            case "surface":
+                return FluxAnomalyTier.SURFACE;
+            case "shallow":
+                return FluxAnomalyTier.SHALLOW;
+            case "deep":
+                return FluxAnomalyTier.DEEP;
+            case "archive":
+                return FluxAnomalyTier.ARCHIVE;
+            case "laboratory":
+                return FluxAnomalyTier.LABORATORY;
+            case "monolith":
+                return FluxAnomalyTier.MONOLITH;
+            default:
+                throw new WrongUsageException(getUsage(sender));
+        }
     }
 }

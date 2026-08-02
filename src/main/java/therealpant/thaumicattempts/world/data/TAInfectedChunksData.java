@@ -181,6 +181,12 @@ public class TAInfectedChunksData extends WorldSavedData {
         markDirty();
     }
 
+    public void setAnomalyPosition(long chunkKey, @Nullable BlockPos pos) {
+        if (pos == null) return;
+        chunkSeedPositions.put(chunkKey, pos.toImmutable());
+        markDirty();
+    }
+
     public void setLastActivatedInfo(@Nullable FluxAnomalyTier tier, @Nullable BlockPos seedPos) {
         lastActivatedTier = tier;
         lastActivatedSeedPos = seedPos == null ? null : seedPos.toImmutable();

@@ -182,47 +182,18 @@ public class BlockRiftExtractor extends Block {
             return;
         }
 
-        Part part = state.getValue(PART);
-        BlockPos base = getBasePosFromPart(pos, part);
-        if (part != Part.LOW) {
-            IBlockState baseState = world.getBlockState(base);
-            if (baseState.getBlock() == this && baseState.getValue(PART) == Part.LOW) {
-                TileEntity te = world.getTileEntity(base);
-                if (te instanceof TileRiftExtractor) {
-                    TileRiftExtractor extractor = (TileRiftExtractor) te;
-                    dropStack(world, base, extractor.getCrownStack());
-                    dropStack(world, base, extractor.getCoreStack());
-                }
-                MultiblockBreakHelper.restoreFromBlueprint(world, pos, TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID, base);
-            }
-            super.breakBlock(world, pos, state);
-            return;
-        }
-
-        // Дроп только с базы
-        if (part == Part.LOW) {
-            TileEntity te = world.getTileEntity(pos);
+        MultiblockBreakHelper.Match match = MultiblockBreakHelper.findMatch(
+                world, pos, state, TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID
+        );
+        if (match != null) {
+            BlockPos controllerPos = match.getCenter().up();
+            TileEntity te = world.getTileEntity(controllerPos);
             if (te instanceof TileRiftExtractor) {
                 TileRiftExtractor extractor = (TileRiftExtractor) te;
-                dropStack(world, pos, extractor.getCrownStack());
-                dropStack(world, pos, extractor.getCoreStack());
+                dropStack(world, controllerPos, extractor.getCrownStack());
+                dropStack(world, controllerPos, extractor.getCoreStack());
             }
-
-            // удалить прокси-блоки выше
-            MultiblockBreakHelper.restoreFromBlueprint(world, pos, TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID, pos);
-            if (world.getBlockState(pos.up()).getBlock() == this) {
-                world.setBlockToAir(pos.up());
-            }
-            if (world.getBlockState(pos.up(2)).getBlock() == this) {
-                world.setBlockToAir(pos.up(2));
-            }
-        } else {
-            // если ломают MID/TOP — перенаправим на базу
-            BlockPos oldBase = getBasePosFromPart(pos, part);
-            IBlockState bs = world.getBlockState(oldBase);
-            if (bs.getBlock() == this && bs.getValue(PART) == Part.LOW) {
-                world.destroyBlock(oldBase, true);
-            }
+            MultiblockBreakHelper.restoreMatch(world, pos, match);
         }
 
         super.breakBlock(world, pos, state);
@@ -241,16 +212,9 @@ public class BlockRiftExtractor extends Block {
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
-        Part part = state.getValue(PART);
-        IBlockState source = MultiblockBreakHelper.getSourceState(
-                TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID,
-                0,
-                part == Part.LOW ? 0 : part == Part.MID ? 1 : 2,
-                0
+        MultiblockBreakHelper.addSourceDrops(
+                drops, world, pos, state, fortune, TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID
         );
-        if (source != null) {
-            source.getBlock().getDrops(drops, world, pos, source, fortune);
-        }
     }
 
     // ---------- interaction ----------

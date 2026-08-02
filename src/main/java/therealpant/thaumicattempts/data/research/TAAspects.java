@@ -8,6 +8,7 @@ import thaumcraft.api.aspects.AspectList;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.world.item.ItemRiftAmethyst;
 
 public class TAAspects {
     public static Aspect PARADOXUM;
@@ -37,6 +38,11 @@ public class TAAspects {
                         .add(Aspect.FLUX, 25)
                         .add(Aspect.ELDRITCH, 20)
                         .add(Aspect.CRYSTAL, 15)
+        );
+
+        ThaumcraftApi.registerObjectTag(
+                new ItemStack(ModBlocksItems.RIFT_AMETIST),
+                ItemRiftAmethyst.createBaseAspects()
         );
 
         ThaumcraftApi.registerObjectTag(

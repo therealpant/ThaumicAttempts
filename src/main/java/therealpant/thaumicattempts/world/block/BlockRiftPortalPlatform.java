@@ -4,6 +4,7 @@ import net.minecraft.block.Block;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.item.ItemStack;
+import net.minecraft.inventory.InventoryHelper;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumBlockRenderType;
@@ -16,7 +17,9 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.data.TAMultiblockTriggers;
 import therealpant.thaumicattempts.world.tile.TileRiftPortalPlatform;
+import therealpant.thaumicattempts.world.tile.TileRiftExtractor;
 
 import javax.annotation.Nullable;
 
@@ -109,13 +112,41 @@ public class BlockRiftPortalPlatform extends Block {
 
     @Override
     public void breakBlock(World world, BlockPos pos, IBlockState state) {
-        if (!RiftPortalStructureHelper.isRestoring()) {
-            RiftPortalStructureHelper.restoreFromPlatform(world, pos);
+        if (!MultiblockBreakHelper.isRestoring()) {
+            MultiblockBreakHelper.Match match = MultiblockBreakHelper.findMatch(
+                    world, pos, state,
+                    TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID,
+                    TAMultiblockTriggers.TRANSMUTATION_ALTAR_MB_ID,
+                    TAMultiblockTriggers.RIFT_PORTAL_MB_ID
+            );
+            if (match != null) {
+                if (TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID.equals(match.getBlueprintId())) {
+                    BlockPos controllerPos = match.getCenter().up();
+                    TileEntity tile = world.getTileEntity(controllerPos);
+                    if (tile instanceof TileRiftExtractor) {
+                        TileRiftExtractor extractor = (TileRiftExtractor) tile;
+                        dropStack(world, controllerPos, extractor.getCrownStack());
+                        dropStack(world, controllerPos, extractor.getCoreStack());
+                    }
+                }
+                MultiblockBreakHelper.restoreMatch(world, pos, match);
+            }
         }
         super.breakBlock(world, pos, state);
     }
 
     @Override
     public void getDrops(NonNullList<ItemStack> drops, IBlockAccess world, BlockPos pos, IBlockState state, int fortune) {
+        MultiblockBreakHelper.addSourceDrops(
+                drops, world, pos, state, fortune,
+                TAMultiblockTriggers.RIFT_EXTRACTOR_MB_ID,
+                TAMultiblockTriggers.TRANSMUTATION_ALTAR_MB_ID,
+                TAMultiblockTriggers.RIFT_PORTAL_MB_ID
+        );
+    }
+
+    private static void dropStack(World world, BlockPos pos, ItemStack stack) {
+        if (stack == null || stack.isEmpty()) return;
+        InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), stack);
     }
 }

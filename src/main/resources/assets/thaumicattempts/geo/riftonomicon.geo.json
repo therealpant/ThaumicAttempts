@@ -12,8 +12,8 @@
 			},
 			"bones": [
 				{
-					"name": "bb_main",
-					"pivot": [0, 0, 0],
+					"name": "bone19",
+					"pivot": [39, 0, 25],
 					"cubes": [
 						{
 							"origin": [24, 0, -24],
@@ -118,18 +118,6 @@
 							}
 						}
 					]
-				},
-				{
-					"name": "bone19",
-					"pivot": [39, 21, -39]
-				},
-				{
-					"name": "bone20",
-					"pivot": [-25, 21, -39]
-				},
-				{
-					"name": "bone22",
-					"pivot": [-25, 21, 25]
 				},
 				{
 					"name": "bone44",

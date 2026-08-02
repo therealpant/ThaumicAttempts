@@ -9,8 +9,8 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.EnumFacing;
 import net.minecraft.util.EnumHand;
 import net.minecraft.util.ITickable;
+import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
-import net.minecraftforge.common.capabilities.Capability;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import net.minecraftforge.items.CapabilityItemHandler;
@@ -29,14 +29,16 @@ import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.items.ItemCalibratedExtract;
 
 import javax.annotation.Nullable;
+import java.util.HashSet;
+import java.util.Set;
 
 /** Extracts the item encoded in a Creation-protocol calibrated extract. */
 public class TileRiftExtractor extends TileEntity implements ITickable, IAnimatable {
     private static final int SLOT_CROWN = 0;
     private static final int SLOT_CORE = 1;
     private static final int TICKS_PER_STAGE = 40;
-    private static final int SIGNATURES_PER_STAGE = 200;
-    private static final long IMPETUS_PER_STAGE = 250L;
+    private static final int SIGNATURES_PER_STAGE = 100;
+    private static final long BASE_COST_PER_STAGE = 250L;
     private static final long MIN_DRAW_PER_TICK = 8L;
 
     private final AnimationFactory factory = new AnimationFactory(this);
@@ -47,14 +49,16 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         }
         @Override public int getSlotLimit(int slot) { return 1; }
     };
-    private final IItemHandler coreHandler = new CoreHandler();
 
     private int stage;
     private int stageMax;
     private int ticksToNextStage;
     private long stageFuelNeed;
     private long stageFuelPaid;
+    private int stageParadoxumNeed;
+    private int stageParadoxumPaid;
     private int fuelPulseTicks;
+    private int durabilityPasses;
     private ItemStack cachedCoreRenderStack = ItemStack.EMPTY;
 
     private AnimVisualState animState = AnimVisualState.SLIP;
@@ -114,37 +118,73 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             resetProgress();
             return;
         }
+        ItemStack cartridge = inventory.getStackInSlot(SLOT_CROWN);
+        if (ItemCalibratedExtract.isExhausted(cartridge)) return;
         cachedCoreRenderStack = spec.result.copy();
         if (stageMax != spec.stages) {
             if (stage > 0 || ticksToNextStage > 0) resetProgress();
             stageMax = spec.stages;
         }
-        if (!inventory.getStackInSlot(SLOT_CORE).isEmpty()) return;
+        ItemStack produced = inventory.getStackInSlot(SLOT_CORE);
+        if (!produced.isEmpty() && isFinished(produced)) {
+            tryExportFinishedItem();
+            return;
+        }
+        if (!produced.isEmpty() && !sameProducedItem(produced, spec.result)) return;
         if (stage >= stageMax) {
-            inventory.setStackInSlot(SLOT_CORE, spec.result.copy());
+            finishProductionPass(spec);
             markDirtyAndSync();
             return;
         }
 
         TileRiftonomicon core = findLinkedRiftonomicon();
         if (core == null) return;
+        long adjustedTotalCost = getAdjustedStageCost(cartridge);
+        long adjustedFuelNeed = getStageImpetusNeed(adjustedTotalCost);
+        int adjustedParadoxumNeed = getStageParadoxumNeed(adjustedTotalCost);
         if (stageFuelNeed <= 0L) {
-            stageFuelNeed = IMPETUS_PER_STAGE;
+            stageFuelNeed = adjustedFuelNeed;
             stageFuelPaid = 0L;
+            stageParadoxumNeed = adjustedParadoxumNeed;
+            stageParadoxumPaid = 0;
             ticksToNextStage = 0;
+        } else if (stageFuelNeed < adjustedFuelNeed) {
+            stageFuelNeed = adjustedFuelNeed;
+            stageParadoxumNeed = Math.max(stageParadoxumNeed, adjustedParadoxumNeed);
         }
+        boolean paidThisTick = false;
         long remaining = stageFuelNeed - stageFuelPaid;
         if (remaining > 0L) {
             int ticksLeft = Math.max(1, TICKS_PER_STAGE - ticksToNextStage);
             long wanted = Math.max(MIN_DRAW_PER_TICK, (long) Math.ceil(remaining / (double) ticksLeft));
             wanted = Math.min(wanted, remaining);
             long received = core.consumeCreationExtractorFuel(wanted, false);
-            if (received <= 0L) return;
-            stageFuelPaid += received;
-            fuelPulseTicks = 10;
+            if (received > 0L) {
+                stageFuelPaid += received;
+                paidThisTick = true;
+                ItemCalibratedExtract.recordAbsorbedFuel(cartridge, received, world.rand);
+                fuelPulseTicks = 10;
+                if (ItemCalibratedExtract.isExhausted(cartridge)) {
+                    markDirtyAndSync();
+                    return;
+                }
+            }
         }
+        int remainingParadoxum = stageParadoxumNeed - stageParadoxumPaid;
+        if (remainingParadoxum > 0) {
+            int ticksLeft = Math.max(1, TICKS_PER_STAGE - ticksToNextStage);
+            int wanted = Math.max(1, (int) Math.ceil(remainingParadoxum / (double) ticksLeft));
+            wanted = Math.min(wanted, remainingParadoxum);
+            int received = core.consumeCreationExtractorParadoxum(wanted, false);
+            if (received > 0) {
+                stageParadoxumPaid += received;
+                paidThisTick = true;
+            }
+        }
+        if (!paidThisTick && (stageFuelPaid < stageFuelNeed || stageParadoxumPaid < stageParadoxumNeed)) return;
         if (ticksToNextStage < TICKS_PER_STAGE) ticksToNextStage++;
-        if (ticksToNextStage < TICKS_PER_STAGE || stageFuelPaid < stageFuelNeed) {
+        if (ticksToNextStage < TICKS_PER_STAGE || stageFuelPaid < stageFuelNeed
+                || stageParadoxumPaid < stageParadoxumNeed) {
             markDirtyAndSync();
             return;
         }
@@ -153,13 +193,121 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         ticksToNextStage = 0;
         stageFuelNeed = 0L;
         stageFuelPaid = 0L;
-        if (stage >= stageMax) inventory.setStackInSlot(SLOT_CORE, spec.result.copy());
+        stageParadoxumNeed = 0;
+        stageParadoxumPaid = 0;
+        if (stage >= stageMax) finishProductionPass(spec);
         markDirtyAndSync();
+    }
+
+    private long getAdjustedStageCost(ItemStack cartridge) {
+        return (BASE_COST_PER_STAGE * ItemCalibratedExtract.getFuelPercent(cartridge) + 99L) / 100L;
+    }
+
+    private long getStageImpetusNeed(long adjustedTotalCost) {
+        return (adjustedTotalCost * 2L + 2L) / 3L;
+    }
+
+    private int getStageParadoxumNeed(long adjustedTotalCost) {
+        return (int) ((adjustedTotalCost + 5L) / 6L);
+    }
+
+    private void finishProductionPass(ExtractionSpec spec) {
+        ItemStack produced = inventory.getStackInSlot(SLOT_CORE);
+        if (produced.isEmpty()) {
+            produced = spec.result.copy();
+            produced.setCount(1);
+            if (produced.isItemStackDamageable()) {
+                durabilityPasses = 1;
+                applyDurabilityPass(produced);
+            }
+            inventory.setStackInSlot(SLOT_CORE, produced);
+        } else if (produced.isItemStackDamageable() && produced.getItemDamage() > 0) {
+            durabilityPasses = Math.min(8, Math.max(1, durabilityPasses) + 1);
+            applyDurabilityPass(produced);
+            inventory.setStackInSlot(SLOT_CORE, produced);
+        }
+        stage = 0;
+        ticksToNextStage = 0;
+        stageFuelNeed = 0L;
+        stageFuelPaid = 0L;
+        stageParadoxumNeed = 0;
+        stageParadoxumPaid = 0;
+    }
+
+    private void applyDurabilityPass(ItemStack stack) {
+        int maxDamage = stack.getMaxDamage();
+        int remaining = durabilityPasses >= 8 ? maxDamage
+                : (int) Math.ceil(maxDamage * durabilityPasses / 8.0D);
+        stack.setItemDamage(Math.max(0, maxDamage - remaining));
+    }
+
+    private boolean sameProducedItem(ItemStack first, ItemStack second) {
+        if (first.isEmpty() || second.isEmpty() || first.getItem() != second.getItem()) return false;
+        ItemStack normalizedFirst = first.copy();
+        ItemStack normalizedSecond = second.copy();
+        normalizedFirst.setCount(1);
+        normalizedSecond.setCount(1);
+        if (normalizedFirst.isItemStackDamageable()) normalizedFirst.setItemDamage(0);
+        if (normalizedSecond.isItemStackDamageable()) normalizedSecond.setItemDamage(0);
+        return ItemStack.areItemStacksEqual(normalizedFirst, normalizedSecond);
+    }
+
+    private boolean isFinished(ItemStack stack) {
+        return !stack.isEmpty() && (!stack.isItemStackDamageable() || stack.getItemDamage() <= 0);
+    }
+
+    private void tryExportFinishedItem() {
+        ItemStack output = inventory.getStackInSlot(SLOT_CORE);
+        if (!isFinished(output)) return;
+        ItemStack before = output.copy();
+        Set<BlockPos> checked = new HashSet<>();
+        for (int y = 0; y < 3 && !output.isEmpty(); y++) {
+            BlockPos column = pos.up(y);
+            for (EnumFacing facing : EnumFacing.VALUES) {
+                BlockPos neighborPos = column.offset(facing);
+                if (!checked.add(neighborPos) || isOwnColumn(neighborPos)) continue;
+                TileEntity neighbor = world.getTileEntity(neighborPos);
+                if (neighbor == null || !neighbor.hasCapability(
+                        CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, facing.getOpposite())) continue;
+                IItemHandler handler = neighbor.getCapability(
+                        CapabilityItemHandler.ITEM_HANDLER_CAPABILITY, facing.getOpposite());
+                if (handler == null) continue;
+                for (int slot = 0; slot < handler.getSlots() && !output.isEmpty(); slot++) {
+                    output = handler.insertItem(slot, output, false);
+                }
+            }
+        }
+        if (ItemStack.areItemStacksEqual(before, output)) return;
+        inventory.setStackInSlot(SLOT_CORE, output);
+        if (output.isEmpty()) resetProgress();
+        markDirtyAndSync();
+    }
+
+    private boolean isOwnColumn(BlockPos check) {
+        return check.equals(pos) || check.equals(pos.up()) || check.equals(pos.up(2));
     }
 
     public ItemStack getCrownStack() { return inventory.getStackInSlot(SLOT_CROWN); }
     public ItemStack getCoreStack() { return inventory.getStackInSlot(SLOT_CORE); }
     public int getStage() { return stage; }
+
+    public ItemStack takeExhaustedCartridgeForRecovery(TileRiftonomicon requester) {
+        ItemStack cartridge = inventory.getStackInSlot(SLOT_CROWN);
+        if (requester == null || findLinkedRiftonomicon() != requester
+                || !ItemCalibratedExtract.isExhausted(cartridge)) return ItemStack.EMPTY;
+        inventory.setStackInSlot(SLOT_CROWN, ItemStack.EMPTY);
+        markDirtyAndSync();
+        return cartridge;
+    }
+
+    public boolean returnRecoveredCartridge(ItemStack cartridge, TileRiftonomicon requester) {
+        if (requester == null || findLinkedRiftonomicon() != requester
+                || !inventory.getStackInSlot(SLOT_CROWN).isEmpty()
+                || getSpec(cartridge) == null || ItemCalibratedExtract.getFatigue(cartridge) > 0) return false;
+        inventory.setStackInSlot(SLOT_CROWN, cartridge);
+        markDirtyAndSync();
+        return true;
+    }
 
     public float getCoreAlpha() {
         int max = resolveStageMax();
@@ -168,6 +316,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
     @SideOnly(Side.CLIENT)
     public float getCoreAlphaSmooth(float partialTicks) {
+        if (!inventory.getStackInSlot(SLOT_CORE).isEmpty()) return 1.0F;
         if (stage <= 0 && ticksToNextStage <= 0) return 0.0F;
         float progress = MathHelper.clamp((ticksToNextStage + partialTicks) / TICKS_PER_STAGE, 0.0F, 1.0F);
         float value = MathHelper.clamp((stage + progress) / resolveStageMax(), 0.0F, 1.0F);
@@ -218,7 +367,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     }
 
     public boolean tryExtractCore(EntityPlayer player) {
-        if (player == null || stageMax <= 0 || stage < stageMax) return false;
+        if (player == null || !isFinished(inventory.getStackInSlot(SLOT_CORE))) return false;
         ItemStack extracted = inventory.extractItem(SLOT_CORE, 1, false);
         if (extracted.isEmpty()) return false;
         giveToPlayer(player, extracted);
@@ -239,13 +388,19 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         ticksToNextStage = 0;
         stageFuelNeed = 0L;
         stageFuelPaid = 0L;
+        stageParadoxumNeed = 0;
+        stageParadoxumPaid = 0;
         cachedCoreRenderStack = ItemStack.EMPTY;
+        if (inventory.getStackInSlot(SLOT_CORE).isEmpty()) durabilityPasses = 0;
     }
 
     private boolean shouldWorkForAnimation() {
-        if (world == null || world.isBlockPowered(pos) || !inventory.getStackInSlot(SLOT_CORE).isEmpty()) return false;
+        if (world == null || world.isBlockPowered(pos)) return false;
         ExtractionSpec spec = getSpec(inventory.getStackInSlot(SLOT_CROWN));
-        return spec != null && stage < spec.stages && findLinkedRiftonomicon() != null;
+        ItemStack produced = inventory.getStackInSlot(SLOT_CORE);
+        return spec != null && !ItemCalibratedExtract.isExhausted(inventory.getStackInSlot(SLOT_CROWN))
+                && (produced.isEmpty() || !isFinished(produced))
+                && stage < spec.stages && findLinkedRiftonomicon() != null;
     }
 
     private void applyAnimation(AnimationController<?> controller, AnimVisualState state, boolean restart) {
@@ -288,17 +443,6 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     }
     @Override public AnimationFactory getFactory() { return factory; }
 
-    @Override public boolean hasCapability(Capability<?> capability, @Nullable EnumFacing facing) {
-        return capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY || super.hasCapability(capability, facing);
-    }
-
-    @Nullable @Override public <T> T getCapability(Capability<T> capability, @Nullable EnumFacing facing) {
-        if (capability == CapabilityItemHandler.ITEM_HANDLER_CAPABILITY) {
-            return CapabilityItemHandler.ITEM_HANDLER_CAPABILITY.cast(coreHandler);
-        }
-        return super.getCapability(capability, facing);
-    }
-
     private void markDirtyAndSync() {
         markDirty();
         if (world != null) world.notifyBlockUpdate(pos, world.getBlockState(pos), world.getBlockState(pos), 3);
@@ -312,7 +456,11 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         ticksToNextStage = tag.getInteger("TicksToNextStage");
         stageFuelNeed = tag.getLong("StageImpNeed");
         stageFuelPaid = tag.getLong("StageImpPaid");
+        stageParadoxumNeed = Math.max(0, tag.getInteger("StageParadoxumNeed"));
+        stageParadoxumPaid = Math.max(0, Math.min(stageParadoxumNeed,
+                tag.getInteger("StageParadoxumPaid")));
         fuelPulseTicks = tag.getInteger("ImpetusPulse");
+        durabilityPasses = Math.max(0, Math.min(8, tag.getInteger("DurabilityPasses")));
         cachedCoreRenderStack = tag.hasKey("CachedCoreRenderStack")
                 ? new ItemStack(tag.getCompoundTag("CachedCoreRenderStack")) : ItemStack.EMPTY;
     }
@@ -325,7 +473,10 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         tag.setInteger("TicksToNextStage", ticksToNextStage);
         tag.setLong("StageImpNeed", stageFuelNeed);
         tag.setLong("StageImpPaid", stageFuelPaid);
+        tag.setInteger("StageParadoxumNeed", stageParadoxumNeed);
+        tag.setInteger("StageParadoxumPaid", stageParadoxumPaid);
         tag.setInteger("ImpetusPulse", fuelPulseTicks);
+        tag.setInteger("DurabilityPasses", durabilityPasses);
         if (!cachedCoreRenderStack.isEmpty()) tag.setTag("CachedCoreRenderStack", cachedCoreRenderStack.serializeNBT());
         return tag;
     }
@@ -336,18 +487,4 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         readFromNBT(packet.getNbtCompound());
     }
 
-    private class CoreHandler implements IItemHandler {
-        @Override public int getSlots() { return 1; }
-        @Override public ItemStack getStackInSlot(int slot) { return inventory.getStackInSlot(SLOT_CORE); }
-        @Override public ItemStack insertItem(int slot, ItemStack stack, boolean simulate) {
-            return stack == null ? ItemStack.EMPTY : stack;
-        }
-        @Override public ItemStack extractItem(int slot, int amount, boolean simulate) {
-            if (stageMax <= 0 || stage < stageMax || amount <= 0) return ItemStack.EMPTY;
-            ItemStack extracted = inventory.extractItem(SLOT_CORE, amount, simulate);
-            if (!simulate && !extracted.isEmpty() && inventory.getStackInSlot(SLOT_CORE).isEmpty()) resetProgress();
-            return extracted;
-        }
-        @Override public int getSlotLimit(int slot) { return 1; }
-    }
 }

@@ -35,6 +35,14 @@ public final class FluxAnomalyPresets {
                         .budgetPerTick(randomInRange(rnd, 240, 340))
                         .resource(resource(TABlocks.RIFT_GEOD, rnd));
                 break;
+            case ARCHIVE:
+            case LABORATORY:
+            case MONOLITH:
+                settings.radiusBlocks(12)
+                        .totalSpreads(0)
+                        .budgetPerTick(1)
+                        .resource(FluxAnomalyResource.empty());
+                break;
             default:
                 break;
         }
@@ -49,7 +57,7 @@ public final class FluxAnomalyPresets {
 
     private static FluxAnomalyResource resource(Block block, ThreadLocalRandom rnd) {
         if (block == null) return FluxAnomalyResource.empty();
-        int count = MathHelper.clamp(randomInRange(rnd, 2, 3), 0, 64);
+        int count = MathHelper.clamp(randomInRange(rnd, 3, 5), 0, 64);
         return FluxAnomalyResource.of(block, count);
     }
 }

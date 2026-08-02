@@ -15,7 +15,6 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.MathHelper;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
-import org.lwjgl.opengl.GL11;
 import software.bernie.geckolib3.geo.render.built.GeoModel;
 import software.bernie.geckolib3.model.AnimatedGeoModel;
 import software.bernie.geckolib3.renderers.geo.GeoBlockRenderer;
@@ -29,7 +28,7 @@ import therealpant.thaumicattempts.client.model.RiftonomiconModel;
 import therealpant.thaumicattempts.client.model.RiftonomiconCoreModel;
 import therealpant.thaumicattempts.client.RiftonomiconNavigationClient;
 import therealpant.thaumicattempts.items.ItemPortalRune;
-import therealpant.thaumicattempts.world.block.RiftonomiconStructureHelper;
+import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
 import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
 
 import java.util.Map;
@@ -51,8 +50,8 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
 
     private static final float EMISSIVE_Y_OFFSET = 0.01F;
     private static final double RIFT_Y_OFFSET = 14.0D / 16.0D;
-    private static final double TRANSMUTATION_PORTAL_Y = -RiftonomiconStructureHelper.CORE_Y_OFFSET + RIFT_Y_OFFSET;
-    private static final double TRANSMUTATION_HIDDEN_Y = -RiftonomiconStructureHelper.CORE_Y_OFFSET + 0.5D - 6.0D / 16.0D;
+    private static final double TRANSMUTATION_PORTAL_Y = -BlockRiftonomicon.CORE_Y_OFFSET + RIFT_Y_OFFSET;
+    private static final double TRANSMUTATION_HIDDEN_Y = -BlockRiftonomicon.CORE_Y_OFFSET + 0.5D - 6.0D / 16.0D;
     private static final double RIFT_HALF_SIZE = 25.0D / 16.0D;
     private static final int RIFT_PARTICLE_COUNT = 120;
     // bone4 pivot is Y=16px; at portal t=15s its animation adds sin(15*120+74) px.
@@ -91,23 +90,28 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
     @Override
     public void render(TileRiftonomicon te, double x, double y, double z,
                        float partialTicks, int destroyStage, float alpha) {
-        double baseY = y - RiftonomiconStructureHelper.CORE_Y_OFFSET;
+        double baseY = y - BlockRiftonomicon.CORE_Y_OFFSET;
+        int formationStage = te.getFormationStage();
         float[] prevLight = RenderSafety.captureLightmap();
         try {
             te.setCoreAnimationPass(false);
-            super.render(te, x, baseY, z, partialTicks, destroyStage, alpha);
-            renderCore(te, x, y, z, partialTicks);
-            renderEmissiveLayer(te, x, baseY, z, partialTicks);
-            renderCoreEmissiveLayer(te, x, y, z, partialTicks);
-            renderNavigationStones(te, x, baseY, z, partialTicks);
-            renderAlchemyPearls(te, x, y, z, partialTicks);
-            renderCreationSamples(te, x, y, z, partialTicks);
-            renderCreationCore(te, x, y, z, partialTicks);
-            renderTransmutationPrisms(te, x, y, z, partialTicks);
-            renderTransmutationItem(te, x, y, z, partialTicks);
-            renderTransmutationAbsorptionFx(te);
-            renderRiftSurface(te, x, baseY, z, partialTicks);
-            renderProtocolSlots(te, x, baseY, z, partialTicks);
+            if (formationStage >= 1) {
+                super.render(te, x, baseY, z, partialTicks, destroyStage, alpha);
+                renderEmissiveLayer(te, x, baseY, z, partialTicks);
+                renderRiftSurface(te, x, baseY, z, partialTicks);
+            }
+            if (formationStage >= 3) {
+                renderCore(te, x, y, z, partialTicks);
+                renderCoreEmissiveLayer(te, x, y, z, partialTicks);
+                renderNavigationStones(te, x, baseY, z, partialTicks);
+                renderAlchemyPearls(te, x, y, z, partialTicks);
+                renderCreationSamples(te, x, y, z, partialTicks);
+                renderCreationCore(te, x, y, z, partialTicks);
+                renderTransmutationPrisms(te, x, y, z, partialTicks);
+                renderTransmutationItem(te, x, y, z, partialTicks);
+                renderTransmutationAbsorptionFx(te);
+                renderProtocolSlots(te, x, baseY, z, partialTicks);
+            }
         } finally {
             RenderSafety.restoreLightmap(prevLight);
             RenderSafety.resetGlState();
@@ -121,7 +125,7 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
         if (previous == null || previous == pulse || !te.isTransmutationActive()) return;
         if (Math.floorMod(pulse, 5) != 0) return;
         double[] start = worldPoint(te, TRANSMUTATION_STREAM_START);
-        BlockPos base = te.getPos().down(RiftonomiconStructureHelper.CORE_Y_OFFSET);
+        BlockPos base = te.getPos().down(BlockRiftonomicon.CORE_Y_OFFSET);
         double[] target = {
                 base.getX() + 0.5D + (te.getWorld().rand.nextDouble() * 2.0D - 1.0D) * RIFT_HALF_SIZE,
                 base.getY() + RIFT_Y_OFFSET + 0.02D,
@@ -430,7 +434,7 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
         renderingNavigationStone = true;
         te.setNavigationStoneAnimationPass(true);
         try {
-            BlockPos basePos = te.getPos().down(RiftonomiconStructureHelper.CORE_Y_OFFSET);
+            BlockPos basePos = te.getPos().down(BlockRiftonomicon.CORE_Y_OFFSET);
             int limit = te.getNavigationRuneSlotLimit();
             for (int slot = 0; slot < limit; slot++) {
                 ItemPortalRune.PortalPoint target = te.getNavigationRuneTarget(slot);
@@ -483,7 +487,8 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
 
             int light = te.getWorld().getCombinedLight(te.getPos(), 0);
             GlStateManager.setActiveTexture(OpenGlHelper.lightmapTexUnit);
-            OpenGlHelper.setLightmapTextureCoords(GL11.GL_TEXTURE_2D, light % 65536, light / 65536);
+            OpenGlHelper.setLightmapTextureCoords(OpenGlHelper.lightmapTexUnit,
+                    light % 65536, light / 65536);
             GlStateManager.setActiveTexture(OpenGlHelper.defaultTexUnit);
 
             GlStateManager.translate(x + 0.5D, y + 0.01D, z + 0.5D);

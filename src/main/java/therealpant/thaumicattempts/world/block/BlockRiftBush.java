@@ -10,10 +10,14 @@ import net.minecraft.block.state.IBlockState;
 import net.minecraft.entity.EntityLivingBase;
 import net.minecraft.entity.player.EntityPlayer;
 import net.minecraft.init.Blocks;
+import net.minecraft.init.Items;
+import net.minecraft.init.SoundEvents;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.util.EnumFacing;
+import net.minecraft.util.EnumHand;
 import net.minecraft.util.IStringSerializable;
+import net.minecraft.util.SoundCategory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.RayTraceResult;
 import net.minecraft.world.IBlockAccess;
@@ -36,6 +40,9 @@ import javax.annotation.Nullable;
 public class BlockRiftBush extends BlockBush implements ITaintBlock {
 
     public static final PropertyEnum<BlockHalf> HALF = PropertyEnum.create("half", BlockHalf.class);
+    public static final PropertyEnum<HarvestState> HARVEST_STATE =
+            PropertyEnum.create("harvest_state", HarvestState.class);
+    public static final long REGROW_TICKS = 6L * 60L * 20L;
 
     public BlockRiftBush() {
         super(Material.VINE);
@@ -43,10 +50,12 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
         setTranslationKey(ThaumicAttempts.MODID + ".rift_bush");
         setRegistryName(ThaumicAttempts.MODID, "rift_bush");
         setSoundType(SoundType.PLANT);
-        setHardness(0.0F);
-        setResistance(0.0F);
+        setHardness(0.3F);
+        setResistance(0.3F);
         setTickRandomly(true);
-        setDefaultState(this.blockState.getBaseState().withProperty(HALF, BlockHalf.LOWER));
+        setDefaultState(this.blockState.getBaseState()
+                .withProperty(HALF, BlockHalf.LOWER)
+                .withProperty(HARVEST_STATE, HarvestState.READY));
     }
 
     @Override
@@ -64,8 +73,12 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
 
     @Override
     public void onBlockPlacedBy(World worldIn, BlockPos pos, IBlockState state, EntityLivingBase placer, ItemStack stack) {
-        worldIn.setBlockState(pos, state.withProperty(HALF, BlockHalf.LOWER), 2);
-        worldIn.setBlockState(pos.up(), state.withProperty(HALF, BlockHalf.UPPER), 2);
+        worldIn.setBlockState(pos, state
+                .withProperty(HALF, BlockHalf.LOWER)
+                .withProperty(HARVEST_STATE, HarvestState.READY), 2);
+        worldIn.setBlockState(pos.up(), state
+                .withProperty(HALF, BlockHalf.UPPER)
+                .withProperty(HARVEST_STATE, HarvestState.READY), 2);
     }
 
     @Override
@@ -149,6 +162,7 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
 
         // верхняя половина не дропает
         if (state.getValue(HALF) == BlockHalf.UPPER) return;
+        if (state.getValue(HARVEST_STATE) == HarvestState.COLLECTED) return;
 
         if (world instanceof World) {
             World w = (World) world;
@@ -168,23 +182,30 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
 
     @Override
     public IBlockState getStateForPlacement(World worldIn, BlockPos pos, EnumFacing facing, float hitX, float hitY, float hitZ, int meta, EntityLivingBase placer) {
-        return getDefaultState().withProperty(HALF, BlockHalf.LOWER);
+        return getDefaultState()
+                .withProperty(HALF, BlockHalf.LOWER)
+                .withProperty(HARVEST_STATE, HarvestState.READY);
     }
 
     @Override
     public IBlockState getStateFromMeta(int meta) {
         BlockHalf half = (meta & 1) == 1 ? BlockHalf.UPPER : BlockHalf.LOWER;
-        return getDefaultState().withProperty(HALF, half);
+        HarvestState harvestState = (meta & 2) == 2 ? HarvestState.COLLECTED : HarvestState.READY;
+        return getDefaultState()
+                .withProperty(HALF, half)
+                .withProperty(HARVEST_STATE, harvestState);
     }
 
     @Override
     public int getMetaFromState(IBlockState state) {
-        return state.getValue(HALF) == BlockHalf.UPPER ? 1 : 0;
+        int meta = state.getValue(HALF) == BlockHalf.UPPER ? 1 : 0;
+        if (state.getValue(HARVEST_STATE) == HarvestState.COLLECTED) meta |= 2;
+        return meta;
     }
 
     @Override
     protected BlockStateContainer createBlockState() {
-        return new BlockStateContainer(this, HALF);
+        return new BlockStateContainer(this, HALF, HARVEST_STATE);
     }
 
     public enum BlockHalf implements IStringSerializable {
@@ -194,6 +215,57 @@ public class BlockRiftBush extends BlockBush implements ITaintBlock {
         @Override
         public String getName() {
             return name().toLowerCase();
+        }
+    }
+
+    public enum HarvestState implements IStringSerializable {
+        READY,
+        COLLECTED;
+
+        @Override
+        public String getName() {
+            return name().toLowerCase();
+        }
+    }
+
+    @Override
+    public boolean onBlockActivated(World world, BlockPos pos, IBlockState state, EntityPlayer player,
+                                    EnumHand hand, EnumFacing facing, float hitX, float hitY, float hitZ) {
+        ItemStack held = player.getHeldItem(hand);
+        if (held.isEmpty() || held.getItem() != Items.SHEARS) return false;
+
+        BlockPos basePos = state.getValue(HALF) == BlockHalf.UPPER ? pos.down() : pos;
+        IBlockState baseState = world.getBlockState(basePos);
+        if (baseState.getBlock() != this) return false;
+        if (baseState.getValue(HARVEST_STATE) == HarvestState.COLLECTED) return true;
+        if (world.isRemote) return true;
+
+        int normalReward = TADrops.rollCount(world.rand);
+        int shearsReward = (normalReward * 3 + 1) / 2;
+        spawnAsEntity(world, basePos, new ItemStack(ModBlocksItems.RIFT_FLOWER, shearsReward));
+
+        net.minecraft.tileentity.TileEntity tileEntity = world.getTileEntity(basePos);
+        if (tileEntity instanceof TileRiftBush) {
+            ((TileRiftBush) tileEntity).startRegrowth(world.getTotalWorldTime() + REGROW_TICKS);
+        }
+        setHarvestState(world, basePos, HarvestState.COLLECTED);
+
+        held.damageItem(1, player);
+        player.swingArm(hand);
+        world.playSound(null, basePos, SoundEvents.ENTITY_SHEEP_SHEAR,
+                SoundCategory.BLOCKS, 0.8F, 0.9F + world.rand.nextFloat() * 0.2F);
+        return true;
+    }
+
+    public void setHarvestState(World world, BlockPos basePos, HarvestState harvestState) {
+        IBlockState lower = world.getBlockState(basePos);
+        if (lower.getBlock() != this || lower.getValue(HALF) != BlockHalf.LOWER) return;
+
+        world.setBlockState(basePos, lower.withProperty(HARVEST_STATE, harvestState), 3);
+        BlockPos upperPos = basePos.up();
+        IBlockState upper = world.getBlockState(upperPos);
+        if (upper.getBlock() == this && upper.getValue(HALF) == BlockHalf.UPPER) {
+            world.setBlockState(upperPos, upper.withProperty(HARVEST_STATE, harvestState), 3);
         }
     }
 

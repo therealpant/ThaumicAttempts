@@ -18,6 +18,7 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.data.TAMultiblockTriggers;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneAltar;
 
 import javax.annotation.Nullable;
@@ -143,7 +144,19 @@ public class BlockRiftStoneAltar extends Block {
             ItemStack prism = ((TileRiftStoneAltar) raw).removePrism();
             if (!prism.isEmpty()) InventoryHelper.spawnItemStack(world, pos.getX(), pos.getY(), pos.getZ(), prism);
         }
-        if (!RiftPortalStructureHelper.isRestoring()) RiftPortalStructureHelper.restoreFromAltar(world, pos);
+        if (!MultiblockBreakHelper.isRestoring()) {
+            MultiblockBreakHelper.restoreFromBlueprint(
+                    world, pos, state, TAMultiblockTriggers.TRANSMUTATION_ALTAR_MB_ID
+            );
+        }
         super.breakBlock(world, pos, state);
+    }
+
+    @Override
+    public void getDrops(net.minecraft.util.NonNullList<ItemStack> drops, IBlockAccess world,
+                         BlockPos pos, IBlockState state, int fortune) {
+        MultiblockBreakHelper.addSourceDrops(
+                drops, world, pos, state, fortune, TAMultiblockTriggers.TRANSMUTATION_ALTAR_MB_ID
+        );
     }
 }

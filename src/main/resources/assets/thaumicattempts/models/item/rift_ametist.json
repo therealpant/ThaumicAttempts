@@ -2,5 +2,27 @@
   "parent": "item/generated",
   "textures": {
     "layer0": "thaumicattempts:items/rift_ametist"
-  }
+  },
+  "overrides": [
+    {
+      "predicate": { "thaumicattempts:paradoxum_level": 1.0 },
+      "model": "thaumicattempts:item/rift_ametist_paradoxum_1"
+    },
+    {
+      "predicate": { "thaumicattempts:paradoxum_level": 2.0 },
+      "model": "thaumicattempts:item/rift_ametist_paradoxum_2"
+    },
+    {
+      "predicate": { "thaumicattempts:paradoxum_level": 3.0 },
+      "model": "thaumicattempts:item/rift_ametist_paradoxum_3"
+    },
+    {
+      "predicate": { "thaumicattempts:paradoxum_level": 4.0 },
+      "model": "thaumicattempts:item/rift_ametist_paradoxum_4"
+    },
+    {
+      "predicate": { "thaumicattempts:paradoxum_level": 5.0 },
+      "model": "thaumicattempts:item/rift_ametist_paradoxum"
+    }
+  ]
 }

@@ -30,11 +30,19 @@ import therealpant.thaumicattempts.world.tile.TileAnomalyStone;
 import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 import therealpant.thaumicattempts.world.tile.TileRiftExtractor;
 import therealpant.thaumicattempts.world.tile.TileRiftGeod;
+import therealpant.thaumicattempts.world.tile.TileAnomalyArchive;
+import therealpant.thaumicattempts.world.tile.TileAncientColumn;
+import therealpant.thaumicattempts.world.tile.TileAncientFire;
+import therealpant.thaumicattempts.world.tile.TileAnomalyWell;
+import therealpant.thaumicattempts.world.tile.TileAnomalousMonolith;
+import therealpant.thaumicattempts.world.tile.TileStrangePedestal;
 import therealpant.thaumicattempts.world.tile.TileRiftPortalPlatform;
+import therealpant.thaumicattempts.world.tile.TileRiftBush;
 import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneAltar;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnace;
 import therealpant.thaumicattempts.world.tile.TileRiftStonePortal;
+import therealpant.thaumicattempts.world.tile.TileEldritchConstruction;
 
 
 import java.util.function.Supplier;
@@ -155,6 +163,25 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.CALIBRATED_EXTRACT, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":calibrated_extract", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.ANOMALY_COMPASS, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":anomaly_compass", "inventory")
+        );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.ARCHIVE_FRAGMENTS, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":archive_fragments", "inventory")
+        );
+        registerItemModel(ModBlocksItems.TRANSMUTATION_CORE);
+        registerItemModel(ModBlocksItems.CREATION_CORE);
+        registerItemModel(ModBlocksItems.NAVIGATION_CORE);
+        registerItemModel(ModBlocksItems.ALCHEMICAL_CORE);
+        ModBlocksItems.ANOMALY_COMPASS.setTileEntityItemStackRenderer(new RenderAnomalyCompass());
+        for (int fatigue = 1; fatigue <= 6; fatigue++) {
+            ModelLoader.setCustomModelResourceLocation(
+                    ModBlocksItems.CALIBRATED_EXTRACT, fatigue,
+                    new ModelResourceLocation(ThaumicAttempts.MODID + ":calibrated_extract_" + fatigue, "inventory")
+            );
+        }
         registerPrismModel(ItemPrism.META_AIR, "prism_air");
         registerPrismModel(ItemPrism.META_AQUA, "prism_aqua");
         registerPrismModel(ItemPrism.META_IGNIS, "prism_ignis");
@@ -174,15 +201,20 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(ModBlocksItems.MATH_CORE, ThaumicAttempts.MODID + ":math_core");
         registerItemBlockModel(ModBlocksItems.MIRROR_STABILIZER, ThaumicAttempts.MODID + ":mirror_stabilizer");
         registerItemBlockModel(TABlocks.RIFT_BUSH, ThaumicAttempts.MODID + ":rift_bush");
-        registerItemBlockModel(TABlocks.ELDRITCH_CONSTRUCTION, ThaumicAttempts.MODID + ":eldritch_constarction");
-        registerItemBlockModel(TABlocks.MIRROR_MANAGER_CORE, ThaumicAttempts.MODID + ":mirror_manager_core");
-        registerItemBlockModel(TABlocks.RIFT_STONE_BASE, ThaumicAttempts.MODID + ":rift_stone_base");
+        ModelLoader.setCustomModelResourceLocation(
+                TABlocks.ELDRITCH_CONSTRUCTION_ITEM, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":eldritch_constarction", "inventory"));
+        for (int meta = 1; meta <= 3; meta++) {
+            String variant = meta == 1 ? "amber" : meta == 2 ? "amethyst" : "diamond";
+            ModelLoader.setCustomModelResourceLocation(
+                    TABlocks.ELDRITCH_CONSTRUCTION_ITEM, meta,
+                    new ModelResourceLocation(
+                            ThaumicAttempts.MODID + ":eldritch_constarction_" + variant,
+                            "inventory"));
+        }
         registerItemBlockModel(TABlocks.ANOMALY_BED, ThaumicAttempts.MODID + ":ta_anomaly_bed");
-        registerItemBlockModel(TABlocks.AURA_BOOSTER_CORE, ThaumicAttempts.MODID + ":aura_booster_core");
-        registerItemBlockModel(TABlocks.RIFTONOMICON_CORE, ThaumicAttempts.MODID + ":riftonomicon_core");
         registerItemBlockModel(TABlocks.RIFT_CRISTAL_BLOCK, ThaumicAttempts.MODID + ":rist_cristal_block");
         registerItemBlockModel(TABlocks.POLISHED_DARK_JASPER, ThaumicAttempts.MODID + ":polished_dark_jasper");
-        registerItemBlockModel(TABlocks.DARK_JASPER_BRICKS, ThaumicAttempts.MODID + ":dark_jasper_bricks");
 
         // ухо — используем таумовскую иконку предмета
         ModelLoader.setCustomModelResourceLocation(
@@ -201,10 +233,6 @@ public final class ClientModels extends CommonProxy {
         // предметы-«тайлы»
         registerItemModel(TABlocks.MIRROR_MANAGER_ITEM);
         attachTileRenderer(TABlocks.MIRROR_MANAGER_ITEM, TileMirrorManager::new);
-        registerItemModel(TABlocks.MIRROR_MANAGER_CORE_ITEM);
-        attachTileRenderer(TABlocks.MIRROR_MANAGER_CORE_ITEM, TileMirrorManagerCore::new);
-        registerItemModel(TABlocks.RIFT_STONE_BASE_ITEM);
-        attachTileRenderer(TABlocks.RIFT_STONE_BASE_ITEM, TileRiftStoneBase::new);
         registerItemModel(TABlocks.ORDER_TERMINAL_ITEM);
         registerItemModel(TABlocks.PATTERN_REQUESTER_ITEM);
         attachTileRenderer(TABlocks.PATTERN_REQUESTER_ITEM, TilePatternRequester::new);
@@ -220,6 +248,18 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.ANOMALY_STONE_ITEM, therealpant.thaumicattempts.world.tile.TileAnomalyStone::new);
         registerItemModel(TABlocks.RIFT_GEOD_ITEM);
         attachTileRenderer(TABlocks.RIFT_GEOD_ITEM, TileRiftGeod::new);
+        registerItemModel(TABlocks.ANOMALY_ARCHIVE_ITEM);
+        attachTileRenderer(TABlocks.ANOMALY_ARCHIVE_ITEM, TileAnomalyArchive::new);
+        registerItemModel(TABlocks.ANCIENT_COLUMN_ITEM);
+        attachTileRenderer(TABlocks.ANCIENT_COLUMN_ITEM, TileAncientColumn::new);
+        registerItemModel(TABlocks.ANCIENT_FIRE_ITEM);
+        attachTileRenderer(TABlocks.ANCIENT_FIRE_ITEM, TileAncientFire::new);
+        registerItemModel(TABlocks.ANOMALY_WELL_ITEM);
+        attachTileRenderer(TABlocks.ANOMALY_WELL_ITEM, TileAnomalyWell::new);
+        registerItemModel(TABlocks.ANOMALOUS_MONOLITH_ITEM);
+        attachTileRenderer(TABlocks.ANOMALOUS_MONOLITH_ITEM, TileAnomalousMonolith::new);
+        registerItemModel(TABlocks.STRANGE_PEDESTAL_ITEM);
+        attachTileRenderer(TABlocks.STRANGE_PEDESTAL_ITEM, TileStrangePedestal::new);
         registerItemModel(TABlocks.AURA_BOOSTER_ITEM);
         attachTileRenderer(TABlocks.AURA_BOOSTER_ITEM, TileAuraBooster::new);
         registerItemModel(TABlocks.RIFT_EXTRACTOR_ITEM);
@@ -311,8 +351,40 @@ public final class ClientModels extends CommonProxy {
                 new RenderAnomalyStone()
         );
         ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftBush.class,
+                new RenderRiftBush()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
                 TileRiftGeod.class,
                 new RenderRiftGeod()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileAnomalyArchive.class,
+                new RenderAnomalyArchive()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileAncientColumn.class,
+                new RenderAncientColumn()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileAncientFire.class,
+                new RenderAncientFire()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileAnomalyWell.class,
+                new RenderAnomalyWell()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileAnomalousMonolith.class,
+                new RenderAnomalousMonolith()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileStrangePedestal.class,
+                new RenderStrangePedestal()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileEldritchConstruction.class,
+                new RenderEldritchConstruction()
         );
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileAuraBooster.class,

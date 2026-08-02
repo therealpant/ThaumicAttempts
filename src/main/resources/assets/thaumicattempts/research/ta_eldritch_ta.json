@@ -106,7 +106,7 @@
       "key": "TA_ELDRITCH_CONSTRUCTION",
       "name": "research.TA_ELDRITCH_CONSTRUCTION.title",
       "icons": [
-        "thaumicattempts:rift_stone_base"
+        "thaumicattempts:eldritch_constarction;1;0"
       ],
       "category": "ELDRITCH",
       "parents": ["TA_ANOMALY@2","INFUSIONELDRITCH"],
@@ -131,8 +131,7 @@
         {
           "text": "research.TA_ELDRITCH_CONSTRUCTION.text.1",
           "recipes": [
-            "thaumicattempts:eldritch_construction_arcane",
-            "thaumicattempts:rift_stone_base_arcane"
+            "thaumicattempts:eldritch_construction_arcane"
           ]
         }
       ]
@@ -160,7 +159,7 @@
           ],
           "required_item": [
             "thaumcraft:vis_battery",
-            "thaumicattempts:rift_stone_base",
+            "thaumicattempts:eldritch_constarction;1;3",
             "thaumicattempts:rift_cristal"
           ]
         },
@@ -168,8 +167,7 @@
           "text": "research.TA_AURA_BOOSTER.text.2",
           "recipes": [
             "thaumicattempts:aura_booster_multiblock",
-            "thaumicattempts:cristal_mas_arcane",
-            "thaumicattempts:aura_booster_core_infusion"
+            "thaumicattempts:cristal_mas_arcane"
           ]
         }
       ]
@@ -243,7 +241,7 @@
             "THEORY;ALCHEMY;1"
           ],
           "required_item": [
-            "thaumicattempts:rift_stone_base",
+            "thaumicattempts:eldritch_constarction;1;2",
             "thaumcraft:void_siphon"
           ]
         },
