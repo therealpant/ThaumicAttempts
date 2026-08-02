@@ -1,0 +1,7 @@
+{
+  "parent": "block/cube_all",
+  "textures": {
+    "all": "thaumicattempts:blocks/archiv",
+    "particle": "thaumicattempts:blocks/archiv"
+  }
+}

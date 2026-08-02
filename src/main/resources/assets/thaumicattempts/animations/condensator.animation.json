@@ -1,0 +1,20 @@
+{
+	"format_version": "1.8.0",
+	"animations": {
+		"condensator": {
+			"loop": true,
+			"bones": {
+				"bone": {
+					"position": {
+						"vector": [0, "math.sin(query.anim_time*120)", 0]
+					}
+				},
+				"bone2": {
+					"position": {
+						"vector": [0, "math.sin(query.anim_time*120+60)", 0]
+					}
+				}
+			}
+		}
+	}
+}

@@ -1,0 +1,36 @@
+{
+	"format_version": "1.8.0",
+	"animations": {
+		"well": {
+			"loop": true,
+			"animation_length": 21,
+			"bones": {
+				"bone29": {
+					"rotation": {
+						"0.0": {
+							"vector": [0, 0, 0]
+						},
+						"21.0": {
+							"vector": [0, 360, 0]
+						}
+					}
+				},
+				"bone28": {
+					"rotation": {
+						"0.0": {
+							"vector": [0, 0, 0]
+						},
+						"21.0": {
+							"vector": [0, -360, 0]
+						}
+					}
+				},
+				"bone30": {
+					"position": {
+						"vector": [0, "math.sin(query.anim_time*120)", 0]
+					}
+				}
+			}
+		}
+	}
+}

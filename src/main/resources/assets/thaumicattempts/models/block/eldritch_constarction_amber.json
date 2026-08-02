@@ -1,0 +1,6 @@
+{
+  "parent": "thaumicattempts:block/eldritch_constarction_gemmed",
+  "textures": {
+    "emissive": "thaumicattempts:blocks/rift_stone_block_e1"
+  }
+}

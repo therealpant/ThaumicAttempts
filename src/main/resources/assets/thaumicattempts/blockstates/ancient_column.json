@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=up": { "model": "thaumicattempts:ancient_column" },
+    "facing=down": { "model": "thaumicattempts:ancient_column" },
+    "facing=north": { "model": "thaumicattempts:ancient_column" },
+    "facing=south": { "model": "thaumicattempts:ancient_column" },
+    "facing=west": { "model": "thaumicattempts:ancient_column" },
+    "facing=east": { "model": "thaumicattempts:ancient_column" }
+  }
+}

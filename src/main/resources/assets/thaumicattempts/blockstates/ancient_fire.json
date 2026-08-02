@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=down": { "model": "thaumicattempts:ancient_fire" },
+    "facing=up": { "model": "thaumicattempts:ancient_fire" },
+    "facing=north": { "model": "thaumicattempts:ancient_fire" },
+    "facing=south": { "model": "thaumicattempts:ancient_fire" },
+    "facing=west": { "model": "thaumicattempts:ancient_fire" },
+    "facing=east": { "model": "thaumicattempts:ancient_fire" }
+  }
+}

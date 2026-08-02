@@ -1,0 +1,96 @@
+{
+  "recipes": [
+    {
+      "id": "navigation_core",
+      "ingredients": [
+        {
+          "item": "thaumcraft:primordial_pearl",
+          "meta": 32767,
+          "count": 1
+        },
+        {
+          "item": "minecraft:nether_star",
+          "count": 1
+        },
+        {
+          "item": "thaumcraft:curio",
+          "meta": 6,
+          "count": 1
+        }
+      ],
+      "result": {
+        "item": "thaumicattempts:navigation_core",
+        "count": 1
+      }
+    },
+    {
+      "id": "alchemical_core",
+      "ingredients": [
+        {
+          "item": "thaumcraft:primordial_pearl",
+          "meta": 32767,
+          "count": 1
+        },
+        {
+          "item": "minecraft:nether_star",
+          "count": 1
+        },
+        {
+          "item": "thaumcraft:curio",
+          "meta": 5,
+          "count": 1
+        }
+      ],
+      "result": {
+        "item": "thaumicattempts:alchemical_core",
+        "count": 1
+      }
+    },
+    {
+      "id": "transmutation_core",
+      "ingredients": [
+        {
+          "item": "thaumcraft:primordial_pearl",
+          "meta": 32767,
+          "count": 1
+        },
+        {
+          "item": "minecraft:nether_star",
+          "count": 1
+        },
+        {
+          "item": "thaumcraft:curio",
+          "meta": 2,
+          "count": 1
+        }
+      ],
+      "result": {
+        "item": "thaumicattempts:transmutation_core",
+        "count": 1
+      }
+    },
+    {
+      "id": "creation_core",
+      "ingredients": [
+        {
+          "item": "thaumcraft:primordial_pearl",
+          "meta": 32767,
+          "count": 1
+        },
+        {
+          "item": "minecraft:nether_star",
+          "count": 1
+        },
+        {
+          "item": "thaumcraft:curio",
+          "meta": 3,
+          "count": 1
+        }
+      ],
+      "result": {
+        "item": "thaumicattempts:creation_core",
+        "count": 1
+      }
+    }
+  ]
+}
