@@ -27,7 +27,7 @@ public class BlockAnomalousMonolith extends Block {
         setRegistryName(ThaumicAttempts.MODID, "anomalous_monolith");
         setTranslationKey(ThaumicAttempts.MODID + ".anomalous_monolith");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
-        setHardness(10.0F);
+        setBlockUnbreakable();
         setResistance(40.0F);
         setSoundType(SoundType.STONE);
         setLightOpacity(0);

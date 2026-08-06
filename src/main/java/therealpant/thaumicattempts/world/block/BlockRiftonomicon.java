@@ -29,7 +29,6 @@ import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
 import therealpant.thaumicattempts.items.ItemPrism;
-import thaumcraft.api.casters.ICaster;
 import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
 import therealpant.thaumicattempts.world.tile.TileRiftonomiconImpetusPort;
 import therealpant.thaumicattempts.world.tile.TileRiftonomiconTransmutationEssentiaInput;
@@ -244,8 +243,12 @@ public class BlockRiftonomicon extends Block {
             }
             return true;
         }
-        if (slot < 0 && held.getItem() instanceof ICaster && tile.hasTransmutationProtocol()) {
-            if (!world.isRemote) tile.tryStartTransmutation();
+        if (slot < 0 && held.getItem() == ModBlocksItems.TRANSMUTATION_CORE
+                && tile.hasTransmutationProtocol()) {
+            if (!world.isRemote && tile.tryStartTransmutation()) {
+                if (!player.capabilities.isCreativeMode) held.shrink(1);
+                player.inventoryContainer.detectAndSendChanges();
+            }
             return true;
         }
         if (slot < 0 && player.isSneaking() && held.isEmpty()

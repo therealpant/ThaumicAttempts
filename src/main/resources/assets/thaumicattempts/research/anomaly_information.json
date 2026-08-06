@@ -1,0 +1,43 @@
+{
+  "entries": [
+    {
+      "key": "!TA_ANOMALY_ARCHIVE_INFO",
+      "name": "research.TA_ANOMALY_ARCHIVE_INFO.title",
+      "icons": [ "thaumicattempts:anomaly_archive" ],
+      "category": "BASICS",
+      "location": [ -6, 8 ],
+      "meta": [ "HEX", "HIDDEN" ],
+      "stages": [
+        {
+          "text": "research.TA_ANOMALY_ARCHIVE_INFO.text"
+        }
+      ]
+    },
+    {
+      "key": "!TA_ANOMALY_LABORATORY_INFO",
+      "name": "research.TA_ANOMALY_LABORATORY_INFO.title",
+      "icons": [ "thaumicattempts:anomaly_well" ],
+      "category": "BASICS",
+      "location": [ -8, 8 ],
+      "meta": [ "HEX", "HIDDEN" ],
+      "stages": [
+        {
+          "text": "research.TA_ANOMALY_LABORATORY_INFO.text"
+        }
+      ]
+    },
+    {
+      "key": "!TA_ANOMALY_MONOLITH_INFO",
+      "name": "research.TA_ANOMALY_MONOLITH_INFO.title",
+      "icons": [ "thaumicattempts:anomalous_monolith" ],
+      "category": "BASICS",
+      "location": [ -10, 8 ],
+      "meta": [ "HEX", "HIDDEN" ],
+      "stages": [
+        {
+          "text": "research.TA_ANOMALY_MONOLITH_INFO.text"
+        }
+      ]
+    }
+  ]
+}

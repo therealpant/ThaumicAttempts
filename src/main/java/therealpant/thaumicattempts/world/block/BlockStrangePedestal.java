@@ -33,7 +33,7 @@ public class BlockStrangePedestal extends Block {
         setRegistryName(ThaumicAttempts.MODID, "strange_pedestal");
         setTranslationKey(ThaumicAttempts.MODID + ".strange_pedestal");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
-        setHardness(8.0F);
+        setBlockUnbreakable();
         setResistance(30.0F);
         setSoundType(SoundType.STONE);
         setLightOpacity(0);

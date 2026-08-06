@@ -1,6 +1,3 @@
 {
-  "parent": "block/cube_all",
-  "textures": {
-    "all": "thaumicattempts:blocks/rift_stone_block"
-  }
+  "parent": "thaumicattempts:block/brick"
 }

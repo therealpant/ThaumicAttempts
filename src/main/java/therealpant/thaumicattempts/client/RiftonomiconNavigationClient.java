@@ -18,6 +18,7 @@ import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import org.lwjgl.opengl.GL11;
 import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.items.ItemPortalRune;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconWispClick;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconAlchemyClick;
@@ -106,7 +107,7 @@ public final class RiftonomiconNavigationClient {
             EntityPlayer player = Minecraft.getMinecraft().player;
             ItemStack held = player == null ? ItemStack.EMPTY : player.getHeldItemMainhand();
             boolean extract = player != null && player.isSneaking();
-            if (!extract && (held.isEmpty() || held.getItem() != ItemsTC.primordialPearl)) return;
+            if (!extract && (held.isEmpty() || held.getItem() != ModBlocksItems.ALCHEMICAL_CORE)) return;
             ThaumicAttempts.NET.sendToServer(new C2S_RiftonomiconAlchemyClick(
                     hoveredAlchemy.tilePos, hoveredAlchemy.slot, extract));
             event.setCanceled(true);

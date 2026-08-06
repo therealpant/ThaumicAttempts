@@ -95,6 +95,61 @@ public class TAAspects {
                         .add(Aspect.PLANT, 15)
         );
 
+        // The four well-forged protocol cores share a crystalline Paradoxum
+        // matrix, while the dominant aspects describe their intended purpose.
+        ThaumcraftApi.registerObjectTag(
+                new ItemStack(ModBlocksItems.NAVIGATION_CORE),
+                new AspectList()
+                        .add(Aspect.MOTION, 25)
+                        .add(Aspect.VOID, 20)
+                        .add(Aspect.MIND, 15)
+                        .add(Aspect.CRYSTAL, 10)
+                        .add(PARADOXUM, 10)
+        );
+
+        ThaumcraftApi.registerObjectTag(
+                new ItemStack(ModBlocksItems.TRANSMUTATION_CORE),
+                new AspectList()
+                        .add(Aspect.EXCHANGE, 30)
+                        .add(Aspect.MAGIC, 20)
+                        .add(Aspect.ENTROPY, 15)
+                        .add(Aspect.CRYSTAL, 10)
+                        .add(PARADOXUM, 10)
+        );
+
+        ThaumcraftApi.registerObjectTag(
+                new ItemStack(ModBlocksItems.CREATION_CORE),
+                new AspectList()
+                        .add(Aspect.CRAFT, 30)
+                        .add(Aspect.LIFE, 20)
+                        .add(Aspect.MAGIC, 15)
+                        .add(Aspect.CRYSTAL, 10)
+                        .add(PARADOXUM, 10)
+        );
+
+        // Alchemical cores store wear in metadata, so every hidden wear state
+        // needs the same explicit object tag for scanning and essentia lookup.
+        for (int wear = 0; wear < therealpant.thaumicattempts.items.ItemAlchemicalCore.USES; wear++) {
+            ThaumcraftApi.registerObjectTag(
+                    new ItemStack(ModBlocksItems.ALCHEMICAL_CORE, 1, wear),
+                    new AspectList()
+                            .add(Aspect.ALCHEMY, 25)
+                            .add(Aspect.EXCHANGE, 20)
+                            .add(Aspect.MAGIC, 15)
+                            .add(Aspect.CRYSTAL, 10)
+                            .add(PARADOXUM, 10)
+            );
+        }
+
+        ThaumcraftApi.registerObjectTag(
+                new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS),
+                new AspectList()
+                        .add(Aspect.ELDRITCH, 25)
+                        .add(Aspect.MIND, 20)
+                        .add(Aspect.MAGIC, 15)
+                        .add(Aspect.VOID, 10)
+        );
+
 
         ThaumcraftApi.registerObjectTag(
                 new ItemStack(TABlocks.RIFT_GEOD),

@@ -22,9 +22,7 @@ import software.bernie.geckolib3.core.manager.AnimationFactory;
 import therealpant.thaumicattempts.data.AnomalyWellRecipe;
 import therealpant.thaumicattempts.data.TAAnomalyWellRecipes;
 import therealpant.thaumicattempts.world.EntityAnomalyWellResult;
-import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
 
-import javax.annotation.Nullable;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.UUID;
@@ -37,8 +35,6 @@ public class TileAnomalyWell extends TileEntity implements ITickable, IAnimatabl
     private static final int RECHARGE_CHECK_INTERVAL = 20;
     private static final long MIN_RECHARGE_TICKS = 7L * 60L * 20L;
     private static final long MAX_RECHARGE_TICKS = 10L * 60L * 20L;
-    private static final float ANOMALY_CLOSE_CHANCE = 0.02F;
-
     private final AnimationFactory factory = new AnimationFactory(this);
     private final NonNullList<ItemStack> input =
             NonNullList.withSize(SLOT_COUNT, ItemStack.EMPTY);
@@ -217,24 +213,7 @@ public class TileAnomalyWell extends TileEntity implements ITickable, IAnimatabl
         charges++;
         nextRechargeAt = charges < maxCharges
                 ? world.getTotalWorldTime() + randomRechargeDelay() : 0L;
-        EntityFluxAnomalyBurst anomaly = findLinkedAnomaly();
-        if (anomaly != null && world.rand.nextFloat() < ANOMALY_CLOSE_CHANCE) {
-            anomaly.finishFromLaboratoryWellRecharge(anomalyId);
-        }
         markDirtyAndSync();
-    }
-
-    @Nullable
-    private EntityFluxAnomalyBurst findLinkedAnomaly() {
-        if (anomalyId == null) return null;
-        for (net.minecraft.entity.Entity entity : world.loadedEntityList) {
-            if (!(entity instanceof EntityFluxAnomalyBurst)) continue;
-            EntityFluxAnomalyBurst anomaly = (EntityFluxAnomalyBurst) entity;
-            if (anomalyId.equals(anomaly.getAnomalyId()) && !anomaly.isDead) {
-                return anomaly;
-            }
-        }
-        return null;
     }
 
     @Override

@@ -10,27 +10,37 @@ import net.minecraft.util.math.Vec3d;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessage;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessageHandler;
 import net.minecraftforge.fml.common.network.simpleimpl.MessageContext;
+import thaumcraft.api.items.ItemsTC;
+import thaumcraft.api.research.ScanningManager;
 import therealpant.thaumicattempts.world.block.BlockAnomalyArchive;
 
 public class C2S_AnomalyArchiveInteract implements IMessage {
     private static final double SERVER_REACH = 6.0D;
     private BlockPos pos;
+    private boolean scan;
 
     public C2S_AnomalyArchiveInteract() {
     }
 
     public C2S_AnomalyArchiveInteract(BlockPos pos) {
+        this(pos, false);
+    }
+
+    public C2S_AnomalyArchiveInteract(BlockPos pos, boolean scan) {
         this.pos = pos;
+        this.scan = scan;
     }
 
     @Override
     public void toBytes(ByteBuf buf) {
         buf.writeLong(pos.toLong());
+        buf.writeBoolean(scan);
     }
 
     @Override
     public void fromBytes(ByteBuf buf) {
         pos = BlockPos.fromLong(buf.readLong());
+        scan = buf.readBoolean();
     }
 
     public static class Handler
@@ -41,16 +51,21 @@ public class C2S_AnomalyArchiveInteract implements IMessage {
                                   MessageContext context) {
             EntityPlayerMP player = context.getServerHandler().player;
             player.getServerWorld().addScheduledTask(
-                    () -> handle(player, message.pos));
+                    () -> handle(player, message.pos, message.scan));
             return null;
         }
 
-        private static void handle(EntityPlayerMP player, BlockPos pos) {
-            if (pos == null || !player.world.isBlockLoaded(pos)
-                    || !BlockAnomalyArchive.isPickaxe(
-                    player.getHeldItem(EnumHand.MAIN_HAND))) {
+        private static void handle(EntityPlayerMP player, BlockPos pos, boolean scan) {
+            if (pos == null || !player.world.isBlockLoaded(pos)) {
                 return;
             }
+
+            if (scan) {
+                if (player.getHeldItem(EnumHand.MAIN_HAND).isEmpty()
+                        || player.getHeldItem(EnumHand.MAIN_HAND).getItem()
+                        != ItemsTC.thaumometer) return;
+            } else if (!BlockAnomalyArchive.isPickaxe(
+                    player.getHeldItem(EnumHand.MAIN_HAND))) return;
 
             IBlockState state = player.world.getBlockState(pos);
             if (!(state.getBlock() instanceof BlockAnomalyArchive)) return;
@@ -71,8 +86,12 @@ public class C2S_AnomalyArchiveInteract implements IMessage {
                 return;
             }
 
-            ((BlockAnomalyArchive) state.getBlock()).harvestWithPickaxe(
-                    player.world, pos, player, EnumHand.MAIN_HAND);
+            if (scan) {
+                ScanningManager.scanTheThing(player, pos);
+            } else {
+                ((BlockAnomalyArchive) state.getBlock()).harvestWithPickaxe(
+                        player.world, pos, player, EnumHand.MAIN_HAND);
+            }
         }
     }
 }

@@ -54,31 +54,31 @@ public final class TAMultiblockTriggers {
             IDustTrigger.registerDustTrigger(auraBoosterTrigger);
 
             DustTriggerMultiblock riftExtractorTrigger = new DustTriggerMultiblock(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON_CREATION",
                 buildRiftExtractorTriggerStructure()
             );
             IDustTrigger.registerDustTrigger(riftExtractorTrigger);
 
             DustTriggerMultiblock riftPortalTrigger = new DustTriggerMultiblock(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON_NAVIGATION",
                 buildRiftPortalTriggerStructure()
             );
             IDustTrigger.registerDustTrigger(riftPortalTrigger);
 
             DustTriggerMultiblock transmutationAltarTrigger = new DustTriggerMultiblock(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON",
                 buildTransmutationAltarTriggerStructure()
             );
             IDustTrigger.registerDustTrigger(transmutationAltarTrigger);
 
             DustTriggerMultiblock riftStoneFurnaceTrigger = new DustTriggerMultiblock(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON_ALCHEMY",
                 buildRiftStoneFurnaceTriggerStructure()
             );
             IDustTrigger.registerDustTrigger(riftStoneFurnaceTrigger);
 
             DustTriggerMultiblock riftonomiconTrigger = new DustTriggerMultiblock(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON",
                 buildRiftonomiconTriggerStructure()
             );
             IDustTrigger.registerDustTrigger(riftonomiconTrigger);
@@ -252,7 +252,7 @@ public final class TAMultiblockTriggers {
         Part[][][] parts = buildRiftExtractorBlueprintStructure();
 
         ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON_CREATION",
                 new ItemStack(TABlocks.RIFT_EXTRACTOR),
                 parts
         );
@@ -314,7 +314,7 @@ public final class TAMultiblockTriggers {
         Part[][][] parts = buildRiftPortalBlueprintStructure();
 
         ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON",
                 new ItemStack(TABlocks.RIFT_STONE_PORTAL),
                 parts
         );
@@ -360,7 +360,7 @@ public final class TAMultiblockTriggers {
 
     private static void registerTransmutationAltarBlueprint() {
         ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON",
                 new ItemStack(TABlocks.RIFT_STONE_ALTAR),
                 buildTransmutationAltarBlueprintStructure()
         );
@@ -436,7 +436,7 @@ public final class TAMultiblockTriggers {
         Part[][][] parts = buildRiftStoneFurnaceBlueprintStructure();
 
         ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON_ALCHEMY",
                 new ItemStack(TABlocks.RIFT_STONE_FURNACE),
                 parts
         );
@@ -698,7 +698,7 @@ public final class TAMultiblockTriggers {
         Part[][][] parts = buildRiftonomiconBlueprintStructure();
 
         ThaumcraftApi.BluePrint bp = new ThaumcraftApi.BluePrint(
-                "TA_RIFT_EXTRACTOR",
+                "TA_RIFTONOMICON",
                 new ItemStack(TABlocks.RIFTONOMICON),
                 parts
         );

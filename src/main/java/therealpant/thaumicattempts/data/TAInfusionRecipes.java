@@ -623,6 +623,111 @@ public final class TAInfusionRecipes {
                     )
             );
         }
+        // ------------ Инкрустация: Навигационный Протокол ------------ \\
+        {
+            ThaumcraftApi.addInfusionCraftingRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "protocol_navigation_infusion"),
+                    new InfusionRecipe(
+                            "TA_RIFTONOMICON_NAVIGATION",
+                            new ItemStack(ModBlocksItems.RIFTONOMICON_PROTOCOL,1,0),
+                            12,
+                            new AspectList()
+                                    .add(Aspect.MOTION, 175)
+                                    .add(Aspect.MECHANISM, 125)
+                                    .add(Aspect.ORDER, 250)
+                                    .add(Aspect.ELDRITCH, 175)
+                                    .add(Aspect.MIND, 175),
+
+
+                            new ItemStack(ItemsTC.curio,1,4),
+                            new ItemStack(ModBlocksItems.RIFTONOMICON_PROTOCOL,1,1),
+                            new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS,1),
+                            new ItemStack(ModBlocksItems.NAVIGATION_CORE,1),
+                            new ItemStack(ModBlocksItems.RIFTONOMICON_PROTOCOL,1,1),
+                            new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS,1)
+                    )
+            );
+        }
+        // ------------ Инкрустация: Навигационная Подсистема------------ \\
+        {
+            ThaumcraftApi.addInfusionCraftingRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "spatial_subsystem_infusion"),
+                    new InfusionRecipe(
+                            "TA_RIFTONOMICON_NAVIGATION",
+                            new ItemStack(ModBlocksItems.RIFTONOMICON_PROTOCOL,1,1),
+                            10,
+                            new AspectList()
+                                    .add(Aspect.MOTION, 75)
+                                    .add(Aspect.MECHANISM, 25)
+                                    .add(Aspect.ORDER, 25)
+                                    .add(Aspect.ELDRITCH, 75)
+                                    .add(Aspect.MIND, 75),
+
+
+                            new ItemStack(ItemsTC.curio,1,4),
+                            new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS,1),
+                            new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS,1),
+                            new ItemStack(ModBlocksItems.NAVIGATION_CORE,1),
+                            new ItemStack(ItemsTC.mechanismComplex,1)
+                    )
+            );
+        }
+
+        registerRiftonomiconProtocolPair(
+                "TA_RIFTONOMICON_ALCHEMY",
+                "alchemical_protocol_infusion", "catalyzing_subsystem_infusion",
+                2, 3, ModBlocksItems.ALCHEMICAL_CORE, 5);
+        registerRiftonomiconProtocolPair(
+                "TA_RIFTONOMICON_TRANSMUTATION",
+                "transmutation_protocol_infusion", "prismatic_subsystem_infusion",
+                4, 5, ModBlocksItems.TRANSMUTATION_CORE, 2);
+        registerRiftonomiconProtocolPair(
+                "TA_RIFTONOMICON_CREATION",
+                "creation_protocol_infusion", "scaling_subsystem_infusion",
+                6, 7, ModBlocksItems.CREATION_CORE, 3);
+    }
+
+    private static void registerRiftonomiconProtocolPair(
+            String research, String protocolRecipe, String subsystemRecipe,
+            int protocolMeta, int subsystemMeta, Item core, int curioMeta) {
+        ThaumcraftApi.addInfusionCraftingRecipe(
+                new ResourceLocation(ThaumicAttempts.MODID, protocolRecipe),
+                new InfusionRecipe(
+                        research,
+                        new ItemStack(ModBlocksItems.RIFTONOMICON_PROTOCOL, 1, protocolMeta),
+                        12,
+                        new AspectList()
+                                .add(Aspect.MOTION, 175)
+                                .add(Aspect.MECHANISM, 125)
+                                .add(Aspect.ORDER, 250)
+                                .add(Aspect.ELDRITCH, 175)
+                                .add(Aspect.MIND, 175),
+                        new ItemStack(ItemsTC.curio, 1, 4),
+                        new ItemStack(ModBlocksItems.RIFTONOMICON_PROTOCOL, 1, subsystemMeta),
+                        new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS),
+                        new ItemStack(core),
+                        new ItemStack(ModBlocksItems.RIFTONOMICON_PROTOCOL, 1, subsystemMeta),
+                        new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS)
+                ));
+
+        ThaumcraftApi.addInfusionCraftingRecipe(
+                new ResourceLocation(ThaumicAttempts.MODID, subsystemRecipe),
+                new InfusionRecipe(
+                        research,
+                        new ItemStack(ModBlocksItems.RIFTONOMICON_PROTOCOL, 1, subsystemMeta),
+                        10,
+                        new AspectList()
+                                .add(Aspect.MOTION, 75)
+                                .add(Aspect.MECHANISM, 25)
+                                .add(Aspect.ORDER, 25)
+                                .add(Aspect.ELDRITCH, 75)
+                                .add(Aspect.MIND, 75),
+                        new ItemStack(ItemsTC.curio, 1, 4),
+                        new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS),
+                        new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS),
+                        new ItemStack(core),
+                        new ItemStack(ItemsTC.mechanismComplex)
+                ));
     }
 }
 

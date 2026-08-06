@@ -33,6 +33,7 @@ import therealpant.thaumicattempts.data.research.TAAspects;
 import therealpant.thaumicattempts.events.AmberCasterCapabilityHandler;
 import therealpant.thaumicattempts.events.TAGemEventHandler;
 import therealpant.thaumicattempts.data.research.TAResearchAddenda;
+import therealpant.thaumicattempts.data.research.TAResearchScans;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.api.gems.TAGemRegistry;
@@ -151,6 +152,8 @@ public class ThaumicAttempts {
 
         //Research
         ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/ta_golemansy"));
+        ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/anomaly_information"));
+        TAResearchScans.register();
         String eldritchResearch = Loader.isModLoaded(THAUMIC_AUGMENTATION_MODID)
                 ? "research/ta_eldritch_ta"
                 : "research/ta_eldritch";

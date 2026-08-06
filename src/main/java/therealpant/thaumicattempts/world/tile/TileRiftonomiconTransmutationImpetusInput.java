@@ -60,8 +60,7 @@ public class TileRiftonomiconTransmutationImpetusInput extends TileEntity implem
     }
 
     private boolean canAcceptParadoxum(TileRiftonomicon core) {
-        return core != null && (core.canAcceptCartridgeRecoveryParadoxum()
-                || core.canAcceptCreationExtractorProductionParadoxum()
+        return core != null && (core.canAcceptCreationExtractorProductionParadoxum()
                 || !ImpetusCompat.isLoaded() && core.canAcceptCreationExtractorParadoxum());
     }
 
@@ -70,9 +69,6 @@ public class TileRiftonomiconTransmutationImpetusInput extends TileEntity implem
         boolean fallbackFuelTurn = !ImpetusCompat.isLoaded() && drawDelay % 20 == 0
                 && core.canAcceptCreationExtractorParadoxum();
         if (fallbackFuelTurn) return core.acceptCreationExtractorParadoxum(amount);
-        if (core.canAcceptCartridgeRecoveryParadoxum()) {
-            return core.acceptCartridgeRecoveryParadoxum(amount);
-        }
         if (core.canAcceptCreationExtractorProductionParadoxum()) {
             return core.acceptCreationExtractorProductionParadoxum(amount);
         }

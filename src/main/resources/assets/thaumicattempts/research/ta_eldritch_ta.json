@@ -131,7 +131,8 @@
         {
           "text": "research.TA_ELDRITCH_CONSTRUCTION.text.1",
           "recipes": [
-            "thaumicattempts:eldritch_construction_arcane"
+            "thaumicattempts:eldritch_construction_arcane",
+            "thaumicattempts:compas_arcane"
           ]
         }
       ]
@@ -147,7 +148,7 @@
       "siblings": [],
       "location": [
         8,
-        3
+        5
       ],
       "stages": [
         {
@@ -220,38 +221,203 @@
       ]
     },
     {
-      "key": "TA_RIFT_EXTRACTOR",
-      "name": "research.TA_RIFT_EXTRACTOR.title",
+      "key": "TA_RIFTONOMICON",
+      "name": "research.TA_RIFTONOMICON.title",
       "icons": [
-        "thaumicattempts:rift_extractor"
+        "thaumicattempts:riftonomicon_core_placeholder"
       ],
       "category": "ELDRITCH",
-      "parents": ["TA_ELDRITCH_CONSTRUCTION","TA_GEM"],
+      "parents": ["TA_AURA_BOOSTER"],
       "siblings": [],
       "location": [
-        9,
-        6
+        10,
+        5
       ],
       "stages": [
         {
-          "text": "research.TA_RIFT_EXTRACTOR.text.0",
+          "text": "research.TA_RIFTONOMICON.text.0",
+          "required_research": [
+            "f_ta_visited_anomaly_archive",
+            "f_ta_visited_anomaly_laboratory",
+            "f_ta_visited_anomaly_monolith",
+            "!TA_ANOMALY_ARCHIVE_INFO"
+          ],
           "required_knowledge": [
-            "THEORY;ELDRITCH;3",
-            "THEORY;ARTIFICE;2",
-            "THEORY;ALCHEMY;1"
+            "THEORY;ELDRITCH;5"
           ],
           "required_item": [
-            "thaumicattempts:eldritch_constarction;1;2",
-            "thaumcraft:void_siphon"
+            "thaumicattempts:eldritch_constarction;5;0",
+            "thaumicattempts:rift_ametist;5"
           ]
         },
         {
-          "text": "research.TA_RIFT_EXTRACTOR.text.2",
+          "text": "research.TA_RIFTONOMICON.text.2",
           "recipes": [
-            "thaumicattempts:rift_extractor_multiblock",
-            "thaumicattempts:rift_stone_furnace_multiblock",
-            "thaumicattempts:rift_portal_multiblock",
             "thaumicattempts:riftonomicon_multiblock"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_RIFTONOMICON_NAVIGATION",
+      "name": "research.TA_RIFTONOMICON_NAVIGATION.title",
+      "icons": [
+        "thaumicattempts:riftonomicon_protocol;1;0"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_RIFTONOMICON"],
+      "siblings": [],
+      "location": [
+        13,
+        2
+      ],
+      "stages": [
+        {
+          "text": "research.TA_RIFTONOMICON_NAVIGATION.text.0",
+          "required_research": [
+            "f_ta_archive_navigation",
+            "!TA_NAVIGATION_PEARL_SCAN;thaumcraft:textures/items/primordial_pearl.png",
+            "!TA_NAVIGATION_STAR_SCAN;minecraft:textures/items/nether_star.png",
+            "!TA_CRIMSON_RITES_SCAN;thaumcraft:textures/items/crimson_rites.png"
+          ],
+          "required_knowledge": [
+            "THEORY;ELDRITCH;3",
+            "THEORY;ARTIFICE;2"
+          ],
+          "required_item": [
+            "thaumicattempts:navigation_core"
+          ]
+        },
+        {
+          "text": "research.TA_RIFTONOMICON_NAVIGATION.text.1",
+          "recipes": [
+            "thaumicattempts:protocol_navigation_infusion",
+            "thaumicattempts:spatial_subsystem_infusion",
+            "thaumicattempts:portal_rune_arcane",
+            "thaumicattempts:rift_portal_multiblock"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_RIFTONOMICON_ALCHEMY",
+      "name": "research.TA_RIFTONOMICON_ALCHEMY.title",
+      "icons": [
+        "thaumicattempts:riftonomicon_protocol;1;2"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_RIFTONOMICON"],
+      "siblings": [],
+      "location": [
+        12,
+        3
+      ],
+      "stages": [
+        {
+          "text": "research.TA_RIFTONOMICON_ALCHEMY.text.0",
+          "required_research": [
+            "f_ta_archive_alchemy",
+            "!TA_NAVIGATION_PEARL_SCAN;thaumcraft:textures/items/primordial_pearl.png",
+            "!TA_NAVIGATION_STAR_SCAN;minecraft:textures/items/nether_star.png",
+            "!TA_TWISTED_CURIOSITY_SCAN;thaumcraft:textures/items/curio_twisted.png"
+          ],
+          "required_knowledge": [
+            "THEORY;ELDRITCH;3",
+            "THEORY;ALCHEMY;2"
+          ],
+          "required_item": [
+            "thaumicattempts:alchemical_core"
+          ]
+        },
+        {
+          "text": "research.TA_RIFTONOMICON_ALCHEMY.text.2",
+          "recipes": [
+            "thaumicattempts:alchemical_protocol_infusion",
+            "thaumicattempts:catalyzing_subsystem_infusion",
+            "thaumicattempts:rift_stone_furnace_multiblock"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_RIFTONOMICON_TRANSMUTATION",
+      "name": "research.TA_RIFTONOMICON_TRANSMUTATION.title",
+      "icons": [
+        "thaumicattempts:riftonomicon_protocol;1;4"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_RIFTONOMICON"],
+      "siblings": [],
+      "location": [
+        12,
+        7
+      ],
+      "stages": [
+        {
+          "text": "research.TA_RIFTONOMICON_TRANSMUTATION.text.0",
+          "required_research": [
+            "f_ta_archive_transmutation",
+            "!TA_NAVIGATION_PEARL_SCAN;thaumcraft:textures/items/primordial_pearl.png",
+            "!TA_NAVIGATION_STAR_SCAN;minecraft:textures/items/nether_star.png",
+            "!TA_ELDRITCH_CURIOSITY_SCAN;thaumcraft:textures/items/curio_eldritch.png"
+          ],
+          "required_knowledge": [
+            "THEORY;ELDRITCH;3",
+            "THEORY;ALCHEMY;2"
+          ],
+          "required_item": [
+            "thaumicattempts:transmutation_core"
+          ]
+        },
+        {
+          "text": "research.TA_RIFTONOMICON_TRANSMUTATION.text.2",
+          "recipes": [
+            "thaumicattempts:transmutation_protocol_infusion",
+            "thaumicattempts:prismatic_subsystem_infusion",
+            "thaumicattempts:prizm_e_orb",
+            "thaumicattempts:prizm_a_orb",
+            "thaumicattempts:prizm_i_orb",
+            "thaumicattempts:prizm_t_orb"
+          ]
+        }
+      ]
+    },
+    {
+      "key": "TA_RIFTONOMICON_CREATION",
+      "name": "research.TA_RIFTONOMICON_CREATION.title",
+      "icons": [
+        "thaumicattempts:riftonomicon_protocol;1;6"
+      ],
+      "category": "ELDRITCH",
+      "parents": ["TA_RIFTONOMICON"],
+      "siblings": [],
+      "location": [
+        13,
+        8
+      ],
+      "stages": [
+        {
+          "text": "research.TA_RIFTONOMICON_CREATION.text.0",
+          "required_research": [
+            "f_ta_archive_creation",
+            "!TA_NAVIGATION_PEARL_SCAN;thaumcraft:textures/items/primordial_pearl.png",
+            "!TA_NAVIGATION_STAR_SCAN;minecraft:textures/items/nether_star.png",
+            "!TA_ANCIENT_CURIOSITY_SCAN;thaumcraft:textures/items/curio_ancient.png"
+          ],
+          "required_knowledge": [
+            "THEORY;ELDRITCH;3",
+            "THEORY;ARTIFICE;2"
+          ],
+          "required_item": [
+            "thaumicattempts:creation_core"
+          ]
+        },
+        {
+          "text": "research.TA_RIFTONOMICON_CREATION.text.2",
+          "recipes": [
+            "thaumicattempts:creation_protocol_infusion",
+            "thaumicattempts:scaling_subsystem_infusion",
+            "thaumicattempts:rift_extractor_multiblock"
           ]
         }
       ]

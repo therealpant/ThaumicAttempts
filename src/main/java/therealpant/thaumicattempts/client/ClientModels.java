@@ -4,6 +4,7 @@ package therealpant.thaumicattempts.client;
 import net.minecraft.block.state.IBlockState;
 
 import net.minecraft.client.renderer.block.model.ModelResourceLocation;
+import net.minecraft.client.renderer.block.model.ModelBakery;
 import net.minecraft.client.renderer.block.statemap.StateMap;
 import net.minecraft.client.renderer.block.statemap.StateMapperBase;
 import net.minecraft.item.Item;
@@ -19,6 +20,8 @@ import therealpant.thaumicattempts.client.render.*;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.items.ItemPrism;
 import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
+import therealpant.thaumicattempts.items.ItemAlchemicalCore;
+import therealpant.thaumicattempts.items.ItemCalibratedExtract;
 import therealpant.thaumicattempts.golemnet.block.BlockMathCore;
 import therealpant.thaumicattempts.golemnet.block.BlockMirrorStabilizer;
 import therealpant.thaumicattempts.golemnet.tile.*;
@@ -39,6 +42,7 @@ import therealpant.thaumicattempts.world.tile.TileStrangePedestal;
 import therealpant.thaumicattempts.world.tile.TileRiftPortalPlatform;
 import therealpant.thaumicattempts.world.tile.TileRiftBush;
 import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
+import therealpant.thaumicattempts.world.tile.TileRiftonomiconCorePlaceholder;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneAltar;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnace;
 import therealpant.thaumicattempts.world.tile.TileRiftStonePortal;
@@ -159,10 +163,20 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.PORTAL_RUNE, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":portal_rune", "inventory")
         );
-        ModelLoader.setCustomModelResourceLocation(
-                ModBlocksItems.CALIBRATED_EXTRACT, 0,
-                new ModelResourceLocation(ThaumicAttempts.MODID + ":calibrated_extract", "inventory")
-        );
+        ModelResourceLocation sigilModel = new ModelResourceLocation(
+                ThaumicAttempts.MODID + ":calibrated_extract", "inventory");
+        ModelResourceLocation sigilStageOneModel = new ModelResourceLocation(
+                ThaumicAttempts.MODID + ":calibrated_extract_stage_1", "inventory");
+        ModelResourceLocation sigilStageTwoModel = new ModelResourceLocation(
+                ThaumicAttempts.MODID + ":calibrated_extract_stage_2", "inventory");
+        ModelBakery.registerItemVariants(ModBlocksItems.CALIBRATED_EXTRACT,
+                sigilModel, sigilStageOneModel, sigilStageTwoModel);
+        ModelLoader.setCustomMeshDefinition(ModBlocksItems.CALIBRATED_EXTRACT, stack -> {
+            int stage = ItemCalibratedExtract.getCraftingStage(stack);
+            if (stage == ItemCalibratedExtract.CRAFTING_STAGE_CORE_STONE) return sigilStageOneModel;
+            if (stage == ItemCalibratedExtract.CRAFTING_STAGE_PARTIAL_SIGIL) return sigilStageTwoModel;
+            return sigilModel;
+        });
         ModelLoader.setCustomModelResourceLocation(
                 ModBlocksItems.ANOMALY_COMPASS, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":anomaly_compass", "inventory")
@@ -174,14 +188,17 @@ public final class ClientModels extends CommonProxy {
         registerItemModel(ModBlocksItems.TRANSMUTATION_CORE);
         registerItemModel(ModBlocksItems.CREATION_CORE);
         registerItemModel(ModBlocksItems.NAVIGATION_CORE);
-        registerItemModel(ModBlocksItems.ALCHEMICAL_CORE);
-        ModBlocksItems.ANOMALY_COMPASS.setTileEntityItemStackRenderer(new RenderAnomalyCompass());
-        for (int fatigue = 1; fatigue <= 6; fatigue++) {
+        for (int wear = 0; wear < ItemAlchemicalCore.USES; wear++) {
+            String model = wear >= ItemAlchemicalCore.CRITICAL_STAGE_START
+                    ? "alchemical_core_critical"
+                    : wear >= ItemAlchemicalCore.DAMAGED_STAGE_START
+                    ? "alchemical_core_damaged" : "alchemical_core";
             ModelLoader.setCustomModelResourceLocation(
-                    ModBlocksItems.CALIBRATED_EXTRACT, fatigue,
-                    new ModelResourceLocation(ThaumicAttempts.MODID + ":calibrated_extract_" + fatigue, "inventory")
+                    ModBlocksItems.ALCHEMICAL_CORE, wear,
+                    new ModelResourceLocation(ThaumicAttempts.MODID + ":" + model, "inventory")
             );
         }
+        ModBlocksItems.ANOMALY_COMPASS.setTileEntityItemStackRenderer(new RenderAnomalyCompass());
         registerPrismModel(ItemPrism.META_AIR, "prism_air");
         registerPrismModel(ItemPrism.META_AQUA, "prism_aqua");
         registerPrismModel(ItemPrism.META_IGNIS, "prism_ignis");
@@ -276,6 +293,8 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.RIFT_STONE_ALTAR_ITEM, TileRiftStoneAltar::new);
         registerItemModel(TABlocks.RIFTONOMICON_ITEM);
         attachTileRenderer(TABlocks.RIFTONOMICON_ITEM, TileRiftonomicon::new);
+        registerItemModel(TABlocks.RIFTONOMICON_CORE_PLACEHOLDER_ITEM);
+        attachTileRenderer(TABlocks.RIFTONOMICON_CORE_PLACEHOLDER_ITEM, TileRiftonomiconCorePlaceholder::new);
         /* ---------- StateMappers (рендер БЛОКА в мире) ---------- */
 
         // наши крафтеры: игнорируем таумовский ENABLED (если присутствует)
@@ -417,6 +436,10 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileRiftonomicon.class,
                 new RenderRiftonomicon()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftonomiconCorePlaceholder.class,
+                new RenderRiftonomiconCorePlaceholder()
         );
     }
 

@@ -33,6 +33,7 @@ public class TABlocks {
     public static Block RIFT_STONE_FURNACE;
     public static Block RIFT_STONE_ALTAR;
     public static Block RIFTONOMICON;
+    public static Block RIFTONOMICON_CORE_PLACEHOLDER;
     public static Block POLISHED_DARK_JASPER;
 
     public static Item MIRROR_MANAGER_ITEM;
@@ -62,6 +63,7 @@ public class TABlocks {
     public static Item RIFT_STONE_FURNACE_ITEM;
     public static Item RIFT_STONE_ALTAR_ITEM;
     public static Item RIFTONOMICON_ITEM;
+    public static Item RIFTONOMICON_CORE_PLACEHOLDER_ITEM;
     public static Item POLISHED_DARK_JASPER_ITEM;
 }
 

@@ -2,12 +2,14 @@ package therealpant.thaumicattempts.world.tile;
 
 import net.minecraft.entity.item.EntityItem;
 import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.init.SoundEvents;
+import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraft.item.ItemArmor;
 import net.minecraft.item.ItemTool;
 import net.minecraft.item.ItemSword;
 import net.minecraft.item.ItemBow;
-import net.minecraft.item.Item;
+import net.minecraft.item.crafting.Ingredient;
 import net.minecraft.item.crafting.IRecipe;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
@@ -16,8 +18,11 @@ import net.minecraft.network.play.server.SPacketUpdateTileEntity;
 import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.ITickable;
 import net.minecraft.util.NonNullList;
+import net.minecraft.util.EnumParticleTypes;
+import net.minecraft.util.SoundCategory;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.AxisAlignedBB;
+import net.minecraft.world.WorldServer;
 import net.minecraft.block.state.IBlockState;
 import net.minecraftforge.common.util.Constants;
 import net.minecraftforge.fml.common.registry.ForgeRegistries;
@@ -29,7 +34,6 @@ import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
 import therealpant.thaumicattempts.data.TAMultiblockTriggers;
-import therealpant.thaumicattempts.golemnet.block.BlockEldritchConstarction;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
@@ -38,6 +42,7 @@ import therealpant.thaumicattempts.items.ItemPortalRune;
 import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
 import therealpant.thaumicattempts.items.ItemPrism;
 import therealpant.thaumicattempts.items.ItemCalibratedExtract;
+import therealpant.thaumicattempts.items.ItemAlchemicalCore;
 import therealpant.thaumicattempts.util.WeaponTransmutation;
 import therealpant.thaumicattempts.util.ArmorTransmutation;
 import therealpant.thaumicattempts.util.FocusTransmutation;
@@ -46,9 +51,14 @@ import therealpant.thaumicattempts.world.block.BlockRiftonomicon;
 import javax.annotation.Nullable;
 import java.util.List;
 import java.util.ArrayList;
+import java.util.HashSet;
+import java.util.Set;
+import thaumcraft.api.ThaumcraftApi;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.api.aspects.Aspect;
 import thaumcraft.api.aspects.AspectList;
+import thaumcraft.api.crafting.CrucibleRecipe;
+import thaumcraft.api.crafting.InfusionRecipe;
 import thaumcraft.common.items.casters.ItemFocus;
 import thaumcraft.common.lib.crafting.ThaumcraftCraftingManager;
 
@@ -109,19 +119,16 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private static final String TAG_CREATION_INSTABILITY = "CreationInstability";
     private static final String TAG_CREATION_CHECKPOINT = "CreationCheckpoint";
     private static final String TAG_CREATION_COMPLETION_TICKS = "CreationCompletionTicks";
+    private static final String TAG_CREATION_PENDING_STAGE = "CreationPendingStage";
     private static final String TAG_CREATION_EXTRACTOR_FUEL = "CreationExtractorFuel";
     private static final String TAG_CREATION_EXTRACTOR_PARADOXUM = "CreationExtractorParadoxum";
-    private static final String TAG_CARTRIDGE_RECOVERY_POS = "CartridgeRecoveryPos";
-    private static final String TAG_CARTRIDGE_RECOVERY_PROGRESS = "CartridgeRecoveryProgress";
-    private static final String TAG_CARTRIDGE_RECOVERY_PARADOXUM = "CartridgeRecoveryParadoxum";
-    private static final String TAG_CARTRIDGE_RECOVERY_TICKS = "CartridgeRecoveryTicks";
     private static final int TRANSMUTATION_ESSENTIA_BASE = 150;
     private static final long TRANSMUTATION_IMPETUS_PER_SECOND = 50L;
     private static final long IMPETUS_PER_PEARL_WEAR_EVENT = 800L;
     private static final float PEARL_DAMAGE_CHANCE = 0.05F;
     private static final float FALLBACK_PEARL_DAMAGE_CHANCE = 0.08F;
     private static final int FALLBACK_CYCLES_PER_WEAR_EVENT = 4;
-    private static final int CREATION_SIGNATURES_PER_PULSE = 5;
+    private static final int CREATION_SIGNATURES_PER_PULSE = 7;
     private static final int CREATION_CHECKPOINT_SIGNATURES = 80;
     private static final int CREATION_IMPETUS_PER_PULSE = 50;
     private static final int CREATION_PARADOXUM_CAPACITY = 64;
@@ -130,8 +137,6 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private static final long CREATION_EXTRACTOR_FUEL_CAPACITY = 200000L;
     private static final int CREATION_EXTRACTOR_PARADOXUM_CAPACITY = 4096;
     private static final long IMPETUS_PER_PARADOXUM = 100L;
-    private static final int CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE = 75;
-    private static final long CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND = 50L;
     private static final double CREATION_EXTRACTOR_LINK_RANGE_SQ = 16.0D * 16.0D;
     private static final net.minecraft.util.EnumFacing[] IMPETUS_PORT_FACINGS = {
             net.minecraft.util.EnumFacing.NORTH,
@@ -186,12 +191,9 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private int creationFailures;
     private int creationPulseTicks;
     private int creationCompletionTicks;
+    private int creationPendingStage = -1;
     private long creationExtractorFuel;
     private int creationExtractorParadoxum;
-    @Nullable private BlockPos cartridgeRecoveryOrigin;
-    private int cartridgeRecoveryProgress;
-    private int cartridgeRecoveryParadoxum;
-    private int cartridgeRecoveryTicks;
 
     @Override
     public void registerControllers(AnimationData data) {
@@ -298,7 +300,6 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         tickTransmutation();
         tickCreationCompletion();
         tickCreationResearch();
-        tickCartridgeRecovery();
         if (transmutationReturnTicks > 0 && --transmutationReturnTicks % 4 == 0) sync();
         if (world.getTotalWorldTime() % 5L == 0L) {
             absorbNavigationRunesFromBaseVoid();
@@ -399,6 +400,10 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     }
 
     private boolean payTransmutationImpetus() {
+        // Impetus is an optional Thaumic Augmentation mechanic. Without that
+        // mod there is no network the player could connect, so power payment
+        // must not prevent the protocol from running.
+        if (!ImpetusCompat.isLoaded()) return true;
         TileEntity tile = world.getTileEntity(pos.up(1));
         if (!(tile instanceof TileRiftonomiconTransmutationImpetusInput)) return false;
         TileRiftonomiconTransmutationImpetusInput input = (TileRiftonomiconTransmutationImpetusInput) tile;
@@ -467,7 +472,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     }
 
     private void tickCreationResearch() {
-        if (!hasCreationProtocol() || !hasActiveCreationResearch()) return;
+        if (!hasCreationProtocol() || !hasActiveCreationResearch() || creationCompletionTicks > 0) return;
         if (++creationPulseTicks < 20) return;
         creationPulseTicks = 0;
 
@@ -508,103 +513,10 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         if (changed) sync();
     }
 
-    private void tickCartridgeRecovery() {
-        if (!hasCreationProtocol()) return;
-        if (cartridgeRecoveryOrigin == null) {
-            if (creationCoreItem.isEmpty() && !hasActiveCreationResearch() && creationCompletionTicks <= 0
-                    && world.getTotalWorldTime() % 20L == 0L) {
-                acquireExhaustedCartridge();
-            }
-            return;
-        }
-        if (creationCoreItem.isEmpty() || creationCoreItem.getItem() != ModBlocksItems.CALIBRATED_EXTRACT) {
-            clearCartridgeRecovery();
-            sync();
-            return;
-        }
-        if (ItemCalibratedExtract.getFatigue(creationCoreItem) <= 0) {
-            returnRecoveredCartridge();
-            return;
-        }
-        if (++cartridgeRecoveryTicks < 20) return;
-        cartridgeRecoveryTicks = 0;
-        if (cartridgeRecoveryParadoxum <= 0
-                || consumeCreationExtractorFuel(CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND, true)
-                < CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND) return;
-        if (consumeCreationExtractorFuel(CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND, false)
-                < CARTRIDGE_RECOVERY_IMPETUS_PER_SECOND) return;
-        cartridgeRecoveryParadoxum--;
-        cartridgeRecoveryProgress++;
-        if (cartridgeRecoveryProgress >= CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE) {
-            cartridgeRecoveryProgress = 0;
-            ItemCalibratedExtract.restoreOneFatigue(creationCoreItem);
-        }
-        sync();
-        if (ItemCalibratedExtract.getFatigue(creationCoreItem) <= 0) returnRecoveredCartridge();
-    }
-
-    private void acquireExhaustedCartridge() {
-        List<TileRiftExtractor> extractors = new ArrayList<>();
-        for (TileEntity tile : world.loadedTileEntityList) {
-            if (tile instanceof TileRiftExtractor && isCreationExtractorLinked(tile.getPos())) {
-                extractors.add((TileRiftExtractor) tile);
-            }
-        }
-        extractors.sort((a, b) -> {
-            int distance = Double.compare(pos.distanceSq(a.getPos()), pos.distanceSq(b.getPos()));
-            return distance != 0 ? distance : Long.compare(a.getPos().toLong(), b.getPos().toLong());
-        });
-        for (TileRiftExtractor extractor : extractors) {
-            ItemStack cartridge = extractor.takeExhaustedCartridgeForRecovery(this);
-            if (cartridge.isEmpty()) continue;
-            resetCreationSession();
-            creationCoreItem = cartridge;
-            cartridgeRecoveryOrigin = extractor.getPos().toImmutable();
-            cartridgeRecoveryProgress = 0;
-            cartridgeRecoveryParadoxum = 0;
-            cartridgeRecoveryTicks = 0;
-            sync();
-            return;
-        }
-    }
-
-    private void returnRecoveredCartridge() {
-        if (cartridgeRecoveryOrigin == null || ItemCalibratedExtract.getFatigue(creationCoreItem) > 0) return;
-        TileEntity tile = world.getTileEntity(cartridgeRecoveryOrigin);
-        if (!(tile instanceof TileRiftExtractor)
-                || !((TileRiftExtractor) tile).returnRecoveredCartridge(creationCoreItem, this)) return;
-        creationCoreItem = ItemStack.EMPTY;
-        clearCartridgeRecovery();
-        sync();
-    }
-
-    private void clearCartridgeRecovery() {
-        cartridgeRecoveryOrigin = null;
-        cartridgeRecoveryProgress = 0;
-        cartridgeRecoveryParadoxum = 0;
-        cartridgeRecoveryTicks = 0;
-    }
-
-    private boolean isRecoveringCartridge() {
-        return cartridgeRecoveryOrigin != null && !creationCoreItem.isEmpty()
-                && creationCoreItem.getItem() == ModBlocksItems.CALIBRATED_EXTRACT;
-    }
-
-    public boolean canAcceptCartridgeRecoveryParadoxum() {
-        return isRecoveringCartridge()
-                && cartridgeRecoveryParadoxum < CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE;
-    }
-
-    public int acceptCartridgeRecoveryParadoxum(int amount) {
-        if (amount <= 0 || !canAcceptCartridgeRecoveryParadoxum()) return 0;
-        int accepted = Math.min(amount,
-                CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE - cartridgeRecoveryParadoxum);
-        cartridgeRecoveryParadoxum += accepted;
-        sync();
-        return accepted;
-    }
-
     private boolean payCreationImpetus(int slot, long amount) {
+        // Creation arrays remain usable in installations without Thaumic
+        // Augmentation; Paradoxum is still consumed normally in that mode.
+        if (!ImpetusCompat.isLoaded()) return true;
         if (slot < 0 || slot >= CREATION_IMPETUS_PORT_FACINGS.length) return false;
         TileEntity tile = world.getTileEntity(pos.offset(CREATION_IMPETUS_PORT_FACINGS[slot], 2));
         if (!(tile instanceof TileRiftonomiconImpetusPort)) return false;
@@ -614,11 +526,11 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     }
 
     private int getCreationInstabilityPerPulse() {
-        if (creationFailures <= 0) return 50;
-        if (creationFailures == 1) return 45;
-        if (creationFailures == 2) return 41;
-        if (creationFailures == 3) return 38;
-        return 35;
+        if (creationFailures <= 0) return 70;
+        if (creationFailures == 1) return 64;
+        if (creationFailures == 2) return 58;
+        if (creationFailures == 3) return 54;
+        return 50;
     }
 
     private boolean runCreationStabilityCheck(int slot) {
@@ -626,11 +538,13 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         int chanceHundredths = Math.min(9000, Math.max(0, creationInstability[slot]));
         boolean broken = chanceHundredths > 0 && world.rand.nextInt(10000) < chanceHundredths;
         if (broken) {
+            ItemStack brokenSample = creationSamples.get(slot).copy();
             creationSamples.set(slot, ItemStack.EMPTY);
             creationActive[slot] = false;
             creationCheckpointProgress[slot] = 0;
             creationInstability[slot] = 0;
             creationFailures++;
+            playItemBreakEffect(brokenSample, pos.offset(CREATION_IMPETUS_PORT_FACINGS[slot], 2));
         } else {
             creationInstability[slot] /= 2;
         }
@@ -674,24 +588,81 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     }
 
     private void completeCreationResearch() {
-        creationSignatures = creationRequired;
+        if (world.rand.nextFloat() < 0.05F) {
+            breakCreationSigil();
+            return;
+        }
+        int completedStage = getCreationRitualStage();
+        creationPendingStage = completedStage <= 0
+                ? ItemCalibratedExtract.CRAFTING_STAGE_CORE_STONE
+                : completedStage == ItemCalibratedExtract.CRAFTING_STAGE_CORE_STONE
+                ? ItemCalibratedExtract.CRAFTING_STAGE_PARTIAL_SIGIL : 0;
+        creationCompletionTicks = 1;
+    }
+
+    private void applyCreationStageTransition() {
+        if (creationPendingStage == ItemCalibratedExtract.CRAFTING_STAGE_CORE_STONE) {
+            creationCoreItem = ItemCalibratedExtract.withTarget(ModBlocksItems.CALIBRATED_EXTRACT,
+                    creationTarget, creationRequired);
+            ItemCalibratedExtract.setCraftingStage(creationCoreItem,
+                    ItemCalibratedExtract.CRAFTING_STAGE_CORE_STONE);
+            prepareNextCreationRitualPass();
+        } else if (creationPendingStage == ItemCalibratedExtract.CRAFTING_STAGE_PARTIAL_SIGIL) {
+            ItemCalibratedExtract.setCraftingStage(creationCoreItem,
+                    ItemCalibratedExtract.CRAFTING_STAGE_PARTIAL_SIGIL);
+            prepareNextCreationRitualPass();
+        } else if (creationPendingStage == 0) {
+            creationSignatures = creationRequired;
+            ItemCalibratedExtract.setCraftingStage(creationCoreItem, 0);
+            for (int slot = 0; slot < CREATION_SAMPLE_SLOT_COUNT; slot++) {
+                creationActive[slot] = false;
+                creationCheckpointProgress[slot] = 0;
+                creationInstability[slot] = 0;
+            }
+        }
+    }
+
+    private void prepareNextCreationRitualPass() {
+        creationSignatures = 0;
         for (int slot = 0; slot < CREATION_SAMPLE_SLOT_COUNT; slot++) {
-            creationActive[slot] = false;
             creationCheckpointProgress[slot] = 0;
             creationInstability[slot] = 0;
         }
-        if (creationCompletionTicks <= 0) creationCompletionTicks = 1;
+    }
+
+    private void breakCreationSigil() {
+        ItemStack brokenSigil = creationCoreItem.copy();
+        creationCoreItem = ItemStack.EMPTY;
+        resetCreationSession();
+        playItemBreakEffect(brokenSigil, pos.down());
+    }
+
+    private void playItemBreakEffect(ItemStack broken, BlockPos effectPos) {
+        if (broken.isEmpty() || effectPos == null || world == null || world.isRemote) return;
+        world.playSound(null, effectPos, SoundEvents.ENTITY_ENDEREYE_DEATH,
+                SoundCategory.NEUTRAL, 1.0F, 1.0F);
+        if (world instanceof WorldServer) {
+            ((WorldServer) world).spawnParticle(EnumParticleTypes.ITEM_CRACK,
+                    effectPos.getX() + 0.5D, effectPos.getY() + 0.5D, effectPos.getZ() + 0.5D,
+                    28, 0.28D, 0.28D, 0.28D, 0.08D,
+                    Item.getIdFromItem(broken.getItem()), broken.getMetadata());
+        }
+    }
+
+    private int getCreationRitualStage() {
+        return creationCoreItem.getItem() == ModBlocksItems.CALIBRATED_EXTRACT
+                ? ItemCalibratedExtract.getCraftingStage(creationCoreItem) : 0;
     }
 
     private void tickCreationCompletion() {
         if (creationCompletionTicks <= 0) return;
         creationCompletionTicks++;
         if (creationCompletionTicks == CREATION_COMPLETION_SWAP_TICK) {
-            creationCoreItem = ItemCalibratedExtract.withTarget(ModBlocksItems.CALIBRATED_EXTRACT,
-                    creationTarget, creationRequired);
+            applyCreationStageTransition();
             sync();
         } else if (creationCompletionTicks >= CREATION_COMPLETION_TOTAL_TICKS) {
             creationCompletionTicks = 0;
+            creationPendingStage = -1;
             sync();
         } else if (creationCompletionTicks % 10 == 0) {
             sync();
@@ -819,7 +790,17 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
 
     public boolean canAcceptCreationExtractorProductionParadoxum() {
         return hasCreationProtocol()
+                && hasActiveCreationExtractor()
                 && creationExtractorParadoxum < CREATION_EXTRACTOR_PARADOXUM_CAPACITY;
+    }
+
+    private boolean hasActiveCreationExtractor() {
+        if (world == null) return false;
+        for (TileEntity tile : world.loadedTileEntityList) {
+            if (tile instanceof TileRiftExtractor
+                    && ((TileRiftExtractor) tile).isRequestingCreationResources(this)) return true;
+        }
+        return false;
     }
 
     public int acceptCreationExtractorProductionParadoxum(int amount) {
@@ -832,7 +813,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     }
 
     public boolean canAcceptCreationExtractorParadoxum() {
-        return hasCreationProtocol() && !ImpetusCompat.isLoaded()
+        return hasCreationProtocol() && hasActiveCreationExtractor() && !ImpetusCompat.isLoaded()
                 && creationExtractorFuel < CREATION_EXTRACTOR_FUEL_CAPACITY;
     }
 
@@ -864,10 +845,15 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         if (player == null || !hasCreationProtocol() || !creationCoreItem.isEmpty()
                 || hasActiveCreationResearch() || creationCompletionTicks > 0) return false;
         ItemStack held = player.getHeldItemMainhand();
-        if (!isBaseEldritchConstruction(held)) return false;
+        if (!isCreationRitualInput(held)) return false;
         creationCoreItem = held.copy();
         creationCoreItem.setCount(1);
         if (!player.capabilities.isCreativeMode) held.shrink(1);
+        if (isInProgressCreationSigil(creationCoreItem)) {
+            creationTarget = ItemCalibratedExtract.getTarget(creationCoreItem);
+            creationRequired = ItemCalibratedExtract.getSignatureCost(creationCoreItem);
+            creationSignatures = 0;
+        }
         sync();
         return true;
     }
@@ -876,7 +862,6 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         if (creationCoreItem.isEmpty() || hasActiveCreationResearch() || creationCompletionTicks > 0) return ItemStack.EMPTY;
         ItemStack result = creationCoreItem;
         creationCoreItem = ItemStack.EMPTY;
-        clearCartridgeRecovery();
         resetCreationSession();
         sync();
         return result;
@@ -888,7 +873,6 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         NonNullList<ItemStack> removed = NonNullList.withSize(CREATION_SAMPLE_SLOT_COUNT + 1, ItemStack.EMPTY);
         removed.set(0, creationCoreItem);
         creationCoreItem = ItemStack.EMPTY;
-        clearCartridgeRecovery();
         for (int i = 0; i < CREATION_SAMPLE_SLOT_COUNT; i++) {
             if (creationActive[i]) runCreationStabilityCheck(i);
             removed.set(i + 1, creationSamples.get(i));
@@ -915,13 +899,21 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     }
 
     private boolean isCreationBlankInstalled() {
-        return isBaseEldritchConstruction(creationCoreItem);
+        return isCreationRitualInput(creationCoreItem);
     }
 
-    private static boolean isBaseEldritchConstruction(ItemStack stack) {
-        return !stack.isEmpty()
-                && stack.getItem() == Item.getItemFromBlock(TABlocks.ELDRITCH_CONSTRUCTION)
-                && stack.getMetadata() == BlockEldritchConstarction.Variant.BASE.getMeta();
+    private static boolean isCreationCore(ItemStack stack) {
+        return !stack.isEmpty() && stack.getItem() == ModBlocksItems.CREATION_CORE;
+    }
+
+    private static boolean isInProgressCreationSigil(ItemStack stack) {
+        return !stack.isEmpty() && stack.getItem() == ModBlocksItems.CALIBRATED_EXTRACT
+                && ItemCalibratedExtract.getCraftingStage(stack) > 0
+                && !ItemCalibratedExtract.getTarget(stack).isEmpty();
+    }
+
+    private static boolean isCreationRitualInput(ItemStack stack) {
+        return isCreationCore(stack) || isInProgressCreationSigil(stack);
     }
 
     private void resetCreationSession() {
@@ -930,6 +922,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         creationRequired = 0;
         creationFailures = 0;
         creationCompletionTicks = 0;
+        creationPendingStage = -1;
         for (int i = 0; i < CREATION_SAMPLE_SLOT_COUNT; i++) {
             creationActive[i] = false;
             creationInstability[i] = 0;
@@ -962,17 +955,128 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
 
     private boolean isValidCreationSample(ItemStack stack) {
         if (stack == null || stack.isEmpty() || stack.getItem() == ModBlocksItems.CALIBRATED_EXTRACT
-                || hasCraftingRecipe(stack)) return false;
+                || hasBlockingCreationRecipe(stack)) return false;
         AspectList aspects = ThaumcraftCraftingManager.getObjectTags(normalizedCreationSample(stack));
         return aspects != null && aspects.size() > 0 && aspects.visSize() > 0;
     }
 
-    private static boolean hasCraftingRecipe(ItemStack stack) {
+    private static boolean hasBlockingCreationRecipe(ItemStack stack) {
+        ItemStack source = normalizedCreationSample(stack);
         for (IRecipe recipe : ForgeRegistries.RECIPES.getValuesCollection()) {
             ItemStack output = recipe.getRecipeOutput();
-            if (sameCreationItemType(output, stack)) return true;
+            if (sameCreationItemType(output, source)
+                    && !areCraftingIngredientsDerivedFrom(source, recipe.getIngredients(),
+                    new HashSet<>(), 0)) return true;
+        }
+        for (Object value : ThaumcraftApi.getCraftingRecipes().values()) {
+            if (value instanceof CrucibleRecipe) {
+                CrucibleRecipe recipe = (CrucibleRecipe) value;
+                if (sameCreationItemType(recipe.getRecipeOutput(), source)
+                        && !isIngredientDerivedFrom(source, recipe.getCatalyst(),
+                        new HashSet<>(), 0)) return true;
+            } else if (value instanceof InfusionRecipe) {
+                InfusionRecipe recipe = (InfusionRecipe) value;
+                if (infusionOutputMatches(recipe, source)
+                        && !areInfusionInputsDerivedFrom(source, recipe,
+                        new HashSet<>(), 0)) return true;
+            }
         }
         return false;
+    }
+
+    private static boolean infusionOutputMatches(InfusionRecipe recipe, ItemStack target) {
+        Object output = recipe.getRecipeOutput();
+        if (output instanceof ItemStack) return sameCreationItemType((ItemStack) output, target);
+        if (!(output instanceof Object[])) return false;
+        Ingredient input = recipe.getRecipeInput();
+        if (input == null) return false;
+        for (ItemStack central : input.getMatchingStacks()) {
+            if (sameCreationItemType(central, target)) return true;
+        }
+        return false;
+    }
+
+    private static boolean areInfusionInputsDerivedFrom(ItemStack source, InfusionRecipe recipe,
+                                                         Set<String> visiting, int depth) {
+        Ingredient central = recipe.getRecipeInput();
+        if (central == null) return false;
+        if (ingredientDirectlyContains(central, source)) return true;
+        if (!isIngredientDerivedFrom(source, central, visiting, depth)) return false;
+        for (Ingredient component : recipe.getComponents()) {
+            if (!isIngredientDerivedFrom(source, component, visiting, depth)) return false;
+        }
+        return true;
+    }
+
+    private static boolean ingredientDirectlyContains(Ingredient ingredient, ItemStack target) {
+        if (ingredient == null || ingredient == Ingredient.EMPTY) return false;
+        for (ItemStack match : ingredient.getMatchingStacks()) {
+            if (sameCreationItemType(match, target)) return true;
+        }
+        return false;
+    }
+
+    private static boolean areCraftingIngredientsDerivedFrom(ItemStack source, List<Ingredient> ingredients,
+                                                               Set<String> visiting, int depth) {
+        boolean foundIngredient = false;
+        for (Ingredient ingredient : ingredients) {
+            if (ingredient == null || ingredient == Ingredient.EMPTY) continue;
+            ItemStack[] matches = ingredient.getMatchingStacks();
+            if (matches.length == 0) return false;
+            foundIngredient = true;
+            if (!isIngredientDerivedFrom(source, ingredient, visiting, depth)) return false;
+        }
+        return foundIngredient;
+    }
+
+    private static boolean isIngredientDerivedFrom(ItemStack source, Ingredient ingredient,
+                                                    Set<String> visiting, int depth) {
+        if (ingredient == null || ingredient == Ingredient.EMPTY) return false;
+        for (ItemStack candidate : ingredient.getMatchingStacks()) {
+            if (isItemDerivedFrom(source, candidate, visiting, depth)) return true;
+        }
+        return false;
+    }
+
+    private static boolean isItemDerivedFrom(ItemStack source, ItemStack candidate,
+                                             Set<String> visiting, int depth) {
+        if (candidate == null || candidate.isEmpty()) return false;
+        if (sameCreationItemType(source, candidate)) return true;
+        if (depth >= 12) return false;
+
+        String key = creationRecipeKey(candidate);
+        if (!visiting.add(key)) return false;
+        try {
+            for (IRecipe recipe : ForgeRegistries.RECIPES.getValuesCollection()) {
+                if (!sameCreationItemType(recipe.getRecipeOutput(), candidate)) continue;
+                if (areCraftingIngredientsDerivedFrom(source, recipe.getIngredients(), visiting, depth + 1)) {
+                    return true;
+                }
+            }
+            for (Object value : ThaumcraftApi.getCraftingRecipes().values()) {
+                if (value instanceof CrucibleRecipe) {
+                    CrucibleRecipe recipe = (CrucibleRecipe) value;
+                    if (sameCreationItemType(recipe.getRecipeOutput(), candidate)
+                            && isIngredientDerivedFrom(source, recipe.getCatalyst(), visiting, depth + 1)) {
+                        return true;
+                    }
+                } else if (value instanceof InfusionRecipe) {
+                    InfusionRecipe recipe = (InfusionRecipe) value;
+                    if (infusionOutputMatches(recipe, candidate)
+                            && areInfusionInputsDerivedFrom(source, recipe, visiting, depth + 1)) {
+                        return true;
+                    }
+                }
+            }
+            return false;
+        } finally {
+            visiting.remove(key);
+        }
+    }
+
+    private static String creationRecipeKey(ItemStack stack) {
+        return String.valueOf(stack.getItem().getRegistryName()) + '@'
+                + (stack.isItemStackDamageable() ? 0 : stack.getMetadata());
     }
 
     private static boolean sameCreationItemType(ItemStack first, ItemStack second) {
@@ -1329,7 +1433,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     public int getAlchemyEfficiency() {
         int pearls = 0;
         for (ItemStack pearl : alchemyPearls) {
-            if (!pearl.isEmpty()) pearls++;
+            if (isAlchemicalCore(pearl)) pearls++;
         }
         int reservedFuelPearls = ImpetusCompat.isLoaded() ? 0 : 1;
         return Math.min(ALCHEMY_PEARL_SLOT_COUNT, Math.max(0, pearls - reservedFuelPearls));
@@ -1337,7 +1441,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
 
     public boolean hasAlchemyPearls() {
         for (ItemStack pearl : alchemyPearls) {
-            if (!pearl.isEmpty()) return true;
+            if (isAlchemicalCore(pearl)) return true;
         }
         return false;
     }
@@ -1346,7 +1450,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         if (!hasAlchemicalProtocol() || player == null || slot < 0 || slot >= ALCHEMY_PEARL_SLOT_COUNT
                 || !alchemyPearls.get(slot).isEmpty()) return false;
         ItemStack held = player.getHeldItemMainhand();
-        if (held.isEmpty() || held.getItem() != ItemsTC.primordialPearl) return false;
+        if (!isAlchemicalCore(held)) return false;
         ItemStack pearl = held.copy();
         pearl.setCount(1);
         alchemyPearls.set(slot, pearl);
@@ -1440,7 +1544,7 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         List<Integer> candidates = new ArrayList<>();
         for (int slot = 0; slot < ALCHEMY_PEARL_SLOT_COUNT; slot++) {
             ItemStack pearl = alchemyPearls.get(slot);
-            if (pearl.isEmpty()) continue;
+            if (!isAlchemicalCore(pearl)) continue;
             int damage = pearl.getItemDamage();
             if (damage < leastDamage) {
                 leastDamage = damage;
@@ -1455,10 +1559,14 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         int slot = candidates.get(world.rand.nextInt(candidates.size()));
         if (world.rand.nextFloat() >= damageChance) return false;
         ItemStack pearl = alchemyPearls.get(slot);
-        if (pearl.attemptDamageItem(1, world.rand, null)) {
+        if (ItemAlchemicalCore.consumeUse(pearl)) {
             alchemyPearls.set(slot, ItemStack.EMPTY);
         }
         return true;
+    }
+
+    private static boolean isAlchemicalCore(ItemStack stack) {
+        return stack != null && !stack.isEmpty() && stack.getItem() == ModBlocksItems.ALCHEMICAL_CORE;
     }
 
     public void onFurnaceSmeltingCycleCompleted(BlockPos furnacePos) {
@@ -1823,16 +1931,11 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         compound.setIntArray(TAG_CREATION_PARADOXUM, creationParadoxum);
         compound.setLong(TAG_CREATION_EXTRACTOR_FUEL, creationExtractorFuel);
         compound.setInteger(TAG_CREATION_EXTRACTOR_PARADOXUM, creationExtractorParadoxum);
-        if (cartridgeRecoveryOrigin != null) {
-            compound.setLong(TAG_CARTRIDGE_RECOVERY_POS, cartridgeRecoveryOrigin.toLong());
-        }
-        compound.setInteger(TAG_CARTRIDGE_RECOVERY_PROGRESS, cartridgeRecoveryProgress);
-        compound.setInteger(TAG_CARTRIDGE_RECOVERY_PARADOXUM, cartridgeRecoveryParadoxum);
-        compound.setInteger(TAG_CARTRIDGE_RECOVERY_TICKS, cartridgeRecoveryTicks);
         compound.setInteger(TAG_CREATION_FAILURES, creationFailures);
         compound.setIntArray(TAG_CREATION_INSTABILITY, creationInstability);
         compound.setIntArray(TAG_CREATION_CHECKPOINT, creationCheckpointProgress);
         compound.setInteger(TAG_CREATION_COMPLETION_TICKS, creationCompletionTicks);
+        compound.setInteger(TAG_CREATION_PENDING_STAGE, creationPendingStage);
         compound.setBoolean(TAG_CORE_PORTAL_LATCHED, coreProtocolRequested);
         compound.setInteger(TAG_CORE_ANIMATION_TICKS, coreAnimationTicks);
         compound.setBoolean(TAG_CORE_OPEN_CYCLE, coreOpenCycle);
@@ -1905,17 +2008,12 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
                 compound.getLong(TAG_CREATION_EXTRACTOR_FUEL)));
         creationExtractorParadoxum = Math.max(0, Math.min(CREATION_EXTRACTOR_PARADOXUM_CAPACITY,
                 compound.getInteger(TAG_CREATION_EXTRACTOR_PARADOXUM)));
-        cartridgeRecoveryOrigin = compound.hasKey(TAG_CARTRIDGE_RECOVERY_POS)
-                ? BlockPos.fromLong(compound.getLong(TAG_CARTRIDGE_RECOVERY_POS)) : null;
-        cartridgeRecoveryProgress = Math.max(0, Math.min(CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE - 1,
-                compound.getInteger(TAG_CARTRIDGE_RECOVERY_PROGRESS)));
-        cartridgeRecoveryParadoxum = Math.max(0, Math.min(CARTRIDGE_RECOVERY_ESSENTIA_PER_FATIGUE,
-                compound.getInteger(TAG_CARTRIDGE_RECOVERY_PARADOXUM)));
-        cartridgeRecoveryTicks = Math.max(0, Math.min(19,
-                compound.getInteger(TAG_CARTRIDGE_RECOVERY_TICKS)));
         creationFailures = Math.max(0, compound.getInteger(TAG_CREATION_FAILURES));
         creationCompletionTicks = Math.max(0, Math.min(CREATION_COMPLETION_TOTAL_TICKS,
                 compound.getInteger(TAG_CREATION_COMPLETION_TICKS)));
+        creationPendingStage = compound.hasKey(TAG_CREATION_PENDING_STAGE)
+                ? Math.max(-1, Math.min(ItemCalibratedExtract.CRAFTING_STAGE_PARTIAL_SIGIL,
+                compound.getInteger(TAG_CREATION_PENDING_STAGE))) : -1;
         coreProtocolRequested = compound.hasKey(TAG_CORE_PORTAL_LATCHED)
                 ? compound.getBoolean(TAG_CORE_PORTAL_LATCHED)
                 : getProtocolMeta() >= 0;

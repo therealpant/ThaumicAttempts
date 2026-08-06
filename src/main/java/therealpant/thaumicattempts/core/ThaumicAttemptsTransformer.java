@@ -67,6 +67,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchFocusEngine(basicClass);
                 case "thaumcraft.client.gui.plugins.GuiFocusSettingSpinnerButton":
                     return patchGuiFocusSettingSpinnerButton(basicClass);
+                case "thaumcraft.client.gui.GuiResearchPage":
+                    return patchGuiResearchPageRequirementIcons(basicClass);
                 default:
                     return basicClass;
             }
@@ -75,6 +77,92 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             t.printStackTrace();
             return basicClass;
         }
+    }
+
+    /**
+     * TC6 treats a custom required_research icon as a raw texture. It then
+     * deliberately tints it blue and draws the entire image, which is wrong
+     * for animated item sheets such as the Primordial Pearl. Replace only our
+     * scan requirement icons with real ItemStacks immediately before TC6
+     * chooses its render branch; the vanilla item renderer then handles tint,
+     * metadata and animation exactly as it does elsewhere in the Thaumonomicon.
+     */
+    private byte[] patchGuiResearchPageRequirementIcons(byte[] basicClass) {
+        ClassReader cr = new ClassReader(basicClass);
+        ClassNode cn = new ClassNode(ASM5);
+        cr.accept(cn, 0);
+
+        boolean patched = false;
+        for (MethodNode method : cn.methods) {
+            if (!"drawRequirements".equals(method.name) || method.instructions == null) continue;
+
+            for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                if (!(insn instanceof MethodInsnNode)) continue;
+                MethodInsnNode researchLookup = (MethodInsnNode) insn;
+                if (!"thaumcraft/api/research/ResearchCategories".equals(researchLookup.owner)
+                        || !"getResearch".equals(researchLookup.name)
+                        || !"(Ljava/lang/String;)Lthaumcraft/api/research/ResearchEntry;".equals(researchLookup.desc)) {
+                    continue;
+                }
+
+                AbstractInsnNode keyLoad = previousMeaningful(researchLookup);
+                if (!(keyLoad instanceof VarInsnNode) || keyLoad.getOpcode() != ALOAD) continue;
+                int keyVar = ((VarInsnNode) keyLoad).var;
+
+                MethodInsnNode pushMatrix = null;
+                for (AbstractInsnNode cursor = researchLookup.getNext(); cursor != null; cursor = cursor.getNext()) {
+                    if (!(cursor instanceof MethodInsnNode)) continue;
+                    MethodInsnNode call = (MethodInsnNode) cursor;
+                    if ("org/lwjgl/opengl/GL11".equals(call.owner)
+                            && "glPushMatrix".equals(call.name) && "()V".equals(call.desc)) {
+                        pushMatrix = call;
+                        break;
+                    }
+                }
+                if (pushMatrix == null) continue;
+
+                int iconVar = -1;
+                for (AbstractInsnNode cursor = pushMatrix.getNext(); cursor != null; cursor = cursor.getNext()) {
+                    if (!(cursor instanceof TypeInsnNode) || cursor.getOpcode() != INSTANCEOF
+                            || !"thaumcraft/api/aspects/Aspect".equals(((TypeInsnNode) cursor).desc)) continue;
+                    AbstractInsnNode iconLoad = previousMeaningful(cursor);
+                    if (iconLoad instanceof VarInsnNode && iconLoad.getOpcode() == ALOAD) {
+                        iconVar = ((VarInsnNode) iconLoad).var;
+                    }
+                    break;
+                }
+                if (iconVar < 0) continue;
+
+                InsnList hook = new InsnList();
+                hook.add(new VarInsnNode(ALOAD, iconVar));
+                hook.add(new VarInsnNode(ALOAD, keyVar));
+                hook.add(new MethodInsnNode(INVOKESTATIC,
+                        "therealpant/thaumicattempts/client/ResearchRequirementIcon",
+                        "resolve", "(Ljava/lang/Object;Ljava/lang/String;)Ljava/lang/Object;", false));
+                hook.add(new VarInsnNode(ASTORE, iconVar));
+                method.instructions.insertBefore(pushMatrix, hook);
+                patched = true;
+                break;
+            }
+        }
+
+        if (!patched) {
+            System.err.println("[ThaumicAttempts] Thaumonomicon requirement item-icon patch skipped: target not found");
+            return basicClass;
+        }
+
+        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        cn.accept(cw);
+        System.out.println("[ThaumicAttempts] Patched Thaumonomicon scan requirements to render ItemStacks");
+        return cw.toByteArray();
+    }
+
+    private static AbstractInsnNode previousMeaningful(AbstractInsnNode node) {
+        AbstractInsnNode cursor = node == null ? null : node.getPrevious();
+        while (cursor instanceof LabelNode || cursor instanceof LineNumberNode || cursor instanceof FrameNode) {
+            cursor = cursor.getPrevious();
+        }
+        return cursor;
     }
 
     /**

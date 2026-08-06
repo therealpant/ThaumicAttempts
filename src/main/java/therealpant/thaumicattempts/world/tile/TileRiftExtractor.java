@@ -118,8 +118,6 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             resetProgress();
             return;
         }
-        ItemStack cartridge = inventory.getStackInSlot(SLOT_CROWN);
-        if (ItemCalibratedExtract.isExhausted(cartridge)) return;
         cachedCoreRenderStack = spec.result.copy();
         if (stageMax != spec.stages) {
             if (stage > 0 || ticksToNextStage > 0) resetProgress();
@@ -139,7 +137,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
 
         TileRiftonomicon core = findLinkedRiftonomicon();
         if (core == null) return;
-        long adjustedTotalCost = getAdjustedStageCost(cartridge);
+        long adjustedTotalCost = BASE_COST_PER_STAGE;
         long adjustedFuelNeed = getStageImpetusNeed(adjustedTotalCost);
         int adjustedParadoxumNeed = getStageParadoxumNeed(adjustedTotalCost);
         if (stageFuelNeed <= 0L) {
@@ -162,12 +160,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
             if (received > 0L) {
                 stageFuelPaid += received;
                 paidThisTick = true;
-                ItemCalibratedExtract.recordAbsorbedFuel(cartridge, received, world.rand);
                 fuelPulseTicks = 10;
-                if (ItemCalibratedExtract.isExhausted(cartridge)) {
-                    markDirtyAndSync();
-                    return;
-                }
             }
         }
         int remainingParadoxum = stageParadoxumNeed - stageParadoxumPaid;
@@ -197,10 +190,6 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         stageParadoxumPaid = 0;
         if (stage >= stageMax) finishProductionPass(spec);
         markDirtyAndSync();
-    }
-
-    private long getAdjustedStageCost(ItemStack cartridge) {
-        return (BASE_COST_PER_STAGE * ItemCalibratedExtract.getFuelPercent(cartridge) + 99L) / 100L;
     }
 
     private long getStageImpetusNeed(long adjustedTotalCost) {
@@ -291,22 +280,13 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
     public ItemStack getCoreStack() { return inventory.getStackInSlot(SLOT_CORE); }
     public int getStage() { return stage; }
 
-    public ItemStack takeExhaustedCartridgeForRecovery(TileRiftonomicon requester) {
-        ItemStack cartridge = inventory.getStackInSlot(SLOT_CROWN);
-        if (requester == null || findLinkedRiftonomicon() != requester
-                || !ItemCalibratedExtract.isExhausted(cartridge)) return ItemStack.EMPTY;
-        inventory.setStackInSlot(SLOT_CROWN, ItemStack.EMPTY);
-        markDirtyAndSync();
-        return cartridge;
-    }
-
-    public boolean returnRecoveredCartridge(ItemStack cartridge, TileRiftonomicon requester) {
-        if (requester == null || findLinkedRiftonomicon() != requester
-                || !inventory.getStackInSlot(SLOT_CROWN).isEmpty()
-                || getSpec(cartridge) == null || ItemCalibratedExtract.getFatigue(cartridge) > 0) return false;
-        inventory.setStackInSlot(SLOT_CROWN, cartridge);
-        markDirtyAndSync();
-        return true;
+    public boolean isRequestingCreationResources(TileRiftonomicon requester) {
+        if (requester == null || world == null || world.isBlockPowered(pos)
+                || findLinkedRiftonomicon() != requester) return false;
+        ExtractionSpec spec = getSpec(inventory.getStackInSlot(SLOT_CROWN));
+        if (spec == null || stage >= spec.stages) return false;
+        ItemStack produced = inventory.getStackInSlot(SLOT_CORE);
+        return produced.isEmpty() || !isFinished(produced);
     }
 
     public float getCoreAlpha() {
@@ -398,8 +378,7 @@ public class TileRiftExtractor extends TileEntity implements ITickable, IAnimata
         if (world == null || world.isBlockPowered(pos)) return false;
         ExtractionSpec spec = getSpec(inventory.getStackInSlot(SLOT_CROWN));
         ItemStack produced = inventory.getStackInSlot(SLOT_CORE);
-        return spec != null && !ItemCalibratedExtract.isExhausted(inventory.getStackInSlot(SLOT_CROWN))
-                && (produced.isEmpty() || !isFinished(produced))
+        return spec != null && (produced.isEmpty() || !isFinished(produced))
                 && stage < spec.stages && findLinkedRiftonomicon() != null;
     }
 

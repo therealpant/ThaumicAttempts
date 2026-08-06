@@ -49,6 +49,7 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
             new ResourceLocation("textures/entity/end_portal.png");
 
     private static final float EMISSIVE_Y_OFFSET = 0.01F;
+    private static final double CORE_RENDER_Y_OFFSET = -0.5D;
     private static final double RIFT_Y_OFFSET = 14.0D / 16.0D;
     private static final double TRANSMUTATION_PORTAL_Y = -BlockRiftonomicon.CORE_Y_OFFSET + RIFT_Y_OFFSET;
     private static final double TRANSMUTATION_HIDDEN_Y = -BlockRiftonomicon.CORE_Y_OFFSET + 0.5D - 6.0D / 16.0D;
@@ -82,6 +83,11 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
             120.0D,
             240.0D
     };
+    private static final int[][] CREATION_BARRIER_RING = {
+            { -1, -1 }, { 0, -1 }, { 1, -1 },
+            { -1, 0 },              { 1, 0 },
+            { -1, 1 },  { 0, 1 },  { 1, 1 }
+    };
 
     public RenderRiftonomicon() {
         super(new RiftonomiconModel());
@@ -101,8 +107,8 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
                 renderRiftSurface(te, x, baseY, z, partialTicks);
             }
             if (formationStage >= 3) {
-                renderCore(te, x, y, z, partialTicks);
-                renderCoreEmissiveLayer(te, x, y, z, partialTicks);
+                renderCore(te, x, y + CORE_RENDER_Y_OFFSET, z, partialTicks);
+                renderCoreEmissiveLayer(te, x, y + CORE_RENDER_Y_OFFSET, z, partialTicks);
                 renderNavigationStones(te, x, baseY, z, partialTicks);
                 renderAlchemyPearls(te, x, y, z, partialTicks);
                 renderCreationSamples(te, x, y, z, partialTicks);
@@ -330,17 +336,17 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
         int ticks = te.getCreationCompletionTicks();
         if (ticks <= 0) return 0.0D;
         double time = Math.min(TileRiftonomicon.CREATION_COMPLETION_TOTAL_TICKS, ticks + partialTicks);
+        double midpoint = TileRiftonomicon.CREATION_COMPLETION_TOTAL_TICKS / 2.0D;
         double phase;
-        if (time <= TileRiftonomicon.CREATION_COMPLETION_SWAP_TICK) {
-            phase = time / TileRiftonomicon.CREATION_COMPLETION_SWAP_TICK;
+        if (time <= midpoint) {
+            phase = time / midpoint;
         } else {
-            phase = 1.0D - (time - TileRiftonomicon.CREATION_COMPLETION_SWAP_TICK)
-                    / (TileRiftonomicon.CREATION_COMPLETION_TOTAL_TICKS
-                    - TileRiftonomicon.CREATION_COMPLETION_SWAP_TICK);
+            phase = 1.0D - (time - midpoint)
+                    / (TileRiftonomicon.CREATION_COMPLETION_TOTAL_TICKS - midpoint);
         }
         phase = MathHelper.clamp(phase, 0.0D, 1.0D);
         double smooth = phase * phase * (3.0D - 2.0D * phase);
-        return -1.15D * smooth;
+        return -2.15D * smooth;
     }
 
     private void spawnCreationRunes(TileRiftonomicon te) {
@@ -350,15 +356,18 @@ public class RenderRiftonomicon extends GeoBlockRenderer<TileRiftonomicon> {
         if (previous != null && previous == tick) return;
         creationRuneTicks.put(te, tick);
 
-        for (int i = 0; i < 2; i++) {
-            double angle = te.getWorld().rand.nextDouble() * Math.PI * 2.0D;
-            double radius = 0.48D + te.getWorld().rand.nextDouble() * 0.24D;
-            double px = te.getPos().getX() + 0.5D + Math.cos(angle) * radius;
-            double py = te.getPos().getY() - 1.15D + te.getWorld().rand.nextDouble() * 0.35D;
-            double pz = te.getPos().getZ() + 0.5D + Math.sin(angle) * radius;
-            Minecraft.getMinecraft().effectRenderer.addEffect(new FXBlockRunes(
-                    te.getWorld(), px, py, pz, 0.18F, 0.72F, 1.0F, 0));
-        }
+        int[] ringOffset = CREATION_BARRIER_RING[te.getWorld().rand.nextInt(CREATION_BARRIER_RING.length)];
+        int layer = 1 + te.getWorld().rand.nextInt(2);
+        BlockPos base = te.getPos().down(BlockRiftonomicon.CORE_Y_OFFSET);
+        float red = 0.6F + te.getWorld().rand.nextFloat() * 0.4F;
+        float blue = 0.3F + te.getWorld().rand.nextFloat() * 0.7F;
+        FXBlockRunes rune = new FXBlockRunes(te.getWorld(),
+                base.getX() + ringOffset[0] + 0.5D,
+                base.getY() + layer + 0.5D,
+                base.getZ() + ringOffset[1] + 0.5D,
+                red, 0.0F, blue, 20);
+        rune.setGravity(0.0F);
+        ParticleEngine.addEffect(te.getWorld(), rune);
     }
 
     private boolean markAlchemyParticleTick(TileRiftonomicon te, int slot) {

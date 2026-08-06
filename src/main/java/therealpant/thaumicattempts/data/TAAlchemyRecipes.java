@@ -259,7 +259,7 @@ public final class TAAlchemyRecipes {
         );
 
         ItemStack sand = new ItemStack(Blocks.SOUL_SAND);
-        if (tain.isEmpty()) return;
+        if (sand.isEmpty()) return;
 
         ItemStack soil = new ItemStack(TABlocks.ANOMALY_BED_ITEM, 1);
 
@@ -272,6 +272,52 @@ public final class TAAlchemyRecipes {
         ThaumcraftApi.addCrucibleRecipe(
                 new ResourceLocation("thaumicattempts","sand_from_soil"),
                 soilsand
+        );
+
+        ItemStack orb = new ItemStack(ModBlocksItems.TRANSMUTATION_CORE);
+        if (orb.isEmpty()) return;
+
+        ItemStack prizm_t = new ItemStack(ModBlocksItems.PRISM, 1,3);
+        ItemStack prizm_i = new ItemStack(ModBlocksItems.PRISM, 1,2);
+        ItemStack prizm_a = new ItemStack(ModBlocksItems.PRISM, 1,1);
+        ItemStack prizm_e = new ItemStack(ModBlocksItems.PRISM, 1,0);
+
+        AspectList orb_prizm_t = new AspectList()
+                .add(Aspect.EARTH,150)
+                .add(Aspect.ELDRITCH,50)
+                .add(Aspect.ALCHEMY,75);
+        AspectList orb_prizm_i = new AspectList()
+                .add(Aspect.FIRE,150)
+                .add(Aspect.ELDRITCH,50)
+                .add(Aspect.ALCHEMY,75);
+        AspectList orb_prizm_a = new AspectList()
+                .add(Aspect.WATER,150)
+                .add(Aspect.ELDRITCH,50)
+                .add(Aspect.ALCHEMY,75);
+        AspectList orb_prizm_e = new AspectList()
+                .add(Aspect.AIR,150)
+                .add(Aspect.ELDRITCH,50)
+                .add(Aspect.ALCHEMY,75);
+
+        CrucibleRecipe prizm_t_orb = new CrucibleRecipe("TA_RIFTONOMICON_TRANSMUTATION", prizm_t, orb, orb_prizm_t);
+        ThaumcraftApi.addCrucibleRecipe(
+                new ResourceLocation("thaumicattempts","prizm_t_orb"),
+                prizm_t_orb
+        );
+        CrucibleRecipe prizm_i_orb = new CrucibleRecipe("TA_RIFTONOMICON_TRANSMUTATION", prizm_i, orb, orb_prizm_i);
+        ThaumcraftApi.addCrucibleRecipe(
+                new ResourceLocation("thaumicattempts","prizm_i_orb"),
+                prizm_i_orb
+        );
+        CrucibleRecipe prizm_a_orb = new CrucibleRecipe("TA_RIFTONOMICON_TRANSMUTATION", prizm_a, orb, orb_prizm_a);
+        ThaumcraftApi.addCrucibleRecipe(
+                new ResourceLocation("thaumicattempts","prizm_a_orb"),
+                prizm_a_orb
+        );
+        CrucibleRecipe prizm_e_orb = new CrucibleRecipe("TA_RIFTONOMICON_TRANSMUTATION", prizm_e, orb, orb_prizm_e);
+        ThaumcraftApi.addCrucibleRecipe(
+                new ResourceLocation("thaumicattempts","prizm_e_orb"),
+                prizm_e_orb
         );
     }
 }

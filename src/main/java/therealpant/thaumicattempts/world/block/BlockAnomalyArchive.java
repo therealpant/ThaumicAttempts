@@ -20,6 +20,7 @@ import net.minecraft.world.IBlockAccess;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
+import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.world.tile.TileAnomalyArchive;
@@ -35,7 +36,7 @@ public class BlockAnomalyArchive extends Block {
         setRegistryName(ThaumicAttempts.MODID, "anomaly_archive");
         setTranslationKey(ThaumicAttempts.MODID + ".anomaly_archive");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
-        setHardness(12.0F);
+        setBlockUnbreakable();
         setResistance(40.0F);
         setLightOpacity(0);
     }
@@ -83,39 +84,70 @@ public class BlockAnomalyArchive extends Block {
         TileEntity tile = world.getTileEntity(pos);
         if (!(tile instanceof TileAnomalyArchive)) return false;
         if (world.isRemote) return true;
-        if (((TileAnomalyArchive) tile).hideRandomVisibleBone()) {
-            ItemStack reward = world.rand.nextInt(10) == 0
-                    ? new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS)
-                    : new ItemStack(ModBlocksItems.RIFT_STONE);
-            spawnRewardAtVerticalFace(world, pos, player, reward);
+        int hiddenBone = ((TileAnomalyArchive) tile).hideRandomVisibleBoneAndGetId();
+        if (hiddenBone >= 0) {
+            float rewardRoll = world.rand.nextFloat();
+            if (rewardRoll >= 0.30F) {
+                ItemStack reward;
+                if (rewardRoll < 0.35F) {
+                    reward = new ItemStack(ItemsTC.curio, 1, 4);
+                } else {
+                    reward = world.rand.nextInt(5) == 0
+                            ? new ItemStack(ModBlocksItems.ARCHIVE_FRAGMENTS)
+                            : new ItemStack(ModBlocksItems.RIFT_STONE);
+                }
+                spawnRewardAtBone(world, pos, hiddenBone, reward);
+            }
         }
         return true;
     }
 
-    private static void spawnRewardAtVerticalFace(World world, BlockPos pos,
-                                                  EntityPlayer player, ItemStack reward) {
-        double centerX = pos.getX() + 0.5D;
-        double centerZ = pos.getZ() + 0.5D;
-        double dx = player.posX - centerX;
-        double dz = player.posZ - centerZ;
-        EnumFacing face;
-        if (Math.abs(dx) >= Math.abs(dz)) {
-            face = dx >= 0.0D ? EnumFacing.EAST : EnumFacing.WEST;
-        } else {
-            face = dz >= 0.0D ? EnumFacing.SOUTH : EnumFacing.NORTH;
-        }
+    private static void spawnRewardAtBone(World world, BlockPos pos,
+                                          int bone, ItemStack reward) {
+        double[] local = getBoneCenter(bone);
 
-        // The archive reaches 0.4 blocks beyond its block on every side.
-        // Spawn another 0.15 blocks outside the nearest vertical face.
-        double x = centerX + face.getXOffset() * 1.05D;
-        double y = pos.getY() + 1.2D;
-        double z = centerZ + face.getZOffset() * 1.05D;
+        // The three tablet sections complete one revolution every 18 seconds.
+        // Apply the same rotation to the GEO bone center on the logical side.
+        double phase = -2.0D * Math.PI
+                * (world.getTotalWorldTime() % 360L) / 360.0D;
+        double cos = Math.cos(phase);
+        double sin = Math.sin(phase);
+        double rotatedX = local[0] * cos + local[2] * sin;
+        double rotatedZ = -local[0] * sin + local[2] * cos;
+
+        // Move the item a little outside the tablet so it cannot remain inside
+        // the two-pixel-thick geometry after appearing at the removed fragment.
+        double horizontalLength = Math.sqrt(rotatedX * rotatedX + rotatedZ * rotatedZ);
+        double outwardX = horizontalLength > 1.0E-4D ? rotatedX / horizontalLength : 0.0D;
+        double outwardZ = horizontalLength > 1.0E-4D ? rotatedZ / horizontalLength : 0.0D;
+        double x = pos.getX() + 0.5D + rotatedX + outwardX * 0.18D;
+        double y = pos.getY() + 0.01D + local[1];
+        double z = pos.getZ() + 0.5D + rotatedZ + outwardZ * 0.18D;
         EntityItem drop = new EntityItem(world, x, y, z, reward);
-        drop.motionX = face.getXOffset() * 0.08D;
-        drop.motionY = 0.06D;
-        drop.motionZ = face.getZOffset() * 0.08D;
+        drop.motionX = outwardX * 0.06D;
+        drop.motionY = 0.04D;
+        drop.motionZ = outwardZ * 0.06D;
         drop.setDefaultPickupDelay();
         world.spawnEntity(drop);
+    }
+
+    /** Centers of the removable GEO bones, in block units before idle rotation. */
+    private static double[] getBoneCenter(int bone) {
+        switch (bone) {
+            case 17: return new double[] {-1.062D, 3.469D, 0.500D};
+            case 18: return new double[] {-1.062D, 2.703D, -0.016D};
+            case 19: return new double[] {-1.094D, 3.125D, 0.188D};
+            case 20: return new double[] {-1.062D, 2.969D, 0.094D};
+            case 16: return new double[] {0.261D, 3.906D, -1.076D};
+            case 21: return new double[] {0.572D, 3.266D, -0.897D};
+            case 22: return new double[] {0.384D, 3.500D, -1.041D};
+            case 23: return new double[] {0.423D, 3.531D, -0.983D};
+            case 27: return new double[] {0.964D, 2.531D, 0.670D};
+            case 28: return new double[] {0.491D, 2.047D, 0.944D};
+            case 31: return new double[] {0.709D, 2.125D, 0.853D};
+            case 32: return new double[] {0.640D, 2.094D, 0.858D};
+            default: return new double[] {0.0D, 1.2D, 0.0D};
+        }
     }
 
     public static boolean isPickaxe(ItemStack stack) {

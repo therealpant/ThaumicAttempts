@@ -28,13 +28,12 @@ public class TileAnomalyArchive extends TileEntity implements IAnimatable, ITick
     private static final long MIN_RESTORE_TICKS = 7L * 60L * 20L;
     private static final long MAX_RESTORE_TICKS = 10L * 60L * 20L;
     private static final int RESTORE_CHECK_INTERVAL = 20;
-    private static final float ANOMALY_CLOSE_CHANCE = 0.02F;
-
     private final AnimationFactory factory = new AnimationFactory(this);
     private final long[] restoreAt = new long[BONE_COUNT];
     private int hiddenBones;
     private int restoreCheckTicker;
     private UUID anomalyId;
+    private long decipherReadyAt;
 
     public void linkToAnomaly(UUID id) {
         if (world == null || world.isRemote || id == null) return;
@@ -53,6 +52,16 @@ public class TileAnomalyArchive extends TileEntity implements IAnimatable, ITick
         return false;
     }
 
+    public boolean isDecipheringOnCooldown() {
+        return world != null && world.getTotalWorldTime() < decipherReadyAt;
+    }
+
+    public void startDecipheringCooldown(long durationTicks) {
+        if (world == null || world.isRemote) return;
+        decipherReadyAt = world.getTotalWorldTime() + Math.max(0L, durationTicks);
+        markDirtyAndSync();
+    }
+
     public void disableRegeneration(UUID id) {
         if (world == null || world.isRemote || !isLinkedTo(id)) return;
         anomalyId = null;
@@ -60,12 +69,17 @@ public class TileAnomalyArchive extends TileEntity implements IAnimatable, ITick
     }
 
     public boolean hideRandomVisibleBone() {
-        if (world == null || world.isRemote) return false;
+        return hideRandomVisibleBoneAndGetId() >= 0;
+    }
+
+    /** Hides one panel fragment and returns the GEO bone id that was selected. */
+    public int hideRandomVisibleBoneAndGetId() {
+        if (world == null || world.isRemote) return -1;
         int visibleCount = 0;
         for (int index = 0; index < BONE_COUNT; index++) {
             if (!isBoneHiddenAt(index)) visibleCount++;
         }
-        if (visibleCount == 0) return false;
+        if (visibleCount == 0) return -1;
 
         int selected = world.rand.nextInt(visibleCount);
         for (int index = 0; index < BONE_COUNT; index++) {
@@ -74,10 +88,10 @@ public class TileAnomalyArchive extends TileEntity implements IAnimatable, ITick
                 hiddenBones |= 1 << index;
                 restoreAt[index] = world.getTotalWorldTime() + randomRestoreDelay();
                 markDirtyAndSync();
-                return true;
+                return PANEL_BONES[index];
             }
         }
-        return false;
+        return -1;
     }
 
     public boolean isBoneHidden(int bone) {
@@ -117,8 +131,7 @@ public class TileAnomalyArchive extends TileEntity implements IAnimatable, ITick
         }
         restoreCheckTicker = 0;
 
-        EntityFluxAnomalyBurst anomaly = findLinkedAnomaly();
-        if (anomaly == null) return;
+        if (findLinkedAnomaly() == null) return;
 
         long now = world.getTotalWorldTime();
         boolean changed = false;
@@ -136,10 +149,6 @@ public class TileAnomalyArchive extends TileEntity implements IAnimatable, ITick
             restoreAt[index] = 0L;
             changed = true;
 
-            if (world.rand.nextFloat() < ANOMALY_CLOSE_CHANCE
-                    && anomaly.finishFromArchiveBoneRestore(anomalyId)) {
-                break;
-            }
         }
         if (changed) markDirtyAndSync();
     }
@@ -174,6 +183,7 @@ public class TileAnomalyArchive extends TileEntity implements IAnimatable, ITick
         }
         anomalyId = compound.hasUniqueId("ArchiveAnomaly")
                 ? compound.getUniqueId("ArchiveAnomaly") : null;
+        decipherReadyAt = compound.getLong("ArchiveDecipherReadyAt");
     }
 
     @Override
@@ -188,6 +198,9 @@ public class TileAnomalyArchive extends TileEntity implements IAnimatable, ITick
             }
         }
         if (anomalyId != null) compound.setUniqueId("ArchiveAnomaly", anomalyId);
+        if (decipherReadyAt > 0L) {
+            compound.setLong("ArchiveDecipherReadyAt", decipherReadyAt);
+        }
         return compound;
     }
 

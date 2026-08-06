@@ -37,7 +37,7 @@ public class BlockAnomalyWell extends Block {
         setRegistryName(ThaumicAttempts.MODID, "anomaly_well");
         setTranslationKey(ThaumicAttempts.MODID + ".anomaly_well");
         setCreativeTab(ThaumicAttempts.CREATIVE_TAB);
-        setHardness(8.0F);
+        setBlockUnbreakable();
         setResistance(40.0F);
         setSoundType(SoundType.STONE);
         setLightOpacity(0);

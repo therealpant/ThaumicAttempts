@@ -264,5 +264,37 @@ public final class TAArcaneRecipes {
             item_list.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "revision_piedestal_arcane"));
             e.getRegistry().register(item_list);
         }
+        // --------- Навигационный камень Рифтономикона
+        {
+            ShapedArcaneRecipe navigationStone = new ShapedArcaneRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "portal_rune_arcane"),
+                    "TA_RIFTONOMICON_NAVIGATION",
+                    200,
+                    new AspectList().add(Aspect.AIR, 2).add(Aspect.ORDER, 2).add(Aspect.ENTROPY, 2),
+                    new ItemStack(ModBlocksItems.PORTAL_RUNE),
+                    " V ", "RAR", " V ",
+                    'V', new ItemStack(ItemsTC.plate, 1, 3),
+                    'R', new ItemStack(ModBlocksItems.RIFT_STONE),
+                    'A', new ItemStack(ModBlocksItems.NAVIGATION_CORE)
+            );
+            navigationStone.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "portal_rune_arcane"));
+            e.getRegistry().register(navigationStone);
+        }
+        // --------- Аномальный компас
+        {
+            ShapedArcaneRecipe anomalycompass = new ShapedArcaneRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "compas_arcane"),
+                    "TA_ELDRITCH_CONSTRUCTION",
+                    500,
+                    new AspectList().add(Aspect.AIR, 2).add(Aspect.ORDER, 2).add(Aspect.ENTROPY, 2),
+                    new ItemStack(ModBlocksItems.ANOMALY_COMPASS),
+                    "PVP", "VAV", "PVP",
+                    'V', new ItemStack(ItemsTC.plate, 1, 3),
+                    'P', new ItemStack(ModBlocksItems.RIFT_STONE),
+                    'A', new ItemStack(ModBlocksItems.RIFT_CRISTAL)
+            );
+            anomalycompass.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "compas_arcane"));
+            e.getRegistry().register(anomalycompass);
+        }
     }
 }

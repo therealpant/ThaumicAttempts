@@ -26,6 +26,7 @@ import therealpant.thaumicattempts.world.data.TAWorldFluxData;
 
 import javax.annotation.Nullable;
 import java.util.ArrayList;
+import java.util.Collections;
 import java.util.List;
 import java.util.Random;
 import java.util.UUID;
@@ -40,7 +41,8 @@ import java.util.UUID;
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public final class InfectedChunkAnomalyManager {
 
-    public static final int CHECK_PERIOD = 150;
+    public static final int CHECK_PERIOD = 450;
+    private static final int MAX_PLAYERS_PER_PASS = 10;
     public static final int SAFE_PLAYER_RADIUS = 96;
     public static final int SEARCH_MIN_RADIUS = 128;
     public static final int SEARCH_MAX_RADIUS = 256;
@@ -68,10 +70,16 @@ public final class InfectedChunkAnomalyManager {
         int stage = TAWorldFluxData.get(overworld).stage;
         if (stage <= 0) return;
 
-        List<EntityPlayer> players = new ArrayList<>(world.playerEntities);
-        for (EntityPlayer player : players) {
-            if (!(player instanceof EntityPlayerMP) || player.isSpectator()) continue;
-            trySpawnForPlayer((WorldServer) world, (EntityPlayerMP) player,
+        List<EntityPlayerMP> players = new ArrayList<>();
+        for (EntityPlayer player : world.playerEntities) {
+            if (player instanceof EntityPlayerMP && !player.isSpectator()) {
+                players.add((EntityPlayerMP) player);
+            }
+        }
+        Collections.shuffle(players, world.rand);
+        int checkedPlayers = Math.min(MAX_PLAYERS_PER_PASS, players.size());
+        for (int index = 0; index < checkedPlayers; index++) {
+            trySpawnForPlayer((WorldServer) world, players.get(index),
                     stage, TAWorldFluxData.get(overworld).fluxGeneratedTotal, now);
         }
     }
@@ -100,7 +108,9 @@ public final class InfectedChunkAnomalyManager {
         EntityFluxAnomalyBurst anomaly = FluxAnomalyApi.trySpawnEntity(world, position, settings);
         if (anomaly == null) return;
 
-        data.spend(player.getUniqueID(), pool, choice.budgetTier, now);
+        if (!isHighTier(choice.tier)) {
+            data.spend(player.getUniqueID(), pool, choice.budgetTier, now);
+        }
 
         TAInfectedChunksData active = TAInfectedChunksData.get(world);
         active.markChunkActive(chunkKey);
@@ -118,14 +128,15 @@ public final class InfectedChunkAnomalyManager {
         boolean overworldReplacement = world.provider.getDimension() == 0
                 && choice.tier == FluxAnomalyTier.DEEP
                 && choice.environment == FluxAnomalyEnvironment.STANDARD
-                && rand.nextFloat() < 0.05F;
+                && rand.nextFloat() < 0.10F;
         boolean netherReplacement = world.provider.getDimension() == -1
-                && choice.environment == FluxAnomalyEnvironment.NETHER_FLOOR
-                && rand.nextFloat() < 0.06F;
+                && (choice.environment == FluxAnomalyEnvironment.NETHER_FLOOR
+                || choice.environment == FluxAnomalyEnvironment.NETHER_CEILING)
+                && rand.nextFloat() < 0.10F;
         boolean endReplacement = world.provider.getDimension() == 1
                 && choice.tier == FluxAnomalyTier.DEEP
                 && choice.environment == FluxAnomalyEnvironment.END_ISLANDS
-                && rand.nextFloat() < 0.05F;
+                && rand.nextFloat() < 0.10F;
         if (!overworldReplacement && !netherReplacement && !endReplacement) return choice;
         FluxAnomalyTier replacementTier = endReplacement
                 ? FluxAnomalyTier.MONOLITH
@@ -191,6 +202,7 @@ public final class InfectedChunkAnomalyManager {
             if (!(entity instanceof EntityFluxAnomalyBurst) || entity.isDead) continue;
             if (entity.getDistanceSq(player) > maxDistanceSq) continue;
             EntityFluxAnomalyBurst anomaly = (EntityFluxAnomalyBurst) entity;
+            if (isHighTier(anomaly.getTier())) continue;
             if (environment == FluxAnomalyEnvironment.END_ISLANDS) {
                 if (anomaly.getEnvironment() == FluxAnomalyEnvironment.END_ISLANDS) return true;
             } else if (environment == FluxAnomalyEnvironment.NETHER_FLOOR
@@ -308,6 +320,7 @@ public final class InfectedChunkAnomalyManager {
 
         for (Entity entity : world.loadedEntityList) {
             if (!(entity instanceof EntityFluxAnomalyBurst) || entity.isDead) continue;
+            if (isHighTier(((EntityFluxAnomalyBurst) entity).getTier())) continue;
             double dx = entity.posX - (pos.getX() + 0.5D);
             double dy = entity.posY - (pos.getY() + 0.5D);
             double dz = entity.posZ - (pos.getZ() + 0.5D);
@@ -316,6 +329,7 @@ public final class InfectedChunkAnomalyManager {
 
         TAInfectedChunksData active = TAInfectedChunksData.get(world);
         for (long chunkKey : active.getActiveInfectedChunks()) {
+            if (isHighTier(active.getTierForChunk(chunkKey))) continue;
             BlockPos known = active.getSeedPositionForChunk(chunkKey);
             if (known != null && known.distanceSq(pos) < radiusSq) return true;
         }
@@ -353,7 +367,7 @@ public final class InfectedChunkAnomalyManager {
             active.clearChunkTracking(knownChunk);
         }
 
-        if (sourcePlayerId != null) {
+        if (sourcePlayerId != null && !isHighTier(tier)) {
             TAPlayerAnomalyData.Pool pool = poolForDimension(world.provider.getDimension());
             if (pool != null) {
                 TAPlayerAnomalyData.get(world).recordClosed(
@@ -381,6 +395,12 @@ public final class InfectedChunkAnomalyManager {
         if (dimension == -1) return TAPlayerAnomalyData.Pool.NETHER;
         if (dimension == 1) return TAPlayerAnomalyData.Pool.END;
         return null;
+    }
+
+    private static boolean isHighTier(@Nullable FluxAnomalyTier tier) {
+        return tier == FluxAnomalyTier.ARCHIVE
+                || tier == FluxAnomalyTier.LABORATORY
+                || tier == FluxAnomalyTier.MONOLITH;
     }
 
     private static final class SpawnChoice {

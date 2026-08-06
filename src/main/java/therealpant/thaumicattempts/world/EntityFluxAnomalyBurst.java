@@ -714,7 +714,12 @@ public class EntityFluxAnomalyBurst extends Entity {
             placeLaboratoryPedestals(pedestalPositions, rnd);
         } else {
             if (!(coreTile instanceof TileAnomalyArchive)) return false;
-            ((TileAnomalyArchive) coreTile).linkToAnomaly(anomalyId);
+            TileAnomalyArchive archive = (TileAnomalyArchive) coreTile;
+            archive.linkToAnomaly(anomalyId);
+            int initiallyHiddenBones = rnd.nextInt(3);
+            for (int i = 0; i < initiallyHiddenBones; i++) {
+                archive.hideRandomVisibleBone();
+            }
             List<BlockPos> pedestalPositions =
                     placeArchiveColumnsAndLights(floorCenter, chamber, rnd);
             placeArchivePedestals(pedestalPositions, rnd);
@@ -987,15 +992,6 @@ public class EntityFluxAnomalyBurst extends Entity {
                 ((TileAnomalyWell) tile).disableRegeneration(anomalyId);
             }
         }
-    }
-
-    public boolean finishFromArchiveBoneRestore(UUID id) {
-        if (world.isRemote || finished || tier != FluxAnomalyTier.ARCHIVE
-                || id == null || !id.equals(anomalyId)) {
-            return false;
-        }
-        finishAnomaly(FinishReason.ARCHIVE_BONE_RESTORED, false);
-        return true;
     }
 
     private int getInitialResourceAttempts(Block block) {
@@ -1992,15 +1988,6 @@ public class EntityFluxAnomalyBurst extends Entity {
         return true;
     }
 
-    public boolean finishFromLaboratoryWellRecharge(UUID id) {
-        if (world.isRemote || finished || tier != FluxAnomalyTier.LABORATORY
-                || id == null || !id.equals(anomalyId)) {
-            return false;
-        }
-        finishAnomaly(FinishReason.LABORATORY_WELL_RECHARGED, false);
-        return true;
-    }
-
     private int findLowestBedrockY(int x, int z, int minY, int maxY) {
         for (int y = minY; y <= maxY; y++) {
             if (world.getBlockState(new BlockPos(x, y, z)).getBlock() == Blocks.BEDROCK) return y;
@@ -2824,9 +2811,7 @@ public class EntityFluxAnomalyBurst extends Entity {
         MANUAL,
         ARCHIVES_DEPLETED,
         ARCHIVE_MISSING,
-        ARCHIVE_BONE_RESTORED,
         LABORATORY_WELL_MISSING,
-        LABORATORY_WELL_RECHARGED,
         MONOLITH_MISSING
     }
 

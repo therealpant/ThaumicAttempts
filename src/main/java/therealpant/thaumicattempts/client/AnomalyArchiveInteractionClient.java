@@ -14,6 +14,7 @@ import net.minecraftforge.client.event.MouseEvent;
 import net.minecraftforge.client.event.RenderWorldLastEvent;
 import net.minecraftforge.fml.common.eventhandler.SubscribeEvent;
 import org.lwjgl.opengl.GL11;
+import thaumcraft.api.items.ItemsTC;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.net.msg.C2S_AnomalyArchiveInteract;
 import therealpant.thaumicattempts.world.block.BlockAnomalyArchive;
@@ -42,16 +43,20 @@ public final class AnomalyArchiveInteractionClient {
     public static void onMouse(MouseEvent event) {
         if (event.getButton() != 1 || !event.isButtonstate()) return;
         Minecraft mc = Minecraft.getMinecraft();
-        if (mc.player == null || mc.world == null || mc.currentScreen != null
-                || !BlockAnomalyArchive.isPickaxe(
-                mc.player.getHeldItem(EnumHand.MAIN_HAND))) {
+        if (mc.player == null || mc.world == null || mc.currentScreen != null) {
             return;
         }
+
+        boolean pickaxe = BlockAnomalyArchive.isPickaxe(
+                mc.player.getHeldItem(EnumHand.MAIN_HAND));
+        boolean thaumometer = !mc.player.getHeldItem(EnumHand.MAIN_HAND).isEmpty()
+                && mc.player.getHeldItem(EnumHand.MAIN_HAND).getItem() == ItemsTC.thaumometer;
+        if (!pickaxe && !thaumometer) return;
 
         ArchiveHit hit = findHoveredArchive(mc.player, 1.0F);
         if (hit == null) return;
         ThaumicAttempts.NET.sendToServer(
-                new C2S_AnomalyArchiveInteract(hit.pos));
+                new C2S_AnomalyArchiveInteract(hit.pos, thaumometer));
         event.setCanceled(true);
     }
 

@@ -156,6 +156,7 @@ dependencies {
 
     runtimeOnly 'curse.maven:jei-238222:2995897'
     runtimeOnly 'curse.maven:thaumic-jei-285492:2705304'
+    runtimeOnly 'curse.maven:thaumcraft-inventory-scanning-238003:2559089'
     runtimeOnly 'curse.maven:the-one-probe-245211:2667280'
     runtimeOnly 'curse.maven:ctm-267602:2915363'
 

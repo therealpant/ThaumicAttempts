@@ -45,6 +45,7 @@ import therealpant.thaumicattempts.world.tile.TileEldritchConstruction;
 import therealpant.thaumicattempts.world.tile.TileAuraBooster;
 import therealpant.thaumicattempts.world.tile.TileRiftPortalPlatform;
 import therealpant.thaumicattempts.world.tile.TileRiftonomicon;
+import therealpant.thaumicattempts.world.tile.TileRiftonomiconCorePlaceholder;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneAltar;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnace;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnacePort;
@@ -141,6 +142,7 @@ public final class ModBlocksItems {
         TABlocks.RIFT_STONE_FURNACE = new BlockRiftStoneFurnace();
         TABlocks.RIFT_STONE_ALTAR = new BlockRiftStoneAltar();
         TABlocks.RIFTONOMICON = new BlockRiftonomicon();
+        TABlocks.RIFTONOMICON_CORE_PLACEHOLDER = new BlockRiftonomiconCorePlaceholder();
         TABlocks.POLISHED_DARK_JASPER = new BlockDarkJasperFull("polished_dark_jasper");
 
         // Formed multiblock states are obtained only by assembling their structures.
@@ -153,6 +155,7 @@ public final class ModBlocksItems {
         TABlocks.RIFT_STONE_FURNACE.setCreativeTab(null);
         TABlocks.RIFT_STONE_ALTAR.setCreativeTab(null);
         TABlocks.RIFTONOMICON.setCreativeTab(null);
+        TABlocks.RIFTONOMICON_CORE_PLACEHOLDER.setCreativeTab(null);
 
         e.getRegistry().registerAll(
                 TABlocks.MIRROR_MANAGER,
@@ -183,6 +186,7 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_STONE_FURNACE,
                 TABlocks.RIFT_STONE_ALTAR,
                 TABlocks.RIFTONOMICON,
+                TABlocks.RIFTONOMICON_CORE_PLACEHOLDER,
                 TABlocks.POLISHED_DARK_JASPER
         );
 
@@ -241,6 +245,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "rift_stone_altar"));
         GameRegistry.registerTileEntity(TileRiftonomicon.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "riftonomicon"));
+        GameRegistry.registerTileEntity(TileRiftonomiconCorePlaceholder.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "riftonomicon_core_placeholder"));
         GameRegistry.registerTileEntity(therealpant.thaumicattempts.world.tile.TileRiftonomiconImpetusPort.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "riftonomicon_impetus_port"));
         GameRegistry.registerTileEntity(therealpant.thaumicattempts.world.tile.TileRiftonomiconTransmutationEssentiaInput.class,
@@ -315,7 +321,7 @@ public final class ModBlocksItems {
         TRANSMUTATION_CORE = createCoreItem("transmutation_core");
         CREATION_CORE = createCoreItem("creation_core");
         NAVIGATION_CORE = createCoreItem("navigation_core");
-        ALCHEMICAL_CORE = createCoreItem("alchemical_core");
+        ALCHEMICAL_CORE = new therealpant.thaumicattempts.items.ItemAlchemicalCore();
 
         e.getRegistry().registerAll(
                 CRAFT_PATTERN,
@@ -414,6 +420,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.RIFT_STONE_ALTAR.getRegistryName());
         TABlocks.RIFTONOMICON_ITEM = new ItemBlock(TABlocks.RIFTONOMICON)
                 .setRegistryName(TABlocks.RIFTONOMICON.getRegistryName());
+        TABlocks.RIFTONOMICON_CORE_PLACEHOLDER_ITEM = new ItemBlock(TABlocks.RIFTONOMICON_CORE_PLACEHOLDER)
+                .setRegistryName(TABlocks.RIFTONOMICON_CORE_PLACEHOLDER.getRegistryName());
         TABlocks.POLISHED_DARK_JASPER_ITEM = new ItemBlock(TABlocks.POLISHED_DARK_JASPER)
                 .setRegistryName(TABlocks.POLISHED_DARK_JASPER.getRegistryName());
 
@@ -445,6 +453,7 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_STONE_FURNACE_ITEM,
                 TABlocks.RIFT_STONE_ALTAR_ITEM,
                 TABlocks.RIFTONOMICON_ITEM,
+                TABlocks.RIFTONOMICON_CORE_PLACEHOLDER_ITEM,
                 TABlocks.POLISHED_DARK_JASPER_ITEM
         );
     }
