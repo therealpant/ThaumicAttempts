@@ -218,16 +218,13 @@ public final class ClientModels extends CommonProxy {
         registerItemBlockModel(ModBlocksItems.MATH_CORE, ThaumicAttempts.MODID + ":math_core");
         registerItemBlockModel(ModBlocksItems.MIRROR_STABILIZER, ThaumicAttempts.MODID + ":mirror_stabilizer");
         registerItemBlockModel(TABlocks.RIFT_BUSH, ThaumicAttempts.MODID + ":rift_bush");
-        ModelLoader.setCustomModelResourceLocation(
-                TABlocks.ELDRITCH_CONSTRUCTION_ITEM, 0,
-                new ModelResourceLocation(ThaumicAttempts.MODID + ":eldritch_constarction", "inventory"));
-        for (int meta = 1; meta <= 3; meta++) {
-            String variant = meta == 1 ? "amber" : meta == 2 ? "amethyst" : "diamond";
+        String[] constructionVariants = { "base", "amber", "amethyst", "diamond" };
+        for (int meta = 0; meta < constructionVariants.length; meta++) {
             ModelLoader.setCustomModelResourceLocation(
                     TABlocks.ELDRITCH_CONSTRUCTION_ITEM, meta,
                     new ModelResourceLocation(
-                            ThaumicAttempts.MODID + ":eldritch_constarction_" + variant,
-                            "inventory"));
+                            TABlocks.ELDRITCH_CONSTRUCTION.getRegistryName(),
+                            "variant=" + constructionVariants[meta]));
         }
         registerItemBlockModel(TABlocks.ANOMALY_BED, ThaumicAttempts.MODID + ":ta_anomaly_bed");
         registerItemBlockModel(TABlocks.RIFT_CRISTAL_BLOCK, ThaumicAttempts.MODID + ":rist_cristal_block");

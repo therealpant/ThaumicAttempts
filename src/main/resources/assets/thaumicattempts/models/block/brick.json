@@ -1,6 +1,7 @@
 {
 	"format_version": "1.9.0",
 	"credit": "Made with Blockbench",
+	"parent": "block/block",
 	"textures": {
 		"1": "thaumicattempts:blocks/rift_brick",
 		"particle": "thaumicattempts:blocks/rift_stone_brick"
