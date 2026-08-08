@@ -237,9 +237,9 @@
         {
           "text": "research.TA_RIFTONOMICON.text.0",
           "required_research": [
-            "f_ta_visited_anomaly_archive",
-            "f_ta_visited_anomaly_laboratory",
-            "f_ta_visited_anomaly_monolith",
+            "m_ta_visited_anomaly_archive",
+            "m_ta_visited_anomaly_laboratory",
+            "m_ta_visited_anomaly_monolith",
             "!TA_ANOMALY_ARCHIVE_INFO"
           ],
           "required_knowledge": [

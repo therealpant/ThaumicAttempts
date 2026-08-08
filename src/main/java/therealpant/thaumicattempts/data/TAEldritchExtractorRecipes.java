@@ -19,7 +19,8 @@ import java.io.InputStreamReader;
 import java.nio.charset.StandardCharsets;
 
 public final class TAEldritchExtractorRecipes {
-    private static final String RECIPES_RESOURCE_PATH = "/assets/thaumicattempts/recipes/rift_extractor_recipes.json";
+    private static final String RECIPES_RESOURCE_PATH =
+            "/assets/thaumicattempts/rift_extractor/rift_extractor_recipes.json";
 
     private TAEldritchExtractorRecipes() {}
 

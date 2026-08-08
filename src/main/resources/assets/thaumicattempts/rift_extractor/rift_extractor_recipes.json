@@ -1,10 +1,7 @@
 {
   "recipes": [
     {
-      "crown_slot": {
-        "gem_id": "thaumicattempts:amber",
-        "tier": 1
-      },
+      "crown_slot": { "gem_id": "thaumicattempts:amber", "tier": 1 },
       "min_crown_damage": 1,
       "max_crown_damage": 3,
       "impetus_cost_per_stage": 10,
@@ -13,10 +10,7 @@
       "output_count": 1
     },
     {
-      "crown_slot": {
-        "gem_id": "thaumicattempts:amber",
-        "tier": 2
-      },
+      "crown_slot": { "gem_id": "thaumicattempts:amber", "tier": 2 },
       "min_crown_damage": 1,
       "max_crown_damage": 3,
       "impetus_cost_per_stage": 10,
@@ -25,10 +19,7 @@
       "output_count": 1
     },
     {
-      "crown_slot": {
-        "gem_id": "thaumicattempts:amber",
-        "tier": 3
-      },
+      "crown_slot": { "gem_id": "thaumicattempts:amber", "tier": 3 },
       "min_crown_damage": 1,
       "max_crown_damage": 3,
       "impetus_cost_per_stage": 10,
@@ -37,10 +28,7 @@
       "output_count": 1
     },
     {
-      "crown_slot": {
-        "gem_id": "thaumicattempts:amethyst",
-        "tier": 1
-      },
+      "crown_slot": { "gem_id": "thaumicattempts:amethyst", "tier": 1 },
       "min_crown_damage": 1,
       "max_crown_damage": 3,
       "impetus_cost_per_stage": 10,
@@ -49,10 +37,7 @@
       "output_count": 1
     },
     {
-      "crown_slot": {
-        "gem_id": "thaumicattempts:amethyst",
-        "tier": 2
-      },
+      "crown_slot": { "gem_id": "thaumicattempts:amethyst", "tier": 2 },
       "min_crown_damage": 1,
       "max_crown_damage": 3,
       "impetus_cost_per_stage": 10,
@@ -61,10 +46,7 @@
       "output_count": 1
     },
     {
-      "crown_slot": {
-        "gem_id": "thaumicattempts:amethyst",
-        "tier": 3
-      },
+      "crown_slot": { "gem_id": "thaumicattempts:amethyst", "tier": 3 },
       "min_crown_damage": 1,
       "max_crown_damage": 3,
       "impetus_cost_per_stage": 10,
@@ -73,10 +55,7 @@
       "output_count": 1
     },
     {
-      "crown_slot": {
-        "gem_id": "thaumicattempts:diamond",
-        "tier": 1
-      },
+      "crown_slot": { "gem_id": "thaumicattempts:diamond", "tier": 1 },
       "min_crown_damage": 1,
       "max_crown_damage": 3,
       "impetus_cost_per_stage": 10,
@@ -85,10 +64,7 @@
       "output_count": 1
     },
     {
-      "crown_slot": {
-        "gem_id": "thaumicattempts:diamond",
-        "tier": 2
-      },
+      "crown_slot": { "gem_id": "thaumicattempts:diamond", "tier": 2 },
       "min_crown_damage": 1,
       "max_crown_damage": 3,
       "impetus_cost_per_stage": 10,
@@ -97,10 +73,7 @@
       "output_count": 1
     },
     {
-      "crown_slot": {
-        "gem_id": "thaumicattempts:diamond",
-        "tier": 3
-      },
+      "crown_slot": { "gem_id": "thaumicattempts:diamond", "tier": 3 },
       "min_crown_damage": 1,
       "max_crown_damage": 3,
       "impetus_cost_per_stage": 10,

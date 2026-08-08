@@ -8,6 +8,7 @@ import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.text.TextComponentTranslation;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.util.math.RayTraceResult;
+import net.minecraft.util.math.Vec3d;
 import thaumcraft.api.capabilities.IPlayerKnowledge;
 import thaumcraft.api.capabilities.ThaumcraftCapabilities;
 import thaumcraft.api.research.IScanThing;
@@ -20,6 +21,8 @@ import thaumcraft.api.items.ItemsTC;
 import net.minecraftforge.oredict.OreDictionary;
 import therealpant.thaumicattempts.init.TABlocks;
 import therealpant.thaumicattempts.world.tile.TileAnomalyArchive;
+import therealpant.thaumicattempts.world.tile.TileAnomalyWell;
+import therealpant.thaumicattempts.world.block.BlockAnomalyWell;
 
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -55,7 +58,7 @@ public final class TAResearchScans {
 
     public static void register() {
         ScanningManager.addScannableThing(new ArchiveScan());
-        ScanningManager.addScannableThing(new ScanBlock(LABORATORY_INFO, TABlocks.ANOMALY_WELL));
+        ScanningManager.addScannableThing(new WellScan());
         ScanningManager.addScannableThing(new ScanBlock(MONOLITH_INFO, TABlocks.ANOMALOUS_MONOLITH));
         ScanningManager.addScannableThing(new ScanBlock(MONOLITH_INFO, TABlocks.STRANGE_PEDESTAL));
         ScanningManager.addScannableThing(new ScanItem(
@@ -82,6 +85,61 @@ public final class TAResearchScans {
                 SCANNED_ANCIENT_CURIOSITY,
                 new ItemStack(ItemsTC.curio, 1, 3)
         ));
+    }
+
+    /**
+     * The well's visible model spans more than one block, while the actual
+     * block and tile entity live only at its centre. ScanBlock therefore only
+     * recognises the small central part. This scan checks the same full model
+     * bounds that are used for selection and collision.
+     */
+    private static final class WellScan implements IScanThing {
+        private static final double SCAN_DISTANCE = 16.0D;
+        private final ScanBlock centreBlock = new ScanBlock(LABORATORY_INFO, TABlocks.ANOMALY_WELL);
+
+        @Override
+        public boolean checkThing(EntityPlayer player, Object thing) {
+            if (centreBlock.checkThing(player, thing)) return true;
+            if (!(thing instanceof RayTraceResult) && !(thing instanceof BlockPos)) return false;
+            if (player == null || player.world == null) return false;
+
+            Vec3d start = player.getPositionEyes(1.0F);
+            Vec3d end = start.add(player.getLookVec().scale(SCAN_DISTANCE));
+            double nearestSolidHitSq = getSolidHitDistanceSq(start, thing);
+
+            for (TileEntity tile : player.world.loadedTileEntityList) {
+                if (!(tile instanceof TileAnomalyWell)
+                        || tile.getPos().distanceSq(player.getPosition()) > SCAN_DISTANCE * SCAN_DISTANCE) {
+                    continue;
+                }
+                RayTraceResult modelHit = BlockAnomalyWell.getModelBounds(tile.getPos())
+                        .calculateIntercept(start, end);
+                if (modelHit != null && modelHit.hitVec != null
+                        && start.squareDistanceTo(modelHit.hitVec) <= nearestSolidHitSq + 0.01D) {
+                    return true;
+                }
+            }
+            return false;
+        }
+
+        @Override
+        public String getResearchKey(EntityPlayer player, Object thing) {
+            return LABORATORY_INFO;
+        }
+
+        @Override
+        public void onSuccess(EntityPlayer player, Object thing) {
+        }
+
+        private static double getSolidHitDistanceSq(Vec3d start, Object thing) {
+            if (thing instanceof RayTraceResult) {
+                RayTraceResult hit = (RayTraceResult) thing;
+                if (hit.typeOfHit != RayTraceResult.Type.MISS && hit.hitVec != null) {
+                    return start.squareDistanceTo(hit.hitVec);
+                }
+            }
+            return SCAN_DISTANCE * SCAN_DISTANCE;
+        }
     }
 
     /**

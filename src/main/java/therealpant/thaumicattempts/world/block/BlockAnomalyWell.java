@@ -32,6 +32,10 @@ public class BlockAnomalyWell extends Block {
     private static final AxisAlignedBB EAST =
             new AxisAlignedBB(1.4375D, 0.0D, -0.4375D, 2.125D, 0.75D, 1.4375D);
 
+    public static AxisAlignedBB getModelBounds(BlockPos pos) {
+        return MODEL_BOUNDS.offset(pos);
+    }
+
     public BlockAnomalyWell() {
         super(Material.ROCK);
         setRegistryName(ThaumicAttempts.MODID, "anomaly_well");

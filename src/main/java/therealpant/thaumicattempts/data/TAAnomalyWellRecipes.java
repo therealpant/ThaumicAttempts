@@ -22,7 +22,7 @@ import java.util.List;
 
 public final class TAAnomalyWellRecipes {
     private static final String RESOURCE_PATH =
-            "/assets/thaumicattempts/recipes/anomaly_well_recipes.json";
+            "/assets/thaumicattempts/anomaly_well/anomaly_well_recipes.json";
     private static final int WELL_SLOT_COUNT = 3;
     private static List<AnomalyWellRecipe> recipes = Collections.emptyList();
 

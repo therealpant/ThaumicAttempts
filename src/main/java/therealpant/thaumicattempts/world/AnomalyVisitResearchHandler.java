@@ -14,9 +14,13 @@ import therealpant.thaumicattempts.init.TABlocks;
 /** Grants reusable research facts when a player physically visits an anomaly. */
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
 public final class AnomalyVisitResearchHandler {
-    public static final String VISITED_ARCHIVE = "f_ta_visited_anomaly_archive";
-    public static final String VISITED_LABORATORY = "f_ta_visited_anomaly_laboratory";
-    public static final String VISITED_MONOLITH = "f_ta_visited_anomaly_monolith";
+    public static final String VISITED_ARCHIVE = "m_ta_visited_anomaly_archive";
+    public static final String VISITED_LABORATORY = "m_ta_visited_anomaly_laboratory";
+    public static final String VISITED_MONOLITH = "m_ta_visited_anomaly_monolith";
+
+    private static final String LEGACY_VISITED_ARCHIVE = "f_ta_visited_anomaly_archive";
+    private static final String LEGACY_VISITED_LABORATORY = "f_ta_visited_anomaly_laboratory";
+    private static final String LEGACY_VISITED_MONOLITH = "f_ta_visited_anomaly_monolith";
 
     private static final int CHECK_INTERVAL = 20;
     private static final int VISIT_RADIUS = 4;
@@ -34,12 +38,20 @@ public final class AnomalyVisitResearchHandler {
         IPlayerKnowledge knowledge = ThaumcraftCapabilities.getKnowledge(player);
         if (knowledge == null) return;
 
+        // Facts used the f_ prefix in older builds, which made Thaumcraft
+        // render them as flask requirements. Preserve completed visits while
+        // migrating them to the vanilla milestone-card m_ format.
+        boolean changed = migrateLegacyVisit(knowledge, LEGACY_VISITED_ARCHIVE, VISITED_ARCHIVE);
+        changed |= migrateLegacyVisit(knowledge, LEGACY_VISITED_LABORATORY, VISITED_LABORATORY);
+        changed |= migrateLegacyVisit(knowledge, LEGACY_VISITED_MONOLITH, VISITED_MONOLITH);
+
         boolean needsArchive = !knowledge.isResearchKnown(VISITED_ARCHIVE);
         boolean needsLaboratory = !knowledge.isResearchKnown(VISITED_LABORATORY);
         boolean needsMonolith = !knowledge.isResearchKnown(VISITED_MONOLITH);
-        if (!needsArchive && !needsLaboratory && !needsMonolith) return;
-
-        boolean changed = false;
+        if (!needsArchive && !needsLaboratory && !needsMonolith) {
+            if (changed) knowledge.sync(player);
+            return;
+        }
         BlockPos center = player.getPosition();
         BlockPos min = center.add(-VISIT_RADIUS, -VISIT_RADIUS, -VISIT_RADIUS);
         BlockPos max = center.add(VISIT_RADIUS, VISIT_RADIUS, VISIT_RADIUS);
@@ -63,5 +75,11 @@ public final class AnomalyVisitResearchHandler {
         }
 
         if (changed) knowledge.sync(player);
+    }
+
+    private static boolean migrateLegacyVisit(IPlayerKnowledge knowledge, String legacyKey, String milestoneKey) {
+        return !knowledge.isResearchKnown(milestoneKey)
+                && knowledge.isResearchKnown(legacyKey)
+                && knowledge.addResearch(milestoneKey);
     }
 }
