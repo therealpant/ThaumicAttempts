@@ -45,6 +45,7 @@ public class AnomalyCompassModel extends AnimatedGeoModel<ItemAnomalyCompass> {
         IBone pointer = this.getAnimationProcessor().getBone("bone15");
         if (pointer == null) return;
 
+        pointer.setHidden(!hasTarget, false);
         if (!hasTarget) {
             pointer.setRotationX(0.0F);
             pointer.setRotationY(0.0F);

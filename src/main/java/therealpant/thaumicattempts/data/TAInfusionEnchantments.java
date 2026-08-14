@@ -11,7 +11,7 @@ import thaumcraft.api.aspects.AspectList;
 import thaumcraft.api.items.ItemsTC;
 import thaumcraft.common.config.ConfigRecipes;
 import therealpant.thaumicattempts.data.enchantments.InfusionVisChargeLevelRecipe;
-import therealpant.thaumicattempts.data.enchantments.InfusionArcaneGuardLevelRecipe;
+import therealpant.thaumicattempts.data.enchantments.InfusionRunicShieldingRecipe;
 import therealpant.thaumicattempts.data.enchantments.InfusionRiftMomentumLevelRecipe;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 
@@ -139,56 +139,11 @@ public final class TAInfusionEnchantments {
                 )
         );
 
-        ItemStack displayArcaneGuard = new ItemStack(ItemsTC.crimsonPlateChest);
+        // Alternative to TC6's recipe: fixed level-II Arcane Guard cost,
+        // with only instability scaling alongside the existing ward value.
         ThaumcraftApi.addInfusionCraftingRecipe(
-                new ResourceLocation(MODID, "arcane_guard_lvl1"),
-                new InfusionArcaneGuardLevelRecipe(
-                        "TA_RIFT_ENCHANTMENT",
-                        4,
-                        new AspectList().add(Aspect.PROTECT, 45).add(Aspect.MAGIC, 35).add(Aspect.CRYSTAL, 20),
-                        displayArcaneGuard,
-                        1,
-                        new ItemStack(ModBlocksItems.RIFT_AMETIST),
-                        new ItemStack(ItemsTC.primordialPearl, 1, 32767)
-                )
-        );
-
-        ThaumcraftApi.addInfusionCraftingRecipe(
-                new ResourceLocation(MODID, "arcane_guard_lvl2"),
-                new InfusionArcaneGuardLevelRecipe(
-                        "TA_RIFT_ENCHANTMENT",
-                        6,
-                        new AspectList().add(Aspect.PROTECT, 75).add(Aspect.MAGIC, 60).add(Aspect.CRYSTAL, 35),
-                        displayArcaneGuard,
-                        2,
-                        new ItemStack(ModBlocksItems.RIFT_AMETIST),
-                        new ItemStack(ModBlocksItems.RIFT_AMETIST),
-                        new ItemStack(ItemsTC.primordialPearl, 1, 32767)
-                )
-        );
-
-        ThaumcraftApi.addInfusionCraftingRecipe(
-                new ResourceLocation(MODID, "arcane_guard_lvl3"),
-                new InfusionArcaneGuardLevelRecipe(
-                        "TA_RIFT_ENCHANTMENT",
-                        8,
-                        new AspectList().add(Aspect.PROTECT, 110).add(Aspect.MAGIC, 90).add(Aspect.CRYSTAL, 50),
-                        displayArcaneGuard,
-                        3,
-                        new ItemStack(ModBlocksItems.RIFT_AMETIST),
-                        new ItemStack(ModBlocksItems.RIFT_AMETIST),
-                        new ItemStack(ModBlocksItems.RIFT_AMETIST),
-                        new ItemStack(ItemsTC.primordialPearl, 1, 32767)
-                )
-        );
-
-        ConfigRecipes.recipeGroups.put(
-                MODID + ":arcane_guard",
-                Lists.newArrayList(
-                        new ResourceLocation(MODID, "arcane_guard_lvl1"),
-                        new ResourceLocation(MODID, "arcane_guard_lvl2"),
-                        new ResourceLocation(MODID, "arcane_guard_lvl3")
-                )
+                new ResourceLocation(MODID, "runic_shielding"),
+                new InfusionRunicShieldingRecipe("TA_RIFT_ENCHANTMENT")
         );
     }
 

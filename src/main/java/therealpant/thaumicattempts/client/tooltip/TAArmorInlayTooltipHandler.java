@@ -113,7 +113,7 @@ public final class TAArmorInlayTooltipHandler {
         if (AmberGemDefinition.ID.equals(gemId)) {
             base = getTierValue(tier, 5, 6, 7);
         } else if (AmethystGemDefinition.ID.equals(gemId)) {
-            base = getTierValue(tier, 3, 4, 5);
+            base = getTierValue(tier, 2, 3, 4);
         } else {
             base = getTierValue(tier, 3, 4, 5);
         }

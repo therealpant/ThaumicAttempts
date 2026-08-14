@@ -7,6 +7,7 @@ import net.minecraftforge.fml.common.registry.EntityRegistry;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.world.EntityAnomalyWellResult;
 import therealpant.thaumicattempts.world.EntityFluxAnomalyBurst;
+import therealpant.thaumicattempts.world.EntityGuidingFirefly;
 
 public final class ModEntities {
 
@@ -27,6 +28,13 @@ public final class ModEntities {
                 EntityAnomalyWellResult.class,
                 64,
                 10,
+                true
+        );
+        registerEntity(
+                "guiding_firefly",
+                EntityGuidingFirefly.class,
+                64,
+                1,
                 true
         );
     }

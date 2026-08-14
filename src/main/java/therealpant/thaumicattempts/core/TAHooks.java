@@ -234,6 +234,10 @@ public final class TAHooks {
         try {
             if (node == null || key == null) return original;
 
+            // The stock TC6 Cloud must retain its original radius, duration,
+            // complexity and behaviour. Autonomous TA mediums are separate.
+            if ("thaumcraft.CLOUD".equals(node.getKey())) return original;
+
             // whitelist keys we allow to touch (only amber set2)
             String k = key.toLowerCase(Locale.ROOT);
             if (!isAmberSet2Key(k)) return original;

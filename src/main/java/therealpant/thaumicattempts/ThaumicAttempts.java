@@ -50,12 +50,14 @@ import therealpant.thaumicattempts.golemnet.net.msg.C2S_OrderSubmit;
 import therealpant.thaumicattempts.golemnet.net.msg.C2S_RequestCatalogPage;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
 import therealpant.thaumicattempts.init.ModEntities;
+import therealpant.thaumicattempts.focus.TAFocusElements;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconWispClick;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconAlchemyClick;
 import therealpant.thaumicattempts.net.msg.C2S_RiftonomiconCreationClick;
 import therealpant.thaumicattempts.net.msg.C2S_AnomalyArchiveInteract;
 import therealpant.thaumicattempts.net.msg.S2C_AmberCountUpdate;
 import therealpant.thaumicattempts.net.msg.S2C_MonolithParadoxumStream;
+import therealpant.thaumicattempts.net.msg.S2C_RunicWardState;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -105,6 +107,7 @@ public class ThaumicAttempts {
 
         TAGemRegistry.register(new StubGemDefinition());
         MinecraftForge.EVENT_BUS.register(new TAGemEventHandler());
+        MinecraftForge.EVENT_BUS.register(new therealpant.thaumicattempts.events.RunicWardHandler());
         MinecraftForge.EVENT_BUS.register(new AmberCasterCapabilityHandler());
         TAAspects.registerAspects();
 
@@ -149,6 +152,7 @@ public class ThaumicAttempts {
         TAGemRegistry.register(new AmberGemDefinition());
         TAGemRegistry.register(new AmethystGemDefinition());
         TAGemRegistry.register(new DiamondGemDefinition());
+        TAFocusElements.register();
 
         //Research
         ThaumcraftApi.registerResearchLocation(new ResourceLocation(ThaumicAttempts.MODID, "research/ta_golemansy"));
@@ -221,6 +225,8 @@ public class ThaumicAttempts {
                 S2C_AmberCountUpdate.class, id++, Side.CLIENT);
         NET.registerMessage(S2C_MonolithParadoxumStream.Handler.class,
                 S2C_MonolithParadoxumStream.class, id++, Side.CLIENT);
+        NET.registerMessage(S2C_RunicWardState.Handler.class,
+                S2C_RunicWardState.class, id++, Side.CLIENT);
     }
 
     @Mod.EventHandler

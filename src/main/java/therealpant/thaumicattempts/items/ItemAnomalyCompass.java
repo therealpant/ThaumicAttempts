@@ -50,7 +50,7 @@ public class ItemAnomalyCompass extends Item implements IAnimatable {
         if (world.isRemote || !(entity instanceof EntityPlayer)) return;
         if (entity.ticksExisted % TARGET_UPDATE_INTERVAL != 0) return;
 
-        BlockPos target = findNearestAnomaly(world, entity.getPosition());
+        BlockPos target = findNearestAnomaly(world, (EntityPlayer) entity);
         if (target == null) {
             clearTarget(stack);
         } else {
@@ -59,14 +59,23 @@ public class ItemAnomalyCompass extends Item implements IAnimatable {
     }
 
     @Nullable
-    private static BlockPos findNearestAnomaly(World world, BlockPos origin) {
+    private static BlockPos findNearestAnomaly(World world, EntityPlayer player) {
+        BlockPos origin = player.getPosition();
         BlockPos nearest = null;
         double nearestDistance = Double.MAX_VALUE;
+
+        int viewDistanceChunks = 10;
+        if (world.getMinecraftServer() != null) {
+            viewDistanceChunks = world.getMinecraftServer().getPlayerList().getViewDistance();
+        }
+        int originChunkX = origin.getX() >> 4;
+        int originChunkZ = origin.getZ() >> 4;
 
         TAInfectedChunksData data = TAInfectedChunksData.get(world);
         for (long chunkKey : data.getActiveInfectedChunks()) {
             BlockPos candidate = data.getSeedPositionForChunk(chunkKey);
             if (candidate == null) continue;
+            if (!isVisibleToPlayer(world, candidate, originChunkX, originChunkZ, viewDistanceChunks)) continue;
             double distance = candidate.distanceSq(origin);
             if (distance < nearestDistance) {
                 nearestDistance = distance;
@@ -77,6 +86,7 @@ public class ItemAnomalyCompass extends Item implements IAnimatable {
         for (Entity loadedEntity : world.loadedEntityList) {
             if (!(loadedEntity instanceof EntityFluxAnomalyBurst) || loadedEntity.isDead) continue;
             BlockPos candidate = ((EntityFluxAnomalyBurst) loadedEntity).getAnomalyPosition();
+            if (!isVisibleToPlayer(world, candidate, originChunkX, originChunkZ, viewDistanceChunks)) continue;
             double distance = candidate.distanceSq(origin);
             if (distance < nearestDistance) {
                 nearestDistance = distance;
@@ -85,6 +95,15 @@ public class ItemAnomalyCompass extends Item implements IAnimatable {
         }
 
         return nearest == null ? null : nearest.toImmutable();
+    }
+
+    private static boolean isVisibleToPlayer(World world, BlockPos pos,
+                                             int playerChunkX, int playerChunkZ,
+                                             int viewDistanceChunks) {
+        if (!world.isBlockLoaded(pos)) return false;
+        int dx = Math.abs((pos.getX() >> 4) - playerChunkX);
+        int dz = Math.abs((pos.getZ() >> 4) - playerChunkZ);
+        return dx <= viewDistanceChunks && dz <= viewDistanceChunks;
     }
 
     private static void setTarget(ItemStack stack, BlockPos target, int dimension) {

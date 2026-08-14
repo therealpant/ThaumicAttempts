@@ -27,12 +27,6 @@ public final class TAInfusionEnchantTooltipHandler {
                     + " " + roman(momentum));
         }
 
-        int guard = TAInfusionEnchantmentData.getLevel(stack, TAInfusionEnchantmentData.ENCH_ARCANE_GUARD);
-        if (guard > 0) {
-            event.getToolTip().add(TextFormatting.GOLD
-                    + I18n.format("enchantment.thaumicattempts.arcane_guard")
-                    + " " + guard);
-        }
     }
 
     private static String roman(int n) {

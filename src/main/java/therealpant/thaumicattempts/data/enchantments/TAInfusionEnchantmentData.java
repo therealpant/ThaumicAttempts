@@ -6,8 +6,6 @@ import net.minecraft.nbt.NBTTagCompound;
 public final class TAInfusionEnchantmentData {
 
     public static final String ENCH_RIFT_MOMENTUM = "rift_momentum";
-    public static final String ENCH_ARCANE_GUARD = "arcane_guard";
-
     private static final String ROOT = "ta_infusion_enchants";
 
     private TAInfusionEnchantmentData() {}

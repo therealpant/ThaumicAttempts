@@ -43,8 +43,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                         return basicClass;
                     }
                     return patchBlockPillar(basicClass);
-                case "net.minecraft.item.crafting.IRecipe":
-                    return patchIRecipe(basicClass);
                 case "thaumcraft.api.golems.ProvisionRequest":
                     return patchProvisionRequest(basicClass);
                 case "thaumcraft.api.golems.tasks.Task":
@@ -305,44 +303,6 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             cn.methods.add(mn);
 
             System.out.println("[ThaumicAttempts] Added getRenderType(INVISIBLE) to BlockPillar");
-        }
-
-        ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
-        cn.accept(cw);
-        return cw.toByteArray();
-    }
-
-
-    private byte[] patchIRecipe(byte[] basicClass) {
-        ClassReader cr = new ClassReader(basicClass);
-        ClassNode cn = new ClassNode(ASM5);
-        cr.accept(cn, 0);
-
-        boolean hasDynamic = false;
-        boolean hasCanFit = false;
-
-        for (MethodNode m : cn.methods) {
-            if ("func_192399_d".equals(m.name) && "()Z".equals(m.desc)) {
-                hasDynamic = true;
-            } else if ("func_194133_a".equals(m.name) && "(II)Z".equals(m.desc)) {
-                hasCanFit = true;
-            }
-        }
-
-        if (!hasDynamic) {
-            MethodNode shim = new MethodNode(ACC_PUBLIC, "func_192399_d", "()Z", null, null);
-            shim.instructions.add(new InsnNode(ICONST_0));
-            shim.instructions.add(new InsnNode(IRETURN));
-            cn.methods.add(shim);
-            System.out.println("[ThaumicAttempts] Added func_192399_d shim to IRecipe");
-        }
-
-        if (!hasCanFit) {
-            MethodNode shim = new MethodNode(ACC_PUBLIC, "func_194133_a", "(II)Z", null, null);
-            shim.instructions.add(new InsnNode(ICONST_1));
-            shim.instructions.add(new InsnNode(IRETURN));
-            cn.methods.add(shim);
-            System.out.println("[ThaumicAttempts] Added func_194133_a shim to IRecipe");
         }
 
         ClassWriter cw = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);

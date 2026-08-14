@@ -75,6 +75,10 @@ public class TAWorldFluxData extends WorldSavedData {
             data = new TAWorldFluxData();
             storage.setData(DATA_NAME, data);
         }
+        // Do not trust the persisted stage. Older mod versions did not have
+        // every threshold and a save can therefore contain a stale value even
+        // though the accumulated flux has already crossed the next one.
+        data.recomputeStage();
         return data;
     }
 
@@ -88,14 +92,20 @@ public class TAWorldFluxData extends WorldSavedData {
     }
 
     public void recomputeStage() {
+        int previousStage = stage;
         if (fluxGeneratedTotal < SURFACE_ANOMALY_FLUX) {
             stage = 0;
         } else if (fluxGeneratedTotal < SHALLOW_ANOMALY_FLUX) {
             stage = 1;
         } else if (fluxGeneratedTotal < DEEP_ANOMALY_FLUX) {
             stage = 2;
-        } else {
+        } else if (fluxGeneratedTotal < ARCHIVE_ANOMALY_FLUX) {
             stage = 3;
+        } else {
+            stage = 4;
+        }
+        if (stage != previousStage) {
+            markDirty();
         }
     }
 

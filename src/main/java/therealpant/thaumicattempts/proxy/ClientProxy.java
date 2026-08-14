@@ -4,15 +4,19 @@ import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.common.MinecraftForge;
 import net.minecraftforge.fml.client.registry.ClientRegistry;
+import net.minecraftforge.fml.client.registry.RenderingRegistry;
 import net.minecraftforge.fml.common.event.*;
 import thaumcraft.client.fx.ParticleEngine;
 import thaumcraft.client.fx.other.FXEssentiaStream;
 import therealpant.thaumicattempts.client.OptifineCompat;
 import therealpant.thaumicattempts.client.AnomalyArchiveInteractionClient;
 import therealpant.thaumicattempts.client.RiftonomiconNavigationClient;
+import therealpant.thaumicattempts.client.RunicWardHud;
 import therealpant.thaumicattempts.client.render.RenderOrderTerminal;
+import therealpant.thaumicattempts.client.render.RenderGuidingFirefly;
 import therealpant.thaumicattempts.data.research.TAAspects;
 import therealpant.thaumicattempts.golemnet.tile.TileOrderTerminal;
+import therealpant.thaumicattempts.world.EntityGuidingFirefly;
 
 public class ClientProxy extends CommonProxy {
     private int monolithStreamSequence;
@@ -27,7 +31,11 @@ public class ClientProxy extends CommonProxy {
         OptifineCompat.ensureSafeSettings();
         MinecraftForge.EVENT_BUS.register(AnomalyArchiveInteractionClient.class);
         MinecraftForge.EVENT_BUS.register(RiftonomiconNavigationClient.class);
+        MinecraftForge.EVENT_BUS.register(new RunicWardHud());
         ClientRegistry.bindTileEntitySpecialRenderer(TileOrderTerminal.class, new RenderOrderTerminal());
+        RenderingRegistry.registerEntityRenderingHandler(
+                EntityGuidingFirefly.class,
+                RenderGuidingFirefly::new);
     }
 
     @Override

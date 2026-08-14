@@ -163,7 +163,9 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     private transient boolean coreAnimationApplied;
     private transient String appliedCoreAnimation;
     private transient boolean syncCoreAnimationTick;
-    private transient int formationStage;
+    private transient boolean coreAnimationStateInitialized;
+    /** -1 means that the structure has not been checked since this tile was loaded. */
+    private transient int formationStage = -1;
     private final NonNullList<ItemStack> protocolSlots = NonNullList.withSize(PROTOCOL_SLOT_COUNT, ItemStack.EMPTY);
     private final NonNullList<ItemStack> navigationRunes = NonNullList.withSize(NAVIGATION_RUNE_SLOT_COUNT, ItemStack.EMPTY);
     private final NonNullList<ItemStack> alchemyPearls = NonNullList.withSize(ALCHEMY_PEARL_SLOT_COUNT, ItemStack.EMPTY);
@@ -329,7 +331,9 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         } else {
             nextStage = 3;
         }
-        if (nextStage == 3 && formationStage != 3) {
+        // Do not treat the first structure check after loading as a fresh
+        // formation. The animation cursor has already been restored from NBT.
+        if (nextStage == 3 && formationStage >= 0 && formationStage != 3) {
             coreAnimationTicks = 0;
             coreAnimationApplied = false;
             appliedCoreAnimation = null;
@@ -1960,9 +1964,11 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
     @Override
     public void readFromNBT(NBTTagCompound compound) {
         super.readFromNBT(compound);
+        int previousAnimationTicks = coreAnimationTicks;
         int previousAnimationProtocol = coreAnimationProtocolMeta;
         boolean previousProtocolRequested = coreProtocolRequested;
         boolean previousOpenCycle = coreOpenCycle;
+        boolean animationStateWasInitialized = coreAnimationStateInitialized;
         readStackList(compound, TAG_PROTOCOLS, protocolSlots);
         readStackList(compound, TAG_NAVIGATION_RUNES, navigationRunes);
         readStackList(compound, TAG_ALCHEMY_PEARLS, alchemyPearls);
@@ -2030,12 +2036,24 @@ public class TileRiftonomicon extends TileEntity implements ITickable, IAnimatab
         if (!hasNewCycleState && coreOpenCycle && savedTicks < CORE_NAVIGATION_HOLD_START_TICKS) {
             savedTicks += CORE_NAVIGATION_HOLD_START_TICKS;
         }
-        coreAnimationTicks = normalizeCoreAnimationTicks(savedTicks);
+        int receivedCoreAnimationTicks = normalizeCoreAnimationTicks(savedTicks);
+        boolean animationStateChanged = previousAnimationProtocol != coreAnimationProtocolMeta
+                || previousProtocolRequested != coreProtocolRequested
+                || previousOpenCycle != coreOpenCycle;
+
+        // Update packets also contain the server cursor. Replacing a running
+        // client cursor on every routine packet can jump over a hold-loop reset
+        // without rewinding GeckoLib. Once initialized, the client advances its
+        // own cursor and accepts a new value only when the animation state truly
+        // changes. A newly loaded tile always restores the saved cursor.
+        boolean keepRunningClientCursor = world != null && world.isRemote
+                && animationStateWasInitialized && !animationStateChanged;
+        coreAnimationTicks = keepRunningClientCursor
+                ? previousAnimationTicks : receivedCoreAnimationTicks;
+        coreAnimationStateInitialized = true;
         // Routine packets need no hard rewind. State changes do: they switch the
         // controller to another segment of the same 39-second animation.
-        if (previousAnimationProtocol != coreAnimationProtocolMeta
-                || previousProtocolRequested != coreProtocolRequested
-                || previousOpenCycle != coreOpenCycle) {
+        if (!animationStateWasInitialized || animationStateChanged) {
             syncCoreAnimationTick = true;
         }
     }

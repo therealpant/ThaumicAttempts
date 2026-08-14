@@ -7,7 +7,6 @@ import net.minecraft.inventory.EntityEquipmentSlot;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraftforge.fml.common.Loader;
-import therealpant.thaumicattempts.data.enchantments.TAInfusionEnchantmentData;
 
 public final class RunicMaxCalculator {
     private static final String RUNIC_TAG = "TC.RUNIC";
@@ -32,13 +31,12 @@ public final class RunicMaxCalculator {
 
     private static int getRunicValue(ItemStack stack) {
         if (stack == null || stack.isEmpty()) return 0;
-        int customGuard = TAInfusionEnchantmentData.getLevel(stack, TAInfusionEnchantmentData.ENCH_ARCANE_GUARD);
         NBTTagCompound tag = stack.getTagCompound();
         int thaumcraftRunic = 0;
         if (tag != null && tag.hasKey(RUNIC_TAG)) {
             thaumcraftRunic = tag.getInteger(RUNIC_TAG);
         }
-        return Math.max(0, Math.max(customGuard, thaumcraftRunic));
+        return Math.max(0, thaumcraftRunic);
     }
 
     private static int getBaublesRunic(EntityPlayer player) {
