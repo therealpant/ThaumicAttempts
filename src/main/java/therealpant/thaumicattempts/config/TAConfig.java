@@ -19,6 +19,11 @@ public class TAConfig {
     @Config.RequiresMcRestart
     public static boolean ENABLE_PILLAR_MODEL_REPLACEMENT = false;
 
+    @Config.Comment("Restore Thaumcraft's original crucible recipe for the Void Metal Ingot instead of replacing it with infusion crafting.")
+    @Config.Name("Restore Vanilla Void Metal Ingot Recipe")
+    @Config.RequiresMcRestart
+    public static boolean RESTORE_VANILLA_VOID_INGOT_RECIPE = false;
+
     @Config.Comment("Enable extra debug logging for flux anomaly seeds and resource placement.")
     @Config.Name("Enable Flux Anomaly Debug Logs")
     public static boolean ENABLE_FLUX_ANOMALY_DEBUG_LOGS = false;

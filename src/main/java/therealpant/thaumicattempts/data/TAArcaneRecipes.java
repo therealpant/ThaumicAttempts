@@ -296,5 +296,21 @@ public final class TAArcaneRecipes {
             anomalycompass.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "compas_arcane"));
             e.getRegistry().register(anomalycompass);
         }
+        // --------- Вторичные руны
+        {
+            ShapedArcaneRecipe anomalycompass = new ShapedArcaneRecipe(
+                    new ResourceLocation(ThaumicAttempts.MODID, "rune_arcane"),
+                    "TA_SECONDARY_RUNES",
+                    1000,
+                    new AspectList().add(Aspect.WATER, 10).add(Aspect.ORDER, 10).add(Aspect.FIRE, 5),
+                    new ItemStack(TABlocks.INFUSION_MATRIX_UPGRADE),
+                    "PVP", "VAV", "PVP",
+                    'V', new ItemStack(ModBlocksItems.RIFT_BRILIANT),
+                    'P', new ItemStack(TABlocks.ELDRITCH_CONSTRUCTION),
+                    'A', new ItemStack(Item.getItemFromBlock(infusionMatrix))
+            );
+            anomalycompass.setRegistryName(new ResourceLocation(ThaumicAttempts.MODID, "rune_arcane"));
+            e.getRegistry().register(anomalycompass);
+        }
     }
 }

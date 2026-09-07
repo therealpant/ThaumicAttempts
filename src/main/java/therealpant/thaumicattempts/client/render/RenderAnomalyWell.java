@@ -3,11 +3,14 @@ package therealpant.thaumicattempts.client.render;
 import net.minecraft.client.Minecraft;
 import net.minecraft.client.renderer.BufferBuilder;
 import net.minecraft.client.renderer.GlStateManager;
+import net.minecraft.client.renderer.RenderHelper;
 import net.minecraft.client.renderer.Tessellator;
+import net.minecraft.client.renderer.block.model.ItemCameraTransforms;
 import net.minecraft.client.renderer.texture.TextureAtlasSprite;
 import net.minecraft.client.renderer.texture.TextureMap;
 import net.minecraft.client.renderer.vertex.DefaultVertexFormats;
 import net.minecraft.util.ResourceLocation;
+import net.minecraft.item.ItemStack;
 import net.minecraft.world.World;
 import net.minecraftforge.client.MinecraftForgeClient;
 import net.minecraftforge.fluids.Fluid;
@@ -33,6 +36,8 @@ public class RenderAnomalyWell extends GeoBlockRenderer<TileAnomalyWell> {
     private static final double BONE_4_DRIP_MIN = 47.0D / 16.0D;
     private static final double BONE_4_DRIP_RANGE = 9.0D / 16.0D;
     private static final double FACE_OFFSET = 0.008D;
+    private static final double ITEM_ORBIT_RADIUS = 0.88D;
+    private static final double ITEM_ORBIT_HEIGHT = 1.05D;
     private static final Map<World, Map<Long, Long>> NEXT_DRIP_TICKS = new WeakHashMap<>();
 
     public RenderAnomalyWell() {
@@ -46,7 +51,54 @@ public class RenderAnomalyWell extends GeoBlockRenderer<TileAnomalyWell> {
         renderEmissive(tile, x, y, z, partialTicks);
         renderLiquidDeath(tile, x, y, z);
         if (MinecraftForgeClient.getRenderPass() == 0) {
+            renderCraftingItems(tile, x, y, z, partialTicks);
             spawnLiquidDeathDrip(tile);
+        }
+    }
+
+    private void renderCraftingItems(TileAnomalyWell tile, double x, double y, double z,
+                                     float partialTicks) {
+        if (tile == null || tile.getWorld() == null) return;
+        float progress = tile.getCraftingProgress(partialTicks);
+        double time = tile.getWorld().getTotalWorldTime() + partialTicks;
+        double orbitTime = progress > 0.0F
+                ? time - progress * TileAnomalyWell.CRAFT_ANIMATION_TICKS : time;
+        double eased = progress * progress * (3.0D - 2.0D * progress);
+        double radius = ITEM_ORBIT_RADIUS * (1.0D - eased);
+        double targetY = Math.max(0.18D, tile.getFluidLevelPixels() / 16.0D + 0.08D);
+
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.enableLighting();
+            RenderHelper.enableStandardItemLighting();
+            for (int slot = 0; slot < TileAnomalyWell.SLOT_COUNT; slot++) {
+                ItemStack stack = tile.getInputStack(slot);
+                if (stack.isEmpty()) continue;
+
+                double angle = orbitTime * 0.055D + slot * Math.PI * 2.0D / 3.0D;
+                double localX = Math.cos(angle) * radius;
+                double localZ = Math.sin(angle) * radius;
+                double localY;
+                if (progress > 0.0F) {
+                    localY = ITEM_ORBIT_HEIGHT
+                            + (targetY - ITEM_ORBIT_HEIGHT) * eased
+                            + Math.sin(Math.PI * progress) * 0.72D;
+                } else {
+                    localY = ITEM_ORBIT_HEIGHT + Math.sin(time * 0.12D + slot * 2.1D) * 0.06D;
+                }
+
+                GlStateManager.pushMatrix();
+                GlStateManager.translate(x + 0.5D + localX, y + localY, z + 0.5D + localZ);
+                GlStateManager.rotate((float) (time * 2.4D + slot * 120.0D), 0.0F, 1.0F, 0.0F);
+                GlStateManager.scale(0.48F, 0.48F, 0.48F);
+                Minecraft.getMinecraft().getRenderItem().renderItem(
+                        stack, ItemCameraTransforms.TransformType.FIXED);
+                GlStateManager.popMatrix();
+            }
+        } finally {
+            RenderHelper.disableStandardItemLighting();
+            GlStateManager.popMatrix();
+            RenderSafety.resetGlState();
         }
     }
 

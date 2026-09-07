@@ -3,6 +3,8 @@ package therealpant.thaumicattempts.data;
 import net.minecraft.item.Item;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.oredict.OreDictionary;
+import therealpant.thaumicattempts.data.research.TAAspects;
+import therealpant.thaumicattempts.world.item.ParadoxumContainer;
 
 import java.util.ArrayList;
 import java.util.Collections;
@@ -82,19 +84,26 @@ public final class AnomalyWellRecipe {
         private final Item item;
         private final int metadata;
         private final int count;
+        private final int minParadoxum;
 
-        Ingredient(Item item, int metadata, int count) {
+        Ingredient(Item item, int metadata, int count, int minParadoxum) {
             this.item = item;
             this.metadata = metadata;
             this.count = count;
+            this.minParadoxum = minParadoxum;
         }
 
         private boolean matches(ItemStack stack) {
-            return stack != null
-                    && !stack.isEmpty()
-                    && stack.getItem() == item
-                    && (metadata == OreDictionary.WILDCARD_VALUE
-                    || stack.getMetadata() == metadata);
+            if (stack == null
+                    || stack.isEmpty()
+                    || stack.getItem() != item
+                    || (metadata != OreDictionary.WILDCARD_VALUE
+                    && stack.getMetadata() != metadata)) {
+                return false;
+            }
+            if (minParadoxum <= 0) return true;
+            return TAAspects.PARADOXUM != null
+                    && ParadoxumContainer.getStored(stack) >= minParadoxum;
         }
     }
 }

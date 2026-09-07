@@ -27,12 +27,19 @@ import therealpant.thaumicattempts.world.tile.TileAnomalyArchive;
 import therealpant.thaumicattempts.world.tile.TileAncientColumn;
 import therealpant.thaumicattempts.world.tile.TileAncientFire;
 import therealpant.thaumicattempts.world.tile.TileAnomalyWell;
+import therealpant.thaumicattempts.world.tile.TileAnomalyWellCollision;
 import therealpant.thaumicattempts.world.tile.TileAnomalousMonolith;
 import therealpant.thaumicattempts.world.tile.TileStrangePedestal;
+import therealpant.thaumicattempts.world.tile.TileInfusionMatrixUpgrade;
+import therealpant.thaumicattempts.world.tile.TileRiftWell;
+import therealpant.thaumicattempts.world.tile.TileDrainageNode;
+import therealpant.thaumicattempts.world.tile.TileParadoxDistillator;
+import therealpant.thaumicattempts.world.tile.TileParadoxDistillatorPort;
 
 import therealpant.thaumicattempts.items.ItemStorageBell;
 import therealpant.thaumicattempts.items.ItemTAGem;
 import therealpant.thaumicattempts.items.ItemPortalRune;
+import therealpant.thaumicattempts.items.ItemInterceptorStone;
 import therealpant.thaumicattempts.items.ItemPrism;
 import therealpant.thaumicattempts.items.ItemRiftonomiconProtocol;
 import therealpant.thaumicattempts.items.ItemCalibratedExtract;
@@ -54,6 +61,7 @@ import therealpant.thaumicattempts.world.item.ItemAnomalySeeds;
 import therealpant.thaumicattempts.world.item.ItemMindFruitFood;
 import therealpant.thaumicattempts.world.item.ItemMindPotion;
 import therealpant.thaumicattempts.world.item.ItemRiftAmethyst;
+import therealpant.thaumicattempts.world.item.ItemParadoxCore;
 import therealpant.thaumicattempts.world.item.ItemTaintedMindFruitFood;
 
 @Mod.EventBusSubscriber(modid = ThaumicAttempts.MODID)
@@ -86,6 +94,7 @@ public final class ModBlocksItems {
     public static Item RIFTONOMICON_PROTOCOL;
     public static Item STORAGE_BELL;
     public static Item PORTAL_RUNE;
+    public static Item INTERCEPTOR_STONE;
     public static Item CALIBRATED_EXTRACT;
     public static Item ANOMALY_COMPASS;
     public static Item ARCHIVE_FRAGMENTS;
@@ -93,6 +102,7 @@ public final class ModBlocksItems {
     public static Item CREATION_CORE;
     public static Item NAVIGATION_CORE;
     public static Item ALCHEMICAL_CORE;
+    public static Item PARADOX_CORE;
 
     // ---- РЕЕСТР БЛОКОВ ----
     @SubscribeEvent
@@ -121,6 +131,7 @@ public final class ModBlocksItems {
         TABlocks.CRAFT_PLANNER = new BlockCraftPlanner();
         TABlocks.GOLEM_DISPATCHER = new BlockGolemDispatcher();
         TABlocks.INFUSION_REQUESTER = new BlockInfusionRequester();
+        TABlocks.INFUSION_MATRIX_UPGRADE = new BlockInfusionMatrixUpgrade();
         TABlocks.ANOMALY_STONE = new BlockAnomalyStone();
         TABlocks.RIFT_BUSH = new BlockRiftBush();
         TABlocks.RIFT_GEOD = new BlockRiftGeod();
@@ -128,7 +139,13 @@ public final class ModBlocksItems {
         TABlocks.ANCIENT_COLUMN = new BlockAncientColumn();
         TABlocks.ANCIENT_FIRE = new BlockAncientFire();
         TABlocks.ANOMALY_WELL = new BlockAnomalyWell();
+        TABlocks.ANOMALY_WELL_COLLISION = new BlockAnomalyWellCollision();
         TABlocks.ANOMALOUS_MONOLITH = new BlockAnomalousMonolith();
+        TABlocks.RIFT_WELL = new BlockRiftWell();
+        TABlocks.RIFT_WELL_PART = new BlockRiftWellPart();
+        TABlocks.DRAINAGE_NODE = new BlockDrainageNode();
+        TABlocks.PARADOX_DISTILLATOR = new BlockParadoxDistillator();
+        TABlocks.PARADOX_DISTILLATOR_PORT = new BlockParadoxDistillatorPort();
         TABlocks.STRANGE_PEDESTAL = new BlockStrangePedestal();
         TABlocks.ELDRITCH_CONSTRUCTION = new BlockEldritchConstarction();
         TABlocks.ANOMALY_BED = new BlockAnomalyBed();
@@ -165,6 +182,7 @@ public final class ModBlocksItems {
                 TABlocks.GOLEM_DISPATCHER,
                 TABlocks.CRAFT_PLANNER,
                 TABlocks.INFUSION_REQUESTER,
+                TABlocks.INFUSION_MATRIX_UPGRADE,
                 TABlocks.ANOMALY_STONE,
                 TABlocks.RIFT_BUSH,
                 TABlocks.RIFT_GEOD,
@@ -172,7 +190,13 @@ public final class ModBlocksItems {
                 TABlocks.ANCIENT_COLUMN,
                 TABlocks.ANCIENT_FIRE,
                 TABlocks.ANOMALY_WELL,
+                TABlocks.ANOMALY_WELL_COLLISION,
                 TABlocks.ANOMALOUS_MONOLITH,
+                TABlocks.RIFT_WELL,
+                TABlocks.RIFT_WELL_PART,
+                TABlocks.DRAINAGE_NODE,
+                TABlocks.PARADOX_DISTILLATOR,
+                TABlocks.PARADOX_DISTILLATOR_PORT,
                 TABlocks.STRANGE_PEDESTAL,
                 TABlocks.ELDRITCH_CONSTRUCTION,
                 TABlocks.ANOMALY_BED,
@@ -205,6 +229,8 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "craft_planner"));
         GameRegistry.registerTileEntity(TileInfusionRequester.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "infusion_requester"));
+        GameRegistry.registerTileEntity(TileInfusionMatrixUpgrade.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "infusion_matrix_upgrade"));
         GameRegistry.registerTileEntity(TileAnomalyStone.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "anomaly_stone"));
         GameRegistry.registerTileEntity(TileRiftBush.class,
@@ -219,8 +245,18 @@ public final class ModBlocksItems {
                 new ResourceLocation(ThaumicAttempts.MODID, "ancient_fire"));
         GameRegistry.registerTileEntity(TileAnomalyWell.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "anomaly_well"));
+        GameRegistry.registerTileEntity(TileAnomalyWellCollision.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "anomaly_well_collision"));
         GameRegistry.registerTileEntity(TileAnomalousMonolith.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "anomalous_monolith"));
+        GameRegistry.registerTileEntity(TileRiftWell.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "rift_well"));
+        GameRegistry.registerTileEntity(TileDrainageNode.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "drainage_node"));
+        GameRegistry.registerTileEntity(TileParadoxDistillator.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "paradox_distillator"));
+        GameRegistry.registerTileEntity(TileParadoxDistillatorPort.class,
+                new ResourceLocation(ThaumicAttempts.MODID, "paradox_distillator_port"));
         GameRegistry.registerTileEntity(TileStrangePedestal.class,
                 new ResourceLocation(ThaumicAttempts.MODID, "strange_pedestal"));
         GameRegistry.registerTileEntity(TileEldritchConstruction.class,
@@ -312,6 +348,7 @@ public final class ModBlocksItems {
         RIFTONOMICON_PROTOCOL = new ItemRiftonomiconProtocol();
         STORAGE_BELL = new ItemStorageBell();
         PORTAL_RUNE = new ItemPortalRune();
+        INTERCEPTOR_STONE = new ItemInterceptorStone();
         CALIBRATED_EXTRACT = new ItemCalibratedExtract();
         ANOMALY_COMPASS = new ItemAnomalyCompass();
         ARCHIVE_FRAGMENTS = new Item()
@@ -322,6 +359,10 @@ public final class ModBlocksItems {
         CREATION_CORE = createCoreItem("creation_core");
         NAVIGATION_CORE = createCoreItem("navigation_core");
         ALCHEMICAL_CORE = new therealpant.thaumicattempts.items.ItemAlchemicalCore();
+        PARADOX_CORE = new ItemParadoxCore()
+                .setCreativeTab(ThaumicAttempts.CREATIVE_TAB)
+                .setTranslationKey(ThaumicAttempts.MODID + ".paradox_core")
+                .setRegistryName(ThaumicAttempts.MODID, "paradox_core");
 
         e.getRegistry().registerAll(
                 CRAFT_PATTERN,
@@ -344,13 +385,15 @@ public final class ModBlocksItems {
                 RIFTONOMICON_PROTOCOL,
                 STORAGE_BELL,
                 PORTAL_RUNE,
+                INTERCEPTOR_STONE,
                 CALIBRATED_EXTRACT,
                 ANOMALY_COMPASS,
                 ARCHIVE_FRAGMENTS,
                 TRANSMUTATION_CORE,
                 CREATION_CORE,
                 NAVIGATION_CORE,
-                ALCHEMICAL_CORE
+                ALCHEMICAL_CORE,
+                PARADOX_CORE
         );
 
         // ItemBlock'и
@@ -380,6 +423,8 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.CRAFT_PLANNER.getRegistryName());
         TABlocks.INFUSION_REQUESTER_ITEM = new ItemBlock(TABlocks.INFUSION_REQUESTER)
                 .setRegistryName(TABlocks.INFUSION_REQUESTER.getRegistryName());
+        TABlocks.INFUSION_MATRIX_UPGRADE_ITEM = new ItemBlock(TABlocks.INFUSION_MATRIX_UPGRADE)
+                .setRegistryName(TABlocks.INFUSION_MATRIX_UPGRADE.getRegistryName());
         TABlocks.ANOMALY_STONE_ITEM = new ItemBlock(TABlocks.ANOMALY_STONE)
                 .setRegistryName(TABlocks.ANOMALY_STONE.getRegistryName());
         TABlocks.RIFT_BUSH_ITEM = new ItemBlock(TABlocks.RIFT_BUSH)
@@ -396,6 +441,12 @@ public final class ModBlocksItems {
                 .setRegistryName(TABlocks.ANOMALY_WELL.getRegistryName());
         TABlocks.ANOMALOUS_MONOLITH_ITEM = new ItemBlock(TABlocks.ANOMALOUS_MONOLITH)
                 .setRegistryName(TABlocks.ANOMALOUS_MONOLITH.getRegistryName());
+        TABlocks.RIFT_WELL_ITEM = new ItemBlock(TABlocks.RIFT_WELL)
+                .setRegistryName(TABlocks.RIFT_WELL.getRegistryName());
+        TABlocks.DRAINAGE_NODE_ITEM = new ItemBlock(TABlocks.DRAINAGE_NODE)
+                .setRegistryName(TABlocks.DRAINAGE_NODE.getRegistryName());
+        TABlocks.PARADOX_DISTILLATOR_ITEM = new ItemBlock(TABlocks.PARADOX_DISTILLATOR)
+                .setRegistryName(TABlocks.PARADOX_DISTILLATOR.getRegistryName());
         TABlocks.STRANGE_PEDESTAL_ITEM = new ItemBlock(TABlocks.STRANGE_PEDESTAL)
                 .setRegistryName(TABlocks.STRANGE_PEDESTAL.getRegistryName());
         TABlocks.ELDRITCH_CONSTRUCTION_ITEM = new ItemBlockEldritchConstruction(TABlocks.ELDRITCH_CONSTRUCTION)
@@ -433,6 +484,7 @@ public final class ModBlocksItems {
                 TABlocks.GOLEM_DISPATCHER_ITEM,
                 TABlocks.CRAFT_PLANNER_ITEM,
                 TABlocks.INFUSION_REQUESTER_ITEM,
+                TABlocks.INFUSION_MATRIX_UPGRADE_ITEM,
                 TABlocks.ANOMALY_STONE_ITEM,
                 TABlocks.RIFT_BUSH_ITEM,
                 TABlocks.RIFT_GEOD_ITEM,
@@ -441,6 +493,9 @@ public final class ModBlocksItems {
                 TABlocks.ANCIENT_FIRE_ITEM,
                 TABlocks.ANOMALY_WELL_ITEM,
                 TABlocks.ANOMALOUS_MONOLITH_ITEM,
+                TABlocks.RIFT_WELL_ITEM,
+                TABlocks.DRAINAGE_NODE_ITEM,
+                TABlocks.PARADOX_DISTILLATOR_ITEM,
                 TABlocks.STRANGE_PEDESTAL_ITEM,
                 TABlocks.ELDRITCH_CONSTRUCTION_ITEM,
                 TABlocks.ANOMALY_BED_ITEM,

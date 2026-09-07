@@ -61,6 +61,8 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                     return patchFocusPackage(basicClass);
                 case "thaumcraft.common.items.casters.ItemCaster":
                     return patchItemCaster(basicClass);
+                case "thaumcraft.common.tiles.crafting.TileInfusionMatrix":
+                    return patchTileInfusionMatrix(basicClass);
                 case "thaumcraft.api.casters.FocusEngine":
                     return patchFocusEngine(basicClass);
                 case "thaumcraft.client.gui.plugins.GuiFocusSettingSpinnerButton":
@@ -161,6 +163,117 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             cursor = cursor.getPrevious();
         }
         return cursor;
+    }
+
+    private byte[] patchTileInfusionMatrix(byte[] basicClass) {
+        final String owner = "thaumcraft/common/tiles/crafting/TileInfusionMatrix";
+        final String access = "therealpant/thaumicattempts/integration/infusion/IParallelInfusionMatrixAccess";
+        final String hooks = "therealpant/thaumicattempts/integration/infusion/ParallelInfusionHooks";
+
+        ClassReader reader = new ClassReader(basicClass);
+        ClassNode node = new ClassNode(ASM5);
+        reader.accept(node, 0);
+
+        if (!node.interfaces.contains(access)) node.interfaces.add(access);
+        addFieldGetter(node, owner, "ta$getRecipeEssentia", "recipeEssentia",
+                "Lthaumcraft/api/aspects/AspectList;");
+        addFieldGetter(node, owner, "ta$getRecipeIngredients", "recipeIngredients", "Ljava/util/ArrayList;");
+        addFieldGetter(node, owner, "ta$getPedestals", "pedestals", "Ljava/util/ArrayList;");
+        addFieldGetter(node, owner, "ta$getStability", "stability", "F");
+        addFieldGetter(node, owner, "ta$getCountDelay", "countDelay", "I");
+        addFieldSetter(node, owner, "ta$setStability", "stability", "F");
+        addFieldSetter(node, owner, "ta$setCheckSurroundings", "checkSurroundings", "Z");
+
+        boolean workPhasePatched = false;
+        boolean stabilityPatched = false;
+        for (MethodNode method : node.methods) {
+            if ("craftCycle".equals(method.name) && "()V".equals(method.desc)) {
+                for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (!(insn instanceof MethodInsnNode)) continue;
+                    MethodInsnNode call = (MethodInsnNode) insn;
+                    if (!"thaumcraft/api/aspects/AspectList".equals(call.owner)
+                            || !"visSize".equals(call.name) || !"()I".equals(call.desc)) continue;
+                    AbstractInsnNode fieldLoad = previousMeaningful(call);
+                    AbstractInsnNode matrixLoad = previousMeaningful(fieldLoad);
+                    if (!(fieldLoad instanceof FieldInsnNode)
+                            || !"recipeEssentia".equals(((FieldInsnNode) fieldLoad).name)
+                            || !(matrixLoad instanceof VarInsnNode)
+                            || matrixLoad.getOpcode() != ALOAD
+                            || ((VarInsnNode) matrixLoad).var != 0) continue;
+
+                    LabelNode vanillaPhase = new LabelNode();
+                    InsnList injection = new InsnList();
+                    injection.add(new VarInsnNode(ALOAD, 0));
+                    injection.add(new MethodInsnNode(INVOKESTATIC, hooks, "processWorkPhase",
+                            "(Lthaumcraft/common/tiles/crafting/TileInfusionMatrix;)Z", false));
+                    injection.add(new JumpInsnNode(IFEQ, vanillaPhase));
+                    injection.add(new InsnNode(RETURN));
+                    injection.add(vanillaPhase);
+                    method.instructions.insertBefore(matrixLoad, injection);
+                    workPhasePatched = true;
+                    break;
+                }
+            }
+
+            if ("getSurroundings".equals(method.name) && "()V".equals(method.desc)) {
+                List<AbstractInsnNode> returns = new ArrayList<>();
+                for (AbstractInsnNode insn = method.instructions.getFirst(); insn != null; insn = insn.getNext()) {
+                    if (insn.getOpcode() == RETURN) returns.add(insn);
+                }
+                for (AbstractInsnNode returnInsn : returns) {
+                    InsnList injection = new InsnList();
+                    injection.add(new VarInsnNode(ALOAD, 0));
+                    injection.add(new VarInsnNode(ALOAD, 0));
+                    injection.add(new VarInsnNode(ALOAD, 0));
+                    injection.add(new FieldInsnNode(GETFIELD, owner, "stabilityReplenish", "F"));
+                    injection.add(new MethodInsnNode(INVOKESTATIC, hooks, "adjustStabilityReplenish",
+                            "(Lthaumcraft/common/tiles/crafting/TileInfusionMatrix;F)F", false));
+                    injection.add(new FieldInsnNode(PUTFIELD, owner, "stabilityReplenish", "F"));
+                    method.instructions.insertBefore(returnInsn, injection);
+                    stabilityPatched = true;
+                }
+            }
+        }
+
+        if (!workPhasePatched || !stabilityPatched) {
+            System.err.println("[ThaumicAttempts] Infusion matrix upgrade patch incomplete: work="
+                    + workPhasePatched + ", stability=" + stabilityPatched);
+            return basicClass;
+        }
+
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS | ClassWriter.COMPUTE_FRAMES);
+        node.accept(writer);
+        System.out.println("[ThaumicAttempts] Patched TileInfusionMatrix for parallel infusion upgrades");
+        return writer.toByteArray();
+    }
+
+    private static void addFieldGetter(ClassNode node, String owner, String methodName,
+                                       String fieldName, String fieldDesc) {
+        String methodDesc = "()" + fieldDesc;
+        for (MethodNode existing : node.methods) {
+            if (methodName.equals(existing.name) && methodDesc.equals(existing.desc)) return;
+        }
+        MethodNode method = new MethodNode(ACC_PUBLIC, methodName, methodDesc, null, null);
+        method.instructions.add(new VarInsnNode(ALOAD, 0));
+        method.instructions.add(new FieldInsnNode(GETFIELD, owner, fieldName, fieldDesc));
+        int returnOpcode = "F".equals(fieldDesc) ? FRETURN
+                : ("I".equals(fieldDesc) || "Z".equals(fieldDesc) ? IRETURN : ARETURN);
+        method.instructions.add(new InsnNode(returnOpcode));
+        node.methods.add(method);
+    }
+
+    private static void addFieldSetter(ClassNode node, String owner, String methodName,
+                                       String fieldName, String fieldDesc) {
+        String methodDesc = "(" + fieldDesc + ")V";
+        for (MethodNode existing : node.methods) {
+            if (methodName.equals(existing.name) && methodDesc.equals(existing.desc)) return;
+        }
+        MethodNode method = new MethodNode(ACC_PUBLIC, methodName, methodDesc, null, null);
+        method.instructions.add(new VarInsnNode(ALOAD, 0));
+        method.instructions.add(new VarInsnNode("F".equals(fieldDesc) ? FLOAD : ILOAD, 1));
+        method.instructions.add(new FieldInsnNode(PUTFIELD, owner, fieldName, fieldDesc));
+        method.instructions.add(new InsnNode(RETURN));
+        node.methods.add(method);
     }
 
     /**

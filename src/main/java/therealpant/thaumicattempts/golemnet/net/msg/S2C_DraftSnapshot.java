@@ -1,11 +1,10 @@
 package therealpant.thaumicattempts.golemnet.net.msg;
 
 import io.netty.buffer.ByteBuf;
-import net.minecraft.client.Minecraft;
 import net.minecraft.item.ItemStack;
 import net.minecraftforge.fml.common.network.ByteBufUtils;
 import net.minecraftforge.fml.common.network.simpleimpl.*;
-import therealpant.thaumicattempts.client.ClientCatalogCache;
+import therealpant.thaumicattempts.ThaumicAttempts;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -65,12 +64,15 @@ public class S2C_DraftSnapshot implements IMessage {
         for (int i=0;i<m2;i++) pendingCounts.add(buf.readInt());
     }
 
+    public boolean isCraftTab() { return craftTab; }
+    public List<ItemStack> getDraftStacks() { return draftStacks; }
+    public List<Integer> getDraftCounts() { return draftCounts; }
+    public List<ItemStack> getPendingStacks() { return pendingStacks; }
+    public List<Integer> getPendingCounts() { return pendingCounts; }
+
     public static class Handler implements IMessageHandler<S2C_DraftSnapshot, IMessage> {
         @Override public IMessage onMessage(S2C_DraftSnapshot msg, MessageContext ctx) {
-            Minecraft.getMinecraft().addScheduledTask(() -> {
-                ClientCatalogCache.setDraft(msg.craftTab,   msg.draftStacks,   msg.draftCounts);
-                ClientCatalogCache.setPending(msg.craftTab, msg.pendingStacks, msg.pendingCounts);
-            });
+            ThaumicAttempts.proxy.handleClientPacket(msg);
             return null;
         }
     }

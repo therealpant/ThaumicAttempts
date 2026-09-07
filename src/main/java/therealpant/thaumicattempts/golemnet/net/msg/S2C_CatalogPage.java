@@ -7,8 +7,7 @@ import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
 import net.minecraftforge.fml.common.network.ByteBufUtils;
 import net.minecraftforge.fml.common.network.simpleimpl.*;
-import net.minecraft.client.Minecraft;
-import therealpant.thaumicattempts.client.ClientCatalogCache;
+import therealpant.thaumicattempts.ThaumicAttempts;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -113,30 +112,20 @@ public class S2C_CatalogPage implements IMessage {
         return out;
     }
 
+    public boolean isCraftTab() { return craftTab; }
+    public long getSnapshotId() { return snapshotId; }
+    public int getPageNo1() { return pageNo1; }
+    public int getTotalPages() { return totalPages; }
+    public boolean hasMore() { return hasMore; }
+    public List<ItemStack> getItems35() { return items35; }
+    public List<Integer> getCounts() { return counts; }
+    public List<Integer> getMakeCounts() { return makeCounts; }
+    public List<Boolean> getMakePossible() { return makePossible; }
+
     public static class Handler implements IMessageHandler<S2C_CatalogPage, IMessage> {
-        // S2C_CatalogPage.Handler
         @Override
         public IMessage onMessage(S2C_CatalogPage msg, MessageContext ctx) {
-            Minecraft.getMinecraft().addScheduledTask(() -> {
-                int nonEmpty = 0;
-                if (msg.items35 != null) {
-                    for (int i = 0; i < Math.min(35, msg.items35.size()); i++) {
-                        if (msg.items35.get(i) != null && !msg.items35.get(i).isEmpty()) nonEmpty++;
-                    }
-                }
-                // Порядок аргументов: craft, sid, pageNo1, totalPages, hasMore,
-                // items, counts, makeCounts, makePossible, itemCountOnThisPage, partial=false
-                ClientCatalogCache.applyPagePacket(
-                        msg.craftTab,
-                        msg.snapshotId,
-                        Math.max(1, msg.pageNo1),
-                        Math.max(0, msg.totalPages),
-                        msg.hasMore,
-                        msg.items35, msg.counts, msg.makeCounts, msg.makePossible,
-                        nonEmpty,
-                        false
-                );
-            });
+            ThaumicAttempts.proxy.handleClientPacket(msg);
             return null;
         }
     }

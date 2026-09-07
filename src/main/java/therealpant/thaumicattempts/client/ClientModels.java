@@ -47,6 +47,10 @@ import therealpant.thaumicattempts.world.tile.TileRiftStoneAltar;
 import therealpant.thaumicattempts.world.tile.TileRiftStoneFurnace;
 import therealpant.thaumicattempts.world.tile.TileRiftStonePortal;
 import therealpant.thaumicattempts.world.tile.TileEldritchConstruction;
+import therealpant.thaumicattempts.world.tile.TileInfusionMatrixUpgrade;
+import therealpant.thaumicattempts.world.tile.TileRiftWell;
+import therealpant.thaumicattempts.world.tile.TileDrainageNode;
+import therealpant.thaumicattempts.world.tile.TileParadoxDistillator;
 
 
 import java.util.function.Supplier;
@@ -163,6 +167,10 @@ public final class ClientModels extends CommonProxy {
                 ModBlocksItems.PORTAL_RUNE, 0,
                 new ModelResourceLocation(ThaumicAttempts.MODID + ":portal_rune", "inventory")
         );
+        ModelLoader.setCustomModelResourceLocation(
+                ModBlocksItems.INTERCEPTOR_STONE, 0,
+                new ModelResourceLocation(ThaumicAttempts.MODID + ":intersepter_stone", "inventory")
+        );
         ModelResourceLocation sigilModel = new ModelResourceLocation(
                 ThaumicAttempts.MODID + ":calibrated_extract", "inventory");
         ModelResourceLocation sigilStageOneModel = new ModelResourceLocation(
@@ -188,6 +196,7 @@ public final class ClientModels extends CommonProxy {
         registerItemModel(ModBlocksItems.TRANSMUTATION_CORE);
         registerItemModel(ModBlocksItems.CREATION_CORE);
         registerItemModel(ModBlocksItems.NAVIGATION_CORE);
+        registerItemModel(ModBlocksItems.PARADOX_CORE);
         for (int wear = 0; wear < ItemAlchemicalCore.USES; wear++) {
             String model = wear >= ItemAlchemicalCore.CRITICAL_STAGE_START
                     ? "alchemical_core_critical"
@@ -254,6 +263,8 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.RESOURCE_REQUESTER_ITEM, TileResourceRequester::new);
         registerItemModel(TABlocks.INFUSION_REQUESTER_ITEM);
         attachTileRenderer(TABlocks.INFUSION_REQUESTER_ITEM, TileInfusionRequester::new);
+        registerItemModel(TABlocks.INFUSION_MATRIX_UPGRADE_ITEM);
+        attachTileRenderer(TABlocks.INFUSION_MATRIX_UPGRADE_ITEM, TileInfusionMatrixUpgrade::new);
         registerItemModel(TABlocks.GOLEM_DISPATCHER_ITEM);
         registerItemModel(TABlocks.CRAFT_PLANNER_ITEM);
         attachTileRenderer(TABlocks.GOLEM_DISPATCHER_ITEM, TileGolemDispatcher::new);
@@ -272,6 +283,12 @@ public final class ClientModels extends CommonProxy {
         attachTileRenderer(TABlocks.ANOMALY_WELL_ITEM, TileAnomalyWell::new);
         registerItemModel(TABlocks.ANOMALOUS_MONOLITH_ITEM);
         attachTileRenderer(TABlocks.ANOMALOUS_MONOLITH_ITEM, TileAnomalousMonolith::new);
+        registerItemModel(TABlocks.RIFT_WELL_ITEM);
+        attachTileRenderer(TABlocks.RIFT_WELL_ITEM, TileRiftWell::new);
+        registerItemModel(TABlocks.DRAINAGE_NODE_ITEM);
+        attachTileRenderer(TABlocks.DRAINAGE_NODE_ITEM, TileDrainageNode::new);
+        registerItemModel(TABlocks.PARADOX_DISTILLATOR_ITEM);
+        attachTileRenderer(TABlocks.PARADOX_DISTILLATOR_ITEM, TileParadoxDistillator::new);
         registerItemModel(TABlocks.STRANGE_PEDESTAL_ITEM);
         attachTileRenderer(TABlocks.STRANGE_PEDESTAL_ITEM, TileStrangePedestal::new);
         registerItemModel(TABlocks.AURA_BOOSTER_ITEM);
@@ -359,6 +376,10 @@ public final class ClientModels extends CommonProxy {
                 new RenderInfusionRequester()
         );
         ClientRegistry.bindTileEntitySpecialRenderer(
+                TileInfusionMatrixUpgrade.class,
+                new RenderInfusionMatrixUpgrade()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
                 TilePillar.class,
                 new RenderPillar()
         );
@@ -393,6 +414,18 @@ public final class ClientModels extends CommonProxy {
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileAnomalousMonolith.class,
                 new RenderAnomalousMonolith()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileRiftWell.class,
+                new RenderRiftWell()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileDrainageNode.class,
+                new RenderDrainageNode()
+        );
+        ClientRegistry.bindTileEntitySpecialRenderer(
+                TileParadoxDistillator.class,
+                new RenderParadoxDistillator()
         );
         ClientRegistry.bindTileEntitySpecialRenderer(
                 TileStrangePedestal.class,

@@ -27,6 +27,7 @@ public class TileAnomalousMonolith extends TileEntity implements IAnimatable, IT
     public static final int MIN_PARTICLES_PER_SECOND = 2;
     public static final int MAX_PARTICLES_PER_SECOND = 10;
     public static final int MAX_EFFICIENCY = 3;
+    public static final int MAX_INTERCEPTED_PARTICLES = 1000;
 
     private static final int PARTICLE_FLIGHT_TICKS = 80;
     private static final int PARTICLES_PER_DISTRIBUTION = 40;
@@ -41,6 +42,8 @@ public class TileAnomalousMonolith extends TileEntity implements IAnimatable, IT
     private double particleAccumulator;
     private int absorbedParticles;
     private long nextPedestalDispatchTick;
+    private boolean interceptorStoneInstalled;
+    private int interceptedParticles;
 
     @Override
     public void update() {
@@ -67,8 +70,40 @@ public class TileAnomalousMonolith extends TileEntity implements IAnimatable, IT
     private void finishArrivedParticles(long now) {
         while (!pendingAbsorptions.isEmpty() && pendingAbsorptions.peekFirst() <= now) {
             pendingAbsorptions.removeFirst();
+            if (interceptorStoneInstalled) {
+                interceptedParticles = Math.min(MAX_INTERCEPTED_PARTICLES,
+                        interceptedParticles + 1);
+                continue;
+            }
             absorbedParticles++;
         }
+    }
+
+    public boolean hasInterceptorStone() {
+        return interceptorStoneInstalled;
+    }
+
+    public void installInterceptorStone() {
+        if (interceptorStoneInstalled) return;
+        interceptorStoneInstalled = true;
+        markDirtyAndSync();
+    }
+
+    public boolean removeInterceptorStone() {
+        if (!interceptorStoneInstalled) return false;
+        interceptorStoneInstalled = false;
+        absorbedParticles += interceptedParticles;
+        interceptedParticles = 0;
+        markDirtyAndSync();
+        return true;
+    }
+
+    public int drainInterceptedParticles(int maximum) {
+        if (maximum <= 0 || interceptedParticles <= 0) return 0;
+        int drained = Math.min(maximum, interceptedParticles);
+        interceptedParticles -= drained;
+        markDirty();
+        return drained;
     }
 
     private void queueCompletedDistributions() {
@@ -165,6 +200,9 @@ public class TileAnomalousMonolith extends TileEntity implements IAnimatable, IT
                 Math.min(19.999D, compound.getDouble("ParticleAccumulator")));
         absorbedParticles = Math.max(0, compound.getInteger("AbsorbedParticles"));
         nextPedestalDispatchTick = compound.getLong("NextPedestalDispatch");
+        interceptorStoneInstalled = compound.getBoolean("InterceptorStoneInstalled");
+        interceptedParticles = Math.max(0, Math.min(MAX_INTERCEPTED_PARTICLES,
+                compound.getInteger("InterceptedParticles")));
 
         pendingAbsorptions.clear();
         int pendingCount = Math.max(0, Math.min(256,
@@ -189,6 +227,8 @@ public class TileAnomalousMonolith extends TileEntity implements IAnimatable, IT
         compound.setDouble("ParticleAccumulator", particleAccumulator);
         compound.setInteger("AbsorbedParticles", absorbedParticles);
         compound.setLong("NextPedestalDispatch", nextPedestalDispatchTick);
+        compound.setBoolean("InterceptorStoneInstalled", interceptorStoneInstalled);
+        compound.setInteger("InterceptedParticles", interceptedParticles);
 
         compound.setInteger("PendingAbsorptionCount", pendingAbsorptions.size());
         int index = 0;

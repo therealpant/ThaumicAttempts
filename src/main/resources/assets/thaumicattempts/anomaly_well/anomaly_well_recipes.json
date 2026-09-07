@@ -35,6 +35,23 @@
         { "item": "thaumcraft:curio", "meta": 3, "count": 1 }
       ],
       "result": { "item": "thaumicattempts:creation_core", "count": 1 }
+    },
+    {
+      "id": "interceptor_stone",
+      "ingredients": [
+        { "item": "thaumicattempts:eldritch_constarction", "meta": 0, "count": 1 },
+        { "item": "thaumcraft:primordial_pearl", "meta": 32767, "count": 1 },
+        { "item": "thaumicattempts:rift_ametist", "count": 1, "min_paradoxum": 250 }
+      ],
+      "result": { "item": "thaumicattempts:intersepter_stone", "count": 1 }
+    },
+    {
+      "id": "paradox_core",
+      "ingredients": [
+        { "item": "thaumicattempts:rift_ametist", "count": 2, "min_paradoxum": 250 },
+        { "item": "thaumcraft:primordial_pearl", "meta": 32767, "count": 1 }
+      ],
+      "result": { "item": "thaumicattempts:paradox_core", "count": 1 }
     }
   ]
 }

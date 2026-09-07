@@ -20,6 +20,7 @@ import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
 import therealpant.thaumicattempts.world.tile.TileStrangePedestal;
+import therealpant.thaumicattempts.world.item.ParadoxumContainer;
 
 import javax.annotation.Nullable;
 
@@ -60,8 +61,7 @@ public class BlockStrangePedestal extends Block {
         ItemStack held = player.getHeldItem(hand);
 
         if (tile.getHeldItem().isEmpty()) {
-            if (held.isEmpty()
-                    || held.getItem() != therealpant.thaumicattempts.init.ModBlocksItems.RIFT_AMETIST) {
+            if (!ParadoxumContainer.isContainer(held)) {
                 return false;
             }
             if (!world.isRemote && tile.insertAmethyst(held)) {

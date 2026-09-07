@@ -20,6 +20,7 @@ import thaumcraft.api.research.ScanningManager;
 import thaumcraft.api.items.ItemsTC;
 import net.minecraftforge.oredict.OreDictionary;
 import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.world.tile.TileAnomalyArchive;
 import therealpant.thaumicattempts.world.tile.TileAnomalyWell;
 import therealpant.thaumicattempts.world.block.BlockAnomalyWell;
@@ -46,6 +47,8 @@ public final class TAResearchScans {
     public static final String SCANNED_TWISTED_CURIOSITY = "!TA_TWISTED_CURIOSITY_SCAN";
     public static final String SCANNED_ELDRITCH_CURIOSITY = "!TA_ELDRITCH_CURIOSITY_SCAN";
     public static final String SCANNED_ANCIENT_CURIOSITY = "!TA_ANCIENT_CURIOSITY_SCAN";
+    public static final String SCANNED_STORAGE_BELL = "!TA_STORAGE_BELL_SCAN";
+    public static final String SCANNED_GOLEM_SEAL = "!TA_GOLEM_SEAL_SCAN";
 
     private static final String[] ARCHIVE_FACTS = {
             ARCHIVE_NAVIGATION,
@@ -84,6 +87,14 @@ public final class TAResearchScans {
         ScanningManager.addScannableThing(new ScanItem(
                 SCANNED_ANCIENT_CURIOSITY,
                 new ItemStack(ItemsTC.curio, 1, 3)
+        ));
+        ScanningManager.addScannableThing(new ScanItem(
+                SCANNED_STORAGE_BELL,
+                new ItemStack(ModBlocksItems.STORAGE_BELL)
+        ));
+        ScanningManager.addScannableThing(new ScanItem(
+                SCANNED_GOLEM_SEAL,
+                new ItemStack(ItemsTC.seals, 1, OreDictionary.WILDCARD_VALUE)
         ));
     }
 

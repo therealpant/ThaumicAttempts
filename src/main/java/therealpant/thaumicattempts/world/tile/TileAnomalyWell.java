@@ -1,7 +1,6 @@
 package therealpant.thaumicattempts.world.tile;
 
 import net.minecraft.block.state.IBlockState;
-import net.minecraft.entity.item.EntityItem;
 import net.minecraft.item.ItemStack;
 import net.minecraft.nbt.NBTTagCompound;
 import net.minecraft.nbt.NBTTagList;
@@ -22,6 +21,7 @@ import software.bernie.geckolib3.core.manager.AnimationFactory;
 import therealpant.thaumicattempts.data.AnomalyWellRecipe;
 import therealpant.thaumicattempts.data.TAAnomalyWellRecipes;
 import therealpant.thaumicattempts.world.EntityAnomalyWellResult;
+import therealpant.thaumicattempts.world.block.BlockAnomalyWell;
 
 import java.util.ArrayList;
 import java.util.List;
@@ -31,7 +31,7 @@ public class TileAnomalyWell extends TileEntity implements ITickable, IAnimatabl
     public static final int SLOT_COUNT = 3;
     public static final int MAX_CHARGES = 10;
     public static final float MAX_LEVEL_PIXELS = 10.0F;
-    private static final int COLLECTION_INTERVAL = 5;
+    public static final int CRAFT_ANIMATION_TICKS = 32;
     private static final int RECHARGE_CHECK_INTERVAL = 20;
     private static final long MIN_RECHARGE_TICKS = 7L * 60L * 20L;
     private static final long MAX_RECHARGE_TICKS = 10L * 60L * 20L;
@@ -41,73 +41,57 @@ public class TileAnomalyWell extends TileEntity implements ITickable, IAnimatabl
     private int maxCharges = MAX_CHARGES;
     private int charges = MAX_CHARGES;
     private int ticks;
+    private int craftingTicks;
     private long nextRechargeAt;
     private UUID anomalyId;
 
     @Override
     public void update() {
-        if (world == null || world.isRemote) {
+        if (world == null) {
+            return;
+        }
+        if (world.isRemote) {
+            if (craftingTicks > 0 && craftingTicks < CRAFT_ANIMATION_TICKS) {
+                craftingTicks++;
+            }
             return;
         }
         ticks++;
+        if (ticks == 1 || ticks % RECHARGE_CHECK_INTERVAL == 0) {
+            BlockAnomalyWell.ensureCollisionParts(world, pos);
+        }
         if (ticks % RECHARGE_CHECK_INTERVAL == 0) {
             tickLaboratoryRecharge();
         }
-        if (ticks % COLLECTION_INTERVAL == 0) {
-            collectItems();
+        if (craftingTicks > 0) {
+            craftingTicks++;
+            if (craftingTicks >= CRAFT_ANIMATION_TICKS) {
+                processInputs();
+            }
+        } else if (getStoredItemCount() == SLOT_COUNT) {
+            craftingTicks = 1;
+            markDirtyAndSync();
         }
     }
 
-    private void collectItems() {
-        AxisAlignedBB intake = new AxisAlignedBB(
-                pos.getX() - 0.4375D, pos.getY(), pos.getZ() - 0.4375D,
-                pos.getX() + 1.4375D, pos.getY() + 1.5D, pos.getZ() + 1.4375D);
-        List<EntityItem> entities = world.getEntitiesWithinAABB(EntityItem.class, intake);
-
-        for (EntityItem entity : entities) {
-            if (getStoredItemCount() >= SLOT_COUNT) {
-                break;
-            }
-            if (entity instanceof EntityAnomalyWellResult) {
-                continue;
-            }
-            if (entity == null || entity.isDead || entity.getItem().isEmpty()) {
-                continue;
-            }
-            storeOne(entity.getItem());
-            ItemStack remaining = entity.getItem();
-            remaining.shrink(1);
-            if (remaining.isEmpty()) {
-                entity.setDead();
-            } else {
-                entity.setItem(remaining);
-            }
+    public boolean insertOne(ItemStack source) {
+        if (source == null || source.isEmpty() || craftingTicks > 0
+                || getStoredItemCount() >= SLOT_COUNT) {
+            return false;
         }
-
-        if (getStoredItemCount() < SLOT_COUNT) {
-            return;
-        }
-
-        // Once the three inputs are captured, everything else inside the well is excess.
-        for (EntityItem entity : entities) {
-            if (entity != null && !entity.isDead
-                    && !(entity instanceof EntityAnomalyWellResult)) {
-                entity.setDead();
-            }
-        }
-        processInputs();
-    }
-
-    private void storeOne(ItemStack source) {
         ItemStack one = source.copy();
         one.setCount(1);
         for (int slot = 0; slot < input.size(); slot++) {
             if (input.get(slot).isEmpty()) {
                 input.set(slot, one);
+                if (getStoredItemCount() == SLOT_COUNT) {
+                    craftingTicks = 1;
+                }
                 markDirtyAndSync();
-                return;
+                return true;
             }
         }
+        return false;
     }
 
     private void processInputs() {
@@ -118,6 +102,7 @@ public class TileAnomalyWell extends TileEntity implements ITickable, IAnimatabl
 
         AnomalyWellRecipe recipe = TAAnomalyWellRecipes.findMatch(stacks);
         clearInputs();
+        craftingTicks = 0;
         if (recipe != null && charges > 0) {
             charges--;
             scheduleRechargeIfNeeded();
@@ -166,6 +151,16 @@ public class TileAnomalyWell extends TileEntity implements ITickable, IAnimatabl
 
     public float getFluidLevelPixels() {
         return Math.min(MAX_LEVEL_PIXELS, charges);
+    }
+
+    public ItemStack getInputStack(int slot) {
+        return slot >= 0 && slot < input.size() ? input.get(slot) : ItemStack.EMPTY;
+    }
+
+    public float getCraftingProgress(float partialTicks) {
+        if (craftingTicks <= 0) return 0.0F;
+        return Math.min(1.0F,
+                (craftingTicks + Math.max(0.0F, partialTicks)) / CRAFT_ANIMATION_TICKS);
     }
 
     public void initializeLaboratory(UUID id, int chargeLimit) {
@@ -221,6 +216,9 @@ public class TileAnomalyWell extends TileEntity implements ITickable, IAnimatabl
         super.writeToNBT(compound);
         compound.setInteger("MaxCharges", maxCharges);
         compound.setInteger("Charges", charges);
+        if (craftingTicks > 0) {
+            compound.setInteger("CraftingTicks", craftingTicks);
+        }
         if (nextRechargeAt > 0L) {
             compound.setLong("NextRechargeAt", nextRechargeAt);
         }
@@ -251,6 +249,8 @@ public class TileAnomalyWell extends TileEntity implements ITickable, IAnimatabl
         charges = compound.hasKey("Charges")
                 ? Math.max(0, Math.min(maxCharges, compound.getInteger("Charges")))
                 : maxCharges;
+        craftingTicks = Math.max(0, Math.min(
+                CRAFT_ANIMATION_TICKS, compound.getInteger("CraftingTicks")));
         nextRechargeAt = compound.getLong("NextRechargeAt");
         anomalyId = compound.hasUniqueId("LaboratoryAnomaly")
                 ? compound.getUniqueId("LaboratoryAnomaly") : null;

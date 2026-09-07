@@ -103,6 +103,37 @@
       ]
     },
     {
+      "key": "TA_SECONDARY_RUNES",
+      "name": "research.TA_SECONDARY_RUNES.title",
+      "icons": [
+        "thaumicattempts:infusion_matrix_upgrade"
+      ],
+      "category": "ELDRITCH",
+      "parents": [
+        "INFUSIONELDRITCH"
+      ],
+      "siblings": [],
+      "location": [
+        6,
+        3
+      ],
+      "stages": [
+        {
+          "text": "research.TA_SECONDARY_RUNES.text.intro",
+          "required_knowledge": [
+            "THEORY;ELDRITCH;2",
+            "THEORY;INFUSION;2"
+          ]
+        },
+        {
+          "text": "research.TA_SECONDARY_RUNES.text.main",
+          "recipes": [
+            "thaumicattempts:rune_arcane"
+          ]
+        }
+      ]
+    },
+    {
       "key": "TA_ELDRITCH_CONSTRUCTION",
       "name": "research.TA_ELDRITCH_CONSTRUCTION.title",
       "icons": [

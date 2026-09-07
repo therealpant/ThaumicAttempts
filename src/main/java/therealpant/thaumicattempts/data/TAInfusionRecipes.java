@@ -23,6 +23,7 @@ import therealpant.thaumicattempts.common.crafting.infusion.RecipeExtractGem;
 import therealpant.thaumicattempts.common.crafting.infusion.RecipeInlayGem;
 import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.init.TABlocks;
+import therealpant.thaumicattempts.config.TAConfig;
 
 import static thaumcraft.api.blocks.BlocksTC.stoneEldritchTile;
 import static therealpant.thaumicattempts.ThaumicAttempts.MODID;
@@ -32,6 +33,34 @@ public final class TAInfusionRecipes {
     private TAInfusionRecipes() {}
 
     public static void register() {
+        if (!TAConfig.RESTORE_VANILLA_VOID_INGOT_RECIPE) {
+            // Replace Thaumcraft's crucible recipe while retaining its research/catalog key.
+            ThaumcraftApi.addInfusionCraftingRecipe(
+                    new ResourceLocation("thaumcraft", "voidingot"),
+                    new InfusionRecipe(
+                            "BASEELDRITCH",
+                            new ItemStack(ItemsTC.ingots, 1, 1),
+                            5,
+                            new AspectList()
+                                    .add(Aspect.DARKNESS, 40)
+                                    .add(Aspect.VOID, 40)
+                                    .add(Aspect.FLUX, 40),
+                            new ItemStack(Items.GOLD_INGOT),
+                            new ItemStack(ItemsTC.salisMundus),
+                            new ItemStack(ItemsTC.voidSeed),
+                            new ItemStack(ItemsTC.voidSeed),
+                            new ItemStack(ItemsTC.morphicResonator),
+                            new ItemStack(ItemsTC.voidSeed),
+                            new ItemStack(ItemsTC.voidSeed),
+                            new ItemStack(ItemsTC.salisMundus),
+                            new ItemStack(ItemsTC.voidSeed),
+                            new ItemStack(ItemsTC.voidSeed),
+                            new ItemStack(ItemsTC.morphicResonator),
+                            new ItemStack(ItemsTC.voidSeed),
+                            new ItemStack(ItemsTC.voidSeed)
+                    ));
+        }
+
         // ===== GEM INLAY RECIPES =====
         ThaumcraftApi.addInfusionCraftingRecipe(
                 new ResourceLocation(ThaumicAttempts.MODID, "inlay_gem"),
@@ -159,7 +188,7 @@ public final class TAInfusionRecipes {
                                     .add(Aspect.VOID, 75)
                                     .add(Aspect.ELDRITCH, 75),
                             // центр — магическое зеркало (блок)
-                            new ItemStack(Item.getItemFromBlock(Block.getBlockFromName("thaumcraft:mirror"))),
+                            new ItemStack(ModBlocksItems.RIFT_EMBER),
                             // внешние пилоны: 4 void-пластины и 4 mirrored glass, чередуем
                             new ItemStack(ItemsTC.plate, 1, 3),
                             new ItemStack(ItemsTC.mirroredGlass),

@@ -75,6 +75,37 @@
       ]
     },
     {
+      "key": "TA_GOLEM_SEAL_TUNING",
+      "name": "research.TA_GOLEM_SEAL_TUNING.title",
+      "icons": [
+        "thaumicattempts:storage_bell"
+      ],
+      "category": "GOLEMANCY",
+      "parents": [
+        "TA_GOLEM_MIRRORS"
+      ],
+      "siblings": [],
+      "location": [
+        7,
+        2
+      ],
+      "stages": [
+        {
+          "text": "research.TA_GOLEM_SEAL_TUNING.text.intro",
+          "required_research": [
+            "!TA_STORAGE_BELL_SCAN;thaumicattempts:textures/items/storage_bell.png",
+            "!TA_GOLEM_SEAL_SCAN;thaumcraft:textures/items/seals/seal_blank.png"
+          ],
+          "required_knowledge": [
+            "THEORY;GOLEMANCY;3"
+          ]
+        },
+        {
+          "text": "research.TA_GOLEM_SEAL_TUNING.text.main"
+        }
+      ]
+    },
+    {
       "key": "TA_GOLEMCRAFT_AD",
       "name": "research.TA_GOLEMCRAFT_AD.title",
       "icons": [

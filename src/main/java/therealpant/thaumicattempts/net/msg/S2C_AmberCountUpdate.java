@@ -3,11 +3,10 @@ package therealpant.thaumicattempts.net.msg;
 import io.netty.buffer.ByteBuf;
 import java.util.UUID;
 
-import net.minecraft.client.Minecraft;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessage;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessageHandler;
 import net.minecraftforge.fml.common.network.simpleimpl.MessageContext;
-import therealpant.thaumicattempts.util.TAGemCountCache;
+import therealpant.thaumicattempts.ThaumicAttempts;
 
 public class S2C_AmberCountUpdate implements IMessage {
     private UUID playerId;
@@ -33,12 +32,13 @@ public class S2C_AmberCountUpdate implements IMessage {
         count = buf.readInt();
     }
 
+    public UUID getPlayerId() { return playerId; }
+    public int getCount() { return count; }
+
     public static class Handler implements IMessageHandler<S2C_AmberCountUpdate, IMessage> {
         @Override
         public IMessage onMessage(S2C_AmberCountUpdate msg, MessageContext ctx) {
-            Minecraft.getMinecraft().addScheduledTask(() -> {
-                TAGemCountCache.setClientAmberCount(msg.playerId, msg.count);
-            });
+            ThaumicAttempts.proxy.handleClientPacket(msg);
             return null;
         }
     }

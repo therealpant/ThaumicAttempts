@@ -1,9 +1,7 @@
 package therealpant.thaumicattempts.golemnet.net.msg;
 
 import io.netty.buffer.ByteBuf;
-import net.minecraft.client.Minecraft;
 import net.minecraft.item.ItemStack;
-import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.common.network.ByteBufUtils;
@@ -11,9 +9,7 @@ import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessage;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessageHandler;
 import net.minecraftforge.fml.common.network.simpleimpl.MessageContext;
-import net.minecraftforge.fml.relauncher.Side;
 import therealpant.thaumicattempts.ThaumicAttempts;
-import therealpant.thaumicattempts.golemnet.tile.TilePatternRequester;
 
 public class S2CPatternRequesterAnim implements IMessage {
     public static final int MODE_MIRROR_TO_BLOCK = 0;
@@ -76,12 +72,7 @@ public class S2CPatternRequesterAnim implements IMessage {
     public static class Handler implements IMessageHandler<S2CPatternRequesterAnim, IMessage> {
         @Override
         public IMessage onMessage(S2CPatternRequesterAnim msg, MessageContext ctx) {
-            Minecraft.getMinecraft().addScheduledTask(() -> {
-                TileEntity te = Minecraft.getMinecraft().world.getTileEntity(msg.requesterPos);
-                if (te instanceof TilePatternRequester) {
-                    ((TilePatternRequester) te).clientAddFlying(msg.stack, msg.mode, msg.duration, msg.seed, msg.delay);
-                }
-            });
+            ThaumicAttempts.proxy.handleClientPacket(msg);
             return null;
         }
     }

@@ -1,11 +1,10 @@
 package therealpant.thaumicattempts.net.msg;
 
 import io.netty.buffer.ByteBuf;
-import net.minecraft.client.Minecraft;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessage;
 import net.minecraftforge.fml.common.network.simpleimpl.IMessageHandler;
 import net.minecraftforge.fml.common.network.simpleimpl.MessageContext;
-import therealpant.thaumicattempts.client.RunicWardClientState;
+import therealpant.thaumicattempts.ThaumicAttempts;
 
 public final class S2C_RunicWardState implements IMessage {
     private boolean active;
@@ -38,11 +37,15 @@ public final class S2C_RunicWardState implements IMessage {
         fortification = buffer.readFloat();
     }
 
+    public boolean isActive() { return active; }
+    public float getCurrent() { return current; }
+    public int getMax() { return max; }
+    public float getFortification() { return fortification; }
+
     public static final class Handler implements IMessageHandler<S2C_RunicWardState, IMessage> {
         @Override
         public IMessage onMessage(S2C_RunicWardState message, MessageContext context) {
-            Minecraft.getMinecraft().addScheduledTask(() -> RunicWardClientState.update(
-                    message.active, message.current, message.max, message.fortification));
+            ThaumicAttempts.proxy.handleClientPacket(message);
             return null;
         }
     }

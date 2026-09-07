@@ -32,6 +32,8 @@ import therealpant.thaumicattempts.golemnet.tile.TileInfusionRequester;
 import therealpant.thaumicattempts.golemnet.tile.TileCraftPlanner;
 import therealpant.thaumicattempts.golemnet.tile.TileRevisionPiedestal;
 import therealpant.thaumicattempts.golemnet.data.SealGolemWhitelistData;
+import thaumcraft.api.capabilities.IPlayerKnowledge;
+import thaumcraft.api.capabilities.ThaumcraftCapabilities;
 import thaumcraft.api.golems.seals.ISealEntity;
 import thaumcraft.api.golems.seals.SealPos;
 import thaumcraft.common.golems.EntityThaumcraftGolem;
@@ -52,6 +54,7 @@ public class BellLinkingHandler {
     private static final String TAG_SEAL_LINK = "bell_link_seal";
     private static final String TAG_DIM   = "dim";
     private static final String TAG_GLINT = "bell_glint";
+    private static final String SEAL_TUNING_RESEARCH = "TA_GOLEM_SEAL_TUNING";
 
     /* -------------------- Утилиты -------------------- */
 
@@ -68,6 +71,12 @@ public class BellLinkingHandler {
 
     private static void msgTranslated(EntityPlayer player, String key, Object... args) {
         player.sendMessage(new TextComponentTranslation(key, args));
+    }
+
+    private static boolean knowsSealTuning(EntityPlayer player) {
+        if (player == null) return false;
+        IPlayerKnowledge knowledge = ThaumcraftCapabilities.getKnowledge(player);
+        return knowledge != null && knowledge.isResearchKnown(SEAL_TUNING_RESEARCH);
     }
 
     /* -------------------- Эффект зачарования на колокольчике -------------------- */
@@ -315,7 +324,9 @@ public class BellLinkingHandler {
                 world, e.getPos(), e.getFace(), world.provider.getDimension());
         if (bellInHand && sneaking && clickedSeal != null) {
             if (!world.isRemote) {
-                if (!canEditSeal(player, clickedSeal)) {
+                if (!knowsSealTuning(player)) {
+                    msgTranslated(player, "thaumicattempts.seal_whitelist.research_required");
+                } else if (!canEditSeal(player, clickedSeal)) {
                     msgTranslated(player, "thaumicattempts.seal_whitelist.denied");
                 } else {
                     putSealLink(held, world, player.dimension, clickedSeal.getSealPos());
@@ -816,32 +827,37 @@ public class BellLinkingHandler {
         SealPos linkedSeal = getLinkedSeal(held);
         if (linkedSeal != null) {
             if (!world.isRemote) {
-                int linkDim = getLinkedSealDim(held, player.dimension);
-                ISealEntity seal = linkDim == player.dimension
-                        ? SealHandler.getSealEntity(linkDim, linkedSeal)
-                        : null;
-                if (seal == null) {
-                    clearLink(held);
-                    setBellGlint(held, false);
-                    msgTranslated(player, "thaumicattempts.seal_whitelist.missing");
-                    e.setCancellationResult(EnumActionResult.FAIL);
-                } else if (!canEditSeal(player, seal)) {
-                    msgTranslated(player, "thaumicattempts.seal_whitelist.denied");
+                if (!knowsSealTuning(player)) {
+                    msgTranslated(player, "thaumicattempts.seal_whitelist.research_required");
                     e.setCancellationResult(EnumActionResult.FAIL);
                 } else {
-                    SealGolemWhitelistData data = SealGolemWhitelistData.get(world);
-                    boolean added = data.toggle(
-                            linkDim, linkedSeal, golem.getUniqueID());
-                    syncSealWhitelistSnapshot(held, world, linkDim, linkedSeal);
-                    int count = data.size(linkDim, linkedSeal);
-                    msgTranslated(
-                            player,
-                            added
-                                    ? "thaumicattempts.seal_whitelist.added"
-                                    : "thaumicattempts.seal_whitelist.removed",
-                            golem.getDisplayName(),
-                            count);
-                    e.setCancellationResult(EnumActionResult.SUCCESS);
+                    int linkDim = getLinkedSealDim(held, player.dimension);
+                    ISealEntity seal = linkDim == player.dimension
+                            ? SealHandler.getSealEntity(linkDim, linkedSeal)
+                            : null;
+                    if (seal == null) {
+                        clearLink(held);
+                        setBellGlint(held, false);
+                        msgTranslated(player, "thaumicattempts.seal_whitelist.missing");
+                        e.setCancellationResult(EnumActionResult.FAIL);
+                    } else if (!canEditSeal(player, seal)) {
+                        msgTranslated(player, "thaumicattempts.seal_whitelist.denied");
+                        e.setCancellationResult(EnumActionResult.FAIL);
+                    } else {
+                        SealGolemWhitelistData data = SealGolemWhitelistData.get(world);
+                        boolean added = data.toggle(
+                                linkDim, linkedSeal, golem.getUniqueID());
+                        syncSealWhitelistSnapshot(held, world, linkDim, linkedSeal);
+                        int count = data.size(linkDim, linkedSeal);
+                        msgTranslated(
+                                player,
+                                added
+                                        ? "thaumicattempts.seal_whitelist.added"
+                                        : "thaumicattempts.seal_whitelist.removed",
+                                golem.getDisplayName(),
+                                count);
+                        e.setCancellationResult(EnumActionResult.SUCCESS);
+                    }
                 }
             }
             e.setCanceled(true);

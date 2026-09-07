@@ -5,6 +5,10 @@ import net.minecraft.block.SoundType;
 import net.minecraft.block.material.Material;
 import net.minecraft.block.state.IBlockState;
 import net.minecraft.tileentity.TileEntity;
+import net.minecraft.entity.player.EntityPlayer;
+import net.minecraft.item.ItemStack;
+import net.minecraft.util.EnumFacing;
+import net.minecraft.util.EnumHand;
 import net.minecraft.util.BlockRenderLayer;
 import net.minecraft.util.EnumBlockRenderType;
 import net.minecraft.util.math.AxisAlignedBB;
@@ -14,6 +18,8 @@ import net.minecraft.world.World;
 import net.minecraftforge.fml.relauncher.Side;
 import net.minecraftforge.fml.relauncher.SideOnly;
 import therealpant.thaumicattempts.ThaumicAttempts;
+import therealpant.thaumicattempts.items.ItemInterceptorStone;
+import therealpant.thaumicattempts.init.ModBlocksItems;
 import therealpant.thaumicattempts.world.tile.TileAnomalousMonolith;
 
 import javax.annotation.Nullable;
@@ -74,5 +80,29 @@ public class BlockAnomalousMonolith extends Block {
     @Override
     public BlockRenderLayer getRenderLayer() {
         return BlockRenderLayer.CUTOUT_MIPPED;
+    }
+
+    @Override
+    public boolean onBlockActivated(World world, BlockPos pos, IBlockState state,
+                                    EntityPlayer player, EnumHand hand, EnumFacing side,
+                                    float hitX, float hitY, float hitZ) {
+        ItemStack held = player.getHeldItem(hand);
+        TileEntity tile = world.getTileEntity(pos);
+        if (player.isSneaking() && held.isEmpty()
+                && tile instanceof TileAnomalousMonolith
+                && ((TileAnomalousMonolith) tile).hasInterceptorStone()) {
+            if (!world.isRemote
+                    && ((TileAnomalousMonolith) tile).removeInterceptorStone()) {
+                ItemStack removed = new ItemStack(ModBlocksItems.INTERCEPTOR_STONE);
+                if (!player.addItemStackToInventory(removed)) player.dropItem(removed, false);
+                player.sendStatusMessage(new net.minecraft.util.text.TextComponentTranslation(
+                        "thaumicattempts.interceptor_stone.monolith_removed"), true);
+            }
+            return true;
+        }
+        if (held.getItem() instanceof ItemInterceptorStone) {
+            return ItemInterceptorStone.installInMonolith(world, pos, player, hand);
+        }
+        return false;
     }
 }

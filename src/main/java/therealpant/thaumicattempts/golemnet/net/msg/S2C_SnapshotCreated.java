@@ -1,10 +1,8 @@
 // src/main/java/therealpant/thaumicattempts/golemnet/net/msg/S2C_SnapshotCreated.java
 package therealpant.thaumicattempts.golemnet.net.msg;
 
-import io.netty.buffer.ByteBuf;
 import net.minecraftforge.fml.common.network.simpleimpl.*;
-import net.minecraft.client.Minecraft;
-import therealpant.thaumicattempts.client.ClientCatalogCache;
+import therealpant.thaumicattempts.ThaumicAttempts;
 
 // package therealpant.thaumicattempts.golemnet.net.msg;
 
@@ -26,13 +24,12 @@ public class S2C_SnapshotCreated implements net.minecraftforge.fml.common.networ
         snapshotId = buf.readLong();
     }
 
+    public boolean isCraftTab() { return craftTab; }
+    public long getSnapshotId() { return snapshotId; }
+
     public static class Handler implements net.minecraftforge.fml.common.network.simpleimpl.IMessageHandler<S2C_SnapshotCreated, net.minecraftforge.fml.common.network.simpleimpl.IMessage> {
         @Override public IMessage onMessage(S2C_SnapshotCreated msg, MessageContext ctx) {
-            net.minecraft.client.Minecraft.getMinecraft().addScheduledTask(() -> {
-                therealpant.thaumicattempts.client.ClientCatalogCache.onSnapshotCreated(msg.craftTab, msg.snapshotId);
-                // опционально: сброс локальных флагов/меток
-                therealpant.thaumicattempts.client.ClientCatalogCache.guiOpened(msg.craftTab);
-            });
+            ThaumicAttempts.proxy.handleClientPacket(msg);
             return null;
         }
     }

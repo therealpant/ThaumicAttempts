@@ -12,6 +12,7 @@ public class TABlocks {
     public static Block CRAFT_PLANNER;
     public static Block GOLEM_DISPATCHER;
     public static Block INFUSION_REQUESTER;
+    public static Block INFUSION_MATRIX_UPGRADE;
     public static Block ANOMALY_STONE;
     public static Block RIFT_BUSH;
     public static Block RIFT_GEOD;
@@ -19,7 +20,13 @@ public class TABlocks {
     public static Block ANCIENT_COLUMN;
     public static Block ANCIENT_FIRE;
     public static Block ANOMALY_WELL;
+    public static Block ANOMALY_WELL_COLLISION;
     public static Block ANOMALOUS_MONOLITH;
+    public static Block RIFT_WELL;
+    public static Block RIFT_WELL_PART;
+    public static Block DRAINAGE_NODE;
+    public static Block PARADOX_DISTILLATOR;
+    public static Block PARADOX_DISTILLATOR_PORT;
     public static Block STRANGE_PEDESTAL;
     public static Block ELDRITCH_CONSTRUCTION;
     public static Block ANOMALY_BED;
@@ -43,6 +50,7 @@ public class TABlocks {
     public static Item GOLEM_DISPATCHER_ITEM;
     public static Item CRAFT_PLANNER_ITEM;
     public static Item INFUSION_REQUESTER_ITEM;
+    public static Item INFUSION_MATRIX_UPGRADE_ITEM;
     public static Item ANOMALY_STONE_ITEM;
     public static Item RIFT_BUSH_ITEM;
     public static Item RIFT_GEOD_ITEM;
@@ -51,6 +59,9 @@ public class TABlocks {
     public static Item ANCIENT_FIRE_ITEM;
     public static Item ANOMALY_WELL_ITEM;
     public static Item ANOMALOUS_MONOLITH_ITEM;
+    public static Item RIFT_WELL_ITEM;
+    public static Item DRAINAGE_NODE_ITEM;
+    public static Item PARADOX_DISTILLATOR_ITEM;
     public static Item STRANGE_PEDESTAL_ITEM;
     public static Item ELDRITCH_CONSTRUCTION_ITEM;
     public static Item ANOMALY_BED_ITEM;

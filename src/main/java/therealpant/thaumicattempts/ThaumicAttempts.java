@@ -58,6 +58,7 @@ import therealpant.thaumicattempts.net.msg.C2S_AnomalyArchiveInteract;
 import therealpant.thaumicattempts.net.msg.S2C_AmberCountUpdate;
 import therealpant.thaumicattempts.net.msg.S2C_MonolithParadoxumStream;
 import therealpant.thaumicattempts.net.msg.S2C_RunicWardState;
+import therealpant.thaumicattempts.net.msg.S2C_ParallelEssentiaStreams;
 import therealpant.thaumicattempts.proxy.CommonProxy;
 import therealpant.thaumicattempts.tile.TilePillar;
 import therealpant.thaumicattempts.util.ThaumcraftProvisionHelper;
@@ -227,6 +228,8 @@ public class ThaumicAttempts {
                 S2C_MonolithParadoxumStream.class, id++, Side.CLIENT);
         NET.registerMessage(S2C_RunicWardState.Handler.class,
                 S2C_RunicWardState.class, id++, Side.CLIENT);
+        NET.registerMessage(S2C_ParallelEssentiaStreams.Handler.class,
+                S2C_ParallelEssentiaStreams.class, id++, Side.CLIENT);
     }
 
     @Mod.EventHandler

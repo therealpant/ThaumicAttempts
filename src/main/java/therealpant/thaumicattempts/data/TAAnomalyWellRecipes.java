@@ -78,10 +78,15 @@ public final class TAAnomalyWellRecipes {
                     ? JsonUtils.getInt(ingredientJson, "meta")
                     : OreDictionary.WILDCARD_VALUE;
             int count = JsonUtils.getInt(ingredientJson, "count", 1);
+            int minParadoxum = JsonUtils.getInt(ingredientJson, "min_paradoxum", 0);
             if (count <= 0) {
                 throw new IllegalArgumentException("Ingredient count must be positive");
             }
-            ingredients.add(new AnomalyWellRecipe.Ingredient(item, metadata, count));
+            if (minParadoxum < 0) {
+                throw new IllegalArgumentException("Minimum Paradoxum must not be negative");
+            }
+            ingredients.add(new AnomalyWellRecipe.Ingredient(
+                    item, metadata, count, minParadoxum));
         }
 
         JsonObject resultJson = JsonUtils.getJsonObject(object, "result");

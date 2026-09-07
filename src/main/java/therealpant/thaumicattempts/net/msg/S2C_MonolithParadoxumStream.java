@@ -1,7 +1,6 @@
 package therealpant.thaumicattempts.net.msg;
 
 import io.netty.buffer.ByteBuf;
-import net.minecraft.client.Minecraft;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.common.network.NetworkRegistry;
@@ -33,6 +32,9 @@ public class S2C_MonolithParadoxumStream implements IMessage {
         target = BlockPos.fromLong(buffer.readLong());
     }
 
+    public BlockPos getSource() { return source; }
+    public BlockPos getTarget() { return target; }
+
     public static void dispatch(World world, BlockPos source, BlockPos target) {
         if (world == null || world.isRemote || source == null || target == null) return;
         NetworkRegistry.TargetPoint point = new NetworkRegistry.TargetPoint(
@@ -50,14 +52,7 @@ public class S2C_MonolithParadoxumStream implements IMessage {
         @Override
         public IMessage onMessage(S2C_MonolithParadoxumStream message,
                                   MessageContext context) {
-            Minecraft.getMinecraft().addScheduledTask(() -> {
-                if (Minecraft.getMinecraft().world != null) {
-                    ThaumicAttempts.proxy.spawnMonolithParadoxumStream(
-                            Minecraft.getMinecraft().world,
-                            message.source,
-                            message.target);
-                }
-            });
+            ThaumicAttempts.proxy.handleClientPacket(message);
             return null;
         }
     }

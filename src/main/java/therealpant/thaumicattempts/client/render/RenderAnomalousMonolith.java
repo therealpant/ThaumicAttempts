@@ -25,10 +25,13 @@ public class RenderAnomalousMonolith extends GeoBlockRenderer<TileAnomalousMonol
             new ResourceLocation(ThaumicAttempts.MODID, "textures/blocks/eldritch_portal_round.png");
     private static final ResourceLocation PARADOXUM =
             new ResourceLocation(ThaumicAttempts.MODID, "textures/asspects/paradoxs.png");
+    private static final ResourceLocation INTERCEPTOR_STONE =
+            new ResourceLocation(ThaumicAttempts.MODID, "textures/items/intersepter_stone.png");
     private static final int PORTAL_FRAMES = 16;
     private static final double PORTAL_CENTER_Y = 9.5D / 16.0D;
     private static final float PORTAL_HALF_WIDTH = 0.52F;
     private static final float PORTAL_HALF_HEIGHT = 0.52F;
+    private static final float INTERCEPTOR_STONE_HALF_SIZE = 0.20F;
     private static final double MODEL_MIN_Y = -20.0D / 16.0D;
     private static final double MODEL_MAX_Y = 61.0D / 16.0D;
     private static final double SPAWN_MIN_Y = MODEL_MIN_Y - 2.0D;
@@ -57,12 +60,52 @@ public class RenderAnomalousMonolith extends GeoBlockRenderer<TileAnomalousMonol
             super.render(tile, x, y, z, partialTicks, destroyStage, alpha);
             renderEmissive(tile, x, y, z, partialTicks);
             renderPortal(tile, x, y, z, partialTicks);
+            renderInterceptorStone(tile, x, y, z);
             if (MinecraftForgeClient.getRenderPass() == 0) {
                 renderParadoxumFlight(tile, x, y, z, partialTicks);
             }
         } finally {
             RenderSafety.restoreLightmap(previousLight);
             RenderSafety.resetGlState();
+        }
+    }
+
+    private void renderInterceptorStone(TileAnomalousMonolith tile, double x, double y, double z) {
+        if (!tile.hasInterceptorStone()) return;
+        Minecraft minecraft = Minecraft.getMinecraft();
+        if (minecraft.getRenderViewEntity() == null) return;
+
+        GlStateManager.pushMatrix();
+        try {
+            GlStateManager.translate(x + 0.5D, y + PORTAL_CENTER_Y, z + 0.5D);
+            GlStateManager.rotate(-minecraft.getRenderManager().playerViewY, 0.0F, 1.0F, 0.0F);
+            GlStateManager.rotate(minecraft.getRenderManager().playerViewX, 1.0F, 0.0F, 0.0F);
+            RenderSafety.setFullBrightLightmap();
+            GlStateManager.disableLighting();
+            GlStateManager.disableCull();
+            GlStateManager.enableBlend();
+            GlStateManager.tryBlendFuncSeparate(
+                    GlStateManager.SourceFactor.SRC_ALPHA,
+                    GlStateManager.DestFactor.ONE_MINUS_SRC_ALPHA,
+                    GlStateManager.SourceFactor.ONE,
+                    GlStateManager.DestFactor.ZERO);
+            minecraft.getTextureManager().bindTexture(INTERCEPTOR_STONE);
+
+            Tessellator tessellator = Tessellator.getInstance();
+            BufferBuilder buffer = tessellator.getBuffer();
+            buffer.begin(7, DefaultVertexFormats.POSITION_TEX);
+            buffer.pos(-INTERCEPTOR_STONE_HALF_SIZE, -INTERCEPTOR_STONE_HALF_SIZE, 0.01D)
+                    .tex(0.0D, 1.0D).endVertex();
+            buffer.pos(INTERCEPTOR_STONE_HALF_SIZE, -INTERCEPTOR_STONE_HALF_SIZE, 0.01D)
+                    .tex(1.0D, 1.0D).endVertex();
+            buffer.pos(INTERCEPTOR_STONE_HALF_SIZE, INTERCEPTOR_STONE_HALF_SIZE, 0.01D)
+                    .tex(1.0D, 0.0D).endVertex();
+            buffer.pos(-INTERCEPTOR_STONE_HALF_SIZE, INTERCEPTOR_STONE_HALF_SIZE, 0.01D)
+                    .tex(0.0D, 0.0D).endVertex();
+            tessellator.draw();
+        } finally {
+            GlStateManager.enableCull();
+            GlStateManager.popMatrix();
         }
     }
 

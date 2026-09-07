@@ -23,16 +23,13 @@ import software.bernie.geckolib3.core.controller.AnimationController;
 import software.bernie.geckolib3.core.event.predicate.AnimationEvent;
 import software.bernie.geckolib3.core.manager.AnimationData;
 import software.bernie.geckolib3.core.manager.AnimationFactory;
-import thaumcraft.api.aspects.AspectList;
-import thaumcraft.api.aspects.IEssentiaContainerItem;
 import therealpant.thaumicattempts.data.research.TAAspects;
-import therealpant.thaumicattempts.init.ModBlocksItems;
+import therealpant.thaumicattempts.world.item.ParadoxumContainer;
 
 import javax.annotation.Nullable;
 
 public class TileStrangePedestal extends TileEntity
         implements IAnimatable, ISidedInventory {
-    public static final int MAX_PARADOXUM = 250;
     private static final String ITEM_TAG = "HeldItem";
 
     private final AnimationFactory factory = new AnimationFactory(this);
@@ -49,42 +46,34 @@ public class TileStrangePedestal extends TileEntity
                 || source.getWorld() != world || !canReceiveParadoxum()) {
             return 0;
         }
-        int accepted = Math.min(amount, MAX_PARADOXUM - getParadoxum());
+        int accepted = Math.min(amount,
+                ParadoxumContainer.getCapacity(heldItem) - getParadoxum());
         if (accepted <= 0) return 0;
-
-        IEssentiaContainerItem container = (IEssentiaContainerItem) heldItem.getItem();
-        AspectList aspects = container.getAspects(heldItem);
-        if (aspects == null) aspects = new AspectList();
-        aspects.add(TAAspects.PARADOXUM, accepted);
-        container.setAspects(heldItem, aspects);
+        accepted = ParadoxumContainer.add(heldItem, accepted);
         markDirtyAndSync();
         return accepted;
     }
 
     public int getParadoxum() {
-        if (!hasRiftAmethyst() || TAAspects.PARADOXUM == null) return 0;
-        AspectList aspects =
-                ((IEssentiaContainerItem) heldItem.getItem()).getAspects(heldItem);
-        return aspects == null ? 0 : aspects.getAmount(TAAspects.PARADOXUM);
+        return ParadoxumContainer.getStored(heldItem);
     }
 
     public int getRedstonePower() {
         if (!hasRiftAmethyst()) return 0;
-        int paradoxum = MathHelper.clamp(getParadoxum(), 0, MAX_PARADOXUM);
+        int capacity = ParadoxumContainer.getCapacity(heldItem);
+        int paradoxum = MathHelper.clamp(getParadoxum(), 0, capacity);
         return MathHelper.clamp(
-                15 - MathHelper.floor(paradoxum * 15.0F / MAX_PARADOXUM),
+                15 - MathHelper.floor(paradoxum * 15.0F / capacity),
                 0, 15);
     }
 
     public boolean canReceiveParadoxum() {
         return hasRiftAmethyst() && TAAspects.PARADOXUM != null
-                && getParadoxum() < MAX_PARADOXUM;
+                && getParadoxum() < ParadoxumContainer.getCapacity(heldItem);
     }
 
     public boolean hasRiftAmethyst() {
-        return !heldItem.isEmpty()
-                && heldItem.getItem() == ModBlocksItems.RIFT_AMETIST
-                && heldItem.getItem() instanceof IEssentiaContainerItem;
+        return ParadoxumContainer.isContainer(heldItem);
     }
 
     public ItemStack getHeldItem() {
@@ -93,7 +82,7 @@ public class TileStrangePedestal extends TileEntity
 
     public boolean insertAmethyst(ItemStack stack) {
         if (!heldItem.isEmpty() || stack.isEmpty()
-                || stack.getItem() != ModBlocksItems.RIFT_AMETIST) {
+                || !ParadoxumContainer.isContainer(stack)) {
             return false;
         }
         setInventorySlotContents(0, stack);
@@ -173,7 +162,7 @@ public class TileStrangePedestal extends TileEntity
     @Override
     public boolean isItemValidForSlot(int index, ItemStack stack) {
         return index == 0 && heldItem.isEmpty() && !stack.isEmpty()
-                && stack.getItem() == ModBlocksItems.RIFT_AMETIST;
+                && ParadoxumContainer.isContainer(stack);
     }
 
     @Override

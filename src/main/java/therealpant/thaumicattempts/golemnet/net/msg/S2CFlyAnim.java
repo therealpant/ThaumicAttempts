@@ -2,15 +2,12 @@
 package therealpant.thaumicattempts.golemnet.net.msg;
 
 import io.netty.buffer.ByteBuf;
-import net.minecraft.client.Minecraft;
 import net.minecraft.item.ItemStack;
-import net.minecraft.tileentity.TileEntity;
 import net.minecraft.util.math.BlockPos;
 import net.minecraft.world.World;
 import net.minecraftforge.fml.common.network.ByteBufUtils;
 import net.minecraftforge.fml.common.network.NetworkRegistry;
 import net.minecraftforge.fml.common.network.simpleimpl.*;
-import net.minecraftforge.fml.relauncher.Side;
 import therealpant.thaumicattempts.ThaumicAttempts;
 
 public class S2CFlyAnim implements IMessage {
@@ -121,13 +118,7 @@ public class S2CFlyAnim implements IMessage {
 
     public static class Handler implements IMessageHandler<S2CFlyAnim, IMessage> {
         @Override public IMessage onMessage(S2CFlyAnim msg, MessageContext ctx) {
-            Minecraft.getMinecraft().addScheduledTask(() -> {
-                TileEntity te = Minecraft.getMinecraft().world.getTileEntity(msg.managerPos);
-                if (te instanceof therealpant.thaumicattempts.golemnet.tile.TileMirrorManager) {
-                    ((therealpant.thaumicattempts.golemnet.tile.TileMirrorManager) te)
-                            .clientAddFlying(msg.stack, msg.ring, msg.slot, msg.srcRing, msg.srcSlot, msg.mode, msg.duration, msg.seed, msg.delay);
-                }
-            });
+            ThaumicAttempts.proxy.handleClientPacket(msg);
             return null;
         }
     }

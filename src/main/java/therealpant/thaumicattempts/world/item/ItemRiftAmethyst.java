@@ -16,7 +16,9 @@ import javax.annotation.Nullable;
  * An amethyst whose contained essentia is stored in Thaumcraft's standard
  * "Aspects" NBT list. This makes the charge belong to the individual stack.
  */
-public class ItemRiftAmethyst extends Item implements IEssentiaContainerItem {
+public class ItemRiftAmethyst extends Item
+        implements IEssentiaContainerItem, IParadoxumContainer {
+    public static final int MAX_PARADOXUM = 250;
     public ItemRiftAmethyst() {
         addPropertyOverride(
                 new ResourceLocation(ThaumicAttempts.MODID, "paradoxum_level"),
@@ -42,6 +44,11 @@ public class ItemRiftAmethyst extends Item implements IEssentiaContainerItem {
                 .add(Aspect.ELDRITCH, 75)
                 .add(Aspect.CRYSTAL, 75)
                 .add(Aspect.AURA, 75);
+    }
+
+    @Override
+    public int getParadoxumCapacity(ItemStack stack) {
+        return MAX_PARADOXUM;
     }
 
     @Nullable
