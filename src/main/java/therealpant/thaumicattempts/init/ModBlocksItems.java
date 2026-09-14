@@ -144,6 +144,7 @@ public final class ModBlocksItems {
         TABlocks.RIFT_WELL = new BlockRiftWell();
         TABlocks.RIFT_WELL_PART = new BlockRiftWellPart();
         TABlocks.DRAINAGE_NODE = new BlockDrainageNode();
+        TABlocks.DRAINAGE_NODE_PART = new BlockDrainageNodePart();
         TABlocks.PARADOX_DISTILLATOR = new BlockParadoxDistillator();
         TABlocks.PARADOX_DISTILLATOR_PORT = new BlockParadoxDistillatorPort();
         TABlocks.STRANGE_PEDESTAL = new BlockStrangePedestal();
@@ -195,6 +196,7 @@ public final class ModBlocksItems {
                 TABlocks.RIFT_WELL,
                 TABlocks.RIFT_WELL_PART,
                 TABlocks.DRAINAGE_NODE,
+                TABlocks.DRAINAGE_NODE_PART,
                 TABlocks.PARADOX_DISTILLATOR,
                 TABlocks.PARADOX_DISTILLATOR_PORT,
                 TABlocks.STRANGE_PEDESTAL,

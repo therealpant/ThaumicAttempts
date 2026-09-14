@@ -35,6 +35,11 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
                 return patchItemFocus(basicClass);
             }
             switch (transformedName) {
+                case "thaumcraft.common.entities.EntityFluxRift":
+                    return patchRiftGeometry(basicClass, false);
+                case "thaumcraft.client.renderers.entity.RenderFluxRift":
+                case "thecodex6824.thaumicaugmentation.client.renderer.entity.RenderFluxRiftOptimized":
+                    return patchRiftGeometry(basicClass, true);
                 case "software.bernie.geckolib3.renderers.geo.GeoBlockRenderer":
                     return patchGeoBlockRenderer(basicClass);
                 case "thaumcraft.common.blocks.basic.BlockPillar":
@@ -77,6 +82,73 @@ public class ThaumicAttemptsTransformer implements IClassTransformer {
             t.printStackTrace();
             return basicClass;
         }
+    }
+
+    private byte[] patchRiftGeometry(byte[] basicClass, boolean renderer) {
+        ClassNode node = new ClassNode(ASM5);
+        new ClassReader(basicClass).accept(node, 0);
+        int inserted = 0;
+        int stationary = 0;
+        int lifecycle = 0;
+        String hooks = "therealpant/thaumicattempts/integration/rift/RiftWellShapeHooks";
+        for (MethodNode method : node.methods) {
+            if (renderer) {
+                if (!("doRender".equals(method.name) || "func_76986_a".equals(method.name))
+                        || !method.desc.endsWith(";DDDFF)V")) continue;
+                InsnList hook = new InsnList();
+                hook.add(new VarInsnNode(ALOAD, 1));
+                hook.add(new MethodInsnNode(INVOKESTATIC, hooks, "prepare",
+                        "(Lnet/minecraft/entity/Entity;)V", false));
+                method.instructions.insert(hook);
+                inserted++;
+                for (AbstractInsnNode instruction : method.instructions.toArray()) {
+                    if (!(instruction instanceof MethodInsnNode)) continue;
+                    MethodInsnNode call = (MethodInsnNode) instruction;
+                    if (!"thaumcraft/common/entities/EntityFluxRift".equals(call.owner)
+                            || !"getRiftStability".equals(call.name) || !"()F".equals(call.desc)) continue;
+                    InsnList freeze = new InsnList();
+                    freeze.add(new VarInsnNode(ALOAD, 1));
+                    freeze.add(new MethodInsnNode(INVOKESTATIC, hooks, "renderStability",
+                            "(FLnet/minecraft/entity/Entity;)F", false));
+                    method.instructions.insert(call, freeze);
+                    stationary++;
+                }
+            } else if (("onUpdate".equals(method.name) || "func_70071_h_".equals(method.name)
+                    || "B_".equals(method.name)) && "()V".equals(method.desc)) {
+                InsnList hook = new InsnList();
+                LabelNode vanilla = new LabelNode();
+                hook.add(new VarInsnNode(ALOAD, 0));
+                hook.add(new MethodInsnNode(INVOKESTATIC,
+                        "therealpant/thaumicattempts/integration/rift/RiftWellLifecycle", "beforeUpdate",
+                        "(Lthaumcraft/common/entities/EntityFluxRift;)Z", false));
+                hook.add(new JumpInsnNode(IFEQ, vanilla));
+                hook.add(new InsnNode(RETURN));
+                hook.add(vanilla);
+                hook.add(new FrameNode(F_SAME, 0, null, 0, null));
+                method.instructions.insert(hook);
+                lifecycle++;
+            } else if ("setSize".equals(method.name) && "()V".equals(method.desc)) {
+                for (AbstractInsnNode insn = method.instructions.getFirst();
+                     insn != null; insn = insn.getNext()) {
+                    if (insn.getOpcode() != RETURN) continue;
+                    InsnList hook = new InsnList();
+                    hook.add(new VarInsnNode(ALOAD, 0));
+                    hook.add(new MethodInsnNode(INVOKESTATIC, hooks, "afterRebuild",
+                            "(Lthaumcraft/common/entities/EntityFluxRift;)V", false));
+                    method.instructions.insertBefore(insn, hook);
+                    inserted++;
+                }
+            }
+        }
+        if (inserted == 0) throw new IllegalStateException("Rift geometry hook target missing: " + node.name);
+        if (!renderer && lifecycle != 1) throw new IllegalStateException("Rift lifecycle hook target missing: " + node.name);
+        if (renderer && stationary == 0) {
+            throw new IllegalStateException("Rift stationary-render hook target missing: " + node.name);
+        }
+        ClassWriter writer = new ClassWriter(ClassWriter.COMPUTE_MAXS);
+        node.accept(writer);
+        System.out.println("[ThaumicAttempts] Patched rift geometry: " + node.name);
+        return writer.toByteArray();
     }
 
     /**

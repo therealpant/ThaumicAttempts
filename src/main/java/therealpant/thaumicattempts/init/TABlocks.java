@@ -25,6 +25,7 @@ public class TABlocks {
     public static Block RIFT_WELL;
     public static Block RIFT_WELL_PART;
     public static Block DRAINAGE_NODE;
+    public static Block DRAINAGE_NODE_PART;
     public static Block PARADOX_DISTILLATOR;
     public static Block PARADOX_DISTILLATOR_PORT;
     public static Block STRANGE_PEDESTAL;

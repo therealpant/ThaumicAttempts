@@ -50,6 +50,11 @@ public class TileAnomalousMonolith extends TileEntity implements IAnimatable, IT
         if (world == null || world.isRemote) return;
 
         long now = world.getTotalWorldTime();
+        if (now % 20L == 0L && therealpant.thaumicattempts.integration.rift.RiftWellWorldData.get(world).consumeBurn(pos)) {
+            interceptorStoneInstalled = false;
+            interceptedParticles = 0;
+            markDirtyAndSync();
+        }
         scheduleAbsorptionParticles(now);
         finishArrivedParticles(now);
         queueCompletedDistributions();
@@ -96,6 +101,12 @@ public class TileAnomalousMonolith extends TileEntity implements IAnimatable, IT
         interceptedParticles = 0;
         markDirtyAndSync();
         return true;
+    }
+
+    public void burnInterceptorStone() {
+        interceptorStoneInstalled = false;
+        interceptedParticles = 0;
+        markDirtyAndSync();
     }
 
     public int drainInterceptedParticles(int maximum) {
