@@ -1,0 +1,10 @@
+{
+  "variants": {
+    "facing=down":  { "model": "thaumicattempts:infusion_matrix_upgrade" },
+    "facing=up":    { "model": "thaumicattempts:infusion_matrix_upgrade" },
+    "facing=north": { "model": "thaumicattempts:infusion_matrix_upgrade" },
+    "facing=south": { "model": "thaumicattempts:infusion_matrix_upgrade" },
+    "facing=west":  { "model": "thaumicattempts:infusion_matrix_upgrade" },
+    "facing=east":  { "model": "thaumicattempts:infusion_matrix_upgrade" }
+  }
+}

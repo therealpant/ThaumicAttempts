@@ -1,0 +1,25 @@
+// ./gradlew -I tools/verify-rift.gradle verifyRiftGeometry
+// Optionally pass original mod jars with -PriftVerificationJars="TC.jar;TA.jar".
+allprojects {
+    afterEvaluate {
+        if (tasks.findByName('verifyRiftReactor') == null) tasks.register('verifyRiftReactor', JavaExec) {
+            dependsOn tasks.testClasses
+            classpath = sourceSets.test.runtimeClasspath
+            mainClass = 'therealpant.thaumicattempts.integration.rift.RiftReactorVerification'
+            javaLauncher = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(8)
+            }
+        }
+        if (tasks.findByName('verifyRiftGeometry') == null) tasks.register('verifyRiftGeometry', JavaExec) {
+            dependsOn tasks.testClasses
+            classpath = sourceSets.test.runtimeClasspath
+            mainClass = 'therealpant.thaumicattempts.integration.rift.RiftGeometryVerification'
+            javaLauncher = javaToolchains.launcherFor {
+                languageVersion = JavaLanguageVersion.of(8)
+            }
+            if (project.hasProperty('riftVerificationJars')) {
+                args project.property('riftVerificationJars').split(';')
+            }
+        }
+    }
+}
